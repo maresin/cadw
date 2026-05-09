@@ -3,6 +3,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
 import tempfile
+import time
 import os
 from cadw.core.memory_guard import MemoryGuard
 from cadw.io.batch_reader import ParquetBatchReader
@@ -21,6 +22,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path = os.path.join(tmpdir, 'test.parquet')
         generate_test_data(input_path, num_rows=200_000, num_unique=50_000)
+        time.sleep(30)
 
         # Ограничение памяти 10 MB – вынуждаем спилл
         guard = MemoryGuard(10)
