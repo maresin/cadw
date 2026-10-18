@@ -1,35 +1,316 @@
+# cadw/core/memory_guard.py
+"""
+MemoryGuard: бюджет памяти и проверки перед операциями.
+Все размеры — в байтах.
+
+Контракт (см. DECISIONS.md §9):
+  - available_bytes()                    — текущий бюджет
+  - get_batch_rows(row_bytes, ef)        — верхняя граница строк в батче
+  - min_batch_rows()                     — нижняя граница (soft)
+  - check_batch(batch)                   — фактический nbytes <= available
+  - check_state(nbytes)                  — nbytes <= available * state_safety
+  - check_partition_buffers(P, buf)      — P*buf <= available * buffer_safety
+  - estimate_row_size_from_batch(batch)  — из первого батча
+  - estimate_row_size_from_schema(schema)
+  - estimate_unique_keys(sample, total)  — для выбора P
+  - estimate_state_size(op, schema, d)   — до запуска (cov, histogram)
+  - log_step(...)                        — подробное логирование
+"""
+from __future__ import annotations
+
+import math
+from typing import Optional
+
 import pyarrow as pa
 
-class MemoryGuard:
-    def __init__(self, max_memory_mb: int):
-        self.max_memory_mb = max_memory_mb
-        self.row_size_bytes = 80   # значение по умолчанию (консервативная оценка)
+from cadw.core.logging import get_logger
 
-    def estimate_row_size(self, schema=None, sample_batch=None):
-        if sample_batch is not None:
-            self.row_size_bytes = sample_batch.nbytes / sample_batch.num_rows
-        elif schema is not None:
-            total = 0
-            for field in schema:
-                if pa.types.is_integer(field.type) or pa.types.is_floating(field.type):
-                    total += 8
-                elif pa.types.is_string(field.type):
-                    total += 50
-                else:
-                    total += 80
-            self.row_size_bytes = max(1, total)
+logger = get_logger("memory_guard")
+
+
+class MemoryLimitExceeded(RuntimeError):
+    """Превышен лимит памяти."""
+
+
+class MemoryGuard:
+    def __init__(
+        self,
+        max_memory_bytes: Optional[int] = None,
+        *,
+        max_memory_mb: Optional[float] = None,
+        safety: float = 0.7,
+        state_safety: float = 0.5,
+        buffer_safety: float = 0.3,
+        min_batch_rows: int = 1000,
+        default_expansion_factor: float = 2.0,
+    ) -> None:
+        if max_memory_bytes is not None:
+            budget = int(max_memory_bytes)
+        elif max_memory_mb is not None:
+            budget = int(max_memory_mb * 1024 * 1024)
         else:
-            self.row_size_bytes = 80
-        return self.row_size_bytes
+            raise ValueError("Укажите max_memory_bytes или max_memory_mb")
+        if budget <= 0:
+            raise ValueError("Бюджет должен быть > 0")
+
+        self._budget = budget
+        self._safety = safety
+        self._state_safety = state_safety
+        self._buffer_safety = buffer_safety
+        self._min_batch_rows = max(1, int(min_batch_rows))
+        self._default_ef = default_expansion_factor
+
+        self._reserved = 0
+        # Консервативный дефолт для legacy-методов; перезаписывается estimate_*
+        self._row_size_bytes: int = 80
+
+        logger.info(
+            "MemoryGuard: budget=%.2f MiB safety=%.2f state=%.2f buffer=%.2f "
+            "min_rows=%d ef_default=%.2f",
+            budget / (1024 * 1024), safety, state_safety, buffer_safety,
+            min_batch_rows, default_expansion_factor,
+        )
+
+    # ---------- бюджет ----------
+
+    @property
+    def budget_bytes(self) -> int:
+        return self._budget
+
+    def available_bytes(self) -> int:
+        return max(0, self._budget - self._reserved)
+
+    def _usable_bytes(self) -> int:
+        return int(self.available_bytes() * self._safety)
+
+    def _state_limit(self) -> int:
+        return int(self.available_bytes() * self._state_safety)
+
+    def _buffer_limit(self) -> int:
+        return int(self.available_bytes() * self._buffer_safety)
+
+    # ---------- оценка размера строки ----------
+
+    def estimate_row_size_from_batch(self, batch: pa.RecordBatch) -> int:
+        if batch.num_rows == 0:
+            raise ValueError("Нельзя оценить размер строки по пустому батчу")
+        size = max(1, math.ceil(batch.nbytes / batch.num_rows))
+        self._row_size_bytes = size
+        logger.debug("row_size=batch: nbytes=%d rows=%d -> %d B",
+                     batch.nbytes, batch.num_rows, size)
+        return size
+
+    def estimate_row_size_from_schema(
+        self, schema: pa.Schema, *, default_string_bytes: int = 50
+    ) -> int:
+        total = 0
+        for field in schema:
+            t = field.type
+            if pa.types.is_boolean(t):
+                total += 1
+            elif pa.types.is_integer(t) or pa.types.is_floating(t):
+                bit_width = getattr(t, "bit_width", 64)
+                total += max(1, bit_width // 8)
+            elif pa.types.is_string(t) or pa.types.is_binary(t):
+                total += default_string_bytes
+            elif pa.types.is_timestamp(t) or pa.types.is_date(t):
+                total += 8
+            else:
+                total += 8
+        total = max(1, total)
+        self._row_size_bytes = total
+        logger.debug("row_size=schema: %d B/row (%d fields)", total, len(schema))
+        return total
+
+    # legacy-совместимость
+    def estimate_row_size(
+        self,
+        schema: Optional[pa.Schema] = None,
+        sample_batch: Optional[pa.RecordBatch] = None,
+    ) -> int:
+        if sample_batch is not None:
+            return self.estimate_row_size_from_batch(sample_batch)
+        if schema is not None:
+            return self.estimate_row_size_from_schema(schema)
+        return self._row_size_bytes
+
+    @property
+    def row_size_bytes(self) -> int:
+        return self._row_size_bytes
+
+    # ---------- расчёт размера батча ----------
+
+    def get_batch_rows(
+        self,
+        row_size_bytes: Optional[int] = None,
+        expansion_factor: Optional[float] = None,
+    ) -> int:
+        row_bytes = row_size_bytes if row_size_bytes is not None else self._row_size_bytes
+        ef = expansion_factor if expansion_factor is not None else self._default_ef
+        if row_bytes <= 0 or ef <= 0:
+            raise ValueError("row_size_bytes и expansion_factor должны быть > 0")
+
+        usable = self._usable_bytes()
+        raw = int(usable / (row_bytes * ef))
+
+        if raw >= self._min_batch_rows:
+            rows = raw
+        elif raw >= 1:
+            rows = raw
+            logger.warning(
+                "batch_rows=%d < min_batch_rows=%d (usable=%d B, row=%d B, ef=%.2f). "
+                "min_batch_rows недостижим при текущем бюджете.",
+                rows, self._min_batch_rows, usable, row_bytes, ef,
+            )
+        else:
+            rows = 1
+            logger.warning(
+                "Бюджета не хватает даже на 1 строку: usable=%d B, row=%d B, ef=%.2f. "
+                "Возможен MemoryLimitExceeded.",
+                usable, row_bytes, ef,
+            )
+
+        logger.debug("get_batch_rows: usable=%d row=%d ef=%.2f -> %d rows",
+                     usable, row_bytes, ef, rows)
+        return rows
+
+    def min_batch_rows(self) -> int:
+        return self._min_batch_rows
+
+    def default_expansion_factor(self) -> float:
+        return self._default_ef
+
+    # ---------- проверки ----------
+
+    def check_batch(self, batch: pa.RecordBatch, *, name: str = "batch") -> None:
+        size = batch.nbytes
+        limit = self.available_bytes()
+        if size > limit:
+            logger.error("check_batch FAIL: %s nbytes=%d > available=%d", name, size, limit)
+            raise MemoryLimitExceeded(f"{name}: {size} B > available {limit} B")
+        logger.debug("check_batch OK: %s nbytes=%d available=%d", name, size, limit)
+
+    def check_state(self, state_bytes: int, *, name: str = "state") -> None:
+        limit = self._state_limit()
+        if state_bytes > limit:
+            logger.error("check_state FAIL: %s nbytes=%d > limit=%d",
+                         name, state_bytes, limit)
+            raise MemoryLimitExceeded(f"{name}: {state_bytes} B > state_limit {limit} B")
+        logger.debug("check_state OK: %s nbytes=%d limit=%d", name, state_bytes, limit)
+
+    def check_partition_buffers(self, num_partitions: int, buffer_bytes: int) -> None:
+        if num_partitions < 1:
+            raise ValueError("num_partitions должен быть >= 1")
+        if buffer_bytes < 1:
+            raise ValueError("buffer_bytes должен быть >= 1")
+        total = num_partitions * buffer_bytes
+        limit = self._buffer_limit()
+        if total > limit:
+            logger.error("check_partition_buffers FAIL: P=%d buf=%d total=%d limit=%d",
+                         num_partitions, buffer_bytes, total, limit)
+            raise MemoryLimitExceeded(
+                f"Партиционные буферы: {num_partitions}*{buffer_bytes}={total} B > limit {limit} B"
+            )
+        logger.debug("check_partition_buffers OK: P=%d buf=%d total=%d limit=%d",
+                     num_partitions, buffer_bytes, total, limit)
+
+    def recommended_partition_buffer_bytes(self, num_partitions: int) -> int:
+        if num_partitions < 1:
+            raise ValueError
+        return max(1, self._buffer_limit() // num_partitions)
+
+    # ---------- оценка числа уникальных ключей ----------
+
+    def estimate_unique_keys(
+        self,
+        sample_batch: pa.RecordBatch,
+        total_rows: int,
+    ) -> int:
+        if sample_batch.num_rows == 0 or total_rows <= 0:
+            return 0
+        columns = [col.to_pylist() for col in sample_batch.columns]
+        seen = set()
+        for i in range(sample_batch.num_rows):
+            key = tuple(col[i] for col in columns)
+            seen.add(key)
+        k_sample = len(seen)
+        k_est = int(math.ceil(k_sample * (total_rows / sample_batch.num_rows)))
+        logger.debug(
+            "estimate_unique_keys: sample_rows=%d unique_in_sample=%d total_rows=%d -> K_est=%d",
+            sample_batch.num_rows, k_sample, total_rows, k_est,
+        )
+        return k_est
+
+    # ---------- оценка размера состояния ----------
+
+    def estimate_state_size(
+        self,
+        op_name: str,
+        schema: Optional[pa.Schema] = None,
+        *,
+        d: Optional[int] = None,
+        bins: int = 255,
+    ) -> int:
+        name = op_name.lower()
+        if name in {"count", "sum", "min", "max", "mean"}:
+            return 16
+        if name in {"var", "std"}:
+            return 24
+        if name in {"cov", "corr"}:
+            dim = d if d is not None else (len(schema) if schema is not None else 1)
+            return 8 + 8 * dim + 8 * dim * dim
+        if name == "histogram":
+            return 8 * bins + 16
+        logger.warning("estimate_state_size: неизвестная операция '%s', "
+                       "консервативно 1 MiB", op_name)
+        return 1024 * 1024
+
+    # ---------- резервирование ----------
+
+    def reserve(self, nbytes: int) -> None:
+        if nbytes < 0:
+            raise ValueError
+        if self._reserved + nbytes > self._budget:
+            raise MemoryLimitExceeded(
+                f"Резервирование {nbytes} B превышает бюджет "
+                f"(reserved={self._reserved}, budget={self._budget})"
+            )
+        self._reserved += nbytes
+
+    def release(self, nbytes: int) -> None:
+        self._reserved = max(0, self._reserved - nbytes)
+
+    # ---------- логирование ----------
+
+    def log_step(
+        self,
+        step: str,
+        *,
+        batch_id: Optional[int] = None,
+        n_rows: Optional[int] = None,
+        batch_bytes: Optional[int] = None,
+        state_bytes: Optional[int] = None,
+    ) -> None:
+        logger.info(
+            "step=%s batch_id=%s rows=%s batch_bytes=%s state_bytes=%s available=%d",
+            step, batch_id, n_rows, batch_bytes, state_bytes, self.available_bytes(),
+        )
+
+    # ---------- legacy (DEPRECATED) ----------
+    # Оставлены для совместимости с текущим кодом. При переходе на новые
+    # примитивы (Reduce/HashShuffle) эти методы будут удалены.
 
     def get_read_batch_size(self) -> int:
-        max_bytes = self.max_memory_mb * 0.10 * 1024 * 1024
-        return max(1, int(max_bytes / self.row_size_bytes))
+        """DEPRECATED: используйте get_batch_rows(expansion_factor=1.0)."""
+        limit = int(self._budget * 0.10)
+        return max(1, limit // max(1, self._row_size_bytes))
 
     def get_write_batch_size(self) -> int:
-        max_bytes = self.max_memory_mb * 0.20 * 1024 * 1024
-        return max(1, int(max_bytes / self.row_size_bytes))
+        """DEPRECATED."""
+        limit = int(self._budget * 0.20)
+        return max(1, limit // max(1, self._row_size_bytes))
 
     def get_max_dict_elements(self) -> int:
-        max_bytes = self.max_memory_mb * 0.60 * 1024 * 1024
-        return max(1, int(max_bytes / 80))
+        """DEPRECATED: будет заменено байтовым лимитом в HashPartitioner."""
+        limit = int(self._budget * 0.60)
+        return max(1, limit // 80)
