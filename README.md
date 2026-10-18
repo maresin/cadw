@@ -18,8 +18,7 @@ Out-of-core фреймворк для табличных данных, не по
 
 **Гарантия out-of-core условна** — см. `DECISIONS.md` §11.4 (5 must-fix).
 
-Отсутствует: `CadwDataFrame`, `Dataset`, `RowFilter`, `unique`/`join` через
-новые примитивы (см. `DECISIONS.md` §11.3, §12).
+Реализовано: `CadwDataFrame`, `Dataset`, `RowFilter`, ленивые `__getitem__`, `unique`, `sort_values`, `groupby`, E2E на 200k строк / 20 MB budget. См. `DECISIONS.md` §11.1.
 
 ## Установка
 
@@ -43,8 +42,3 @@ print(result)
 
 - `DECISIONS.md` — архитектура, алгоритмы, статус, must-fix, уроки.
 
-## Legacy
-
-`cadw/_legacy/`, `tests/_legacy/` — старые реализации (`SpillManager`,
-`UniqueCollector`, `GroupByAggregator`). Не импортируются по умолчанию,
-исключены из `pytest`. См. `DECISIONS.md` §11.2.

@@ -477,15 +477,20 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 
 **Ключевой результат:** `groupby_aggregate` корректен при `K > памяти` — `test_groupby_many_groups` (1000 групп, 200 KB бюджет, 16 партиций → ~62 группы на партицию). Это **условная** гарантия: при `num_partitions=8` и K=10^6 та же операция упадёт (§11.4).
 
-### 11.2. Legacy (заменяется, не удалено)
+### 11.2. Legacy (удалён, патч 05)
 
-| Модуль | Почему legacy | План |
+`cadw/_legacy/` и `tests/_legacy/` **удалены** в патче 05. Всё, что там было,
+заменено примитивами и фасадом:
+
+| Что было | Замена | Где |
 |---|---|---|
-| `GroupByAggregator` | построчный Python-цикл | удалить после миграции фасада |
-| `UniqueCollector` | теряет первый батч; `SpillManager.merge` с багом | заменить на `HashShuffle + first` |
-| `SpillManager` | `merge()` перезаписывает вместо слияния | удалить |
+| `GroupByAggregator` (построчный цикл) | `groupby_aggregate` | 02a/02b, §6 |
+| `UniqueCollector` (терял первый батч) | `df.unique()` = `HashShuffle + count` | 03c |
+| `SpillManager` (`merge` перезаписывал) | `hash_shuffle` (партиции не пересекаются → merge не нужен) | 02b, §6 |
 
-Старые тесты (`test_unique.py`, `test_groupby.py`) проходят, но проверяют legacy-путь.
+Функциональность не потеряна: всё доступно через `CadwDataFrame`.
+Guard в `tests/test_architecture.py::test_main_code_does_not_reference_legacy`
+ловит регресс, если кто-то снова сошлётся на `_legacy`.
 
 ### 11.3. Что отсутствует
 
