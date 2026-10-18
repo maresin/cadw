@@ -474,6 +474,7 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 | `CadwDataFrame` (03b, минимальный фасад) | ✅ | 17 |
 | `RowFilter` + ленивые `__getitem__` (03c) | ✅ | 25 |
 | E2E (04, filter→groupby→sort→parquet, 20 MB budget) | ✅ | 2 (slow) |
+| ML: `to_batches(format)` + `partial_fit` (06a) | ✅ | 12 |
 
 **Ключевой результат:** `groupby_aggregate` корректен при `K > памяти` — `test_groupby_many_groups` (1000 групп, 200 KB бюджет, 16 партиций → ~62 группы на партицию). Это **условная** гарантия: при `num_partitions=8` и K=10^6 та же операция упадёт (§11.4).
 

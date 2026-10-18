@@ -14,7 +14,9 @@ from __future__ import annotations
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Iterator, Sequence
+from typing import Any, Iterator, Sequence
+
+import numpy as np
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -199,18 +201,42 @@ class CadwDataFrame:
 
     # ---------------- reading ----------------
 
-    def to_batches(self, batch_size: int | None = None) -> Iterator[pa.RecordBatch]:
-        """Поток батчей с учётом фильтров. batch_size=None — как в Dataset."""
+    def to_batches(
+        self,
+        batch_size: int | None = None,
+        format: str = "arrow",
+    ):
+        """Поток батчей с учётом фильтров.
+
+        format:
+          - "arrow": pa.RecordBatch (default, обратная совместимость);
+          - "pandas": pd.DataFrame per batch;
+          - "numpy": dict[str, np.ndarray] per batch;
+          - "torch": dict[str, torch.Tensor] per batch (ленивый импорт torch).
+
+        batch_size=None — как в Dataset (stored boundaries); N — re-chunk.
+        """
+        if format not in ("arrow", "pandas", "numpy", "torch"):
+            raise ValueError(
+                f"unsupported format {format!r}; "
+                f"expected 'arrow' | 'pandas' | 'numpy' | 'torch'"
+            )
+
+        for b in self._iter_arrow_batches(batch_size=batch_size):
+            yield _convert_batch(b, format)
+
+    def _iter_arrow_batches(
+        self, batch_size: int | None = None
+    ) -> Iterator[pa.RecordBatch]:
+        """Внутренний поток RecordBatch с учётом фильтров и re-chunk."""
         if not self._row_filters and batch_size is None:
             yield from self._dataset.iter_batches(columns=self._columns)
             return
         if not self._row_filters:
-            # re-chunk без фильтров
             yield from self._dataset.iter_batches(
                 batch_size=batch_size, columns=self._columns
             )
             return
-        # С фильтрами: фильтруем поток, потом re-chunk на выходе
         if batch_size is None:
             yield from self._iter_filtered_batches()
             return
@@ -225,8 +251,7 @@ class CadwDataFrame:
                 accum_n += take
                 j += take
                 if accum_n == batch_size:
-                    yield pa.Table.from_batches(accum).combine_chunks().to_batches()[0] \
-                        if len(accum) == 1 else _concat_batches(accum)
+                    yield _concat_batches(accum)
                     accum = []
                     accum_n = 0
         if accum_n > 0:
@@ -334,6 +359,50 @@ class CadwDataFrame:
             writer.close()
         return path
 
+    # ---------------- partial_fit ----------------
+
+    def partial_fit(
+        self,
+        model: Any,
+        X_cols: str | Sequence[str],
+        y_col: str | None = None,
+        *,
+        batch_size: int | None = None,
+        **fit_kwargs: Any,
+    ) -> Any:
+        """Потоковое обучение модели с методом .partial_fit.
+
+        - X_cols: колонки признаков (str или list[str]);
+        - y_col=None: модель без y (StandardScaler, PCA). partial_fit(X, **kw).
+        - y_col=str: partial_fit(X, y, **kw).
+
+        Внутри: per-batch конвертация X (np.column_stack) и y (.to_numpy);
+        никаких построчных циклов. Модель обучается батч за батчем.
+
+        Возвращает обученную модель (тот же объект, изменённый in-place).
+        """
+        x_cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
+        for c in x_cols:
+            if c not in self._columns:
+                raise KeyError(f"partial_fit: X column {c!r} not in selection")
+        if y_col is not None and y_col not in self._columns:
+            raise KeyError(f"partial_fit: y column {y_col!r} not in selection")
+
+        n_batches = 0
+        for b in self._iter_arrow_batches(batch_size=batch_size):
+            X = np.column_stack(
+                [b.column(c).to_numpy(zero_copy_only=False) for c in x_cols]
+            )
+            if y_col is not None:
+                y = b.column(y_col).to_numpy(zero_copy_only=False)
+                model.partial_fit(X, y, **fit_kwargs)
+            else:
+                model.partial_fit(X, **fit_kwargs)
+            n_batches += 1
+        if n_batches == 0:
+            raise ValueError("partial_fit: no batches produced (empty data?)")
+        return model
+
     # ---------------- helpers ----------------
 
     def _wrap_result_table(self, table: pa.Table) -> "CadwDataFrame":
@@ -372,3 +441,25 @@ def _concat_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
     if len(batches) == 1:
         return batches[0]
     return pa.Table.from_batches(batches).combine_chunks().to_batches()[0]
+
+
+def _convert_batch(batch: pa.RecordBatch, format: str):
+    """Конвертация одного батча. Векторизованно, без .as_py()."""
+    if format == "arrow":
+        return batch
+    if format == "pandas":
+        return batch.to_pandas()
+    if format == "numpy":
+        return {
+            name: batch.column(i).to_numpy(zero_copy_only=False)
+            for i, name in enumerate(batch.schema.names)
+        }
+    if format == "torch":
+        import torch  # ленивый импорт
+        return {
+            name: torch.from_numpy(
+                batch.column(i).to_numpy(zero_copy_only=False)
+            )
+            for i, name in enumerate(batch.schema.names)
+        }
+    raise ValueError(f"unsupported format {format!r}")
