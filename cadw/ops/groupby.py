@@ -50,6 +50,41 @@ def _empty_result_schema(by_columns, agg_columns, agg_funcs) -> pa.Schema:
     return pa.schema(fields)
 
 
+def _read_partition_safe(
+    partition_path: Path,
+    memory_guard: "MemoryGuard | None",
+) -> "pa.Table | None":
+    """Прочитать всю партицию в память, только если она влезает в бюджет.
+
+    Returns None если partition size > available*0.5 — caller должен
+    рекурсивно разбить партицию (см. `_local_groupby`).
+
+    ВАЖНО: pattern `list(ArrowIPCBatchReader(...))` разрешён ТОЛЬКО здесь.
+    Любое materialize целой партиции в другом месте — must-fix
+    (materialize-before-check, §11.4). Enforced AST guard'ом
+    `test_materialize_guard.py::test_no_list_of_whole_reader_outside_helper`.
+
+    Arrow IPC без сжатия: file size ≈ in-memory nbytes. Для сжатия
+    (если появится) — увеличить safety или читать по-другому.
+    """
+    if memory_guard is not None:
+        size = partition_path.stat().st_size
+        limit = int(memory_guard.available_bytes() * 0.5)
+        if size > limit:
+            return None
+
+    batches = list(ArrowIPCBatchReader(str(partition_path), None))
+    if not batches:
+        return pa.Table.from_batches([], schema=pa.schema([]))
+    table = pa.Table.from_batches(batches)
+    if memory_guard is not None:
+        memory_guard.check_state(
+            table.nbytes,
+            name=f"read_partition_safe({partition_path.name})",
+        )
+    return table
+
+
 def _local_groupby(
     partition_path: Path,
     by_columns: Sequence[str],
@@ -69,37 +104,38 @@ def _local_groupby(
         if f not in _AGG_FUNCS:
             raise ValueError(f"Неподдерживаемая агрегация: {f!r}. Доступно: {_AGG_FUNCS}")
 
-    # 0. Пустая партиция
-    batches = list(ArrowIPCBatchReader(str(partition_path), None))
-    if not batches:
-        return pa.Table.from_pylist(
-            [], schema=_empty_result_schema(by_columns, agg_columns, agg_funcs)
-        )
-    table = pa.Table.from_batches(batches)
-    if table.num_rows == 0:
-        return pa.Table.from_pylist(
-            [], schema=_empty_result_schema(by_columns, agg_columns, agg_funcs)
-        )
+    # 1. Оценка размера партиции ДО чтения (must-fix, §11.4).
+    #    Arrow IPC без сжатия: file size ≈ in-memory nbytes. Читать весь
+    #    файл в list() до проверки — OOM для партиций > бюджета.
+    partition_bytes = (
+        partition_path.stat().st_size if memory_guard is not None else 0
+    )
+    safety_limit = (
+        int(memory_guard.available_bytes() * 0.5)
+        if memory_guard is not None
+        else partition_bytes
+    )
 
-    # 1. Размер партиции = сумма nbytes уже прочитанных батчей
-    total_bytes = sum(b.nbytes for b in batches)
-    safety_limit = int(memory_guard.available_bytes() * 0.5) if memory_guard else total_bytes
-
-    # 2. Влезает — материализуем и агрегируем
-    if total_bytes <= safety_limit:
+    # 2. Влезает — материализуем через безопасный helper
+    if partition_bytes <= safety_limit:
+        table = _read_partition_safe(partition_path, memory_guard)
+        if table is None or table.num_rows == 0:
+            return pa.Table.from_pylist(
+                [], schema=_empty_result_schema(by_columns, agg_columns, agg_funcs)
+            )
         agg_specs = [(col, f) for col, f in zip(agg_columns, agg_funcs)]
         return table.group_by(list(by_columns)).aggregate(agg_specs)
 
     # 3. Не влезает — рекурсивное партиционирование с новым seed
     if memory_guard is None or spill_dir is None:
         raise MemoryLimitExceeded(
-            f"_local_groupby: partition too large ({total_bytes} B > {safety_limit} B), "
+            f"_local_groupby: partition too large ({partition_bytes} B > {safety_limit} B), "
             f"but memory_guard/spill_dir not provided."
         )
     if depth >= max_depth:
         raise MemoryLimitExceeded(
             f"_local_groupby: depth={depth} >= max_depth={max_depth}; "
-            f"partition={partition_path.name} size={total_bytes} B > safety={safety_limit} B. "
+            f"partition={partition_path.name} size={partition_bytes} B > safety={safety_limit} B. "
             f"Вероятен экстремальный skew (см. DECISIONS §11.4 п.3)."
         )
 

@@ -49,6 +49,19 @@ def reduce(
     log: bool = True,
 ) -> Any:
     """Один последовательный проход. Пик RAM ≤ batch + state + O(1)."""
+    # Pre-flight: оценка размера state ДО op.init() (must-fix, §11.4).
+    # CovarianceOp(d) = O(d²) — np.zeros((d,d)) до check_state → OOM для
+    # d=10^5 (80 GB). HistogramOp(bins) — np.zeros(bins) — то же.
+    # estimate_state_size знает про CovarianceOp (8+8d+8d²) и
+    # HistogramOp (8*bins+16); для остальных — консервативный fallback.
+    _estimated = memory_guard.estimate_state_size(
+        type(op).__name__,
+        schema=None,
+        d=getattr(op, "d", None),
+        bins=getattr(op, "bins", 255),
+    )
+    memory_guard.check_state(_estimated, name=f"{type(op).__name__}.estimated")
+
     state = op.init()
     batch_id = 0
     for batch in batch_iter:

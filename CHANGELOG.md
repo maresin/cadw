@@ -2,6 +2,34 @@
 
 Все значимые изменения проекта CADW. Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 
+## [0.1.4] — 2026-10-18
+
+### Исправлено (must-fix §11.4, класс «materialize-before-check»)
+- `_local_groupby` материализовал всю партицию (`list(ArrowIPCBatchReader)`)
+  до size-check. 02b1 добавил проверку **после** materialize — это не
+  закрыло баг. Fix: `partition_path.stat().st_size` до чтения + helper
+  `_read_partition_safe` (единственное место, где разрешён `list(reader)`).
+- `reduce` вызывал `op.init()` до `estimate_state_size`/`check_state`.
+  `CovarianceOp(d=10^5)` → `np.zeros((10^5,10^5))` = 80 GB → OOM **внутри**
+  init. Fix: `estimate_state_size` + `check_state` **до** `op.init()`.
+
+### Добавлено
+- §3.10 «Check before materialize» — новый обязательный принцип.
+- `tests/test_materialize_guard.py` — AST guards:
+  - `test_no_list_of_whole_reader_outside_helper`
+  - `test_reduce_estimate_state_before_init`
+- `tests/test_oom_resistance.py` (slow):
+  - 10^6 групп, 10 MB budget;
+  - 90/10 skew, 10^6 строк, 10 MB;
+  - `CovarianceOp(d=5000)` под 10 MB → `MemoryLimitExceeded` до `init`.
+
+### Уроки (DECISIONS §13.4)
+- Эпизод 27: «закрытие must-fix» требует теста на **порядок** операций,
+  а не только на наличие вызова. 02b1 проверял, что `hash_shuffle`
+  вызывается, но не проверял, что `list(reader)` **не** вызывается до.
+- Эпизод 28: аудит перед новыми функциями находит унаследованные баги
+  (`reduce.init()` — не был замечен при 02a).
+
 ## [0.1.3] — 2026-10-18
 
 ### Удалено

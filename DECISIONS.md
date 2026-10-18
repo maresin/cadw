@@ -78,6 +78,17 @@ rolling) — композиции готовых примитивов, не пе
 8. **Честный фасад.** `CadwDataFrame` не реализует алгоритмы; guard-тесты
    (`test_facade_has_no_as_py`, `test_facade_has_no_row_loop_ast`) ловят
    регресс на уровне AST.
+10. **Check before materialize.** Любая операция, читающая весь
+    источник в память (`list(reader)`, `Table.from_batches(all)`,
+    `to_pylist()` на полном датасете), обязана предварительно
+    вызвать `check_state(estimated)` или
+    `partition_path.stat().st_size`-проверку. Исключение —
+    materialize, ограниченный `batch_size` (один батч, уже
+    проверен `check_batch`). Нарушение — must-fix. Enforced
+    AST guard'ом `test_no_list_of_whole_reader_outside_helper`.
+    Также: `op.init()` может аллоцировать большой state
+    (`CovarianceOp(d²)` = 80 GB при d=10^5); `reduce` вызывает
+    `estimate_state_size` + `check_state` **до** `op.init()`.
 9. **Никаких ML-адаптеров.** CADW не подключает сторонние ML-модели
    через адаптеры, ни через `fit`, ни через `partial_fit`.
    - `fit`-модели (`lgb.train`, `PCA.fit`, `XGBRegressor.fit`,
@@ -450,6 +461,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | ~~LightGBM `to_lightgbm`~~ | ❌ удалён (08: O(N), §3.9) | 0 |
 | Architecture guards (legacy, AST) | ✅ | 3 |
 | API availability guard (07, 18 assertions) | ✅ | 18 |
+| Materialize-before-check fix (10) | ✅ | (см. test_materialize_guard) |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -697,6 +709,27 @@ CADW. Всё, что требует out-of-core ML, пишется на прим
 реализация** на примитивах (например, `SGD` на `Reduce`), а не как
 обёртка над sklearn.
 
+**Эпизод 27 (must-fix, класс).** 02b1 «закрыл» must-fix п.1
+(`_local_groupby` без check) через `sum(b.nbytes for b in batches)`. Но
+проверка была **после** `list(ArrowIPCBatchReader(...))` — то есть после
+OOM. Тест `test_local_groupby_recursion_called` проверял, что
+`hash_shuffle` вызывается, но **не** проверял, что `list(reader)` не
+вызывается до него. **Урок:** «закрытие must-fix» требует теста, который
+падает при **неправильном порядке** операций, а не только при
+отсутствии проверки. AST guard `test_no_list_of_whole_reader_outside_helper`
++ `test_reduce_estimate_state_before_init` фиксируют **порядок**
+(`estimate_state_size` до `init`, `stat` до `list`), а не только наличие
+вызовов.
+
+**Эпизод 28 (обнаружено аудитом).** `reduce` вызывает `op.init()`
+**до** `estimate_state_size`/`check_state`. Для `CovarianceOp(d=10^5)`
+`op.init()` = `np.zeros((10^5, 10^5))` = 80 GB — OOM **внутри** init,
+до первого `check_state`. Аудит нашёл этот случай через grep по
+`materialize`-паттернам (`np.zeros`, `Table.from_batches`, `list(reader)`)
++ анализ `op.init()`. **Урок:** аудит перед новыми функциями (join, GBDT)
+находит унаследованные баги. Фикс: `estimate_state_size` перед init
+(+ AST guard `test_reduce_estimate_state_before_init`).
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).
@@ -736,3 +769,7 @@ CADW. Всё, что требует out-of-core ML, пишется на прим
 **v0.1.3 (патч 09):** `partial_fit` удалён полностью (§3.9). ML-слой
 CADW = `to_batches(format=...)` только. Собственные ML-алгоритмы —
 v0.3 (GBDT, Linear, k-means, PCA, NB) на примитивах.
+
+**v0.1.4 (патч 10):** must-fix «materialize-before-check»: `_local_groupby`
+(stat до чтения) и `reduce` (estimate_state_size до init()). Добавлены
+AST guards + OOM E2E. §3.10 — новый принцип.
