@@ -2,30 +2,56 @@
 CadwDataFrame — публичный фасад.
 
 Контракт «честный фасад»:
-  - не реализует алгоритмы обработки данных;
-  - не содержит построчных циклов (.as_py() на данных);
-  - группировку, сортировку, unique делегирует примитивам
-    (groupby_aggregate, external_sort, hash_shuffle);
-  - хранит только: Dataset + memory_guard + spill_dir + columns (selection).
+  - не реализует алгоритмы; делегирует примитивам и RowFilter;
+  - не содержит построчных циклов и вызовов as_py на данных;
+  - хранит только: Dataset, memory_guard, spill_dir, columns, row_filters.
 
-См. DECISIONS.md §10.3, §12.2.
+Ленивость: срезы, фильтры и выбор колонок не материализуют данные.
+Фильтры применяются в iter_batches / head / groupby / sort / write.
 """
 from __future__ import annotations
 
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Iterable, Iterator, Sequence
+from typing import Iterator, Sequence
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from cadw.core.memory_guard import MemoryGuard
-from cadw.dataset import Dataset
+from cadw.dataset import (
+    Dataset,
+    RowFilter,
+    PredicateFilter,
+    SliceFilter,
+)
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ParquetBatchWriter
 from cadw.ops.groupby import groupby_aggregate
 from cadw.ops.sort import external_sort
+
+
+class _ColumnProxy:
+    """df['col']: сравнения возвращают ленивый PredicateFilter."""
+    __slots__ = ("_column",)
+
+    def __init__(self, column: str) -> None:
+        self._column = column
+
+    def _pred(self, op: str, value) -> PredicateFilter:
+        return PredicateFilter(self._column, op, value)
+
+    def __gt__(self, v): return self._pred("gt", v)
+    def __ge__(self, v): return self._pred("ge", v)
+    def __lt__(self, v): return self._pred("lt", v)
+    def __le__(self, v): return self._pred("le", v)
+    def __eq__(self, v): return self._pred("eq", v)  # type: ignore[override]
+    def __ne__(self, v): return self._pred("ne", v)  # type: ignore[override]
+    def __hash__(self): return id(self)
+
+    def __repr__(self) -> str:
+        return f"ColumnProxy({self._column!r})"
 
 
 class CadwDataFrame:
@@ -38,6 +64,7 @@ class CadwDataFrame:
         memory_guard: MemoryGuard | None = None,
         spill_dir: str | Path | None = None,
         columns: Sequence[str] | None = None,
+        row_filters: Sequence[RowFilter] | None = None,
     ) -> None:
         if not isinstance(dataset, Dataset):
             raise TypeError("CadwDataFrame requires a Dataset instance")
@@ -51,6 +78,7 @@ class CadwDataFrame:
         for c in self._columns:
             if c not in dataset.columns:
                 raise KeyError(f"column {c!r} not found in dataset")
+        self._row_filters: list[RowFilter] = list(row_filters) if row_filters else []
 
     @classmethod
     def from_parquet(
@@ -83,45 +111,141 @@ class CadwDataFrame:
 
     @property
     def shape(self) -> tuple[int, int]:
+        """Верхняя оценка: (dataset.total_rows, len(columns)).
+
+        Для точного количества после фильтров используйте .count().
+        """
         return (self._dataset.total_rows, len(self._columns))
 
     @property
     def dataset(self) -> Dataset:
         return self._dataset
 
-    # ---------------- reading ----------------
+    def count(self) -> int:
+        """Точное число строк с учётом фильтров (сканирует)."""
+        if not self._row_filters:
+            return self._dataset.total_rows
+        n = 0
+        for b in self._iter_filtered_batches():
+            n += b.num_rows
+        return n
 
-    def to_batches(
-        self, batch_size: int | None = None
-    ) -> Iterator[pa.RecordBatch]:
-        """Поток батчей выбранных колонок. Не материализует."""
-        return self._dataset.iter_batches(
-            batch_size=batch_size, columns=self._columns
+    # ---------------- __getitem__ ----------------
+
+    def __getitem__(self, key):
+        # 1. slice: df[10:50], df[10:50:2]
+        if isinstance(key, slice):
+            f = SliceFilter(key.start, key.stop, key.step)
+            return self._with_filter(f)
+
+        # 2. list[str]: выбор подмножества колонок, фильтры сохраняются
+        if isinstance(key, list) and all(isinstance(k, str) for k in key):
+            new = CadwDataFrame.__new__(CadwDataFrame)
+            new._dataset = self._dataset
+            new._memory_guard = self._memory_guard
+            new._spill_dir = self._spill_dir
+            new._columns = list(key)
+            for c in new._columns:
+                if c not in self._dataset.columns:
+                    raise KeyError(f"column {c!r} not found in dataset")
+            new._row_filters = list(self._row_filters)
+            return new
+
+        # 3. str: прокси для сравнений (df['a'] > 0)
+        if isinstance(key, str):
+            if key not in self._dataset.columns:
+                raise KeyError(f"column {key!r} not found in dataset")
+            return _ColumnProxy(key)
+
+        # 4. RowFilter: df[mask]
+        if isinstance(key, RowFilter):
+            return self._with_filter(key)
+
+        raise TypeError(
+            f"unsupported __getitem__ key: {type(key).__name__}; "
+            f"expected slice, list[str], str, or RowFilter"
         )
 
-    def head(self, n: int = 5) -> pa.Table:
-        """Первые n строк как pa.Table (без .as_py())."""
-        if n <= 0 or self._dataset.total_rows == 0:
-            schema = pa.schema(
-                [self._dataset.schema.field(c) for c in self._columns]
+    def _with_filter(self, f: RowFilter) -> "CadwDataFrame":
+        new = CadwDataFrame.__new__(CadwDataFrame)
+        new._dataset = self._dataset
+        new._memory_guard = self._memory_guard
+        new._spill_dir = self._spill_dir
+        new._columns = list(self._columns)
+        new._row_filters = list(self._row_filters) + [f]
+        return new
+
+    # ---------------- filtered iteration ----------------
+
+    def _iter_filtered_batches(self) -> Iterator[pa.RecordBatch]:
+        """Поток с учётом всех фильтров; на выходе — только self._columns."""
+        if not self._row_filters:
+            yield from self._dataset.iter_batches(columns=self._columns)
+            return
+
+        needed = list(self._columns)
+        extra: set[str] = set()
+        for f in self._row_filters:
+            extra |= f.columns_required()
+        for c in extra:
+            if c not in needed:
+                needed.append(c)
+
+        it = self._dataset.iter_batches(columns=needed)
+        for f in self._row_filters:
+            it = f.iter_filtered(it, self._dataset.schema)
+        for b in it:
+            yield b.select(self._columns)
+
+    # ---------------- reading ----------------
+
+    def to_batches(self, batch_size: int | None = None) -> Iterator[pa.RecordBatch]:
+        """Поток батчей с учётом фильтров. batch_size=None — как в Dataset."""
+        if not self._row_filters and batch_size is None:
+            yield from self._dataset.iter_batches(columns=self._columns)
+            return
+        if not self._row_filters:
+            # re-chunk без фильтров
+            yield from self._dataset.iter_batches(
+                batch_size=batch_size, columns=self._columns
             )
+            return
+        # С фильтрами: фильтруем поток, потом re-chunk на выходе
+        if batch_size is None:
+            yield from self._iter_filtered_batches()
+            return
+        accum: list[pa.RecordBatch] = []
+        accum_n = 0
+        for b in self._iter_filtered_batches():
+            j = 0
+            n = b.num_rows
+            while j < n:
+                take = min(batch_size - accum_n, n - j)
+                accum.append(b.slice(j, take))
+                accum_n += take
+                j += take
+                if accum_n == batch_size:
+                    yield pa.Table.from_batches(accum).combine_chunks().to_batches()[0] \
+                        if len(accum) == 1 else _concat_batches(accum)
+                    accum = []
+                    accum_n = 0
+        if accum_n > 0:
+            yield _concat_batches(accum)
+
+    def head(self, n: int = 5) -> pa.Table:
+        if n <= 0:
+            schema = pa.schema([self._dataset.schema.field(c) for c in self._columns])
             return pa.Table.from_batches([], schema=schema)
-        first = True
         acc: list[pa.RecordBatch] = []
         remaining = n
-        for b in self._dataset.iter_batches(
-            batch_size=min(n, 1000), columns=self._columns
-        ):
+        for b in self._iter_filtered_batches():
             take = min(b.num_rows, remaining)
             acc.append(b.slice(0, take))
             remaining -= take
-            first = False
             if remaining <= 0:
                 break
-        if first:
-            schema = pa.schema(
-                [self._dataset.schema.field(c) for c in self._columns]
-            )
+        if not acc:
+            schema = pa.schema([self._dataset.schema.field(c) for c in self._columns])
             return pa.Table.from_batches([], schema=schema)
         return pa.Table.from_batches(acc).slice(0, n)
 
@@ -131,15 +255,14 @@ class CadwDataFrame:
         by_cols = [by] if isinstance(by, str) else list(by)
         return _GroupBy(self, by_cols)
 
-    def _groupby_impl(
-        self,
-        by_cols: Sequence[str],
-        agg_columns: Sequence[str],
-        agg_funcs: Sequence[str],
-    ) -> "CadwDataFrame":
-        reader_iter = self._dataset.iter_batches(columns=None)
+    def _groupby_impl(self, by_cols, agg_columns, agg_funcs) -> "CadwDataFrame":
+        for c in list(by_cols) + list(agg_columns):
+            if c not in self._columns:
+                raise KeyError(
+                    f"groupby: column {c!r} not in current selection {self._columns}"
+                )
         result = groupby_aggregate(
-            reader_iter,
+            self._iter_filtered_batches(),
             by_cols,
             agg_columns,
             agg_funcs,
@@ -152,17 +275,11 @@ class CadwDataFrame:
     # ---------------- unique ----------------
 
     def unique(self, column: str) -> "CadwDataFrame":
-        """Уникальные значения колонки как одноколоночный CadwDataFrame.
-
-        Реализация — композиция примитивов: hash_shuffle по колонке
-        (через groupby_aggregate с count=1 как побочным результатом),
-        затем отбрасываем count. Никаких построчных .as_py().
-        """
         if column not in self._columns:
-            raise KeyError(f"column {column!r} not found")
-        reader_iter = self._dataset.iter_batches(columns=[column])
+            raise KeyError(f"unique: column {column!r} not in selection")
+        cols = list(self._columns)
         result = groupby_aggregate(
-            reader_iter,
+            self._iter_filtered_batches(),
             [column],
             [column],
             ["count"],
@@ -170,23 +287,20 @@ class CadwDataFrame:
             self._spill_dir / "unique",
             log=False,
         )
+        # результат: by=column, val_count; оставляем только сам столбец
         values_only = result.select([column])
+        # восстанавливаем остальные колонки? нет — unique возвращает только колонку
         return self._wrap_result_table(values_only)
 
     # ---------------- sort_values ----------------
 
-    def sort_values(
-        self,
-        by: str | Sequence[str],
-        *,
-        ascending: bool | Sequence[bool] = True,
-    ) -> "CadwDataFrame":
+    def sort_values(self, by, *, ascending=True) -> "CadwDataFrame":
         by_cols = [by] if isinstance(by, str) else list(by)
         for c in by_cols:
             if c not in self._columns:
-                raise KeyError(f"sort_values: column {c!r} not found")
+                raise KeyError(f"sort_values: column {c!r} not in selection")
         path = external_sort(
-            self._dataset.iter_batches(columns=None),
+            self._iter_filtered_batches(),
             key_columns=by_cols,
             value_columns=self._columns,
             memory_guard=self._memory_guard,
@@ -194,37 +308,27 @@ class CadwDataFrame:
             ascending=ascending,
             log=False,
         )
-        schema = pa.schema(
-            [self._dataset.schema.field(c) for c in self._columns]
-        )
+        schema = pa.schema([self._dataset.schema.field(c) for c in self._columns])
 
-        def _iter() -> Iterable[pa.RecordBatch]:
+        def _iter():
             reader = ArrowIPCBatchReader(str(path), self._columns)
             for b in reader:
                 yield b
 
         new_ds = Dataset.from_batches(schema, _iter(), self._new_dataset_dir())
         return CadwDataFrame(
-            new_ds,
-            memory_guard=self._memory_guard,
-            spill_dir=self._spill_dir,
+            new_ds, memory_guard=self._memory_guard, spill_dir=self._spill_dir
         )
 
     # ---------------- write ----------------
 
-    def write_parquet(
-        self, path: str | Path, *, compression: str = "snappy"
-    ) -> Path:
+    def write_parquet(self, path: str | Path, *, compression: str = "snappy") -> Path:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        schema = pa.schema(
-            [self._dataset.schema.field(c) for c in self._columns]
-        )
-        writer = ParquetBatchWriter(
-            str(path), schema, compression=compression
-        )
+        schema = pa.schema([self._dataset.schema.field(c) for c in self._columns])
+        writer = ParquetBatchWriter(str(path), schema, compression=compression)
         try:
-            for b in self._dataset.iter_batches(columns=self._columns):
+            for b in self._iter_filtered_batches():
                 writer.write_batch(b)
         finally:
             writer.close()
@@ -234,14 +338,10 @@ class CadwDataFrame:
 
     def _wrap_result_table(self, table: pa.Table) -> "CadwDataFrame":
         new_ds = Dataset.from_batches(
-            table.schema,
-            iter(table.to_batches()),
-            self._new_dataset_dir(),
+            table.schema, iter(table.to_batches()), self._new_dataset_dir()
         )
         return CadwDataFrame(
-            new_ds,
-            memory_guard=self._memory_guard,
-            spill_dir=self._spill_dir,
+            new_ds, memory_guard=self._memory_guard, spill_dir=self._spill_dir
         )
 
     def _new_dataset_dir(self) -> Path:
@@ -250,9 +350,10 @@ class CadwDataFrame:
         return p
 
     def __repr__(self) -> str:
+        nf = len(self._row_filters)
         return (
-            f"CadwDataFrame(rows={self._dataset.total_rows}, "
-            f"columns={self._columns})"
+            f"CadwDataFrame(rows<={self._dataset.total_rows}, "
+            f"columns={self._columns}, filters={nf})"
         )
 
 
@@ -261,13 +362,13 @@ class _GroupBy:
         self._parent = parent
         self._by = list(by_cols)
 
-    def agg(
-        self,
-        agg_columns: str | Sequence[str],
-        agg_funcs: str | Sequence[str],
-    ) -> CadwDataFrame:
-        agg_cols = (
-            [agg_columns] if isinstance(agg_columns, str) else list(agg_columns)
-        )
+    def agg(self, agg_columns, agg_funcs) -> CadwDataFrame:
+        agg_cols = [agg_columns] if isinstance(agg_columns, str) else list(agg_columns)
         funcs = [agg_funcs] if isinstance(agg_funcs, str) else list(agg_funcs)
         return self._parent._groupby_impl(self._by, agg_cols, funcs)
+
+
+def _concat_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
+    if len(batches) == 1:
+        return batches[0]
+    return pa.Table.from_batches(batches).combine_chunks().to_batches()[0]
