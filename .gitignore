@@ -27,3 +27,6 @@ snapshot_*.py
 .idea/
 *.swp
 .DS_Store
+
+# Analysis artifacts & experimental data (fix_other_leak)
+main.py
