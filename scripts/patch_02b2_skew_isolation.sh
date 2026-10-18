@@ -36,8 +36,17 @@ git archive --format=tar.gz -o ".backups/${BK}/repo.tgz" HEAD
 git tag -a "${BK}" -m "before patch_02b2"
 
 BR="patch/02b2-skew-isolation"
-git rev-parse --verify "${BR}" >/dev/null 2>&1 && { echo "branch exists"; exit 1; }
-git checkout -b "${BR}"
+if git rev-parse --verify "${BR}" >/dev/null 2>&1; then
+  CURRENT="$(git rev-parse --abbrev-ref HEAD)"
+  if [[ "$CURRENT" != "$BR" ]]; then
+    echo "ERROR: branch ${BR} exists, but currently on ${CURRENT}"
+    echo "Switch to ${CUR} and delete ${BR}, or switch to ${BR} and re-run."
+    exit 1
+  fi
+  echo "Already on ${BR}, resuming (skipping branch creation)"
+else
+  git checkout -b "${BR}"
+fi
 
 # ---------- 1. groupby.py ----------
 python3 - <<'PY'
