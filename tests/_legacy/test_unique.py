@@ -4,7 +4,7 @@ import pyarrow.parquet as pq
 import numpy as np
 from cadw.core.memory_guard import MemoryGuard
 from cadw.io.batch_reader import ParquetBatchReader
-from cadw.operations.unique_collector import UniqueCollector
+from cadw._legacy.unique_collector import UniqueCollector
 
 def test_unique_with_spill():
     # Создаём данные: 200 000 строк, 50 000 уникальных

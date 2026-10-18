@@ -7,7 +7,7 @@ import time
 import os
 from cadw.core.memory_guard import MemoryGuard
 from cadw.io.batch_reader import ParquetBatchReader
-from cadw.operations.unique_collector import UniqueCollector
+from cadw._legacy.unique_collector import UniqueCollector
 
 def generate_test_data(parquet_path, num_rows=200_000, num_unique=50_000):
     np.random.seed(42)

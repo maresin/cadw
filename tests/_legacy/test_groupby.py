@@ -3,7 +3,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from cadw.core.memory_guard import MemoryGuard
 from cadw.io.batch_reader import ParquetBatchReader
-from cadw.operations.groupby_aggregator import GroupByAggregator
+from cadw._legacy.groupby_aggregator import GroupByAggregator
 
 def test_groupby_mean():
     # Создаём тестовые данные

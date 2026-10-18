@@ -1,5 +1,5 @@
 from cadw.io.batch_reader import BatchReader
-from cadw.core.spill_manager import SpillManager
+from cadw._legacy.spill_manager import SpillManager
 from typing import Set, Any
 
 class UniqueCollector:
