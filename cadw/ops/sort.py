@@ -197,6 +197,17 @@ def _merge_keys(
     return out_path
 
 
+
+def compute_fan_in(available_bytes: int, read_batch_size: int, row_bytes: int) -> int:
+    """k (fan-in) для k-way merge: сколько run'ов держать открытыми одновременно.
+
+    Ограничение: k * read_batch_size * row_bytes <= available_bytes.
+    Возвращает >= 2 (иначе merge невозможен).
+    """
+    denom = max(1, read_batch_size * max(1, row_bytes))
+    return max(2, available_bytes // denom)
+
+
 def external_sort(
     batch_iter: Iterable[pa.RecordBatch],
     key_columns: Sequence[str],
@@ -254,7 +265,10 @@ def external_sort(
         raise ValueError("external_sort: пустой вход")
 
     # --- Фаза 2: k-way merge (при необходимости — многоуровневый) ---
-    k = merge_fan_in or max(2, memory_guard.available_bytes() // (read_batch_size * 128 + 1))
+    row_bytes = max(1, memory_guard.row_size_bytes)
+    k = merge_fan_in or compute_fan_in(
+        memory_guard.available_bytes(), read_batch_size, row_bytes
+    )
 
     merge_idx = 0
     while len(runs) > 1:

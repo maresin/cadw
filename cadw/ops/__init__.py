@@ -5,7 +5,7 @@ from .reduce import (
 from .shuffle import (
     hash_shuffle, compute_hashes, estimate_num_partitions, read_partition_batches,
 )
-from .sort import external_sort, read_sorted
+from .sort import external_sort, read_sorted, compute_fan_in
 from .groupby import groupby_aggregate, write_groupby_result
 
 __all__ = [
@@ -14,6 +14,6 @@ __all__ = [
     "CovarianceOp", "HistogramOp",
     "hash_shuffle", "compute_hashes", "estimate_num_partitions",
     "read_partition_batches",
-    "external_sort", "read_sorted",
+    "external_sort", "read_sorted", "compute_fan_in",
     "groupby_aggregate", "write_groupby_result",
 ]

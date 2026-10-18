@@ -182,13 +182,37 @@ class MemoryGuard:
 
     # ---------- проверки ----------
 
-    def check_batch(self, batch: pa.RecordBatch, *, name: str = "batch") -> None:
-        size = batch.nbytes
+    def check_batch(
+        self,
+        batch: pa.RecordBatch,
+        *,
+        name: str = "batch",
+        extra_factor: float = 1.0,
+    ) -> None:
+        """Проверяет, что батч (с учётом extra_factor) влезает в available_bytes.
+
+        extra_factor > 1.0 используется, когда операция создаёт временный
+        overhead поверх batch.nbytes: например, compute_hashes делает
+        to_pylist() (Python-int ~28 B на значение), что для int-колонок
+        даёт x3-x5. Передавайте консервативный коэффициент (3.0-5.0),
+        чтобы check_batch отражал реальный пик RAM.
+        """
+        if extra_factor < 1.0:
+            raise ValueError("extra_factor must be >= 1.0")
+        size = int(batch.nbytes * extra_factor)
         limit = self.available_bytes()
         if size > limit:
-            logger.error("check_batch FAIL: %s nbytes=%d > available=%d", name, size, limit)
-            raise MemoryLimitExceeded(f"{name}: {size} B > available {limit} B")
-        logger.debug("check_batch OK: %s nbytes=%d available=%d", name, size, limit)
+            logger.error(
+                "check_batch FAIL: %s nbytes=%d extra_factor=%.2f effective=%d > available=%d",
+                name, batch.nbytes, extra_factor, size, limit,
+            )
+            raise MemoryLimitExceeded(
+                f"{name}: {size} B (nbytes={batch.nbytes} * {extra_factor}) > available {limit} B"
+            )
+        logger.debug(
+            "check_batch OK: %s nbytes=%d extra_factor=%.2f effective=%d available=%d",
+            name, batch.nbytes, extra_factor, size, limit,
+        )
 
     def check_state(self, state_bytes: int, *, name: str = "state") -> None:
         limit = self._state_limit()

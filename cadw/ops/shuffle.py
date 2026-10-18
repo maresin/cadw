@@ -171,7 +171,11 @@ def hash_shuffle(
 
     def _process(batch: pa.RecordBatch) -> None:
         nonlocal row_id_offset
-        memory_guard.check_batch(batch, name="hash_shuffle.batch")
+        # compute_hashes делает to_pylist() → Python-int (~28 B/значение),
+        # для int-колонок это x3-x5 overhead. Учитываем консервативно.
+        memory_guard.check_batch(
+            batch, name="hash_shuffle.batch", extra_factor=3.0
+        )
 
         hashes = compute_hashes(batch, key_columns, hash_seed)
         parts = _mod_p(hashes, num_partitions)

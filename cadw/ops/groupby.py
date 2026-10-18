@@ -16,6 +16,8 @@ GroupBy: корректный при K > памяти.
 """
 from __future__ import annotations
 
+import itertools
+
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -26,7 +28,7 @@ from cadw.core.logging import get_logger
 from cadw.core.memory_guard import MemoryGuard
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ArrowIPCBatchWriter
-from cadw.ops.shuffle import hash_shuffle
+from cadw.ops.shuffle import hash_shuffle, estimate_num_partitions
 
 logger = get_logger("ops.groupby")
 
@@ -84,6 +86,22 @@ def _local_groupby(
     grouped = table.group_by(list(by_columns)).aggregate(agg_specs)
     # Переименовать {col}_{func} — оставляем как есть, downstream знает имена
     return grouped
+
+
+
+def _estimate_k_sample(
+    sample_batches: list[pa.RecordBatch],
+    by_columns: Sequence[str],
+) -> int:
+    """Число уникальных ключей в sample. Без экстраполяции (консервативно)."""
+    if not sample_batches:
+        return 0
+    seen: set[tuple] = set()
+    cols = list(by_columns)
+    for b in sample_batches:
+        for i in range(b.num_rows):
+            seen.add(tuple(b.column(c)[i].as_py() for c in cols))
+    return len(seen)
 
 
 def groupby_aggregate(
@@ -145,7 +163,31 @@ def groupby_aggregate(
         value_columns = list(by_columns)
 
     if num_partitions is None:
-        num_partitions = 8  # консервативно; вызывающий может передать больше
+        # Sample первых ~10k строк, оценить K, выбрать P.
+        # Бюджет на партицию — половина available: вторая половина нужна
+        # на батчи чтения и состояние агрегации.
+        sample_cap = 10_000
+        sample_iter, rest_iter = itertools.tee(batch_iter, 2)
+        sample_batches: list[pa.RecordBatch] = []
+        n_sample = 0
+        for b in sample_iter:
+            sample_batches.append(b)
+            n_sample += b.num_rows
+            if n_sample >= sample_cap:
+                break
+        batch_iter = itertools.chain(sample_batches, rest_iter)
+
+        k_est = _estimate_k_sample(sample_batches, by_columns)
+        p_est = estimate_num_partitions(
+            k_est,
+            available_bytes=max(1, memory_guard.available_bytes() // 2),
+        )
+        num_partitions = max(8, p_est)
+        if log:
+            logger.info(
+                "groupby_aggregate: auto num_partitions=%d (k_est=%d, sample=%d rows)",
+                num_partitions, k_est, n_sample,
+            )
 
     partitions = hash_shuffle(
         batch_iter,
