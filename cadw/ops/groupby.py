@@ -25,7 +25,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from cadw.core.logging import get_logger
-from cadw.core.memory_guard import MemoryGuard
+from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ArrowIPCBatchWriter
 from cadw.ops.shuffle import hash_shuffle, estimate_num_partitions
@@ -36,11 +36,27 @@ logger = get_logger("ops.groupby")
 _AGG_FUNCS = {"mean", "sum", "count", "min", "max"}
 
 
+_MAX_DEPTH = 5
+
+
+def _empty_result_schema(by_columns, agg_columns, agg_funcs) -> pa.Schema:
+    """Схема пустого результата агрегации (для пустых партиций)."""
+    fields = [pa.field(c, pa.string()) for c in by_columns]
+    for col, f in zip(agg_columns, agg_funcs):
+        out_type = pa.int64() if f == "count" else pa.float64()
+        fields.append(pa.field(f"{col}_{f}", out_type))
+    return pa.schema(fields)
+
+
 def _local_groupby(
     partition_path: Path,
     by_columns: Sequence[str],
     agg_columns: Sequence[str],
     agg_funcs: Sequence[str] | str,
+    memory_guard: MemoryGuard | None = None,
+    spill_dir: Path | None = None,
+    depth: int = 0,
+    max_depth: int = _MAX_DEPTH,
 ) -> pa.Table:
     """Локальная агрегация одной партиции. Векторизованно через pa.Table.group_by."""
     if isinstance(agg_funcs, str):
@@ -51,41 +67,79 @@ def _local_groupby(
         if f not in _AGG_FUNCS:
             raise ValueError(f"Неподдерживаемая агрегация: {f!r}. Доступно: {_AGG_FUNCS}")
 
+    # 0. Пустая партиция
     batches = list(ArrowIPCBatchReader(str(partition_path), None))
     if not batches:
-        # Пустая партиция — вернуть пустую таблицу с нужной схемой
-        fields = [pa.field(c, pa.string()) for c in by_columns]
-        for col, f in zip(agg_columns, agg_funcs):
-            out_type = pa.int64() if f == "count" else pa.float64()
-            fields.append(pa.field(f"{col}_{f}", out_type))
-        return pa.Table.from_pylist([], schema=pa.schema(fields))
-
+        return pa.Table.from_pylist(
+            [], schema=_empty_result_schema(by_columns, agg_columns, agg_funcs)
+        )
     table = pa.Table.from_batches(batches)
-
     if table.num_rows == 0:
-        fields = [table.schema.field(c) for c in by_columns]
-        for col, f in zip(agg_columns, agg_funcs):
-            out_type = pa.int64() if f == "count" else pa.float64()
-            fields.append(pa.field(f"{col}_{f}", out_type))
-        return pa.Table.from_pylist([], schema=pa.schema(fields))
+        return pa.Table.from_pylist(
+            [], schema=_empty_result_schema(by_columns, agg_columns, agg_funcs)
+        )
 
-    # pa.Table.group_by: [(col, "hash"), ...] для нескольких ключей
-    agg_specs = []
-    for col, f in zip(agg_columns, agg_funcs):
-        if f == "mean":
-            agg_specs.append((col, "mean"))
-        elif f == "sum":
-            agg_specs.append((col, "sum"))
-        elif f == "count":
-            agg_specs.append((col, "count"))
-        elif f == "min":
-            agg_specs.append((col, "min"))
-        elif f == "max":
-            agg_specs.append((col, "max"))
+    # 1. Размер партиции = сумма nbytes уже прочитанных батчей
+    total_bytes = sum(b.nbytes for b in batches)
+    safety_limit = int(memory_guard.available_bytes() * 0.5) if memory_guard else total_bytes
 
-    grouped = table.group_by(list(by_columns)).aggregate(agg_specs)
-    # Переименовать {col}_{func} — оставляем как есть, downstream знает имена
-    return grouped
+    # 2. Влезает — материализуем и агрегируем
+    if total_bytes <= safety_limit:
+        agg_specs = [(col, f) for col, f in zip(agg_columns, agg_funcs)]
+        return table.group_by(list(by_columns)).aggregate(agg_specs)
+
+    # 3. Не влезает — рекурсивное партиционирование с новым seed
+    if memory_guard is None or spill_dir is None:
+        raise MemoryLimitExceeded(
+            f"_local_groupby: partition too large ({total_bytes} B > {safety_limit} B), "
+            f"but memory_guard/spill_dir not provided."
+        )
+    if depth >= max_depth:
+        raise MemoryLimitExceeded(
+            f"_local_groupby: depth={depth} >= max_depth={max_depth}; "
+            f"partition={partition_path.name} size={total_bytes} B > safety={safety_limit} B. "
+            f"Вероятен экстремальный skew (см. DECISIONS §11.4 п.3)."
+        )
+
+    def _read_for_resplit():
+        for b in ArrowIPCBatchReader(str(partition_path), None):
+            cols = [c for c in list(by_columns) + list(agg_columns) if c in b.schema.names]
+            yield b.select(cols)
+
+    sub_spill = spill_dir / f"resplit_d{depth}_{partition_path.stem}"
+    sub_spill.mkdir(parents=True, exist_ok=True)
+
+    sub_value_cols = [c for c in agg_columns if c not in by_columns]
+    sub_paths = hash_shuffle(
+        _read_for_resplit(),
+        key_columns=list(by_columns),
+        value_columns=sub_value_cols,
+        num_partitions=4,
+        memory_guard=memory_guard,
+        spill_dir=sub_spill,
+        hash_seed=depth + 1,
+        log=False,
+    )
+
+    results: list[pa.Table] = []
+    for sp in sub_paths:
+        r = _local_groupby(
+            sp, by_columns, agg_columns, agg_funcs,
+            memory_guard=memory_guard, spill_dir=spill_dir,
+            depth=depth + 1, max_depth=max_depth,
+        )
+        if r.num_rows > 0:
+            results.append(r)
+        try:
+            sp.unlink()
+        except OSError:
+            pass
+
+    if not results:
+        return pa.Table.from_pylist(
+            [], schema=_empty_result_schema(by_columns, agg_columns, agg_funcs)
+        )
+    return pa.concat_tables(results)
 
 
 
@@ -175,6 +229,15 @@ def groupby_aggregate(
             n_sample += b.num_rows
             if n_sample >= sample_cap:
                 break
+        sample_bytes = sum(b.nbytes for b in sample_batches)
+        sample_limit = int(memory_guard.available_bytes() * 0.5)
+        if sample_bytes > sample_limit:
+            raise MemoryLimitExceeded(
+                f"groupby_aggregate: sample ({sample_bytes} B) > "
+                f"available*0.5 ({sample_limit} B). "
+                f"Укажите num_partitions явно, чтобы избежать sample."
+            )
+
         batch_iter = itertools.chain(sample_batches, rest_iter)
 
         k_est = _estimate_k_sample(sample_batches, by_columns)
@@ -205,7 +268,11 @@ def groupby_aggregate(
     # --- Фаза 2: LocalGroupBy по каждой партиции ---
     partial_tables: list[pa.Table] = []
     for i, p in enumerate(partitions):
-        t = _local_groupby(p, by_columns, agg_columns, agg_funcs)
+        t = _local_groupby(
+            p, by_columns, agg_columns, agg_funcs,
+            memory_guard=memory_guard,
+            spill_dir=spill_dir,
+        )
         # Пустая таблица без данных не мешает конкатенации
         if t.num_rows > 0:
             partial_tables.append(t)

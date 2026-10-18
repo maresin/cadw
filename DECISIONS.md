@@ -505,6 +505,8 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 | 4 | `Sort` | `merge_fan_in` эвристика: `k = available // (read_batch_size * 128)`. Не выведена из реального размера строки. | При больших `read_batch_size` и «широких» строках `k * batch` может превысить бюджет. | `k = available / (read_batch_size * row_bytes_estimate)`, с проверкой через `check_partition_buffers`. |
 | 5 | `compute_hashes` | `to_pylist()` создаёт Python-список на батч; memory overhead (Python int ~28 B) не покрыт `check_batch`. | Пик RAM ≈ `batch.nbytes + num_rows * ~30 B`. Для int-колонок — x3–x5. Bounded by batch, но константа существенна. | Векторизовать: `pc.cast` в binary + xxhash по буферу, или `np.void` view; либо явно закладывать коэффициент в `check_batch` перед вызовом. |
 
+**Обновление (патч 02b1):** пункт **1** (`_local_groupby` без `check_batch` + нет рекурсии) — **закрыт**: партиция оценивается по `sum(b.nbytes)`, при переполнении — рекурсивный `hash_shuffle` с новым seed, при `depth >= MAX_DEPTH` — `MemoryLimitExceeded` с указанием на skew. Дополнительно: `groupby_aggregate` проверяет размер sample-буфера (`sample_bytes > available*0.5` → исключение). **Остаётся пункт 3 (skew):** при экстремальном skew (один ключ > 10% N) рекурсия не помогает, нужен skew-детектор + изоляция тяжёлых ключей (патч 02b2).
+
 **Обновление (патч 02a):** пункты **2** (авто-`num_partitions`), **4** (`merge_fan_in` из `row_bytes`), **5** (`check_batch(extra_factor)` для `compute_hashes`) — **закрыты**. Остаются пункты 1 и 3 (см. патч 02b).
 
 **Статус гарантии до закрытия §11.4:**
