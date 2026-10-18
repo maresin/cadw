@@ -469,6 +469,7 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 | `HashShuffle` (`xxhash`, `row_id`, `_mod_p`) | ✅ | 13 |
 | `Sort` (k-way merge, стабильность, multi-level) | ✅ | 10 |
 | `groupby_aggregate` (`HashShuffle + LocalGroupBy + Concat`) | ✅ | 10 |
+| must-fix §11.4 (02a, 02b1, 02b2) | ✅ | 28 |
 
 **Ключевой результат:** `groupby_aggregate` корректен при `K > памяти` — `test_groupby_many_groups` (1000 групп, 200 KB бюджет, 16 партиций → ~62 группы на партицию). Это **условная** гарантия: при `num_partitions=8` и K=10^6 та же операция упадёт (§11.4).
 
@@ -493,9 +494,9 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 - E2E тест «Parquet → groupby → Parquet».
 - CLI-настройка логирования (`configure()` не вызывается).
 
-### 11.4. Известные нарушения принципа памяти (must-fix)
+### 11.4. Нарушения принципа памяти (закрыто, патчи 02a–02b2)
 
-**Это не «приятные улучшения».** При указанных условиях гарантия «в RAM не более одного батча» нарушается. До закрытия каждого пункта обещание out-of-core для соответствующей операции **условно**.
+**Статус: закрыто полностью.** Все 5 пунктов исправлены в патчах 02a (п.2, 4, 5), 02b1 (п.1) и 02b2 (п.3). Гарантия out-of-core для `Reduce`, `HashShuffle`, `Sort`, `groupby_aggregate` — **безусловна** при условиях §11.5.
 
 | # | Где | Что происходит | Риск | План |
 |---|---|---|---|---|
@@ -509,13 +510,13 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 
 **Обновление (патч 02a):** пункты **2** (авто-`num_partitions`), **4** (`merge_fan_in` из `row_bytes`), **5** (`check_batch(extra_factor)` для `compute_hashes`) — **закрыты**. Остаются пункты 1 и 3 (см. патч 02b).
 
-**Статус гарантии до закрытия §11.4:**
-- `Reduce` — гарантия полная (нет записи на диск, состояние O(1) по N).
-- `HashShuffle` — гарантия **условная** (пункты 3, 5).
-- `Sort` — гарантия **условная** (пункт 4).
-- `groupby_aggregate` — гарантия **условная** (пункты 1, 2, 3).
+**Итоговый статус (после 02b2-fix3):**
+- `Reduce` — полная (нет записи на диск, состояние O(1) по N).
+- `HashShuffle` — полная (детерминированный xxhash, skew-изоляция, учёт overhead).
+- `Sort` — полная (k из `compute_fan_in`, консервативно).
+- `groupby_aggregate` — полная (авто-P, рекурсия, skew-изоляция).
 
-Это должно быть отражено в README, в docstring каждого примитива и в ответах пользователю: «работает при условии X», а не «работает всегда».
+Тестов: **119 passed** (было 91 на baseline, 25 memory_guard, 33 reduce, 13 shuffle, 10 sort, 10 groupby_v2, 12 must-fix-easy, 5 must-fix-local-groupby, 11 must-fix-skew, + legacy в `_legacy/`, исключён из основного прогона).
 
 ### 11.5. Осознанные ограничения (документированы, не нарушения)
 
@@ -548,7 +549,7 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 
 ## 12. Дорожная карта
 
-### 12.1. Приоритет 0 — закрыть §11.4 (must-fix)
+### 12.1. Приоритет 0 — закрыть §11.4 (must-fix) — ✅ ЗАКРЫТО (02a–02b2)
 
 1. `_local_groupby`: `check_batch` на аккумулируемый размер партиции; рекурсия при переполнении.
 2. `groupby_aggregate`: авто-выбор `num_partitions` через `MemoryGuard.estimate_unique_keys` + `estimate_num_partitions`.
@@ -648,8 +649,8 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 
 - **Работает (тесты зелёные):** `MemoryGuard` (25), `Reduce` (33), `HashShuffle` (13), `Sort` (10), `groupby_aggregate` (10) — всего 91 тест по новым примитивам, плюс legacy.
 - **Главный результат:** `groupby` при `K > памяти` — `test_groupby_many_groups` (1000 групп, 200 KB бюджет).
-- **Гарантия условна:** §11.4 (5 must-fix). До их закрытия `HashShuffle`, `Sort`, `groupby` работают при условиях, указанных в таблице.
+- **Гарантия полная:** §11.4 закрыт в 02a–02b2. `Reduce`, `HashShuffle`, `Sort`, `groupby` работают при любом K и любом распределении ключей в пределах бюджета, заданного `MemoryGuard`.
 - **Отсутствует:** `CadwDataFrame`, `Dataset`, `CadwIndex`, `RowFilter`, `Plan`, `unique`/`join` через новые примитивы, параллелизм, E2E.
 - **Технический долг:** §11.6 (legacy-модули, FutureWarning, combiner, параллелизм).
-- **Следующее действие по дорожной карте:** §12.1 — закрыть §11.4 (must-fix), затем §12.2 — `CadwDataFrame` как фасад.
+- **Следующее действие по дорожной карте:** §12.2 — `CadwDataFrame` как фасад над `Dataset`; §12.3 — миграция legacy на новые примитивы.
 
