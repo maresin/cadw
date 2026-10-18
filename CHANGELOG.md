@@ -2,6 +2,33 @@
 
 Все значимые изменения проекта CADW. Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 
+## [0.1.3] — 2026-10-18
+
+### Удалено
+- `CadwDataFrame.partial_fit` — адаптер к `sklearn.partial_fit`. Причина:
+  whitelist (`_SAFE_PARTIAL_FIT`) — политика на доверии; любая модель вне
+  whitelist или модель с выросшим state OOM-ит без предупреждения от CADW.
+  См. DECISIONS.md §3.9, §13.4 эпизод 26.
+- `_SAFE_PARTIAL_FIT` whitelist.
+- `tests/test_ml_integration.py` (11 + 1 slow).
+- `tests/test_sklearn_extras.py` (4 + 1 slow).
+- sklearn-секция из `tests/test_api_availability.py` (7 assertions).
+- `scikit-learn` из `[dependency-groups]` (dev).
+- ML-секции из README, заменены на «ML и внешние библиотеки» с policy.
+
+### Добавлено в DECISIONS.md
+- §3.9: «Никаких ML-адаптеров» (не только `fit`, но и `partial_fit`).
+- §11.5: расширенная «Политика ML» (3 класса: экспорт / адаптеры запрещены
+  / собственные реализации v0.3).
+- §12.5.1: план v0.3 — GBDT, Linear, k-means, PCA, NB на примитивах (~8–11
+  сессий на весь ML-слой).
+- §13.4 эпизод 26: whitelist `partial_fit` — политика на доверии, не
+  гарантия.
+
+### Единственный ML-интерфейс CADW
+- `to_batches(format='arrow'|'pandas'|'numpy'|'torch')` — экспорт батчей.
+  Ответственность за OOM в сторонней модели — на пользователе.
+
 ## [0.1.2] — 2026-10-18
 
 ### Удалено

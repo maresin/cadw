@@ -56,24 +56,6 @@ class _ColumnProxy:
         return f"ColumnProxy({self._column!r})"
 
 
-_SAFE_PARTIAL_FIT = frozenset({
-    # linear (SGD)
-    "SGDClassifier", "SGDRegressor", "SGDOneClassSVM",
-    "PassiveAggressiveClassifier", "PassiveAggressiveRegressor",
-    "Perceptron",
-    # scalers
-    "StandardScaler", "MinMaxScaler", "RobustScaler",
-    # clustering
-    "MiniBatchKMeans",
-    # NB
-    "MultinomialNB", "BernoulliNB", "ComplementNB",
-    # decomposition (safe for d < 1000; см. DECISIONS §11.5)
-    "IncrementalPCA",
-    # neural (sklearn, small)
-    "MLPClassifier", "MLPRegressor",
-})
-
-
 class CadwDataFrame:
     # ---------------- construction ----------------
 
@@ -376,70 +358,6 @@ class CadwDataFrame:
         finally:
             writer.close()
         return path
-
-    # ---------------- partial_fit ----------------
-
-    def partial_fit(
-        self,
-        model: Any,
-        X_cols: str | Sequence[str],
-        y_col: str | None = None,
-        *,
-        batch_size: int | None = None,
-        **fit_kwargs: Any,
-    ) -> Any:
-        """Потоковое обучение модели с методом .partial_fit.
-
-        - X_cols: колонки признаков (str или list[str]);
-        - y_col=None: модель без y (StandardScaler, IncrementalPCA).
-          partial_fit(X, **kw);
-        - y_col=str: partial_fit(X, y, **kw).
-
-        Внутри: per-batch конвертация X (np.column_stack) и y (.to_numpy);
-        никаких построчных циклов. Модель обучается батч за батчем.
-
-        **Контракт безопасности.** partial_fit должен давать O(1)-state
-        относительно N (числа строк). Это не контроль со стороны CADW —
-        это ответственность модели. Модели с O(N)-state (любая модель, где
-        partial_fit накапливает все данные) приведут к OOM независимо от
-        MemoryGuard. Для моделей, не входящих в _SAFE_PARTIAL_FIT,
-        выдаётся RuntimeWarning. См. DECISIONS.md §11.5.
-
-        Возвращает обученную модель (тот же объект, изменённый in-place).
-        """
-        x_cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
-        for c in x_cols:
-            if c not in self._columns:
-                raise KeyError(f"partial_fit: X column {c!r} not in selection")
-        if y_col is not None and y_col not in self._columns:
-            raise KeyError(f"partial_fit: y column {y_col!r} not in selection")
-
-        _cls = type(model).__name__
-        if _cls not in _SAFE_PARTIAL_FIT:
-            import warnings
-            warnings.warn(
-                f"CadwDataFrame.partial_fit: model class {_cls!r} is not in "
-                f"_SAFE_PARTIAL_FIT. Only safe if its partial_fit keeps O(1) "
-                f"state w.r.t. N. Otherwise OOM possible despite MemoryGuard. "
-                f"See DECISIONS.md §11.5.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
-        n_batches = 0
-        for b in self._iter_arrow_batches(batch_size=batch_size):
-            X = np.column_stack(
-                [b.column(c).to_numpy(zero_copy_only=False) for c in x_cols]
-            )
-            if y_col is not None:
-                y = b.column(y_col).to_numpy(zero_copy_only=False)
-                model.partial_fit(X, y, **fit_kwargs)
-            else:
-                model.partial_fit(X, **fit_kwargs)
-            n_batches += 1
-        if n_batches == 0:
-            raise ValueError("partial_fit: no batches produced (empty data?)")
-        return model
 
     # ---------------- helpers ----------------
 

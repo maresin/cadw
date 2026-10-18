@@ -1,10 +1,11 @@
 """
-Pre-flight guard: API PyArrow / sklearn / xxhash, которые CADW
+Pre-flight guard: API PyArrow / xxhash, которые CADW
 использует. Если внешняя библиотека изменит сигнатуру — этот файл упадёт
 первым с понятным сообщением, а не 30 тестов с AttributeError.
 
 Основание: DECISIONS.md §13.4 — 24 эпизода отладки, ~40% из них —
-API-контракты. Классы: параметры (`type_` → `type`), методы
+API-контракты. После патча 09 sklearn удалён из CADW; остаются только
+PyArrow и xxhash. Классы: параметры (`type_` → `type`), методы
 (`arr.length` → `len(arr)`, `num_data` → `num_data()`), отсутствующие
 функции (`pc.hash`, `serialize_schema`), deprecated kwargs
 (`IncrementalPCA(random_state=)`), required kwargs (`classes=`, `n_features=`).
@@ -84,59 +85,3 @@ def test_xxhash_accepts_bytes():
     assert isinstance(h, int)
     with pytest.raises(TypeError):
         xxhash.xxh64("abc", seed=0)
-
-
-# ---------- sklearn ----------
-
-def test_sklearn_version():
-    import sklearn
-    assert sklearn.__version__ >= "1.4", f"sklearn>=1.4 required, got {sklearn.__version__}"
-
-
-def test_sgd_partial_fit_classes_kwarg():
-    """SGDClassifier.partial_fit требует classes= на первом вызове."""
-    from sklearn.linear_model import SGDClassifier
-    import numpy as np
-    model = SGDClassifier(loss="log_loss", random_state=0)
-    X = np.array([[0.0], [1.0]])
-    y = np.array([0, 1])
-    # classes — обязательный kwarg в API; проверим, что передача работает
-    model.partial_fit(X, y, classes=[0, 1])
-    assert hasattr(model, "classes_")
-
-
-def test_standard_scaler_partial_fit():
-    from sklearn.preprocessing import StandardScaler
-    assert hasattr(StandardScaler(), "partial_fit")
-
-
-def test_minibatch_kmeans_partial_fit():
-    from sklearn.cluster import MiniBatchKMeans
-    assert hasattr(MiniBatchKMeans(), "partial_fit")
-
-
-def test_incremental_pca_partial_fit():
-    from sklearn.decomposition import IncrementalPCA
-    model = IncrementalPCA(n_components=1)
-    assert hasattr(model, "partial_fit")
-
-
-def test_incremental_pca_signature_no_random_state():
-    """IncrementalPCA.__init__ не принимает random_state; partial_fit — без n_features."""
-    from sklearn.decomposition import IncrementalPCA
-    init_sig = inspect.signature(IncrementalPCA.__init__)
-    assert "random_state" not in init_sig.parameters, (
-        "IncrementalPCA now accepts random_state? Update test if API changed"
-    )
-    fit_sig = inspect.signature(IncrementalPCA.partial_fit)
-    assert "n_features" not in fit_sig.parameters, (
-        "IncrementalPCA.partial_fit now requires n_features? Update DataFrame.partial_fit"
-    )
-
-
-def test_pca_has_no_partial_fit():
-    """PCA (batch-only) не должен иметь partial_fit; если появился — можно упростить."""
-    from sklearn.decomposition import PCA
-    assert not hasattr(PCA, "partial_fit"), (
-        "PCA now has partial_fit? Consider simplifying CadwDataFrame.partial_fit"
-    )

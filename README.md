@@ -18,7 +18,7 @@ Out-of-core фреймворк для табличных данных, не по
 
 **Гарантия out-of-core условна** — см. `DECISIONS.md` §11.4 (5 must-fix).
 
-Реализовано: `CadwDataFrame`, `Dataset`, `RowFilter`, ленивые `__getitem__`, `unique`, `sort_values`, `groupby`, `partial_fit` (sklearn, потоково), E2E на 200k строк / 20 MB budget. См. `DECISIONS.md` §11.1.
+Реализовано: `CadwDataFrame`, `Dataset`, `RowFilter`, ленивые `__getitem__`, `unique`, `sort_values`, `groupby`, `to_batches(format=...)`, E2E на 200k строк / 20 MB budget. ML — вне scope CADW. См. `DECISIONS.md` §11.1.
 
 ## Установка
 
@@ -38,56 +38,26 @@ result = groupby_aggregate(reader, ["cat"], ["val"], ["mean"], guard, "./spill")
 print(result)
 ```
 
+## ML и внешние библиотеки
 
-## ML-интеграция
-
-### sklearn: partial_fit (потоковое обучение)
-
-**Политика ML.** CADW поддерживает только модели с **O(1)-state** относительно числа строк (истинно инкрементальные). Модели, которым нужен весь датасет в RAM (`PCA.fit`, `lgb.train`, любой `fit` без `partial_fit`), **не поддерживаются** — они OOM-ят независимо от `MemoryGuard`. См. `DECISIONS.md` §3.9 и §11.5.
-
-```python
-from sklearn.linear_model import SGDClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.decomposition import IncrementalPCA
-
-guard = MemoryGuard(max_memory_mb=100)
-df = CadwDataFrame.from_parquet("data.parquet", "cache/", memory_guard=guard)
-
-# Модели без y
-scaler = StandardScaler()
-df.partial_fit(scaler, X_cols=["x1", "x2"], y_col=None, batch_size=5000)
-
-kmeans = MiniBatchKMeans(n_clusters=5)
-df.partial_fit(kmeans, X_cols=["x1", "x2"], y_col=None, batch_size=5000)
-
-ipca = IncrementalPCA(n_components=2)
-df.partial_fit(ipca, X_cols=["x1", "x2"], y_col=None, batch_size=5000)
-
-# Модель с y (классификация)
-model = SGDClassifier()
-for _ in range(3):
-    df.partial_fit(model, X_cols=["x1", "x2"], y_col="y", batch_size=5000,
-                   classes=[0, 1])
-```
-
-Батчи конвертируются в numpy на лету, память ограничена `MemoryGuard`.
-
-**Ограничения API sklearn** (не CADW):
-- `SGDClassifier.partial_fit` требует `classes=[0, 1]` на первом вызове.
-- `IncrementalPCA.partial_fit` требует `n_features=d` на первом вызове.
-- `PCA` (не `Incremental`) не имеет `partial_fit`: для batch-only
-  используйте `to_batches(format='numpy')` → `np.vstack` → `PCA.fit`
-  (это материализует весь датасет, не out-of-core).
-
-### Экспорт батчей
+CADW **не является ML-фреймворком**. Он даёт `to_batches(format=...)` для
+экспорта батчей в вашу модель. Если ваша модель OOM-ит — это её состояние,
+а не CADW. Гарантия out-of-core действует только на код CADW, не на
+сторонние библиотеки.
 
 ```python
-for batch in df.to_batches(format="numpy", batch_size=10000):
+for batch in df.to_batches(format="numpy", batch_size=10_000):
     # batch: dict[str, np.ndarray]
-    ...
-for batch in df.to_batches(format="torch"):
-    # batch: dict[str, torch.Tensor]
-    ...
+    process_batch(batch)
 ```
+
+**Не поддерживается:**
+- адаптеры к `lgb.train`, `xgb.fit`, `PCA.fit`, `HistGradientBoosting.fit`
+  и любым `fit`-методам без `partial_fit` — они OOM-ят внутри библиотеки,
+  `MemoryGuard` не спасает;
+- `partial_fit`-адаптеры — whitelist невозможен без доверия к модели.
+
+**Планируется** (v0.3+): собственные алгоритмы на примитивах:
+GBDT (level-wise, аналог `HistGradientBoosting`), Linear, k-means, PCA,
+Naive Bayes. См. `DECISIONS.md` §12.5.
 
