@@ -1,6 +1,7 @@
 """CADW: out-of-core dataframe. См. DECISIONS.md."""
 from .core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from .dataset import Dataset
+from .dataframe import CadwDataFrame
 from .io.batch_reader import ParquetBatchReader, ArrowIPCBatchReader
 from .io.batch_writer import ParquetBatchWriter, ArrowIPCBatchWriter
 from .ops.reduce import (
@@ -14,7 +15,7 @@ from .ops.sort import external_sort, read_sorted
 from .ops.groupby import groupby_aggregate, write_groupby_result
 
 __all__ = [
-    "MemoryGuard", "MemoryLimitExceeded", "Dataset",
+    "MemoryGuard", "MemoryLimitExceeded", "Dataset", "CadwDataFrame",
     "ParquetBatchReader", "ArrowIPCBatchReader",
     "ParquetBatchWriter", "ArrowIPCBatchWriter",
     "reduce", "ReduceOp",

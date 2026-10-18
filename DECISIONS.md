@@ -471,6 +471,7 @@ batch_rows = floor( available_bytes * safety / (row_bytes_input * expansion_fact
 | `groupby_aggregate` (`HashShuffle + LocalGroupBy + Concat`) | ✅ | 10 |
 | must-fix §11.4 (02a, 02b1, 02b2) | ✅ | 28 |
 | `Dataset` (03a, per-column Arrow IPC, sync batches) | ✅ | 13 |
+| `CadwDataFrame` (03b, минимальный фасад) | ✅ | 17 |
 
 **Ключевой результат:** `groupby_aggregate` корректен при `K > памяти` — `test_groupby_many_groups` (1000 групп, 200 KB бюджет, 16 партиций → ~62 группы на партицию). Это **условная** гарантия: при `num_partitions=8` и K=10^6 та же операция упадёт (§11.4).
 
