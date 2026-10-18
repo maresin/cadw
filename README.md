@@ -18,7 +18,7 @@ Out-of-core фреймворк для табличных данных, не по
 
 **Гарантия out-of-core условна** — см. `DECISIONS.md` §11.4 (5 must-fix).
 
-Реализовано: `CadwDataFrame`, `Dataset`, `RowFilter`, ленивые `__getitem__`, `unique`, `sort_values`, `groupby`, E2E на 200k строк / 20 MB budget. См. `DECISIONS.md` §11.1.
+Реализовано: `CadwDataFrame`, `Dataset`, `RowFilter`, ленивые `__getitem__`, `unique`, `sort_values`, `groupby`, `partial_fit` (sklearn, потоково), E2E на 200k строк / 20 MB budget. См. `DECISIONS.md` §11.1.
 
 ## Установка
 
@@ -42,6 +42,8 @@ print(result)
 ## ML-интеграция
 
 ### sklearn: partial_fit (потоковое обучение)
+
+**Политика ML.** CADW поддерживает только модели с **O(1)-state** относительно числа строк (истинно инкрементальные). Модели, которым нужен весь датасет в RAM (`PCA.fit`, `lgb.train`, любой `fit` без `partial_fit`), **не поддерживаются** — они OOM-ят независимо от `MemoryGuard`. См. `DECISIONS.md` §3.9 и §11.5.
 
 ```python
 from sklearn.linear_model import SGDClassifier
@@ -78,17 +80,6 @@ for _ in range(3):
   используйте `to_batches(format='numpy')` → `np.vstack` → `PCA.fit`
   (это материализует весь датасет, не out-of-core).
 
-### LightGBM: честный downsampling
-
-```python
-ds = df.to_lightgbm(["x1", "x2"], "y", max_rows=1_000_000)
-booster = lgb.train({"objective": "binary"}, ds, num_boost_round=100)
-```
-
-**Ограничение:** LightGBM требует весь датасет в RAM. `to_lightgbm(max_rows=N)`
-материализует до N строк; для N больше бюджета — distributed LightGBM
-(Spark/Dask) или downsampling. См. `DECISIONS.md` §11.5.
-
 ### Экспорт батчей
 
 ```python
@@ -99,20 +90,4 @@ for batch in df.to_batches(format="torch"):
     # batch: dict[str, torch.Tensor]
     ...
 ```
-
-### Категориальные признаки (LightGBM)
-
-LightGBM принимает `categorical_feature=[индексы в X]`; X должен быть
-числовым. CADW не кодирует строки автоматически. Для строковых категорий
-сначала кодируйте:
-
-```python
-# TODO: df.encode_categorical(["cat"]) — кандидат в §12.5-ext
-df['cat_code'] = ...  # ваше кодирование
-ds = df.to_lightgbm(["cat_code", "x1"], "y", categorical_cols=["cat_code"])
-```
-
-## Документация
-
-- `DECISIONS.md` — архитектура, алгоритмы, статус, must-fix, уроки.
 

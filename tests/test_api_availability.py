@@ -1,5 +1,5 @@
 """
-Pre-flight guard: API PyArrow / sklearn / LightGBM / xxhash, которые CADW
+Pre-flight guard: API PyArrow / sklearn / xxhash, которые CADW
 использует. Если внешняя библиотека изменит сигнатуру — этот файл упадёт
 первым с понятным сообщением, а не 30 тестов с AttributeError.
 
@@ -140,21 +140,3 @@ def test_pca_has_no_partial_fit():
     assert not hasattr(PCA, "partial_fit"), (
         "PCA now has partial_fit? Consider simplifying CadwDataFrame.partial_fit"
     )
-
-
-# ---------- LightGBM ----------
-
-def test_lightgbm_version_and_dataset():
-    import lightgbm as lgb
-    assert lgb.__version__ >= "4.0", f"lightgbm>=4.0 required, got {lgb.__version__}"
-    assert hasattr(lgb, "Dataset")
-    assert hasattr(lgb, "train")
-
-
-def test_lgb_dataset_num_data_is_method():
-    """ds.num_data() — метод, не атрибут."""
-    import lightgbm as lgb
-    assert hasattr(lgb.Dataset, "num_data")
-    assert callable(lgb.Dataset.num_data), "num_data must be callable, not attribute"
-    assert hasattr(lgb.Dataset, "num_feature")
-    assert callable(lgb.Dataset.num_feature)

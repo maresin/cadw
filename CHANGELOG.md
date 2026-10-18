@@ -2,6 +2,38 @@
 
 Все значимые изменения проекта CADW. Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 
+## [0.1.2] — 2026-10-18
+
+### Удалено
+- `CadwDataFrame.to_lightgbm` — адаптер к LightGBM. Причина: `lgb.train`
+  требует O(N)-state (все градиенты в RAM), OOM происходит внутри
+  библиотеки, `MemoryGuard` не спасает. Противоречит §3.9 «no adapters to
+  O(N)-algorithms». См. DECISIONS.md §13.4 эпизод 25.
+- `tests/test_lightgbm.py` (11 + 1 slow тестов).
+- `lightgbm` из `[dependency-groups]` (dev).
+- LightGBM-секции из README, DECISIONS §4.1/§11.5/§12.5/§13.3.
+
+### Изменено
+- `CadwDataFrame.partial_fit`: добавлен whitelist `_SAFE_PARTIAL_FIT`
+  (SGD, StandardScaler, MiniBatchKMeans, IncrementalPCA, NB, MLP).
+  Модели вне whitelist → `RuntimeWarning` с указанием на §11.5.
+  Docstring обновлён: контракт безопасности (модель должна иметь
+  O(1)-state w.r.t. N, это ответственность модели, не CADW).
+- `tests/test_api_availability.py`: убрана LightGBM-секция.
+
+### Добавлено в DECISIONS.md
+- §3.9: «Никаких адаптеров к O(N)-алгоритмам».
+- §11.5: блок «Политика ML» (3 класса: incremental / batch-only /
+  own implementation).
+- §11.4: обнаружена регрессия `_local_groupby` (materialize до
+  `check_state`) — вынесена как must-fix.
+- §13.4 эпизод 25: почему адаптер к LightGBM — ошибка.
+
+### Планы
+- v0.3: свой GBDT (level-wise, аналог `sklearn.HistGradientBoosting`) на
+  примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
+  `Reduce` (sum_grad/sum_hess/count).
+
 ## [0.1.0] — 2026-10-18
 
 Первый production-ready каркас: три примитива out-of-core с безусловной

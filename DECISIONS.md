@@ -78,6 +78,14 @@ rolling) — композиции готовых примитивов, не пе
 8. **Честный фасад.** `CadwDataFrame` не реализует алгоритмы; guard-тесты
    (`test_facade_has_no_as_py`, `test_facade_has_no_row_loop_ast`) ловят
    регресс на уровне AST.
+9. **Никаких адаптеров к O(N)-алгоритмам.** Любая внешняя функция,
+   которой нужен весь датасет в RAM (`lgb.train`, `PCA.fit`,
+   `XGBRegressor.fit`, любой `fit` без `partial_fit`), несовместима с
+   целью CADW. `MemoryGuard` не спасёт: OOM происходит **внутри**
+   сторонней библиотеки, до возврата управления. Такие функции не
+   подключаются как адаптеры; если нужны — пишутся на примитивах.
+   Исключение — `partial_fit` у моделей с **доказанным** O(1)-state
+   (см. §11.5, whitelist в `CadwDataFrame`).
 
 ---
 
@@ -87,7 +95,7 @@ rolling) — композиции готовых примитивов, не пе
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 6. ML: to_batches(format), partial_fit, to_lightgbm          │
+│ 6. ML: to_batches(format), partial_fit (O(1)-state models)    │
 ├─────────────────────────────────────────────────────────────┤
 │ 5. CadwDataFrame: pandas-подобный API + ленивый __getitem__  │
 ├─────────────────────────────────────────────────────────────┤
@@ -430,6 +438,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | ML: `to_batches(format)` + `partial_fit` | ✅ | 11 + 1 (slow) |
 | LightGBM `to_lightgbm(max_rows)` | ✅ | 10 + 1 (slow) |
 | sklearn extras (`MiniBatchKMeans`, `IncrementalPCA`) | ✅ | 4 + 1 (slow) |
+| ~~LightGBM `to_lightgbm`~~ | ❌ удалён (08: O(N), противоречит §3.9) | 0 |
 | Architecture guards (legacy, AST) | ✅ | 3 |
 | API availability guard (07, 18 assertions) | ✅ | 18 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
@@ -499,10 +508,29 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `shape` на отфильтрованном `CadwDataFrame` — upper bound | `CadwDataFrame` | точное — `.count()` (сканирует) |
 | `df['a'] in [...]` через `==` возвращает `PredicateFilter`, не bool | `_ColumnProxy` | `df['a'].isin([...])` — кандидат v0.2; как в pandas |
 | `df[-5:]` (отрицательный slice) — не поддержано | `SliceFilter` | `step > 0`, `start >= 0`; для отрицательных — `count()` + пересчёт |
-| `to_lightgbm(max_rows=N)` материализует до N строк | `CadwDataFrame` | LightGBM требует весь датасет в RAM; N — под бюджет; для большего — distributed LightGBM |
 | `PCA` (batch-only) не имеет `partial_fit`; `IncrementalPCA.partial_fit(X)` без `n_features` (выводится из `X.shape[1]`) | `CadwDataFrame.partial_fit` | для batch-only `PCA` — `to_batches(format='numpy')` → `np.vstack` → `PCA.fit` (не out-of-core). `n_features` — API `LatentDirichletAllocation`/`SGDOneClassSVM`, не PCA |
 | `SGDClassifier.partial_fit` требует `classes=[...]` на первом вызове | `CadwDataFrame.partial_fit` | `classes=[0, 1]` в kwargs первого вызова |
-| Категориальные признаки для LightGBM — int-encoded, не строки | `to_lightgbm` | пользователь кодирует сам; `encode_categorical` — кандидат v0.2 |
+
+**Политика ML (после патча 08).** CADW не является ML-фреймворком.
+Он предоставляет примитивы и фасад; ML-алгоритмы делятся на три класса:
+
+1. **Истинно инкрементальные** (`partial_fit` с O(1)-state):
+   `SGDClassifier`, `StandardScaler`, `MiniBatchKMeans`,
+   `IncrementalPCA` (d<1000), `MultinomialNB`, …
+   → поддерживаются через `CadwDataFrame.partial_fit`.
+   Whitelist — `_SAFE_PARTIAL_FIT` в `dataframe.py`.
+   Модели вне whitelist → `RuntimeWarning` (не блок).
+
+2. **Batch-only, O(N)-state** (`fit` без `partial_fit`):
+   `PCA`, `RandomForest`, `XGBoost`, `LightGBM` (`lgb.train`),
+   `HistGradientBoosting`, … → **не поддерживаются** (§3.9).
+   Причина: OOM внутри библиотеки, `MemoryGuard` не спасает.
+
+3. **Собственные реализации на примитивах** (v0.3+):
+   GBDT (level-wise, аналог `HistGradientBoosting`),
+   `PCA` (через `CovarianceOp` — уже есть),
+   k-means (итеративный `Reduce` центроидов).
+   Каждая — композиция `Reduce`/`HashShuffle`/`Sort`, не адаптер.
 
 ### 11.6. Технический долг
 
@@ -581,8 +609,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `xxhash.xxh64(repr(v).encode())` | `pc.hash` | `pc.hash` отсутствует в PyArrow 24–26 |
 | NumPy `uint64` для hash_combine | `pc.add`/`pc.shift_left` | Arrow `ArrowInvalid` на overflow |
 | `_unique_columns(value, key)` | передавать как есть | `Multiple matches` |
-| `to_lightgbm(max_rows)` (downsampling) | `lgb.Sequence` | LightGBM всё равно O(N) на гистограммах; Sequence мало документирован |
 | `IncrementalPCA` | `PCA.partial_fit` | у `PCA` нет `partial_fit` |
+| Свой GBDT на примитивах (v0.3) | Адаптер к LightGBM / XGBoost / HGB | адаптер O(N) → OOM в сторонней библиотеке; `MemoryGuard` не спасает |
 
 ### 13.4. Уроки из отладки (по классам)
 
@@ -625,6 +653,20 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 - Guard-тесты на архитектуру — AST, а не текст; проверка физического состояния, а не только импортов.
 - «Документированное ограничение» проверяется тестом; ложные ограничения хуже отсутствующих.
 
+**Эпизод 25 (архитектурный, важный).** `to_lightgbm(max_rows=N)` был
+реализован как «честный downsampling» — с явным `max_rows` и документированным
+ограничением. Но это **противоречит цели проекта**: пользователь думает, что
+обучил модель на 500 ГБ, а фактически — на 1 млн строк. `lgb.train` — O(N)-state
+(все градиенты в RAM), `lgb.Sequence` не помогает (LightGBM всё равно строит
+гистограммы по всему датасету), форк LightGBM — вне нашей задачи.
+**Урок:** адаптер к O(N)-алгоритму — иллюзия out-of-core. `MemoryGuard` не
+может предотвратить OOM, который происходит **внутри** сторонней библиотеки,
+после возврата управления в её код. Поэтому принцип §3.9: no adapters to
+O(N)-algorithms. ML-функции, требующие весь датасет, должны быть
+реализованы на примитивах (v0.3: свой GBDT) или не реализованы вовсе.
+`partial_fit` — исключение, потому что это **истинно инкрементальный**
+паттерн с O(1)-state (whitelist).
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).
@@ -658,3 +700,6 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 
 **v0.1.0 зафиксирован: каркас production-ready. Дальнейшие функции —
 композиции готовых примитивов, не переделка ядра.**
+
+**v0.1.2 (патч 08):** `to_lightgbm` удалён (§3.9). ML — только
+`partial_fit` для O(1)-state моделей. GBDT — на примитивах (v0.3).
