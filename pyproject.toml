@@ -1,0 +1,44 @@
+[project]
+name = "cadw-framework"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.4.4",
+    "pandas>=3.0.2",
+    "psutil>=7.2.2",
+    "pyarrow>=26.0.0",
+    "xxhash>=3.4.1",
+]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportUnknownParameterType = false
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
+reportMissingTypeStubs = false
+reportPrivateUsage = false
+reportUnannotatedClassAttribute = false
+reportImplicitOverride = false
+reportDeprecated = false
+reportGeneralTypeIssues = "warning"   # не error
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (E2E, >1s)",
+]
+testpaths = ["tests"]
+norecursedirs = ["_legacy", ".venv", "build", "dist"]
+
+[dependency-groups]
+dev = [
+    "scikit-learn>=1.4",
+    "lightgbm>=4.0",
+    "pytest>=9.0.3",
+    "pylint>=4.0.5",
+    "pyright>=1.1.409",
+    "ruff>=0.15.12",
+    "pandas-stubs>=3.0.0.260204",
+]

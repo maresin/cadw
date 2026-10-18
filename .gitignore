@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Test & lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.basedpyright/
+htmlcov/
+.coverage
+
+# CADW runtime
+cadw_cache/
+cadw_shuffle/
+
+# Backups & analysis (local only)
+.backups/
+merged_*.py
+snapshot_*.py
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
