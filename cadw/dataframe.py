@@ -403,6 +403,75 @@ class CadwDataFrame:
             raise ValueError("partial_fit: no batches produced (empty data?)")
         return model
 
+    # ---------------- LightGBM ----------------
+
+    def to_lightgbm(
+        self,
+        X_cols: str | Sequence[str],
+        y_col: str,
+        *,
+        max_rows: int | None = None,
+        categorical_cols: Sequence[str] | None = None,
+        **lgb_params: Any,
+    ):
+        """Создать lgb.Dataset из (≤max_rows) первых строк.
+
+        Контракт:
+          - LightGBM не поддерживает потоковое обучение; ему нужен весь
+            датасет в RAM. Этот метод материализует до max_rows строк
+            (порядок: как в self, т.е. с учётом фильтров/сортировки).
+          - max_rows=None → все строки (может OOM на большом датасете;
+            используйте MemoryGuard.available_bytes() для оценки N).
+          - max_rows < total → downsampling (первые max_rows, не случайные).
+          - categorical_cols — передаются в lgb.Dataset(categorical_feature=...).
+
+        Пример:
+            guard = MemoryGuard(max_memory_mb=200)
+            # ~200 MB / ~200 B/строка ≈ 1M строк
+            X_cols = ["x1", "x2"]
+            lgb_train = df.to_lightgbm(X_cols, "y", max_rows=1_000_000)
+            booster = lgb.train({"objective": "binary"}, lgb_train, num_boost_round=100)
+
+        Возвращает lgb.Dataset.
+        """
+        import lightgbm as lgb  # ленивый импорт
+
+        x_cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
+        for c in x_cols:
+            if c not in self._columns:
+                raise KeyError(f"to_lightgbm: X column {c!r} not in selection")
+        if y_col not in self._columns:
+            raise KeyError(f"to_lightgbm: y column {y_col!r} not in selection")
+
+        if max_rows is not None and max_rows <= 0:
+            raise ValueError("max_rows must be positive or None")
+
+        # Материализуем до max_rows строк.
+        # Используем .head() — он уже оптимизирован на N без полного скана.
+        n_take = self.count() if max_rows is None else min(max_rows, self.count())
+        if n_take == 0:
+            raise ValueError("to_lightgbm: no rows (empty dataframe / filter)")
+
+        table = self.head(n_take)
+        X = np.column_stack([
+            table.column(c).to_numpy(zero_copy_only=False) for c in x_cols
+        ])
+        y = table.column(y_col).to_numpy(zero_copy_only=False)
+
+        dataset_params: dict = {}
+        if categorical_cols:
+            cats = list(categorical_cols)
+            for c in cats:
+                if c not in x_cols:
+                    raise KeyError(
+                        f"to_lightgbm: categorical column {c!r} not in X_cols"
+                    )
+            dataset_params["categorical_feature"] = [
+                x_cols.index(c) for c in cats
+            ]
+
+        return lgb.Dataset(X, label=y, **dataset_params, **lgb_params)
+
     # ---------------- helpers ----------------
 
     def _wrap_result_table(self, table: pa.Table) -> "CadwDataFrame":
