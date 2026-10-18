@@ -28,5 +28,5 @@ snapshot_*.py
 *.swp
 .DS_Store
 
-# Analysis artifacts & experimental data (fix_other_leak)
+# uv init artifact (should not be tracked)
 main.py

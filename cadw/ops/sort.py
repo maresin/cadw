@@ -97,12 +97,14 @@ def _write_run(
     run_idx: int,
 ) -> Path:
     table = pa.Table.from_batches(batches)
+    # null_placement передаётся per-key (per-key API с 25.0.0; глобальный
+    # SortOptions.null_placement deprecated).
+    null_placement = "at_start" if nulls_first else "at_end"
     sort_keys = [
-        (col, "ascending" if asc else "descending")
+        (col, "ascending" if asc else "descending", null_placement)
         for col, asc in zip(key_columns, ascending)
     ]
-    null_placement = "at_start" if nulls_first else "at_end"
-    order = pc.sort_indices(table, sort_keys=sort_keys, null_placement=null_placement)
+    order = pc.sort_indices(table, sort_keys=sort_keys)
     sorted_table = table.take(order)
 
     path = spill_dir / f"run_{run_idx:05d}.arrow"

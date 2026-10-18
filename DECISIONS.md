@@ -431,6 +431,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | LightGBM `to_lightgbm(max_rows)` | ✅ | 10 + 1 (slow) |
 | sklearn extras (`MiniBatchKMeans`, `IncrementalPCA`) | ✅ | 4 + 1 (slow) |
 | Architecture guards (legacy, AST) | ✅ | 3 |
+| API availability guard (07, 18 assertions) | ✅ | 18 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -507,12 +508,12 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 
 | Долг | Влияние |
 |---|---|
-| `FutureWarning: null_placement deprecated` в `Sort` | шум в тестах; заменить на per-sort-key |
+| ~~`FutureWarning: null_placement deprecated`~~ | ~~шум в тестах~~ → **закрыто** (патч 07: per-key `sort_keys`) |
 | Combiner (частичная агрегация до записи партиций) отсутствует | объём партиций больше, чем мог бы быть |
 | Параллелизм чтения колонок отсутствует | медленнее на SSD |
 | `_Key` работает через `as_py()` | медленно для сложных типов |
 | `configure()` логирования не вызывается | логи по умолчанию не настроены |
-| `scripts/check_api.py` отсутствует | 24 эпизода API-контрактов в §13.4 |
+| ~~`scripts/check_api.py` отсутствует~~ | ~~24 эпизода API-контрактов~~ → **закрыто** (патч 07: `tests/test_api_availability.py`, 18 assertions) |
 
 ---
 
