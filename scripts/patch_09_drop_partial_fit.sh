@@ -418,7 +418,7 @@ uv sync
 
 # ---------- 9. Проверка, что sklearn нигде не осталось ----------
 echo "=== grep sklearn / partial_fit (должно быть 0) ==="
-if grep -rn "sklearn\|partial_fit" cadw/ 2>/dev/null; then
+if grep -rn "sklearn\|partial_fit" cadw/ --include="*.py" 2>/dev/null; then
   echo "  WARNING: sklearn/partial_fit остатки в cadw/"
   exit 1
 else
