@@ -130,18 +130,28 @@ def line_agg(
     agg_col: str,
     agg: str = "mean",
 ) -> pa.Table:
-    """Groupby aggregate for line plot. Returns small Table (K rows)."""
+    """Groupby aggregate for line plot, SORTED by `by` ascending.
+
+    v0.7.4b-fix: df.groupby().agg() returns rows in hash-partition order,
+    not sorted. Line renderers (plotly Scatter, sns.lineplot,
+    matplotlib plot) draw line segments in given x-order — unsorted
+    "zig-zag" segments. We sort here (K rows, safe — direct sort).
+
+    Returns small Table (K rows), sorted by `by`.
+    """
     for c in (by, agg_col):
         if c not in df.columns:
             raise KeyError(f"line_agg: column {c!r} not in df")
     if agg not in {"mean", "sum", "count", "min", "max"}:
         raise ValueError(f"line_agg: agg must be sum/mean/count/min/max; got {agg}")
     result_df = df.groupby(by).agg(agg_col, agg)
-    # Materialize as pa.Table (K rows — safe)
     batches = list(result_df._iter_filtered_batches())
     if not batches:
         return pa.Table.from_batches([], schema=result_df._dataset.schema)
-    return pa.Table.from_batches(batches)
+    table = pa.Table.from_batches(batches)
+    # Sort by `by` ascending (K rows — small, safe in-memory sort)
+    order = table.sort_by([(by, "ascending")])
+    return order
 
 
 def sample(df, n: int = 10_000):
