@@ -271,33 +271,25 @@ def test_rolling_on_iter_zipped_appends_not_replaces():
     )
 
 def test_rolling_on_min_with_nulls(tmp_path):
-    """S1 regression (on=col): min + null must not crash."""
+    """S1 regression (min + null, on=col) + reference-derived (§13.4/128)."""
+    from tests._helpers.rolling_reference import expected_rolling
+    vals_in = [3.0, None, 1.0, None, 5.0]
     df = make_df(tmp_path, data={
         "ts": [1, 2, 3, 4, 5],
-        "v": [3.0, None, 1.0, None, 5.0],
+        "v": vals_in,
     })
     res = df.rolling(2, "min", on="ts", columns=["v"], min_periods=1)
-    vals = read_col(res, tmp_path, "v_rolling_min")
-    # Sorted by ts is already 1..5; positional nulls consume slot:
-    # [3, 3, 1, 1, 5]. Row_id = original position.
-    assert vals == [3.0, 3.0, 1.0, 1.0, 5.0]
-
+    got = read_col(res, tmp_path, "v_rolling_min")
+    assert got == expected_rolling(vals_in, 2, "min", min_periods=1)
 
 def test_rolling_on_max_with_nulls(tmp_path):
-    """S1 regression (on=col): max + null must not crash.
-
-    ts already sorted 1..5; same positional walk as positional test:
-      pos0 [3.0]        → 3.0
-      pos1 [3.0, None]  → 3.0
-      pos2 [None, 1.0]  → 1.0  (3.0 evicted)
-      pos3 [1.0, None]  → 1.0
-      pos4 [None, 5.0]  → 5.0
-    """
+    """S1 regression (max + null, on=col) + reference-derived (§13.4/128)."""
+    from tests._helpers.rolling_reference import expected_rolling
+    vals_in = [3.0, None, 1.0, None, 5.0]
     df = make_df(tmp_path, data={
         "ts": [1, 2, 3, 4, 5],
-        "v": [3.0, None, 1.0, None, 5.0],
+        "v": vals_in,
     })
     res = df.rolling(2, "max", on="ts", columns=["v"], min_periods=1)
-    vals = read_col(res, tmp_path, "v_rolling_max")
-    assert vals == [3.0, 3.0, 1.0, 1.0, 5.0]
-
+    got = read_col(res, tmp_path, "v_rolling_max")
+    assert got == expected_rolling(vals_in, 2, "max", min_periods=1)

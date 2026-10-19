@@ -2387,6 +2387,56 @@ Prototype-first (§13.4/123) фиксирует **алгоритм**, но не 
 используется в тестах как ground truth. Разные тесты — одна реализация
 (не 4 копии) + нет мысленной арифметики.
 
+**Эпизод 129 (meta-guard: `rolling_reference` helper).** §13.4/128
+зафиксировал: test-expectation для rolling+nulls — источник ошибок
+(2 итерации v0.8.4-fix). Корень — **ручная арифметика** в expected,
+не в коде.
+
+**Fix (v0.8.5):** `tests/_helpers/rolling_reference.py` —
+`expected_rolling(vals, window, agg, min_periods)`. Deque-based, matches
+pandas: positional window, nulls consume slot (не contribute),
+`min_periods` applies to **non-null count** (не window size):
+`pd.Series([1, None, 3]).rolling(2, min_periods=2).sum()` → `[NaN, NaN, NaN]`.
+
+Применено в 4 тестах (min/max + nulls, positional + on=col).
+Expected **derived**, не authored: property of algorithm, не of arithmetic.
+
+**Урок (meta):** для rolling/shift/quantile/rank — hard-coded expected =
+потенциальный баг. Три уровня:
+1. Reference helper (`expected_rolling`).
+2. pandas-equivalence (`pd.Series(vals).rolling(...).agg().tolist()`).
+3. Per-position trace в docstring (если helper не подходит).
+
+**Эпизод 130 (CHANGELOG descending — anchor drift).** `test_changelog_has_latest_tag`
+правильно упал на master+v0.8.4: `top [0.7.4c] != tag v0.8.4`. Root:
+`patch_changelog()` вставлял перед anchor (`## [0.8.2]` для `[0.8.4]`,
+`## [0.8.4]` для `[0.8.5]`, …). Со временем `[0.7.4c]` (patch_v074c)
+вставлен ещё раньше **выше** `[0.8.2]`, а `[0.8.4]` — перед `[0.8.2]`
+→ `[0.8.4]` ниже `[0.7.4c]`.
+
+**Fix (v0.8.5):** одноразовый sort всех `## [X]` блоков descending by
+(major, minor, patch, suffix). Новый guard `test_changelog_is_descending`
+(check sorted) — ловит **причину**, не только симптом.
+
+**v0.8.4 tag не ретагнут** — тест `--exact-match` запускается только
+на HEAD; старые tags не проверяются. v0.8.4 tag остаётся
+out-of-order (historical artifact); v0.8.5 commit — fix.
+
+**Урок (усиливает §13.4/111):** «anchor-based insert» в
+CHANGELOG/build-files — source of drift. Правильно: **insert-at-top**
+(искать первый `## [` regex, вставлять перед ним) или **build** из
+separate files. Anchor `## [X.Y.Z-1]` предполагает, что `[X.Y.Z-1]`
+существует и стоит на правильном месте — оба предположения нарушаются
+по мере изменений.
+
+**Правило:** для append-style docs (CHANGELOG, RELEASE_NOTES) — top
+insertion by regex `^## [` first-match, или sort на read. Anchor-based
+— только для стабильных anchors (e.g. `[tool.pytest.ini_options]` в
+pyproject.toml, который никогда не двигается).
+
+**Следующее:** v0.8.4a (multi-column `on`) → v0.8.3 `resample(freq)`
+(prototype-first).
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).

@@ -300,20 +300,13 @@ def test_rolling_min_dtype_same_as_input(tmp_path):
 # ---------- v0.8.4-fix (S1): min/max + nulls (was TypeError crash) ----------
 
 def test_rolling_min_with_nulls(tmp_path):
-    """S1 regression: min + null must not crash (`_dq[-1][1] >= None`).
-
-    Before fix: TypeError: '>=' not supported between 'int' and 'NoneType'.
-    After fix: nulls skip monotone-deque maintenance; window slot still
-    consumed (positional semantics, matches pandas).
-
-    pandas: pd.Series([3,None,1,None,5]).rolling(2,min_periods=1).min()
-            → [3, 3, 1, 1, 5]
-    """
-    df = make_df(tmp_path, data={"v": [3.0, None, 1.0, None, 5.0]})
+    """S1 regression (min + null) + reference-derived (§13.4/128)."""
+    from tests._helpers.rolling_reference import expected_rolling
+    vals_in = [3.0, None, 1.0, None, 5.0]
+    df = make_df(tmp_path, data={"v": vals_in})
     res = df.rolling(2, "min", min_periods=1)
-    vals = read_col(res, tmp_path, "v_rolling_min")
-    assert vals == [3.0, 3.0, 1.0, 1.0, 5.0]
-
+    got = read_col(res, tmp_path, "v_rolling_min")
+    assert got == expected_rolling(vals_in, 2, "min", min_periods=1)
 
 def test_rolling_max_with_nulls(tmp_path):
     """S1 regression: max + null must not crash.

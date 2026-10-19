@@ -3,50 +3,65 @@
 Все значимые изменения проекта CADW. Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 
 <!--
-  CHANGELOG был сломан с v0.1.5: каждый patch_changelog() вставлял
-  перед [0.X.Y-1], а при отсутствии anchor `str.replace` был silent
-  no-op. Цепочка оборвалась на v0.1.4, все последующие версии не
-  попали. Полная история — `git log --oneline --grep='^v'`.
-  Ниже — последние записи (v0.7.7+); восстанавливаем по мере
-  необходимости. AST guard `test_changelog_has_latest_tag` фиксирует
-  инвариант.
+  Порядок: **descending by version** (v0.8.5 сверху). Восстановлен в
+  v0.8.5 из-за сломанной цепочки v0.1.5+ (§13.4/111): каждый
+  `patch_changelog()` вставлял перед anchor `[0.X.Y-1]`, а при
+  отсутствии anchor `str.replace` был silent no-op. Как побочный
+  эффект, anchors дрейфовали — top становился out-of-order. Пропущенные
+  версии (v0.1.5, v0.1.6, v0.2.2, v0.3.5, v0.4.2, v0.5.0, v0.5.2-v0.5.4,
+  v0.6.x, v0.7.0-v0.7.7, v0.7.10) — в `git log --oneline --grep='^v'`.
+  AST guard `test_changelog_has_latest_tag` (top == tag on master) +
+  `test_changelog_is_descending` (v0.8.5) фиксируют инвариант.
 -->
 
-## [0.7.4c] — 2026-10-19
+## [0.8.5] — 2026-10-19
+
+### Исправлено
+- **CHANGELOG отсортирован descending** (§13.4/111 + §13.4/130). Исторически
+  `patch_changelog()` вставлял перед anchor `[0.X.Y-1]`. Anchor дрейфовал,
+  top CHANGELOG перестал быть «latest». `test_changelog_has_latest_tag`
+  (master + tag) корректно упал: `top [0.7.4c] != tag v0.8.4`. Fix:
+  одноразовый sort всех `## [X]` блоков by (major, minor, patch, suffix)
+  descending. Новый guard `test_changelog_is_descending` (в
+  `test_changelog.py`) ловит регресс. v0.8.4 tag **не** ретагнут —
+  тест не запускается на старых tags (`--exact-match` на HEAD).
+- **`row_id` reserved guard** в `external_sort` и `hash_shuffle`
+  (§13.4/126). User column named `row_id` коллизит с internal identity
+  column (appended by external_sort/hash_shuffle) → previously:
+  `KeyError: Field "row_id" exists 2 times in schema` (через
+  `ArrowIPCBatchReader`, в `sort_values`); `Multiple matches for
+  FieldRef.Name(row_id)` (в `pc.sort_indices`). Теперь: `ValueError:
+  external_sort: column name 'row_id' is reserved for CADW internal
+  identity column. Rename your column before calling.` Guard выполняется
+  **до** materialize batches.
 
 ### Добавлено
-- **`matplotlib_adapter.hexbin_plot(df, x, y, gridsize=30, n=10_000,
-  random=True, ...)`** — 2D hexagonal binning (matplotlib native).
-  - Sample-based (`sample(n)` + `plt.hexbin`), **не** aggregate-first:
-    hexbin aggregation на гексагональной сетке требует custom binning,
-    matplotlib делает это сам через `plt.hexbin`.
-  - `log_scale=True` (default): LogNorm для colorbar (плотность scatter).
-  - **Plotly/Seaborn:** нет native hexbin — используйте `hist2d_plot`
-    (прямоугольная сетка). Documented.
+- **`tests/_helpers/rolling_reference.py`** — `expected_rolling(vals,
+  window, agg, min_periods)` — deque ground truth (§13.4/128). Matches
+  pandas: positional window, nulls consume slot, min_periods applies to
+  non-null count.
+- 4 rolling-теста (`test_rolling_min/max_with_nulls` в
+  `test_rolling.py`; `test_rolling_on_min/max_with_nulls` в
+  `test_rolling_on_col.py`) → `expected_rolling(...)`. Устраняет корень
+  §13.4/128 (manual arithmetic).
+- 8 новых тестов в `test_row_id_reserved.py`: external_sort
+  (reject key/value + valid works), hash_shuffle (reject key/value +
+  valid works), E2E (sort_values/groupby на user `row_id`).
+- `test_changelog.py::test_changelog_is_descending` — strict descending
+  invariant.
 
-- **`_aggregate.sample(df, n, *, random=False)`** — новый параметр.
-  - `random=False` (default, fast): `df.head(n)` — bounded I/O,
-    но **может быть смещён** на time-sorted данных (только префикс).
-  - `random=True`: uniform random sample через
-    `df.iloc[np.sort(rng.choice(cnt, n, replace=False))]`. Full O(N)
-    scan, O(n) memory. Deterministic (seed=42).
-  - `scatter` / `_sample_pair`: `random=False` по умолчанию
-    (backward compat v0.7.4a).
-
-### Ограничения (v0.7.4c, §11.5)
-- `hexbin_plot` — только matplotlib. Plotly/Seaborn — нет hexbin
-  (документировано; use hist2d).
-- `random=True`: 2× O(N) scan (count + iloc to max position). Для 10^7
-  строк ~секунды. `random=False` — fast preview.
-- hexbin sample-based, не aggregate-first — n=10_000 bounded, shape
-  approximate.
+### Ограничения (v0.8.5, §11.5)
+- `row_id` — reserved. User column → rename. `__orig_rid` тоже reserved
+  (internal sortback). Рекомендуется префикс `my_`.
+- Guard fires on arguments (`key_columns` / `value_columns`). Internal
+  callers (`_shift_on`, `_rolling_on`, `rank`, `groupby`) либо передают
+  `__orig_rid`, либо не содержат `row_id` в value list — не затронуты.
 
 ### Тесты
-- +4 в `test_viz_aggregate.py`: sample(random=True) uniformity,
-  small-df returns-self, deterministic, head default unchanged.
-- +5 в `test_viz_matplotlib.py`: hexbin_plot writes PNG, random sample
-  spreads, missing column raises, invalid gridsize raises, nulls skipped.
-- fast: **~1026 passed**. slow: **8 passed**.
+- +8 в `test_row_id_reserved.py`.
+- +1 в `test_changelog.py` (descending guard).
+- 4 rolling-теста → helper (behavior unchanged).
+- fast: **~1056 passed**. slow: **8 passed**.
 
 ## [0.8.4] — 2026-10-19
 
@@ -136,6 +151,71 @@
 - Shift(1, on='ts') on 10^6 rows: ~2-3s (2× external_sort).
 - Same as user-manual `df.sort_values('ts').shift(1).sort_values('ts')`,
   but API one-liner.
+
+## [0.8.1] — 2026-10-19
+
+### Изменено — performance
+- **`compute_hashes`: pandas C-hash для numeric, Python для string.**
+  - Numeric/boolean/timestamp/date → `pd.util.hash_pandas_object`
+    (C-level SipHash). Bench: int64 39.2→2.0 ms (**19.6×**),
+    float64 39.2→1.0 ms (**39.2×**).
+  - String/large_string → Python `repr().encode()` + xxhash. Причина:
+    pandas `hash_pandas_object` для object dtype — per-element Cython,
+    50 ms/100k, **22% медленнее** Python (§13.4/107). Без регрессии.
+  - struct/list/dict/uint64 → Python loop (fallback).
+  - Seed через `h_np ^= np.uint64(seed)` **до** avalanche.
+- **Avalanche (splitmix64) — всегда**, не только при seed. Причина:
+  pandas `hash_pandas_object` для object dtype `hash << 1` (reserves 0
+  для NA), все string hashes чётные → `h & 3` использует только
+  партиции `{0, 2}` → recursion split 2-way вместо 4-way →
+  `MemoryLimitExceeded` при depth=5 (§13.4/107). Fix: 3 умножения +
+  3 XOR-shift, ~0.3 ms/100k.
+
+### Критично для корректности
+- **`types_mapper=Int64Dtype`** в `arr.to_pandas()` (numeric): без него
+  `int64` с nulls → `float64` (NaN), без nulls → `int64` → разные hash
+  для одного значения в разных батчах → нарушение partition-disjoint.
+- Тесты: `test_int64_consistent_hash_across_null_presence`,
+  `test_avalanche_spreads_low_bits`,
+  `test_avalanche_seed_spreads_low_bits`.
+- `test_shuffle.py::test_stable_hash_across_batches` — убран лишний
+  `assert a_parts != b_parts` (partition-disjoint ≠ different partitions;
+  коллизии разных ключей в одной партиции — норма).
+
+### Тесты
+- +20 в `test_hash_v081.py`: cross-batch consistency (int32/int64/string
+  с/без nulls), deterministic, seed, nulls, dispatch (string→python,
+  numeric→pandas), partition-disjoint (int+string), avalanche (low-bit
+  spread + seed + similar strings), groupby recursion end-to-end.
+
+### Ожидание
+- int64 shuffle 1M: 0.61s → **~0.22s** (2.76×).
+- 500 GB / 50 B / int64 keys: ~100 min → **~40 min**.
+
+## [0.8.0] — 2026-10-19
+
+### Добавлено — time-series
+- `CadwDataFrame.expanding(agg, min_periods=1, columns=None)` —
+  кумулятивное окно. Aggs: `sum`/`mean`/`min`/`max`/`count`. O(1) state
+  (scalar accumulators; min/max — текущий min/max, без deque). Nulls
+  skip; null row → null output. Output: `{col}_expanding_{agg}`.
+- `CadwDataFrame.ewm(alpha/span/halflife/com, adjust=True, min_periods=0,
+  columns=None)` — экспоненциально-взвешенное среднее. Ровно один из
+  4 параметров. `adjust=True`: `(s_num, s_den)`, `y = s_num/s_den`.
+  `adjust=False`: `(ewm,)`, `y = (1-α)·y_prev + α·x`. Nulls skip
+  (`ignore_na=True` семантика). Output: `{col}_ewm`.
+
+### Добавлено — PCA single-pass
+- `CovarianceMeanOp(CovarianceOp)` — тот же state, `finalize` →
+  `{cov, mean, n}`. `fit_pca` → **2× I/O reduction**.
+- `CovarianceOp` (bare matrix) не меняется — backward compat.
+
+### Ограничения (v0.8.0, §11.5)
+- `expanding`/`ewm` не поддерживают `on=col`.
+- `ewm(ignore_na=False)`, `ewm(bias=True)` — не реализованы.
+
+### Тесты
+- +26 в `test_expanding_ewm.py`, +3 (CovarianceMeanOp + fit_pca regression).
 
 ## [0.7.9] — 2026-10-19
 
@@ -241,157 +321,41 @@
 ### Время
 - K=3, n=1000, depth=3, 30 rounds: ~15-20s (CI). Локально — быстрее.
 
-## [0.8.1] — 2026-10-19
-
-### Изменено — performance
-- **`compute_hashes`: pandas C-hash для numeric, Python для string.**
-  - Numeric/boolean/timestamp/date → `pd.util.hash_pandas_object`
-    (C-level SipHash). Bench: int64 39.2→2.0 ms (**19.6×**),
-    float64 39.2→1.0 ms (**39.2×**).
-  - String/large_string → Python `repr().encode()` + xxhash. Причина:
-    pandas `hash_pandas_object` для object dtype — per-element Cython,
-    50 ms/100k, **22% медленнее** Python (§13.4/107). Без регрессии.
-  - struct/list/dict/uint64 → Python loop (fallback).
-  - Seed через `h_np ^= np.uint64(seed)` **до** avalanche.
-- **Avalanche (splitmix64) — всегда**, не только при seed. Причина:
-  pandas `hash_pandas_object` для object dtype `hash << 1` (reserves 0
-  для NA), все string hashes чётные → `h & 3` использует только
-  партиции `{0, 2}` → recursion split 2-way вместо 4-way →
-  `MemoryLimitExceeded` при depth=5 (§13.4/107). Fix: 3 умножения +
-  3 XOR-shift, ~0.3 ms/100k.
-
-### Критично для корректности
-- **`types_mapper=Int64Dtype`** в `arr.to_pandas()` (numeric): без него
-  `int64` с nulls → `float64` (NaN), без nulls → `int64` → разные hash
-  для одного значения в разных батчах → нарушение partition-disjoint.
-- Тесты: `test_int64_consistent_hash_across_null_presence`,
-  `test_avalanche_spreads_low_bits`,
-  `test_avalanche_seed_spreads_low_bits`.
-- `test_shuffle.py::test_stable_hash_across_batches` — убран лишний
-  `assert a_parts != b_parts` (partition-disjoint ≠ different partitions;
-  коллизии разных ключей в одной партиции — норма).
-
-### Тесты
-- +20 в `test_hash_v081.py`: cross-batch consistency (int32/int64/string
-  с/без nulls), deterministic, seed, nulls, dispatch (string→python,
-  numeric→pandas), partition-disjoint (int+string), avalanche (low-bit
-  spread + seed + similar strings), groupby recursion end-to-end.
-
-### Ожидание
-- int64 shuffle 1M: 0.61s → **~0.22s** (2.76×).
-- 500 GB / 50 B / int64 keys: ~100 min → **~40 min**.
-
-## [0.8.0] — 2026-10-19
-
-### Добавлено — time-series
-- `CadwDataFrame.expanding(agg, min_periods=1, columns=None)` —
-  кумулятивное окно. Aggs: `sum`/`mean`/`min`/`max`/`count`. O(1) state
-  (scalar accumulators; min/max — текущий min/max, без deque). Nulls
-  skip; null row → null output. Output: `{col}_expanding_{agg}`.
-- `CadwDataFrame.ewm(alpha/span/halflife/com, adjust=True, min_periods=0,
-  columns=None)` — экспоненциально-взвешенное среднее. Ровно один из
-  4 параметров. `adjust=True`: `(s_num, s_den)`, `y = s_num/s_den`.
-  `adjust=False`: `(ewm,)`, `y = (1-α)·y_prev + α·x`. Nulls skip
-  (`ignore_na=True` семантика). Output: `{col}_ewm`.
-
-### Добавлено — PCA single-pass
-- `CovarianceMeanOp(CovarianceOp)` — тот же state, `finalize` →
-  `{cov, mean, n}`. `fit_pca` → **2× I/O reduction**.
-- `CovarianceOp` (bare matrix) не меняется — backward compat.
-
-### Ограничения (v0.8.0, §11.5)
-- `expanding`/`ewm` не поддерживают `on=col`.
-- `ewm(ignore_na=False)`, `ewm(bias=True)` — не реализованы.
-
-### Тесты
-- +26 в `test_expanding_ewm.py`, +3 (CovarianceMeanOp + fit_pca regression).
-
-## [0.1.4] — 2026-10-18
-
-### Исправлено (must-fix §11.4, класс «materialize-before-check»)
-- `_local_groupby` материализовал всю партицию (`list(ArrowIPCBatchReader)`)
-  до size-check. 02b1 добавил проверку **после** materialize — это не
-  закрыло баг. Fix: `partition_path.stat().st_size` до чтения + helper
-  `_read_partition_safe` (единственное место, где разрешён `list(reader)`).
-- `reduce` вызывал `op.init()` до `estimate_state_size`/`check_state`.
-  `CovarianceOp(d=10^5)` → `np.zeros((10^5,10^5))` = 80 GB → OOM **внутри**
-  init. Fix: `estimate_state_size` + `check_state` **до** `op.init()`.
+## [0.7.4c] — 2026-10-19
 
 ### Добавлено
-- §3.10 «Check before materialize» — новый обязательный принцип.
-- `tests/test_materialize_guard.py` — AST guards:
-  - `test_no_list_of_whole_reader_outside_helper`
-  - `test_reduce_estimate_state_before_init`
-- `tests/test_oom_resistance.py` (slow):
-  - 10^6 групп, 10 MB budget;
-  - 90/10 skew, 10^6 строк, 10 MB;
-  - `CovarianceOp(d=5000)` под 10 MB → `MemoryLimitExceeded` до `init`.
+- **`matplotlib_adapter.hexbin_plot(df, x, y, gridsize=30, n=10_000,
+  random=True, ...)`** — 2D hexagonal binning (matplotlib native).
+  - Sample-based (`sample(n)` + `plt.hexbin`), **не** aggregate-first:
+    hexbin aggregation на гексагональной сетке требует custom binning,
+    matplotlib делает это сам через `plt.hexbin`.
+  - `log_scale=True` (default): LogNorm для colorbar (плотность scatter).
+  - **Plotly/Seaborn:** нет native hexbin — используйте `hist2d_plot`
+    (прямоугольная сетка). Documented.
 
-### Уроки (DECISIONS §13.4)
-- Эпизод 27: «закрытие must-fix» требует теста на **порядок** операций,
-  а не только на наличие вызова. 02b1 проверял, что `hash_shuffle`
-  вызывается, но не проверял, что `list(reader)` **не** вызывается до.
-- Эпизод 28: аудит перед новыми функциями находит унаследованные баги
-  (`reduce.init()` — не был замечен при 02a).
+- **`_aggregate.sample(df, n, *, random=False)`** — новый параметр.
+  - `random=False` (default, fast): `df.head(n)` — bounded I/O,
+    но **может быть смещён** на time-sorted данных (только префикс).
+  - `random=True`: uniform random sample через
+    `df.iloc[np.sort(rng.choice(cnt, n, replace=False))]`. Full O(N)
+    scan, O(n) memory. Deterministic (seed=42).
+  - `scatter` / `_sample_pair`: `random=False` по умолчанию
+    (backward compat v0.7.4a).
 
-## [0.1.3] — 2026-10-18
+### Ограничения (v0.7.4c, §11.5)
+- `hexbin_plot` — только matplotlib. Plotly/Seaborn — нет hexbin
+  (документировано; use hist2d).
+- `random=True`: 2× O(N) scan (count + iloc to max position). Для 10^7
+  строк ~секунды. `random=False` — fast preview.
+- hexbin sample-based, не aggregate-first — n=10_000 bounded, shape
+  approximate.
 
-### Удалено
-- `CadwDataFrame.partial_fit` — адаптер к `sklearn.partial_fit`. Причина:
-  whitelist (`_SAFE_PARTIAL_FIT`) — политика на доверии; любая модель вне
-  whitelist или модель с выросшим state OOM-ит без предупреждения от CADW.
-  См. DECISIONS.md §3.9, §13.4 эпизод 26.
-- `_SAFE_PARTIAL_FIT` whitelist.
-- `tests/test_ml_integration.py` (11 + 1 slow).
-- `tests/test_sklearn_extras.py` (4 + 1 slow).
-- sklearn-секция из `tests/test_api_availability.py` (7 assertions).
-- `scikit-learn` из `[dependency-groups]` (dev).
-- ML-секции из README, заменены на «ML и внешние библиотеки» с policy.
-
-### Добавлено в DECISIONS.md
-- §3.9: «Никаких ML-адаптеров» (не только `fit`, но и `partial_fit`).
-- §11.5: расширенная «Политика ML» (3 класса: экспорт / адаптеры запрещены
-  / собственные реализации v0.3).
-- §12.5.1: план v0.3 — GBDT, Linear, k-means, PCA, NB на примитивах (~8–11
-  сессий на весь ML-слой).
-- §13.4 эпизод 26: whitelist `partial_fit` — политика на доверии, не
-  гарантия.
-
-### Единственный ML-интерфейс CADW
-- `to_batches(format='arrow'|'pandas'|'numpy'|'torch')` — экспорт батчей.
-  Ответственность за OOM в сторонней модели — на пользователе.
-
-## [0.1.2] — 2026-10-18
-
-### Удалено
-- `CadwDataFrame.to_lightgbm` — адаптер к LightGBM. Причина: `lgb.train`
-  требует O(N)-state (все градиенты в RAM), OOM происходит внутри
-  библиотеки, `MemoryGuard` не спасает. Противоречит §3.9 «no adapters to
-  O(N)-algorithms». См. DECISIONS.md §13.4 эпизод 25.
-- `tests/test_lightgbm.py` (11 + 1 slow тестов).
-- `lightgbm` из `[dependency-groups]` (dev).
-- LightGBM-секции из README, DECISIONS §4.1/§11.5/§12.5/§13.3.
-
-### Изменено
-- `CadwDataFrame.partial_fit`: добавлен whitelist `_SAFE_PARTIAL_FIT`
-  (SGD, StandardScaler, MiniBatchKMeans, IncrementalPCA, NB, MLP).
-  Модели вне whitelist → `RuntimeWarning` с указанием на §11.5.
-  Docstring обновлён: контракт безопасности (модель должна иметь
-  O(1)-state w.r.t. N, это ответственность модели, не CADW).
-- `tests/test_api_availability.py`: убрана LightGBM-секция.
-
-### Добавлено в DECISIONS.md
-- §3.9: «Никаких адаптеров к O(N)-алгоритмам».
-- §11.5: блок «Политика ML» (3 класса: incremental / batch-only /
-  own implementation).
-- §11.4: обнаружена регрессия `_local_groupby` (materialize до
-  `check_state`) — вынесена как must-fix.
-- §13.4 эпизод 25: почему адаптер к LightGBM — ошибка.
-
-### Планы
-- v0.3: свой GBDT (level-wise, аналог `sklearn.HistGradientBoosting`) на
-  примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
-  `Reduce` (sum_grad/sum_hess/count).
+### Тесты
+- +4 в `test_viz_aggregate.py`: sample(random=True) uniformity,
+  small-df returns-self, deterministic, head default unchanged.
+- +5 в `test_viz_matplotlib.py`: hexbin_plot writes PNG, random sample
+  spreads, missing column raises, invalid gridsize raises, nulls skipped.
+- fast: **~1026 passed**. slow: **8 passed**.
 
 ## [0.5.2a] — 2026-10-19
 
@@ -955,6 +919,93 @@ P2 (S1) + P8 (S2).
 - AST guard `test_local_groupby_dict_check_before_group_by`.
 - Behavior tests: `test_dict_overflow_triggers_split`,
   `test_dict_fits_no_recursion`, `test_max_depth_raises_on_dict_overflow`.
+
+## [0.1.4] — 2026-10-18
+
+### Исправлено (must-fix §11.4, класс «materialize-before-check»)
+- `_local_groupby` материализовал всю партицию (`list(ArrowIPCBatchReader)`)
+  до size-check. 02b1 добавил проверку **после** materialize — это не
+  закрыло баг. Fix: `partition_path.stat().st_size` до чтения + helper
+  `_read_partition_safe` (единственное место, где разрешён `list(reader)`).
+- `reduce` вызывал `op.init()` до `estimate_state_size`/`check_state`.
+  `CovarianceOp(d=10^5)` → `np.zeros((10^5,10^5))` = 80 GB → OOM **внутри**
+  init. Fix: `estimate_state_size` + `check_state` **до** `op.init()`.
+
+### Добавлено
+- §3.10 «Check before materialize» — новый обязательный принцип.
+- `tests/test_materialize_guard.py` — AST guards:
+  - `test_no_list_of_whole_reader_outside_helper`
+  - `test_reduce_estimate_state_before_init`
+- `tests/test_oom_resistance.py` (slow):
+  - 10^6 групп, 10 MB budget;
+  - 90/10 skew, 10^6 строк, 10 MB;
+  - `CovarianceOp(d=5000)` под 10 MB → `MemoryLimitExceeded` до `init`.
+
+### Уроки (DECISIONS §13.4)
+- Эпизод 27: «закрытие must-fix» требует теста на **порядок** операций,
+  а не только на наличие вызова. 02b1 проверял, что `hash_shuffle`
+  вызывается, но не проверял, что `list(reader)` **не** вызывается до.
+- Эпизод 28: аудит перед новыми функциями находит унаследованные баги
+  (`reduce.init()` — не был замечен при 02a).
+
+## [0.1.3] — 2026-10-18
+
+### Удалено
+- `CadwDataFrame.partial_fit` — адаптер к `sklearn.partial_fit`. Причина:
+  whitelist (`_SAFE_PARTIAL_FIT`) — политика на доверии; любая модель вне
+  whitelist или модель с выросшим state OOM-ит без предупреждения от CADW.
+  См. DECISIONS.md §3.9, §13.4 эпизод 26.
+- `_SAFE_PARTIAL_FIT` whitelist.
+- `tests/test_ml_integration.py` (11 + 1 slow).
+- `tests/test_sklearn_extras.py` (4 + 1 slow).
+- sklearn-секция из `tests/test_api_availability.py` (7 assertions).
+- `scikit-learn` из `[dependency-groups]` (dev).
+- ML-секции из README, заменены на «ML и внешние библиотеки» с policy.
+
+### Добавлено в DECISIONS.md
+- §3.9: «Никаких ML-адаптеров» (не только `fit`, но и `partial_fit`).
+- §11.5: расширенная «Политика ML» (3 класса: экспорт / адаптеры запрещены
+  / собственные реализации v0.3).
+- §12.5.1: план v0.3 — GBDT, Linear, k-means, PCA, NB на примитивах (~8–11
+  сессий на весь ML-слой).
+- §13.4 эпизод 26: whitelist `partial_fit` — политика на доверии, не
+  гарантия.
+
+### Единственный ML-интерфейс CADW
+- `to_batches(format='arrow'|'pandas'|'numpy'|'torch')` — экспорт батчей.
+  Ответственность за OOM в сторонней модели — на пользователе.
+
+## [0.1.2] — 2026-10-18
+
+### Удалено
+- `CadwDataFrame.to_lightgbm` — адаптер к LightGBM. Причина: `lgb.train`
+  требует O(N)-state (все градиенты в RAM), OOM происходит внутри
+  библиотеки, `MemoryGuard` не спасает. Противоречит §3.9 «no adapters to
+  O(N)-algorithms». См. DECISIONS.md §13.4 эпизод 25.
+- `tests/test_lightgbm.py` (11 + 1 slow тестов).
+- `lightgbm` из `[dependency-groups]` (dev).
+- LightGBM-секции из README, DECISIONS §4.1/§11.5/§12.5/§13.3.
+
+### Изменено
+- `CadwDataFrame.partial_fit`: добавлен whitelist `_SAFE_PARTIAL_FIT`
+  (SGD, StandardScaler, MiniBatchKMeans, IncrementalPCA, NB, MLP).
+  Модели вне whitelist → `RuntimeWarning` с указанием на §11.5.
+  Docstring обновлён: контракт безопасности (модель должна иметь
+  O(1)-state w.r.t. N, это ответственность модели, не CADW).
+- `tests/test_api_availability.py`: убрана LightGBM-секция.
+
+### Добавлено в DECISIONS.md
+- §3.9: «Никаких адаптеров к O(N)-алгоритмам».
+- §11.5: блок «Политика ML» (3 класса: incremental / batch-only /
+  own implementation).
+- §11.4: обнаружена регрессия `_local_groupby` (materialize до
+  `check_state`) — вынесена как must-fix.
+- §13.4 эпизод 25: почему адаптер к LightGBM — ошибка.
+
+### Планы
+- v0.3: свой GBDT (level-wise, аналог `sklearn.HistGradientBoosting`) на
+  примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
+  `Reduce` (sum_grad/sum_hess/count).
 
 ## [0.1.0] — 2026-10-18
 

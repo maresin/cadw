@@ -236,6 +236,15 @@ def hash_shuffle(
         raise ValueError("num_partitions must be >= 1")
     if not key_columns:
         raise ValueError("key_columns must be non-empty")
+    # v0.8.5 (§13.4/126): `row_id` reserved — same rationale as in
+    # external_sort. Check arguments (not materialized batch) for
+    # cheapest fail-fast.
+    if "row_id" in key_columns or "row_id" in value_columns:
+        raise ValueError(
+            "hash_shuffle: column name 'row_id' is reserved for CADW "
+            "internal identity column. Rename your column before calling. "
+            "See DECISIONS §11.5, §13.4/126."
+        )
 
     spill_dir = Path(spill_dir)
     spill_dir.mkdir(parents=True, exist_ok=True)

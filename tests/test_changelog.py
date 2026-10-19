@@ -67,3 +67,29 @@ def test_changelog_has_latest_tag():
         f"Add CHANGELOG entry for {tag} before tagging. "
         f"See §13.4/111."
     )
+
+def test_changelog_is_descending():
+    """All versions strictly descending (top = highest).
+
+    Регрессия §13.4/130: patch_changelog() с anchor-based insert привёл к
+    out-of-order entries — `[0.7.4c]` (patch_v074c) оказался выше
+    `[0.8.4]` (patch_v084 вставлен перед `## [0.8.2]`, а `[0.7.4c]`
+    был добавлен ещё раньше выше `[0.8.2]`). `test_changelog_has_latest_tag`
+    поймал симптом (`top != tag`), этот guard ловит саму причину.
+    """
+    import re as _re
+    text = CHANGELOG.read_text()
+    versions = _re.findall(r"^## \[(\d[^\]]*)\]", text, flags=_re.MULTILINE)
+    assert versions, "CHANGELOG has no `## [X.Y.Z]` entries"
+
+    def _key(v):
+        m = _re.match(r'^(\d+)\.(\d+)\.(\d+)([a-z]?)$', v)
+        assert m, f"unrecognized version: {v!r}"
+        ma, mi, pa, su = m.groups()
+        return (int(ma), int(mi), int(pa), su)
+
+    keys = [_key(v) for v in versions]
+    assert keys == sorted(keys, reverse=True), (
+        f"CHANGELOG not descending. Order: {list(zip(versions, keys))}"
+    )
+

@@ -440,6 +440,18 @@ def external_sort(
     """
     if not key_columns:
         raise ValueError("key_columns must be non-empty")
+    # v0.8.5 (§13.4/126): `row_id` reserved (internal identity column,
+    # appended by external_sort / hash_shuffle). User column named
+    # `row_id` → duplicate → `KeyError: Field "row_id" exists 2 times in
+    # schema` (ArrowIPCBatchReader) or `Multiple matches for
+    # FieldRef.Name(row_id)` (pc.sort_indices). Fail-fast here, BEFORE
+    # any batch materialization.
+    if "row_id" in key_columns or "row_id" in value_columns:
+        raise ValueError(
+            "external_sort: column name 'row_id' is reserved for CADW "
+            "internal identity column. Rename your column before calling. "
+            "See DECISIONS §11.5, §13.4/126."
+        )
     nk = len(key_columns)
     asc = _normalize_per_column(ascending, nk, "ascending")
     all_columns = _unique_columns(value_columns, key_columns)
