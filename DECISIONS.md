@@ -611,6 +611,13 @@ Python int. Из `Calibration` (v0.2), начально — из
    не новая операция. `peak` после spill = `max(estimate(write),
    estimate(read), estimate(step_i))`.
 
+   **Статус v0.1.x: reserved for v0.2.** `solve` по инварианту
+   возвращает params с `estimate ≤ available × safety`,
+   поэтому `spill_boundaries` всегда пуст;
+   `predicted_outcome ∈ {"fits", "does_not_fit"}`. Если после
+   `solve` `estimate > budget` — нарушение инварианта модели
+   (`RuntimeError`), а не повод для spill. Реальный spill
+   (chunked execution) — v0.2.
 4. **Если и после spill** `estimate > available * safety` для какого-то
    `step_i` при **всех** допустимых params → `predicted_outcome =
    "does_not_fit"` + `PipelineMemoryError` с указанием step, estimate,
@@ -733,7 +740,7 @@ sizeof(float64)` для гистограмм; градиенты — `N * 2 * si
 | §9.2.2 | `HashShuffleMemoryModel` | ⏳ 11-A-2 |
 | §9.2.3 | `SortMemoryModel` | ⏳ 11-A-2 |
 | §9.2.4 | `GroupByMemoryModel` | ⏳ 11-A-2 |
-| §9.3 | `PipelinePlan`, `plan_pipeline` | ⏳ 11-A-3 |
+| §9.3 | `PipelinePlan`, `plan_pipeline` | ✅ 11-A-3 (spill — v0.2) |
 | §9.4 | оптимизация (closed + grid) | ⏳ 11-A-3 |
 | §9.5 | `Calibration` | ⏳ 11-A-4 |
 | §9.6 | runtime monitor, failure modes | ⏳ 11-A-4 |

@@ -25,6 +25,9 @@ import pyarrow as pa
 
 from cadw.core.logging import get_logger
 
+from cadw.core.models import DataChars, Params, get_model
+
+
 logger = get_logger("memory_guard")
 
 
@@ -305,6 +308,41 @@ class MemoryGuard:
         self._reserved = max(0, self._reserved - nbytes)
 
     # ---------- логирование ----------
+
+    def plan(
+        self,
+        op_name: str,
+        data_chars: DataChars,
+        *,
+        op_context: Optional[dict] = None,
+    ) -> Params:
+        """Запланировать одну операцию (§9.2). Raises MemoryLimitExceeded при None."""
+        model = get_model(op_name)
+        params = model.solve(
+            self.available_bytes(),
+            data_chars,
+            safety=self._safety,
+            op_context=op_context,
+        )
+        if params is None:
+            raise MemoryLimitExceeded(
+                f"plan({op_name!r}): no params exist. {model.describe()}"
+            )
+        return params
+
+    def plan_pipeline(self, ops, data_chars: DataChars, *, allow_spill: bool = True):
+        """Запланировать цепочку (§9.3). Raises PipelineMemoryError.
+
+        `allow_spill` — no-op в v0.1.x (spill_boundaries reserved for v0.2).
+        """
+        from cadw.core.planner import plan_pipeline
+        return plan_pipeline(
+            ops,
+            data_chars,
+            self.available_bytes(),
+            safety=self._safety,
+            allow_spill=allow_spill,
+        )
 
     def log_step(
         self,

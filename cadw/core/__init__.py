@@ -14,6 +14,14 @@ from .models_reduce import ReduceMemoryModel, ReduceParams
 from .models_shuffle import HashShuffleMemoryModel, HashShuffleParams
 from .models_sort import SortMemoryModel, SortParams
 from .models_groupby import GroupByMemoryModel, GroupByParams
+from .planner import (
+    OpSpec,
+    PipelineMemoryError,
+    PipelinePlan,
+    StepPlan,
+    plan_pipeline,
+    propagate_chars,
+)
 
 __all__ = [
     "MemoryGuard",
@@ -35,4 +43,10 @@ __all__ = [
     "SortParams",
     "GroupByMemoryModel",
     "GroupByParams",
+    "OpSpec",
+    "PipelineMemoryError",
+    "PipelinePlan",
+    "StepPlan",
+    "plan_pipeline",
+    "propagate_chars",
 ]

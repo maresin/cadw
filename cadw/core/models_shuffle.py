@@ -123,11 +123,21 @@ class HashShuffleMemoryModel(OpMemoryModel):
         batch_size = remaining // (data_chars.row_size_bytes + c_hash)
         if batch_size < 1:
             return None
-        return HashShuffleParams(
+        params = HashShuffleParams(
             batch_size=int(batch_size),
             num_partitions=int(p),
             writer_buffer_bytes=int(writer_buffer),
         )
+        # Инвариант: estimate(params) <= budget. Округление вниз может
+        # дать estimate на несколько байт больше; при строгом превышении
+        # уменьшаем batch_size на 1, если всё ещё больше — None.
+        if self.estimate(params, data_chars) > budget:
+            params.batch_size -= 1
+            if params.batch_size < 1:
+                return None
+            if self.estimate(params, data_chars) > budget:
+                return None
+        return params
 
     def describe(self) -> str:
         return (
