@@ -1420,6 +1420,134 @@ class CadwDataFrame:
             spill_dir=self._spill_dir,
         )
 
+    # ---------------- rolling ----------------
+
+    def rolling(
+        self,
+        window: int,
+        agg: str,
+        *,
+        min_periods: "int | None" = None,
+        columns: "str | Sequence[str] | None" = None,
+    ) -> "CadwDataFrame":
+        """Rolling window aggregation (v0.6.2c).
+
+        - window: int >= 1.
+        - agg: {'sum', 'mean', 'min', 'max', 'count'}.
+              count = non-null count in window.
+        - min_periods=None -> window. First (min_periods-1) rows = null.
+        - columns=None -> all numeric columns.
+
+        Output: original columns + `{col}_rolling_{agg}` for each column.
+
+        Incremental streaming: O(1) per row for sum/mean/count; O(1)
+        amortized for min/max via monotonic deque. Peak O(window × #cols).
+
+        skips nulls (pandas default). First rows (before min_periods)
+        receive null.
+
+        Not in v0.6.2c: `on=col` (sort-based; use .sort_values(...) first),
+        expanding, ewm, std/var/median/quantile.
+        """
+        from collections import deque
+
+        if not isinstance(window, int):
+            raise TypeError(
+                f"rolling: window must be int; got {type(window).__name__}"
+            )
+        if window < 1:
+            raise ValueError(f"rolling: window must be >= 1; got {window}")
+        if agg not in {"sum", "mean", "min", "max", "count"}:
+            raise ValueError(
+                f"rolling: agg must be one of sum/mean/min/max/count; "
+                f"got {agg!r}"
+            )
+        if min_periods is None:
+            mp = window
+        elif not isinstance(min_periods, int):
+            raise TypeError(
+                f"rolling: min_periods must be int; "
+                f"got {type(min_periods).__name__}"
+            )
+        elif not (1 <= min_periods <= window):
+            raise ValueError(
+                f"rolling: min_periods must be in [1, window={window}]; "
+                f"got {min_periods}"
+            )
+        else:
+            mp = min_periods
+
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"rolling: column {c!r} not in {self._columns}"
+                )
+
+        # Validate numeric for sum/mean/min/max (count works for any type).
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            if agg != "count" and not (
+                pa.types.is_integer(t) or pa.types.is_floating(t)
+            ):
+                raise TypeError(
+                    f"rolling: column {c!r} has type {t}; "
+                    f"agg={agg!r} requires numeric"
+                )
+
+        # Output schema: original cols + rolling output per (col, agg).
+        out_fields = []
+        for c in self._columns:
+            out_fields.append(self._dataset.schema.field(c))
+        out_type_by_col: dict[str, pa.DataType] = {}
+        for c in cols:
+            in_type = self._dataset.schema.field(c).type
+            if agg in ("sum", "mean"):
+                ot = pa.float64()
+            elif agg == "count":
+                ot = pa.int64()
+            else:  # min/max
+                ot = in_type
+            out_name = f"{c}_rolling_{agg}"
+            out_type_by_col[c] = ot
+            out_fields.append(pa.field(out_name, ot, nullable=True))
+        out_schema = pa.schema(out_fields)
+
+        def _iter_rolling():
+            states = {c: _RollState(window, mp, agg) for c in cols}
+            for b in self._iter_filtered_batches():
+                n = b.num_rows
+                out_arrays = []
+                for c in self._columns:
+                    out_arrays.append(b.column(c))
+                for c in cols:
+                    state = states[c]
+                    src_vals = b.column(c).to_pylist()
+                    rolling_vals = []
+                    for v in src_vals:
+                        rv = state.push(v)
+                        rolling_vals.append(rv)
+                    out_arrays.append(
+                        pa.array(rolling_vals, type=out_type_by_col[c])
+                    )
+                yield pa.RecordBatch.from_arrays(
+                    out_arrays, schema=out_schema
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_rolling(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
     # ---------------- merge ----------------
 
     def merge(
@@ -1566,6 +1694,78 @@ class CadwDataFrame:
             f"CadwDataFrame(rows<={self._dataset.total_rows}, "
             f"columns={self._columns}, filters={nf})"
         )
+
+
+class _RollState:
+    """Incremental rolling aggregation state (v0.6.2c).
+
+    - sum/mean/count: running accumulators (O(1) push).
+    - min/max: monotonic deque (O(1) amortized push).
+
+    Nulls are skipped (pandas default). Count = non-null in window.
+    """
+
+    __slots__ = (
+        "_window", "_min_periods", "_agg", "_buf", "_idx",
+        "_sum", "_count", "_dq",
+    )
+
+    def __init__(self, window: int, min_periods: int, agg: str) -> None:
+        from collections import deque as _dq_mod
+        self._window = window
+        self._min_periods = min_periods
+        self._agg = agg
+        self._buf = _dq_mod()  # (idx, is_null, value)
+        self._idx = 0
+        self._sum = 0.0
+        self._count = 0  # non-null in current window
+        self._dq = _dq_mod()  # for min/max: (idx, value)
+
+    def push(self, v):
+        window = self._window
+        i = self._idx
+        # 1. Add current
+        is_null = v is None
+        if not is_null:
+            self._count += 1
+            if self._agg in ("sum", "mean"):
+                self._sum += float(v)
+        self._buf.append((i, is_null, v))
+        if self._agg == "min":
+            while self._dq and self._dq[-1][1] >= v:
+                self._dq.pop()
+            if not is_null:
+                self._dq.append((i, v))
+        elif self._agg == "max":
+            while self._dq and self._dq[-1][1] <= v:
+                self._dq.pop()
+            if not is_null:
+                self._dq.append((i, v))
+
+        # 2. Evict if len > window
+        while len(self._buf) > window:
+            old_i, old_null, old_v = self._buf.popleft()
+            if not old_null:
+                self._count -= 1
+                if self._agg in ("sum", "mean"):
+                    self._sum -= float(old_v)
+            if self._agg in ("min", "max") and self._dq and self._dq[0][0] == old_i:
+                self._dq.popleft()
+
+        self._idx += 1
+
+        # 3. Compute result
+        if self._count < self._min_periods:
+            return None
+        if self._agg == "count":
+            return self._count
+        if self._agg == "sum":
+            return self._sum
+        if self._agg == "mean":
+            return self._sum / self._count
+        if self._agg in ("min", "max"):
+            return self._dq[0][1] if self._dq else None
+        raise RuntimeError(f"_RollState: unknown agg {self._agg!r}")
 
 
 class _GroupBy:
