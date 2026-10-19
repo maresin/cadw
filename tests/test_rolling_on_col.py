@@ -293,3 +293,39 @@ def test_rolling_on_max_with_nulls(tmp_path):
     res = df.rolling(2, "max", on="ts", columns=["v"], min_periods=1)
     got = read_col(res, tmp_path, "v_rolling_max")
     assert got == expected_rolling(vals_in, 2, "max", min_periods=1)
+
+# ---------- v0.8.6: multi-column on ----------
+
+def test_rolling_on_multi_key(tmp_path):
+    """on=['ts','sensor'] — lexicographic composite sort."""
+    df = make_df(tmp_path, data={
+        "ts": [2, 1, 1, 2],
+        "sensor": ["a", "a", "b", "b"],
+        "v": [40, 10, 20, 30],
+    })
+    res = df.rolling(2, "sum", on=["ts", "sensor"], columns=["v"])
+    # Sorted v: [10, 20, 40, 30]. Rolling sum w2 (min_periods=2):
+    # [None, 30, 60, 70]. Back to orig [0,1,2,3]: [60, None, 30, 70]
+    vals = read_col(res, tmp_path, "v_rolling_sum")
+    assert vals == [60, None, 30, 70]
+
+
+def test_rolling_on_empty_list_raises(tmp_path):
+    df = make_df(tmp_path)
+    with pytest.raises(ValueError, match="non-empty"):
+        df.rolling(2, "sum", on=[], columns=["v"])
+
+
+def test_rolling_on_multi_key_min_periods_1(tmp_path):
+    df = make_df(tmp_path, data={
+        "ts": [2, 1, 1, 2],
+        "sensor": ["a", "a", "b", "b"],
+        "v": [40, 10, 20, 30],
+    })
+    res = df.rolling(2, "sum", on=["ts", "sensor"], columns=["v"],
+                     min_periods=1)
+    # Sorted v: [10, 20, 40, 30]. Rolling sum w2 (min_periods=1):
+    # [10, 30, 60, 70]. Back to orig: [60, 10, 30, 70]
+    vals = read_col(res, tmp_path, "v_rolling_sum")
+    assert vals == [60, 10, 30, 70]
+

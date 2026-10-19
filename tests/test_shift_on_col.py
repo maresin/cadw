@@ -306,3 +306,64 @@ def test_shift_on_iter_zipped_replace_not_append():
         "Table→Array conversion (Table.column returns ChunkedArray)"
     )
 
+# ---------- v0.8.6: multi-column on ----------
+
+def test_shift_on_multi_key(tmp_path):
+    """on=['ts','sensor'] — lexicographic composite sort."""
+    df = make_df(tmp_path, data={
+        "ts": [2, 1, 1, 2],
+        "sensor": ["a", "a", "b", "b"],
+        "v": [40, 10, 20, 30],
+    })
+    res = df.shift(1, on=["ts", "sensor"], columns=["v"])
+    # Sorted by (ts, sensor): row1(1,a)=10, row2(1,b)=20, row0(2,a)=40,
+    # row3(2,b)=30. shift(1): [None, 10, 20, 40].
+    # Back to original row_id order [0,1,2,3]: [20, None, 10, 40]
+    vals = read_col(res, tmp_path, "v")
+    assert vals == [20, None, 10, 40]
+
+
+def test_diff_on_multi_key(tmp_path):
+    df = make_df(tmp_path, data={
+        "ts": [2, 1, 1, 2],
+        "sensor": ["a", "a", "b", "b"],
+        "v": [40, 10, 20, 30],
+    })
+    res = df.diff(1, on=["ts", "sensor"], columns=["v"])
+    # Sorted v: [10, 20, 40, 30]. diff(1): [None, 10, 20, -10].
+    # Back: [20, None, 10, -10]
+    vals = read_col(res, tmp_path, "v")
+    assert vals == [20, None, 10, -10]
+
+
+def test_shift_on_single_element_list(tmp_path):
+    """on=['ts'] behaves like on='ts'."""
+    df = make_df(tmp_path)
+    r1 = df.shift(1, on="ts", columns=["v"])
+    r2 = df.shift(1, on=["ts"], columns=["v"])
+    (tmp_path / "r1").mkdir()
+    (tmp_path / "r2").mkdir()
+    v1 = read_col(r1, tmp_path / "r1", "v")
+    v2 = read_col(r2, tmp_path / "r2", "v")
+    assert v1 == v2
+
+
+def test_shift_on_empty_list_raises(tmp_path):
+    df = make_df(tmp_path)
+    with pytest.raises(ValueError, match="non-empty"):
+        df.shift(1, on=[], columns=["v"])
+
+
+def test_shift_on_multi_key_stable_tiebreak(tmp_path):
+    """Equal on-values: row_id tie-break keeps original order."""
+    df = make_df(tmp_path, data={
+        "ts": [1, 1, 2],
+        "sensor": ["a", "a", "b"],
+        "v": [10, 20, 30],
+    })
+    res = df.shift(1, on=["ts", "sensor"], columns=["v"])
+    # Sorted by (ts, sensor, row_id): row0(1,a)=10, row1(1,a)=20,
+    # row2(2,b)=30. shift(1): [None, 10, 20].
+    vals = read_col(res, tmp_path, "v")
+    assert vals == [None, 10, 20]
+

@@ -945,6 +945,7 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `fit_lasso` — `alpha` raw (не sklearn-style /n) | `cadw/ml/linear.py` (v0.7.7) | Совместимо с v0.7.0a Ridge alpha; документировано |
 | `feature_importance` default = 'gain' (v0.7.9) | viz adapters | Breaking change: было 'split'. Downstream relying on integer counts — `importance_type='split'` explicit |
 | permutation importance / SHAP — не реализовано | `cadw.ml.gbdt` | v0.7.10+ / вне scope |
+| `on` multi-column — composite sort, not per-group (v0.8.6) | `_shift_on` / `_rolling_on` | `on=["ts","sensor"]` = lexicographic; per-group — `groupby(...)` (v0.8.5a+) |
 | `rolling` on=col — single column (v0.8.4) | `_rolling_on` | Multi-column on — v0.8.4a |
 | `groupby(...).rolling(...)` — не поддержано | `CadwDataFrame` | Per-group rolling — v0.8.5+ |
 | `shift`/`diff` on=col — single column (v0.8.2) | `_shift_on` | Multi-column on — v0.8.2a |
@@ -2436,6 +2437,49 @@ pyproject.toml, который никогда не двигается).
 
 **Следующее:** v0.8.4a (multi-column `on`) → v0.8.3 `resample(freq)`
 (prototype-first).
+
+**Эпизод 131 (multi-column `on`: composite sort, not per-group).**
+v0.8.6 добавляет `on=["ts", "sensor"]` для shift/diff/rolling. Технически
+это малая правка — `external_sort` уже принимает `key_columns:
+Sequence[str]` и корректно обрабатывает multi-key (per-column `_Key` +
+row_id tie-break в heap). Единственное — `_shift_on`/`_rolling_on`
+передавали `key_columns=[on]` (single literal); заменили на `on_cols`
+(pre-normalized list).
+
+**Семантика (задокументирована, важно не путать):**
+- `on=["ts", "sensor"]` — **лексикографический composite sort**.
+  Все строки сортируются по (ts, sensor, row_id), затем shift/rolling
+  per row, sort-back.
+- **НЕ per-group.** Для независимых окон по каждому sensor:
+  `groupby('sensor').shift(1, on='ts')` (v0.8.5a+, не реализовано).
+
+Пример: ts=[2,1,1,2], sensor=[a,a,b,b], v=[40,10,20,30]. Sorted v:
+[10 (1,a), 20 (1,b), 40 (2,a), 30 (2,b)]. shift(1): [None, 10, 20, 40].
+Back to orig: [20, None, 10, 40]. Если бы пользователь ожидал
+per-sensor, он получил бы [None, 10, None, 20] — **не наш случай**.
+
+**`_normalize_on` helper** — `str | Sequence[str]` → `list[str]` +
+validation (`non-empty`, each in `self._columns`). Вызывается в dispatch
+(`shift`/`rolling`) и в `_diff_on` (до numeric-type check на columns,
+чтобы `on=[]` давал `ValueError` не `TypeError`).
+
+**AST guards v0.8.2/0.8.4 unaffected:** second `external_sort` всё ещё
+`key_columns=["__orig_rid"]` (literal), первый — `key_columns=on_cols`
+(variable, `keys=None` в AST). Тест `test_shift_on_second_sort_renames_
+row_id` смотрит только `ext_calls[-1]` — passes.
+
+**Урок (малые фичи):** composite sort для multi-key — уже работал в
+`external_sort`, единственная ошибка была в caller'е (`[on]` вместо
+`on_cols`). Это **не** повод для prototype-first (§13.4/123) — нет
+нового алгоритма. Но важен **честный docstring**: "composite sort, not
+per-group" — иначе пользователь неправильно поймёт семантику.
+
+**Backlog:** per-group shift/rolling (v0.8.5a+) — **другая** фича:
+`HashShuffle` по group, `external_sort` по `on` внутри group, application,
+concat. Требует prototype-first (как v0.8.2/v0.8.4).
+
+**Следующее:** v0.8.3 `resample(freq)` — prototype-first, prototype
+`scripts/proto_resample.py` (30 строк, 1 agg, bucket boundaries).
 
 ### 13.5. Открытые вопросы
 

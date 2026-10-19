@@ -14,6 +14,43 @@
   `test_changelog_is_descending` (v0.8.5) фиксируют инвариант.
 -->
 
+## [0.8.6] — 2026-10-19
+
+### Добавлено
+- **Multi-column `on`** для `shift` / `diff` / `rolling`:
+  `on=["ts", "sensor"]` (Sequence[str]).
+  - **Лексикографический composite sort**, не per-group. Сортировка по
+    `[on_cols..., row_id]`, применение shift/rolling per row, sort-back
+    по `__orig_rid` (как в v0.8.2 / v0.8.4).
+  - Per-group — `groupby('sensor').shift(1, on='ts')` (v0.8.5a+).
+- `CadwDataFrame._normalize_on(on, fn_name)` — helper: `str | Sequence[str]`
+  → `list[str]` + validation.
+- `_shift_on(..., on_cols: list[str])` / `_rolling_on(..., on_cols:
+  list[str])` — принимают pre-normalized list; `external_sort` получает
+  `key_columns=on_cols`.
+
+### Backward compat
+- `on="ts"` — как раньше (single-element normalization).
+- `on=["ts"]` — идентично `on="ts"`.
+- `on=[]` — `ValueError: {fn}: on must be non-empty`.
+
+### Ограничения (v0.8.6, §11.5)
+- Multi-column `on` — **composite sort**, не per-group. Для per-group
+  windows — `groupby(...).shift/rolling(..., on=...)` (v0.8.5a).
+- `_iter_shifted` / `_iter_zipped` не дедуплицируются — дублирование
+  остаётся (refactor в backlog).
+- Stability with duplicate `on` values — tie-break by row_id (heap),
+  как в v0.8.2/0.8.4.
+
+### Тесты
+- +5 в `test_shift_on_col.py`: multi-key shift/diff, single-element-list
+  equivalence, empty-list ValueError, stable tie-break.
+- +3 в `test_rolling_on_col.py`: multi-key sum, min_periods=1,
+  empty-list ValueError.
+- AST guards (v0.8.2/0.8.4) — unaffected (first sort uses `on_cols`
+  variable; second still literal `["__orig_rid"]`).
+- fast: **~1064 passed**. slow: **8 passed**.
+
 ## [0.8.5] — 2026-10-19
 
 ### Исправлено

@@ -1224,6 +1224,27 @@ class CadwDataFrame:
         )
         return new_df, reverse_maps
 
+    def _normalize_on(
+        self, on: "str | Sequence[str]", *, fn_name: str,
+    ) -> list[str]:
+        """Normalize `on` to list[str], validate each column exists.
+
+        v0.8.6: multi-column `on` (`on=["ts", "sensor"]`) — lexicographic
+        composite sort. Accepts str (backward compat) or Sequence[str].
+        """
+        if isinstance(on, str):
+            on_cols = [on]
+        else:
+            on_cols = list(on)
+        if not on_cols:
+            raise ValueError(f"{fn_name}: on must be non-empty")
+        for c in on_cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"{fn_name}: on column {c!r} not in {self._columns}"
+                )
+        return on_cols
+
     # ---------------- shift / diff ----------------
 
     def shift(
@@ -1232,15 +1253,18 @@ class CadwDataFrame:
         fill_value=None,
         *,
         columns: "str | Sequence[str] | None" = None,
-        on: "str | None" = None,
+        on: "str | Sequence[str] | None" = None,
     ) -> "CadwDataFrame":
-        """Shift values by `k` positions (v0.6.2b, lag).
+        """Shift values by `k` positions (v0.6.2b, lag; v0.8.6 multi-on).
 
         - k >= 0: `out[i] = x[i-k]` for i>=k, else `fill_value`.
         - k == 0: returns self (no-op).
         - k < 0 (lead): NotImplementedError (v0.6.3).
         - columns=None: all columns; else subset (others pass-through).
         - fill_value=None: null for first k rows. Non-None: that value.
+        - on: positional shift if None; sort-aware if str/Sequence.
+          `on=["ts", "sensor"]` — lexicographic composite sort
+          (NOT per-group; for per-group see v0.8.5a).
 
         Streamable: O(k) memory (deque per column). Position-based,
         iterates filtered batches in row order.
@@ -1259,10 +1283,11 @@ class CadwDataFrame:
         if k == 0:
             return self
 
-        # v0.8.2: sort-aware shift.
+        # v0.8.2: sort-aware shift; v0.8.6: multi-column on.
         if on is not None:
+            on_cols = self._normalize_on(on, fn_name="shift")
             return self._shift_on(
-                k, fill_value, columns=columns, on=on,
+                k, fill_value, columns=columns, on_cols=on_cols,
             )
 
         if columns is None:
@@ -1341,12 +1366,14 @@ class CadwDataFrame:
         k: int = 1,
         *,
         columns: "str | Sequence[str] | None" = None,
-        on: "str | None" = None,
+        on: "str | Sequence[str] | None" = None,
     ) -> "CadwDataFrame":
-        """First difference: `out[i] = x[i] - x[i-k]` (v0.6.2b).
+        """First difference: `out[i] = x[i] - x[i-k]` (v0.6.2b; multi-on v0.8.6).
 
         - k >= 1. First k rows -> null.
         - columns=None: all; else subset (others pass-through).
+        - on: positional if None; sort-aware if str/Sequence
+          (lexicographic composite sort).
         - Output columns nullable (first k = null).
 
         Streamable: O(k) memory.
@@ -1438,25 +1465,22 @@ class CadwDataFrame:
         fill_value,
         *,
         columns: "str | Sequence[str] | None",
-        on: str,
+        on_cols: list[str],
     ) -> "CadwDataFrame":
-        """Sort-aware shift on `on` column (v0.8.2).
+        """Sort-aware shift on `on_cols` (v0.8.2, multi v0.8.6).
 
         Algorithm:
-          1. external_sort by [on, row_id] → sorted IPC.
+          1. external_sort by [on_cols...] (row_id tie-break from heap)
+             → sorted IPC. Lexicographic composite sort.
           2. Read sorted stream, apply stateful shift (deque per column,
              O(k) memory). Output (row_id, shifted_cols) → IPC.
-          3. external_sort by row_id → original order.
+          3. external_sort by __orig_rid → original order.
           4. Zip with original.
 
         Peak RAM: batch + O(k × #cols). Independent of N.
+        `on_cols` pre-normalized by caller (v0.8.6).
         """
         from collections import deque
-
-        if on not in self._columns:
-            raise KeyError(
-                f"shift: on column {on!r} not in {self._columns}"
-            )
 
         if columns is None:
             cols = list(self._columns)
@@ -1479,11 +1503,11 @@ class CadwDataFrame:
             out_fields.append(f)
         out_schema = pa.schema(out_fields)
 
-        # 1. Sort by [on, row_id]
+        # 1. Sort by [on_cols...] (lexicographic)
         all_cols = list(self._columns)
         sorted_path = external_sort(
             self._iter_filtered_batches(),
-            key_columns=[on],
+            key_columns=on_cols,
             value_columns=all_cols,
             memory_guard=self._memory_guard,
             spill_dir=self._spill_dir / "shift" / "sort_by_on",
@@ -1635,13 +1659,15 @@ class CadwDataFrame:
         *,
         k: int,
         columns: "str | Sequence[str] | None",
-        on: str,
+        on: "str | Sequence[str]",
     ) -> "CadwDataFrame":
         """Sort-aware diff: pc.subtract(col, shifted(col)) with on=col sort.
 
-        v0.8.2. Delegates to _shift_on + subtract per batch. No extra
-        sort needed (reuses shift's 2 sorts).
+        v0.8.2 (single), v0.8.6 (multi). Delegates to _shift_on + subtract
+        per batch. No extra sort needed (reuses shift's 2 sorts).
         """
+        # v0.8.6: validate on early (before numeric-type check on columns).
+        on_cols = self._normalize_on(on, fn_name="diff")
         if columns is None:
             cols = list(self._columns)
         elif isinstance(columns, str):
@@ -1666,7 +1692,7 @@ class CadwDataFrame:
 
         # Shift with fill_value=None (nulls for first k rows)
         shifted_df = self._shift_on(
-            k, None, columns=cols, on=on,
+            k, None, columns=cols, on_cols=on_cols,
         )
 
         # Zip original + shifted, subtract
@@ -1722,26 +1748,21 @@ class CadwDataFrame:
         *,
         min_periods: "int | None" = None,
         columns: "str | Sequence[str] | None" = None,
-        on: "str | None" = None,
+        on: "str | Sequence[str] | None" = None,
     ) -> "CadwDataFrame":
-        """Rolling window aggregation (v0.6.2c).
+        """Rolling window aggregation (v0.6.2c; sort-aware v0.8.4; multi v0.8.6).
 
         - window: int >= 1.
         - agg: {'sum', 'mean', 'min', 'max', 'count'}.
-              count = non-null count in window.
-        - min_periods=None -> window. First (min_periods-1) rows = null.
+        - min_periods=None -> window.
         - columns=None -> all numeric columns.
+        - on: positional if None; sort-aware if str/Sequence
+          (`on=["ts", "sensor"]` — lexicographic composite sort, NOT
+          per-group; for per-group see v0.8.5a).
 
-        Output: original columns + `{col}_rolling_{agg}` for each column.
-
-        Incremental streaming: O(1) per row for sum/mean/count; O(1)
-        amortized for min/max via monotonic deque. Peak O(window × #cols).
-
-        skips nulls (pandas default). First rows (before min_periods)
-        receive null.
-
-        Not in v0.6.2c: `on=col` (sort-based; use .sort_values(...) first),
-        expanding, ewm, std/var/median/quantile.
+        Output: original + `{col}_rolling_{agg}` (APPEND).
+        Nulls skip min/max/sum/mean but **consume window slot** (positional,
+        matches pandas skipna=True). Peak O(window × #cols).
         """
         from collections import deque
 
@@ -1771,11 +1792,12 @@ class CadwDataFrame:
         else:
             mp = min_periods
 
-        # v0.8.4: sort-aware rolling (same 2-sort pattern as _shift_on).
+        # v0.8.4: sort-aware; v0.8.6: multi-column on.
         if on is not None:
+            on_cols = self._normalize_on(on, fn_name="rolling")
             return self._rolling_on(
                 window=window, agg=agg, min_periods=mp,
-                columns=columns, on=on,
+                columns=columns, on_cols=on_cols,
             )
 
         if columns is None:
@@ -1856,30 +1878,25 @@ class CadwDataFrame:
         agg: str,
         min_periods: int,
         columns: "str | Sequence[str] | None",
-        on: str,
+        on_cols: list[str],
     ) -> "CadwDataFrame":
-        """Sort-aware rolling on `on` column (v0.8.4).
+        """Sort-aware rolling on `on_cols` (v0.8.4; multi v0.8.6).
 
         Validated by prototype (scripts/proto_rolling_on.py):
           A (sort_values+rolling+sort_values) ==
           B (external_sort + _RollState + external_sort) ==
           C (pure Python deque).
 
-        Algorithm:
-          1. external_sort by [on] (row_id tie-break from heap).
+        Algorithm (identical to v0.8.4, multi-key `on_cols`):
+          1. external_sort by [on_cols...] (row_id tie-break from heap).
           2. _RollState.push per row (per column) → IPC
              (row_id, {col}_rolling_{agg}).
-          3. external_sort by __orig_rid (rename, avoid duplicate
-             row_id — §13.4/122).
-          4. Zip original + rolling cols (APPEND; rolling adds new cols).
+          3. external_sort by __orig_rid (§13.4/122).
+          4. Zip original + rolling cols (APPEND).
 
         Peak RAM: batch + O(window × #cols). Independent of N.
+        `on_cols` pre-normalized by caller (v0.8.6).
         """
-        if on not in self._columns:
-            raise KeyError(
-                f"rolling: on column {on!r} not in {self._columns}"
-            )
-
         if columns is None:
             cols = list(self._columns)
         elif isinstance(columns, str):
@@ -1923,7 +1940,7 @@ class CadwDataFrame:
         # 1. Sort by `on` (row_id tie-break from external_sort's heap).
         sorted_path = external_sort(
             self._iter_filtered_batches(),
-            key_columns=[on],
+            key_columns=on_cols,
             value_columns=list(self._columns),
             memory_guard=self._memory_guard,
             spill_dir=self._spill_dir / "rolling" / "sort_by_on",
