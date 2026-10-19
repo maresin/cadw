@@ -1782,6 +1782,44 @@ class CadwDataFrame:
             memory_guard=self._memory_guard,
         )
 
+    # ---------------- ML: fit_lasso / fit_elasticnet ----------------
+
+    def fit_lasso(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        alpha: float = 1.0,
+        max_iter: int = 1000,
+        tol: float = 1e-6,
+    ):
+        """Fit Lasso (L1). alpha is raw (additive to X^T X)."""
+        from cadw.ml.linear import fit_lasso
+        return fit_lasso(
+            self, X_cols, y_col,
+            alpha=alpha, max_iter=max_iter, tol=tol,
+            memory_guard=self._memory_guard,
+        )
+
+    def fit_elasticnet(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        alpha: float = 1.0,
+        l1_ratio: float = 0.5,
+        max_iter: int = 1000,
+        tol: float = 1e-6,
+    ):
+        """Fit ElasticNet (L1+L2). l1_ratio=1 → Lasso, 0 → Ridge."""
+        from cadw.ml.linear import fit_elasticnet
+        return fit_elasticnet(
+            self, X_cols, y_col,
+            alpha=alpha, l1_ratio=l1_ratio,
+            max_iter=max_iter, tol=tol,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(

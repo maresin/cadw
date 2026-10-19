@@ -1,5 +1,8 @@
 """CADW ML layer (v0.7.6)."""
-from .linear import XTXOp, LinearModel, fit_linear
+from .linear import (
+    XTXOp, LinearModel, fit_linear,
+    fit_lasso, fit_elasticnet,
+)
 from .logistic import LogisticGradOp, LogisticModel, fit_logistic
 from .kmeans import KMeansStepOp, KMeansModel, fit_kmeans
 from .pca import PCA, fit_pca
@@ -15,6 +18,7 @@ from .naive_bayes import (
 
 __all__ = [
     "XTXOp", "LinearModel", "fit_linear",
+    "fit_lasso", "fit_elasticnet",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "PCA", "fit_pca",

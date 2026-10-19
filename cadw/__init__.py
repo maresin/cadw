@@ -23,6 +23,7 @@ from .ops.quantile import quantile
 
 from .ml import (
     XTXOp, LinearModel, fit_linear,
+    fit_lasso, fit_elasticnet,
     LogisticGradOp, LogisticModel, fit_logistic,
     KMeansStepOp, KMeansModel, fit_kmeans,
     PCA, fit_pca,
@@ -45,6 +46,7 @@ __all__ = [
     "viz_hist", "viz_hist2d", "viz_box_stats",
     "viz_line_agg", "viz_sample",
     "XTXOp", "LinearModel", "fit_linear",
+    "fit_lasso", "fit_elasticnet",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "PCA", "fit_pca",

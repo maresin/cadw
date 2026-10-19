@@ -111,7 +111,7 @@ def _stack_numeric(batch: pa.RecordBatch, cols: Sequence[str]) -> np.ndarray:
 
 @dataclass
 class LinearModel:
-    """Fitted linear model (OLS or Ridge)."""
+    """Fitted linear model (OLS, Ridge, Lasso, ElasticNet)."""
 
     coef_: np.ndarray
     intercept_: float
@@ -119,6 +119,10 @@ class LinearModel:
     target_col_: str
     alpha_: float
     n_rows_: int
+    penalty_: str = "l2"      # 'l2' | 'l1' | 'elasticnet'
+    l1_ratio_: float = 0.0    # 0 for l2, 1 for l1, in (0,1) for elasticnet
+    n_iter_cd_: int = 0       # coordinate descent iters (0 for closed-form)
+    converged_: bool = True   # CD convergence flag (True for closed-form)
     fitted_: bool = True
 
     def to_dict(self) -> dict:
@@ -126,6 +130,10 @@ class LinearModel:
             "coefficients": dict(zip(self.feature_names_, self.coef_.tolist())),
             "intercept": float(self.intercept_),
             "alpha": float(self.alpha_),
+            "penalty": self.penalty_,
+            "l1_ratio": float(self.l1_ratio_),
+            "n_iter_cd": int(self.n_iter_cd_),
+            "converged": bool(self.converged_),
             "n_rows": int(self.n_rows_),
         }
 
@@ -183,23 +191,93 @@ class LinearModel:
         )
 
 
+def _soft_threshold(z: float, lambda_: float) -> float:
+    """Soft-thresholding operator S(z, λ) = sign(z)·max(0, |z| - λ).
+
+    λ ≤ 0 → identity. Cornerstone of coordinate descent for L1.
+    """
+    if lambda_ <= 0.0:
+        return z
+    if z > lambda_:
+        return z - lambda_
+    if z < -lambda_:
+        return z + lambda_
+    return 0.0
+
+
+def _coordinate_descent(
+    xtx_c: np.ndarray,   # (d, d) — centered X^T X
+    xty_c: np.ndarray,   # (d,)   — centered X^T y
+    lambda_l1: float,
+    lambda_l2: float,
+    *,
+    max_iter: int = 1000,
+    tol: float = 1e-6,
+) -> tuple[np.ndarray, int, bool]:
+    """Cyclic coordinate descent for Lasso/ElasticNet.
+
+    Minimizes 0.5·bᵀ·XTX_c·b - bᵀ·XTy_c + λ₁·||b||₁ + 0.5·λ₂·||b||²₂.
+    (Intercept not penalized — it's outside this function.)
+
+    Returns (b, n_iter, converged).
+    """
+    d = len(xty_c)
+    if d == 0:
+        return np.zeros(0, dtype=np.float64), 0, True
+    z = np.diag(xtx_c).copy()
+    b = np.zeros(d, dtype=np.float64)
+    n_iter = 0
+    converged = False
+    for it in range(max_iter):
+        max_delta = 0.0
+        for j in range(d):
+            if z[j] <= 0.0:
+                continue  # constant feature after centering
+            # r_j = xty_c[j] - Σ_k XTX_c[j,k]·b_k + z_j·b_j
+            r_j = float(xty_c[j] - xtx_c[j] @ b + z[j] * b[j])
+            new_bj = _soft_threshold(r_j, lambda_l1) / (z[j] + lambda_l2)
+            delta = abs(new_bj - b[j])
+            if delta > max_delta:
+                max_delta = delta
+            b[j] = new_bj
+        n_iter = it + 1
+        if max_delta < tol:
+            converged = True
+            break
+    return b, n_iter, converged
+
+
 def fit_linear(
     df,
     X_cols: "str | Sequence[str]",
     y_col: str,
     *,
     alpha: float = 0.0,
+    penalty: str = "l2",
+    l1_ratio: float | None = None,
+    max_iter: int = 1000,
+    tol: float = 1e-6,
     memory_guard: Optional[MemoryGuard] = None,
 ) -> LinearModel:
-    """Fit Linear (alpha=0) or Ridge (alpha>0) via one Reduce + solve.
+    """Fit Linear / Ridge / Lasso / ElasticNet via one Reduce + solve/CD.
 
     - X_cols: feature column names (numeric).
     - y_col: target column (numeric).
-    - alpha: Ridge L2 penalty (non-negative). Intercept not penalized.
-    - memory_guard: default df._memory_guard.
+    - alpha: penalty strength (non-negative). Intercept not penalized.
+    - penalty ∈ {'l2', 'l1', 'elasticnet'}:
+        - 'l2'         : np.linalg.solve((XTX + alpha·I), XTy)  (closed form)
+        - 'l1'         : coordinate descent, λ₁=alpha, λ₂=0
+        - 'elasticnet' : coordinate descent, λ₁=alpha·l1_ratio,
+                         λ₂=alpha·(1-l1_ratio)
+    - l1_ratio: for penalty='elasticnet' (default 0.5); for 'l1' forced 1.0;
+      for 'l2' ignored (must be None/0). ∈ [0, 1].
+    - max_iter, tol: coordinate descent controls (ignored for 'l2').
+
+    **Notation**: alpha is a **raw** additive penalty to X^T X (matching
+    v0.7.0a Ridge). It is NOT sklearn-style alpha/n.
 
     Raises ValueError for empty df (all-null rows), negative alpha,
-    X ∩ {y} non-empty, non-numeric columns.
+    X ∩ {y} non-empty, non-numeric columns, invalid penalty/l1_ratio.
     """
     if isinstance(X_cols, str):
         X_cols = [X_cols]
@@ -213,6 +291,27 @@ def fit_linear(
         )
     if alpha < 0:
         raise ValueError(f"fit_linear: alpha must be >= 0; got {alpha}")
+    if penalty not in ("l2", "l1", "elasticnet"):
+        raise ValueError(
+            f"fit_linear: penalty must be 'l2'|'l1'|'elasticnet'; "
+            f"got {penalty!r}"
+        )
+    if penalty == "l1":
+        # l1_ratio forced 1.0 (Lasso == ElasticNet with l1_ratio=1)
+        l1_ratio = 1.0
+    elif penalty == "elasticnet":
+        if l1_ratio is None:
+            l1_ratio = 0.5
+        if not (0.0 <= l1_ratio <= 1.0):
+            raise ValueError(
+                f"fit_linear: l1_ratio must be in [0, 1]; got {l1_ratio}"
+            )
+    else:  # l2
+        l1_ratio = 0.0
+    if max_iter < 1:
+        raise ValueError(f"fit_linear: max_iter must be >= 1; got {max_iter}")
+    if tol <= 0:
+        raise ValueError(f"fit_linear: tol must be > 0; got {tol}")
     for c in X_cols:
         if c not in df.columns:
             raise KeyError(f"fit_linear: column {c!r} not in df")
@@ -243,31 +342,122 @@ def fit_linear(
     sum_y = res["sum_y"]
     n = res["n"]
 
-    # Augmented system (d+1 features: intercept + X)
-    xtx_aug = np.zeros((d + 1, d + 1), dtype=np.float64)
-    xtx_aug[0, 0] = float(n)
-    xtx_aug[0, 1:] = sum_x
-    xtx_aug[1:, 0] = sum_x
-    xtx_aug[1:, 1:] = xtx
+    if penalty == "l2":
+        # ---------- OLS/Ridge: closed form (existing path) ----------
+        xtx_aug = np.zeros((d + 1, d + 1), dtype=np.float64)
+        xtx_aug[0, 0] = float(n)
+        xtx_aug[0, 1:] = sum_x
+        xtx_aug[1:, 0] = sum_x
+        xtx_aug[1:, 1:] = xtx
 
-    xty_aug = np.zeros(d + 1, dtype=np.float64)
-    xty_aug[0] = sum_y
-    xty_aug[1:] = xty
+        xty_aug = np.zeros(d + 1, dtype=np.float64)
+        xty_aug[0] = sum_y
+        xty_aug[1:] = xty
 
-    reg = alpha * np.eye(d + 1, dtype=np.float64)
-    reg[0, 0] = 0.0  # intercept not penalized
-    xtx_reg = xtx_aug + reg
+        reg = alpha * np.eye(d + 1, dtype=np.float64)
+        reg[0, 0] = 0.0  # intercept not penalized
+        xtx_reg = xtx_aug + reg
 
-    try:
-        beta = np.linalg.solve(xtx_reg, xty_aug)
-    except np.linalg.LinAlgError:
-        beta = np.linalg.lstsq(xtx_reg, xty_aug, rcond=None)[0]
+        try:
+            beta = np.linalg.solve(xtx_reg, xty_aug)
+        except np.linalg.LinAlgError:
+            beta = np.linalg.lstsq(xtx_reg, xty_aug, rcond=None)[0]
+
+        return LinearModel(
+            coef_=beta[1:],
+            intercept_=float(beta[0]),
+            feature_names_=X_cols,
+            target_col_=y_col,
+            alpha_=float(alpha),
+            n_rows_=int(n),
+            penalty_="l2",
+            l1_ratio_=0.0,
+            n_iter_cd_=0,
+            converged_=True,
+        )
+
+    # ---------- Lasso / ElasticNet: coordinate descent ----------
+    lambda_l1 = float(alpha) * float(l1_ratio)
+    lambda_l2 = float(alpha) * (1.0 - float(l1_ratio))
+
+    # Center X and y (intercept will be added back after CD).
+    mu_x = sum_x / n            # (d,)
+    mu_y = sum_y / n            # scalar
+    xtx_c = xtx - n * np.outer(mu_x, mu_x)
+    xty_c = xty - n * mu_x * mu_y
+
+    # Symmetrize XTX_c (numerical symmetry; vectorized compute already
+    # symmetric, but np.linalg / matrix products may drift 1e-16).
+    xtx_c = 0.5 * (xtx_c + xtx_c.T)
+
+    b, n_iter, converged = _coordinate_descent(
+        xtx_c, xty_c,
+        lambda_l1=lambda_l1,
+        lambda_l2=lambda_l2,
+        max_iter=max_iter,
+        tol=tol,
+    )
+    b0 = float(mu_y - mu_x @ b)
 
     return LinearModel(
-        coef_=beta[1:],
-        intercept_=float(beta[0]),
+        coef_=b,
+        intercept_=b0,
         feature_names_=X_cols,
         target_col_=y_col,
         alpha_=float(alpha),
         n_rows_=int(n),
+        penalty_=penalty,
+        l1_ratio_=float(l1_ratio),
+        n_iter_cd_=int(n_iter),
+        converged_=bool(converged),
+    )
+
+
+def fit_lasso(
+    df,
+    X_cols: "str | Sequence[str]",
+    y_col: str,
+    *,
+    alpha: float = 1.0,
+    max_iter: int = 1000,
+    tol: float = 1e-6,
+    memory_guard: Optional[MemoryGuard] = None,
+) -> LinearModel:
+    """Lasso regression (L1 penalty) — convenience wrapper.
+
+    Equivalent to fit_linear(..., penalty='l1', alpha=alpha).
+    alpha is raw (additive to X^T X), not sklearn-style alpha/n.
+    """
+    return fit_linear(
+        df, X_cols, y_col,
+        alpha=alpha, penalty="l1",
+        max_iter=max_iter, tol=tol,
+        memory_guard=memory_guard,
+    )
+
+
+def fit_elasticnet(
+    df,
+    X_cols: "str | Sequence[str]",
+    y_col: str,
+    *,
+    alpha: float = 1.0,
+    l1_ratio: float = 0.5,
+    max_iter: int = 1000,
+    tol: float = 1e-6,
+    memory_guard: Optional[MemoryGuard] = None,
+) -> LinearModel:
+    """ElasticNet regression (L1 + L2) — convenience wrapper.
+
+    Equivalent to fit_linear(..., penalty='elasticnet', alpha=alpha,
+    l1_ratio=l1_ratio).
+
+    - l1_ratio=1.0 → Lasso
+    - l1_ratio=0.0 → Ridge (same as fit_linear(penalty='l2', alpha=alpha))
+    """
+    return fit_linear(
+        df, X_cols, y_col,
+        alpha=alpha, penalty="elasticnet", l1_ratio=l1_ratio,
+        max_iter=max_iter, tol=tol,
+        memory_guard=memory_guard,
     )

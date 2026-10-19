@@ -845,6 +845,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `rank` (v0.3.1/3.2: Sort + stream; first/min/dense/max/last/average) | ✅ | 34 |
 | `quantile` (v0.3.3: Sort + indexed lookup; scalar q, linear) | ✅ | 20 |
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
+| `fit_lasso`/`fit_elasticnet` (v0.7.7: coord descent) | ✅ | 18 |
 | `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 26 |
 | `iloc` (v0.4.0b: positional indexer) | ✅ | 22 |
 | `loc`/`.at`/`.iat` (v0.4.0c: label-based) | ✅ | 31 |
@@ -933,6 +934,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `iloc[bool_array]` не поддерживается (v0.4.0b) | `_ILocIndexer` | raise `NotImplementedError`; используйте `df[mask]` (RowFilter). |
 | `set_index` материализует колонку (O(N) RAM) | `CadwDataFrame` | Для больших N — future: `RangeIndex` fast path + streaming loc. v0.4.1. |
 | Index не сохраняется в Parquet (write_parquet → reload = RangeIndex) | `write_parquet` | Parquet не имеет index-метаданных; документировано. §13.4/55. |
+| `fit_lasso` — warm-start / path | `cadw/ml/linear.py` (v0.7.7) | alpha-путь переобучается с нуля; v0.7.8+ |
+| `fit_lasso` — `alpha` raw (не sklearn-style /n) | `cadw/ml/linear.py` (v0.7.7) | Совместимо с v0.7.0a Ridge alpha; документировано |
 | `_detect_heavy_keys` absolute min = 100 (v0.3.4) | skew detection | Без абсолютного минимума tiny data (5 строк) ложно флагалась как skew. §13.4/52b. |
 | `groupby_aggregate` combiner не работает в skew-пути (v0.3.4) | `groupby_aggregate` | skew → warning + combiner disabled; heavy через streaming, light через shuffle без combiner. v0.3.5 — combiner для light. |
 | `quantile` без list q? — НЕТ, list q поддерживается. Без других interpolations ('lower'/'higher'/'nearest'/'midpoint') | `quantile` (v0.3.3) | v0.3.4 — добавление других interpolations (тривиально: другие формулы на v_lo/v_hi). List q уже работает. §13.4/51 |
@@ -1947,6 +1950,33 @@ P5. AST guard + unit-тесты этого не ловят (результат �
 что P2: fix был «код корректен, но пик памяти не тот». Правило: для
 memory-fix — бенчмарк с RSS-сэмплером в CI. `scripts/bench_p5_sort.py`
 — первая ласточка; следующие (v0.5.2b, v0.5.3) получат свои benchmarks.
+
+**Эпизод 99 (B2: `_NumpyBackedBuilder` инверсия bitmap).** Первый
+настоящий баг корректности за долгое время. `_NumpyBackedBuilder.finish()`
+делал `np.packbits(mask)` где `mask[i]=True = null`. Arrow-спека:
+validity bitmap, **`1=valid, 0=null`**. `packbits(True)=1` попадал в
+null-позицию → null↔valid инвертированы. Диагностика (v0.7.6.1): 
+`packbits([F,F,T]) → [None,None,30]` (2 nulls) вместо `[10,20,None]` (1).
+Fix: `packbits(~mask)`.
+
+**Почему latent:** в PyArrow 26 есть native `Int64Builder`/`Float64Builder`
+— `_make_builder` выбирает native (fast path), numpy fallback не
+использовался в тестах. Тесты `test_sort_*_nulls_builder_path` шли через
+**native** builder, инверсия не срабатывала. Это второй эпизод после
+§13.4/52b («зелёные тесты ≠ упражняется новая функциональность»).
+
+**Fix (v0.7.6.1):** `packbits(~mask)` + 3 direct regression tests на
+`_NumpyBackedBuilder` (**не через `external_sort`** — чтобы не маскировать
+native fallback'ом). Плюс AST guard в sort.py не нужен: `packbits` есть
+только в одном месте (`_NumpyBackedBuilder.finish`).
+
+**Урок:** custom Arrow builder/encoder — тестировать **directly** (не через
+pipeline) + проверять **Arrow spec invariants**: `arr.null_count` и
+`arr.to_pylist()` с известными позициями. Pipeline-тест проходит мимо
+fallback'а, если native API доступен для типа. Правило: «для custom encoder'а
+— direct test; pipeline test — отдельно». Также: `_NumpyBackedBuilder` для
+`date64`/`timestamp` — сейчас latent; после мутации PyArrow может стать
+real. Фикс превентивный.
 
 ### 13.5. Открытые вопросы
 
