@@ -1,3 +1,40 @@
+## [0.8.8] — 2026-10-19
+
+### Добавлено (housekeeping, не функциональность)
+- **`scripts/collect_project.py`** — переписан с `--mode=smart|full|tiny`.
+  - `smart` (default): full для `cadw/`, `tests/`, `README`, `pyproject`,
+    latest-3 `patch_*.py`, top-5 CHANGELOG, DECISIONS (§13.4 truncated to
+    last 10 episodes). Stub: old patches, archive, backups, `uv.lock`,
+    old CHANGELOG entries. **~2 MB → ~500 KB** (75% reduction).
+  - `full`: старое поведение (all files).
+  - `tiny`: README + tree + top-3 CHANGELOG (~50 KB).
+- **`scripts/patch_v088_housekeeping.py`** — one-shot cleanup + audit:
+  - Phase A: rewrite `collect_project.py`.
+  - Phase B: move `scripts/patch_*.{sh,py}` (older than keep=3) →
+    `scripts/archive/v0.8.7/`. `git mv` (сохраняет history).
+  - Phase C: move `.backups/*` → `/tmp/cadw_backups_<ts>/` (вне repo).
+  - Phase D: append [0.8.8] + §13.4/136 + §11.6.
+  - Phase E: audit (layers, primitives, §13.4/§11.5/§11.6 counts).
+
+### Framework status (audit подтвердил)
+- 7 layers (Storage / Dataset / Access / Primitives / Operations /
+  DataFrame / Export) — все на месте.
+- 3 primitives (Reduce / HashShuffle / Sort) — stable API.
+- Все `ops/*.py` (кроме primitives) импортируют `from cadw.ops.{reduce,
+  shuffle, sort}` — нет reinvention.
+- Все §13.4 episodes closed через CHANGELOG-записи.
+- §11.5 — 18 known limitations + backlog (documented, not bugs).
+
+### Рабочая папка
+- `scripts/` → только `collect_project.py`, `_lib.sh`, latest-3 patches,
+  `archive/v0.8.7/` (n-исторических), `bench_*`, `diagnose_*`.
+- `.backups/` → очищено (`/tmp/cadw_backups_*`).
+- `.gitignore` — без изменений (archive tracked).
+
+### Тесты
+- fast: **~1096 passed**. slow: **8 passed**.
+- CHANGELOG guard: 3 passed (top == tag, descending, exists).
+
 # Changelog
 
 Все значимые изменения проекта CADW. Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).

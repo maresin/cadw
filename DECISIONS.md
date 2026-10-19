@@ -2621,6 +2621,93 @@ float64 mismatch — caught; (135) date64→date32 parquet — caught (и
 
 **Следующее:** v0.8.8 per-group (prototype-first).
 
+**Эпизод 137 (rank.py: post-processor pattern).** Аудит v0.8.8
+проверяет, что каждый `cadw/ops/*.py` (кроме primitives) импортирует
+primitive (`reduce`/`shuffle`/`sort`) — invariant «high-level ops =
+compositions of primitives». `rank.py` — исключение:
+`compute_ranks_to_disk(sorted_path: Path, ...)` принимает УЖЕ
+отсортированный IPC-path; caller (`CadwDataFrame.rank`) делает
+`external_sort` до вызова.
+
+**Pattern:** `rank.py` — **post-processor** of pre-sorted stream, не
+composite over unsorted input. Legitimate architectural exception:
+- Sort (expensive, 2 passes I/O) — в caller (facade, координатор).
+- Ranking (cheap, 1 pass I/O) — в `rank.py` (post-processor primitive).
+
+Split обоснован: `CadwDataFrame.rank` делает `external_sort` по `by`,
+затем `external_sort` по `row_id` (sort-back). Между ними —
+`compute_ranks_to_disk`. Вынести `external_sort` внутрь `rank.py` =
+дублировать sort-back, нарушит "post-processor не сортирует" инвариант.
+
+**Аудит fix:** whitelist `POST_PROCESSORS = {"rank.py": ...}` в
+`patch_v088_housekeeping.py::audit` + docstring note в `rank.py`.
+Для сравнения `quantile.py` **импортирует** `external_sort` — потому
+что делает sort внутри (2-pass: sort + scan). Разница: `rank.py`
+вызывается **после** sort, `quantile.py` сортирует сам.
+
+**Урок:** composition invariant «ops = primitives» — не «каждый файл
+импортирует primitive», а «op выполняется через primitives, где бы они
+ни вызывались (caller или local)». `rank.py` — legitimate exception с
+явной архитектурной причиной. Whitelist + docstring лучше, чем
+force-import в post-processor (последнее = dead import).
+
+**Связанные:** §13.4/133 (pyarrow cast matrix — code vs tests),
+§13.4/134 (input type inference), §13.4/135 (parquet limitation),
+§13.4/136 (housekeeping). Класс «hidden by green tests» /
+«assumptions not verified»: (133/134/135) test-authoring, (137)
+audit-assumption too strict.
+
+**Эпизод 136 (housekeeping v0.8.8: smart snapshot, cleanup, audit).**
+Проект вырос до ~2 MB в single-file snapshot; CHANGELOG 1000+ lines,
+DECISIONS 2300+, patch scripts 120× (~1.5 MB — bulk). Snapshot занимал
+~30% context budget, что ограничивает дальнейшие сессии.
+
+**Fix (v0.8.8):** `collect_project.py` с `--mode=smart|full|tiny`.
+Smart: full для `cadw/`, `tests/`, README, pyproject, latest-3 patches,
+top-5 CHANGELOG, DECISIONS (§13.4 → last 10 episodes). Stub: old patches
+(1 line + `[STUB: N B]`), archive, backups, uv.lock. **~2 MB → ~500 KB.**
+
+**Cleanup:** patch scripts (older than 3) → `scripts/archive/v0.8.7/`
+(`git mv` — history preserved, excluded from smart snapshot). `.backups/`
+→ `/tmp/cadw_backups_<ts>/` (outside repo).
+
+**Audit (подтвердил):**
+- §13.4 episodes: 135, все closed (via CHANGELOG entries).
+- §11.5: 18 open limitations (feature/refactor backlog, not bugs).
+- §11.6 tech debt: 5 items (mostly perf refactors).
+- 7 layers (per §4.1): all files present.
+- 3 primitives: stable API (ReduceOp, compute_hashes, external_sort).
+- `ops/*.py` (non-primitives) all `import from cadw.ops.{reduce,
+  shuffle, sort}` — composition invariant preserved (no reinvention).
+
+**Урок (meta, экономия context budget):** snapshot для chat — не
+production artifact, а **in-memory view для AI-сессии**. Bulk (patch
+scripts, history) должен быть stub'нут; только current-state (source,
+tests, current limitations) — в полном виде. Правило: **default smart**
+(минимальное для review+new-feature); full — только для отладки
+исторических регрессий; tiny — для quick check.
+
+**Связанные:** §13.4/111 (CHANGELOG chain), §13.4/130 (descending).
+Все three — из класса "snapshot / log hygiene". Правило: любые
+append-only files (CHANGELOG, DECISIONS, patch scripts) → archive-политика
++ smart viewer.
+
+**Backlog §11.6 — обновлено v0.8.8:**
+- + `scripts/*.py` без `sys.path.insert` (AST guard, §13.4/125) —
+  раз 3-й за сессию (`bench_p5_sort.py`, `bench_hash_v081.py`,
+  `proto_rolling_on.py`), раз fix при каждом — правило "первая
+  не-comment строка после `from __future__`".
+- + `_iter_zipped` duplication (`_shift_on` + `_rolling_on`) —
+  ~100 строк, кандидат на `_zip_stream_by_row_id(orig, rolled,
+  replace: bool)`.
+- + reference helpers для `shift`/`diff`/`expanding`/`ewm`/`quantile`
+  (§13.4/129) — тесты всё ещё с hard-coded expected; латентный риск
+  §13.4/128-класса.
+
+**Следующее (после v0.8.8):** v0.8.9 per-group (`groupby('sensor').
+shift(1, on='ts')`) — prototype-first + type matrix (int64/timestamp/
+date32 + nulls). Последний большой remaining в time-series.
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).

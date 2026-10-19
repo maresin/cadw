@@ -2,6 +2,34 @@
 
 Out-of-core фреймворк для табличных данных, не помещающихся в RAM, на слабых машинах.
 
+
+## Текущий статус (v0.8.8)
+
+**7 слоёв:** Storage (Parquet/IPC) → Dataset → Access (RowFilter,
+MemoryGuard, Planner) → Primitives (Reduce, HashShuffle, Sort) →
+Operations (groupby, join, dedup, rank, quantile, resample) →
+DataFrame (CadwDataFrame, iloc/loc/at/iat) → Export (to_batches, ML, viz).
+
+**Time-series:** `shift/diff/rolling` (positional + sort-aware single/
+multi-key `on`), `expanding`, `ewm`, `resample(freq)`.
+
+**ML (собственные реализации на primitives):** Linear/Ridge/Lasso/ENet,
+Logistic, k-means, PCA, GBDT (regression / binary / multiclass),
+Gaussian/Multinomial/Bernoulli NB.
+
+**Viz (aggregate-first):** hist, hist2d, box, line, sample, hexbin;
+adapters для matplotlib, plotly, seaborn.
+
+**Индексация:** `CadwIndex` (RangeIndex / MaterializedIndex /
+MaterializedMultiIndex), `iloc` / `loc` / `at` / `iat`, filter-compat.
+
+**Тесты:** ~1096 fast + 8 slow (E2E + OOM). См. §11.1 (DECISIONS.md).
+
+**Известные limitations** — DECISIONS.md §11.5 (18 items, documented).
+**Backlog** — §11.6 (refactor/perf). Нет открытых багов (§13.4 closed).
+
+**Snapshot:** `uv run python scripts/collect_project.py` (~500 KB, smart).
+
 ## Принципы
 
 - Не более одного батча данных в RAM; остальное — на диск (Arrow IPC).

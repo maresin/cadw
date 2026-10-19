@@ -1,7 +1,12 @@
 """
-Rank: external_sort + потоковое вычисление rank.
+Rank: post-processor of pre-sorted stream (v0.8.8 note).
 
-Алгоритм:
+`compute_ranks_to_disk(sorted_path: Path, ...)` accepts an ALREADY-sorted
+IPC path; caller (`CadwDataFrame.rank` in dataframe.py) does
+`external_sort`. Architectural pattern "post-processor": this module
+does not import primitives. See §13.4/137.
+
+Алгоритм (caller-side external_sort показан для контекста):
   1. external_sort по `by` (ascending/descending).
   2. Вычисление rank — ОДИН или ДВА прохода (зависит от method):
      - Streamable (`first`/`min`/`dense`): O(1) state, один проход.
