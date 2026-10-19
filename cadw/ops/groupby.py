@@ -50,6 +50,33 @@ def _empty_result_schema(by_columns, agg_columns, agg_funcs) -> pa.Schema:
     return pa.schema(fields)
 
 
+_DEFAULT_KEY_ENTRY_BYTES = 80  # CALIBRATION DEFAULT (см. 11-A-4b)
+
+
+def _estimate_distinct_keys(
+    table: pa.Table, by_columns: Sequence[str]
+) -> int:
+    """Upper bound на число уникальных ключей.
+
+    Для multi-key: min(prod(nunique), num_rows). Без построения полного
+    hash-таблицы (pc.count_distinct — single int per column).
+    """
+    import pyarrow.compute as pc
+
+    product = 1
+    for col in by_columns:
+        try:
+            n = pc.count_distinct(table.column(col)).as_py()
+        except Exception:
+            return table.num_rows
+        if not isinstance(n, int) or n <= 0:
+            return table.num_rows
+        product *= n
+        if product >= table.num_rows:
+            return table.num_rows
+    return min(product, table.num_rows)
+
+
 def _read_partition_safe(
     partition_path: Path,
     memory_guard: "MemoryGuard | None",
@@ -94,6 +121,8 @@ def _local_groupby(
     spill_dir: Path | None = None,
     depth: int = 0,
     max_depth: int = _MAX_DEPTH,
+    *,
+    size_of_key_entry_bytes: int | None = None,
 ) -> pa.Table:
     """Локальная агрегация одной партиции. Векторизованно через pa.Table.group_by."""
     if isinstance(agg_funcs, str):
@@ -104,9 +133,10 @@ def _local_groupby(
         if f not in _AGG_FUNCS:
             raise ValueError(f"Неподдерживаемая агрегация: {f!r}. Доступно: {_AGG_FUNCS}")
 
-    # 1. Оценка размера партиции ДО чтения (must-fix, §11.4).
-    #    Arrow IPC без сжатия: file size ≈ in-memory nbytes. Читать весь
-    #    файл в list() до проверки — OOM для партиций > бюджета.
+    if size_of_key_entry_bytes is None:
+        size_of_key_entry_bytes = _DEFAULT_KEY_ENTRY_BYTES
+
+    # 1. Оценка размера файла ДО чтения.
     partition_bytes = (
         partition_path.stat().st_size if memory_guard is not None else 0
     )
@@ -116,28 +146,64 @@ def _local_groupby(
         else partition_bytes
     )
 
-    # 2. Влезает — материализуем через безопасный helper
+    table: pa.Table | None = None
+    estimated_dict_bytes: int = 0
+    dict_fits: bool = True
+
+    # 2. Файл влезает -> materialize -> dict check -> group_by
     if partition_bytes <= safety_limit:
         table = _read_partition_safe(partition_path, memory_guard)
         if table is None or table.num_rows == 0:
             return pa.Table.from_pylist(
                 [], schema=_empty_result_schema(by_columns, agg_columns, agg_funcs)
             )
-        agg_specs = [(col, f) for col, f in zip(agg_columns, agg_funcs)]
-        return table.group_by(list(by_columns)).aggregate(agg_specs)
 
-    # 3. Не влезает — рекурсивное партиционирование с новым seed
+        # must-fix §11.4: dict check до group_by.
+        # _read_partition_safe проверяет file_size, но group_by строит
+        # hash-таблицу K_i * size_of_key_entry, которая для узких строк
+        # больше файла -> OOM внутри pyarrow.
+        if memory_guard is not None:
+            estimated_k = _estimate_distinct_keys(table, by_columns)
+            estimated_dict_bytes = estimated_k * size_of_key_entry_bytes
+            dict_limit = int(memory_guard.available_bytes() * 0.5)
+            dict_fits = estimated_dict_bytes <= dict_limit
+
+        if dict_fits:
+            agg_specs = [(col, f) for col, f in zip(agg_columns, agg_funcs)]
+            return table.group_by(list(by_columns)).aggregate(agg_specs)
+        # fall through: file fits, dict overflow -> split
+
+    # 3. Файл или dict не влезает -> рекурсивное партиционирование
     if memory_guard is None or spill_dir is None:
         raise MemoryLimitExceeded(
-            f"_local_groupby: partition too large ({partition_bytes} B > {safety_limit} B), "
-            f"but memory_guard/spill_dir not provided."
+            f"_local_groupby: file={partition_bytes} B, "
+            f"dict~{estimated_dict_bytes} B, safety={safety_limit} B; "
+            f"memory_guard/spill_dir not provided."
         )
     if depth >= max_depth:
         raise MemoryLimitExceeded(
             f"_local_groupby: depth={depth} >= max_depth={max_depth}; "
-            f"partition={partition_path.name} size={partition_bytes} B > safety={safety_limit} B. "
-            f"Вероятен экстремальный skew (см. DECISIONS §11.4 п.3)."
+            f"file={partition_bytes} B, dict~{estimated_dict_bytes} B, "
+            f"safety={safety_limit} B. Likely skew (DECISIONS §11.4)."
         )
+
+    def _read_for_resplit():
+        # Если таблица уже в памяти (file fits, dict overflow) — не
+        # перечитываем с диска: сплитим in-memory batches.
+        if table is not None:
+            keep = [
+                c for c in list(by_columns) + list(agg_columns)
+                if c in table.schema.names
+            ]
+            for b in table.select(keep).to_batches():
+                yield b
+            return
+        for b in ArrowIPCBatchReader(str(partition_path), None):
+            cols = [
+                c for c in list(by_columns) + list(agg_columns)
+                if c in b.schema.names
+            ]
+            yield b.select(cols)
 
     def _read_for_resplit():
         for b in ArrowIPCBatchReader(str(partition_path), None):

@@ -835,6 +835,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | Architecture guards (legacy, AST) | ✅ | 3 |
 | API availability guard (07, 18 assertions) | ✅ | 18 |
 | Materialize-before-check fix (10) | ✅ | (см. test_materialize_guard) |
+| dict check в `_local_groupby` (11-A-4a, must-fix §11.4) | ✅ | 5 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -1102,6 +1103,21 @@ OOM. Тест `test_local_groupby_recursion_called` проверял, что
 + анализ `op.init()`. **Урок:** аудит перед новыми функциями (join, GBDT)
 находит унаследованные баги. Фикс: `estimate_state_size` перед init
 (+ AST guard `test_reduce_estimate_state_before_init`).
+
+**Эпизод 35 (must-fix, dict check).** До 11-A-4a `_local_groupby`
+проверял только `file_size <= safety`. Но `group_by` строит hash-таблицу
+`K_i × size_of_key_entry`; для узких строк dict больше файла: 10^6
+уникальных ключей при `row_size=16` дают file 16 MB, dict 80 MB. При
+budget 50 MB: file проходит (16 ≤ 25), dict нет (80 > 25) — OOM **внутри**
+pyarrow после `check_state`, который проверял только file. Это третья
+форма класса «materialize-before-check»: file check есть, но не тот
+объект, который materialize-ится. **Fix (11-A-4a):** `_estimate_distinct_keys`
+(product of nunique, upper bound, без построения hash-таблицы) ×
+`size_of_key_entry` проверяется до `group_by`; при overflow — in-memory
+recursion (не перечитываем с диска: `table.to_batches()`); при
+`depth >= max_depth` — `MemoryLimitExceeded`. **Урок:** `check_state`
+должен проверять **тот** объект, который реально строится следующей
+операцией. File size и dict size — разные объекты; проверять нужно оба.
 
 ### 13.5. Открытые вопросы
 

@@ -89,6 +89,24 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.1.7] — 2026-10-19
+
+### Исправлено (must-fix §11.4)
+- `_local_groupby`: dict check до `group_by`. `_read_partition_safe`
+  проверял только `file_size`, но `group_by` строит hash-таблицу
+  `K_i × size_of_key_entry` — для узких строк dict больше файла, OOM
+  внутри pyarrow. `_estimate_distinct_keys` (product of nunique) ×
+  `size_of_key_entry` проверяется до `group_by`; overflow -> in-memory
+  recursion через `hash_shuffle`; `depth >= max_depth` ->
+  `MemoryLimitExceeded` с file/dict/safety.
+
+### Добавлено
+- `_estimate_distinct_keys(table, by_columns) -> int` — upper bound без
+  построения hash-таблицы (`pc.count_distinct` per column).
+- AST guard `test_local_groupby_dict_check_before_group_by`.
+- Behavior tests: `test_dict_overflow_triggers_split`,
+  `test_dict_fits_no_recursion`, `test_max_depth_raises_on_dict_overflow`.
+
 ## [0.1.0] — 2026-10-18
 
 Первый production-ready каркас: три примитива out-of-core с безусловной
