@@ -1722,6 +1722,7 @@ class CadwDataFrame:
         *,
         min_periods: "int | None" = None,
         columns: "str | Sequence[str] | None" = None,
+        on: "str | None" = None,
     ) -> "CadwDataFrame":
         """Rolling window aggregation (v0.6.2c).
 
@@ -1769,6 +1770,13 @@ class CadwDataFrame:
             )
         else:
             mp = min_periods
+
+        # v0.8.4: sort-aware rolling (same 2-sort pattern as _shift_on).
+        if on is not None:
+            return self._rolling_on(
+                window=window, agg=agg, min_periods=mp,
+                columns=columns, on=on,
+            )
 
         if columns is None:
             cols = list(self._columns)
@@ -1834,6 +1842,197 @@ class CadwDataFrame:
 
         new_ds = Dataset.from_batches(
             out_schema, _iter_rolling(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def _rolling_on(
+        self,
+        *,
+        window: int,
+        agg: str,
+        min_periods: int,
+        columns: "str | Sequence[str] | None",
+        on: str,
+    ) -> "CadwDataFrame":
+        """Sort-aware rolling on `on` column (v0.8.4).
+
+        Validated by prototype (scripts/proto_rolling_on.py):
+          A (sort_values+rolling+sort_values) ==
+          B (external_sort + _RollState + external_sort) ==
+          C (pure Python deque).
+
+        Algorithm:
+          1. external_sort by [on] (row_id tie-break from heap).
+          2. _RollState.push per row (per column) → IPC
+             (row_id, {col}_rolling_{agg}).
+          3. external_sort by __orig_rid (rename, avoid duplicate
+             row_id — §13.4/122).
+          4. Zip original + rolling cols (APPEND; rolling adds new cols).
+
+        Peak RAM: batch + O(window × #cols). Independent of N.
+        """
+        if on not in self._columns:
+            raise KeyError(
+                f"rolling: on column {on!r} not in {self._columns}"
+            )
+
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"rolling: column {c!r} not in {self._columns}"
+                )
+
+        # Validate numeric (agg != count requires numeric; same v0.6.2c)
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            if agg != "count" and not (
+                pa.types.is_integer(t) or pa.types.is_floating(t)
+            ):
+                raise TypeError(
+                    f"rolling: column {c!r} has type {t}; "
+                    f"agg={agg!r} requires numeric"
+                )
+
+        # Output schema: original + {col}_rolling_{agg} (APPEND semantics).
+        out_fields = [self._dataset.schema.field(c) for c in self._columns]
+        out_type_by_col: dict[str, tuple[str, pa.DataType]] = {}
+        for c in cols:
+            in_type = self._dataset.schema.field(c).type
+            if agg in ("sum", "mean"):
+                ot = pa.float64()
+            elif agg == "count":
+                ot = pa.int64()
+            else:  # min/max
+                ot = in_type
+            out_name = f"{c}_rolling_{agg}"
+            out_type_by_col[c] = (out_name, ot)
+            out_fields.append(pa.field(out_name, ot, nullable=True))
+        out_schema = pa.schema(out_fields)
+        rolling_out_cols = [out_type_by_col[c][0] for c in cols]
+
+        # 1. Sort by `on` (row_id tie-break from external_sort's heap).
+        sorted_path = external_sort(
+            self._iter_filtered_batches(),
+            key_columns=[on],
+            value_columns=list(self._columns),
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "rolling" / "sort_by_on",
+            ascending=True,
+            log=False,
+        )
+
+        # 2. Roll on sorted stream, write (row_id, {col}_rolling_{agg}).
+        rolling_schema_fields: list[pa.Field] = [
+            pa.field("row_id", pa.uint64()),
+        ]
+        for c in cols:
+            out_name, ot = out_type_by_col[c]
+            rolling_schema_fields.append(
+                pa.field(out_name, ot, nullable=True)
+            )
+        rolling_schema = pa.schema(rolling_schema_fields)
+
+        rolling_path = self._spill_dir / "rolling" / "rolling_by_on.arrow"
+        rolling_path.parent.mkdir(parents=True, exist_ok=True)
+
+        writer = ArrowIPCBatchWriter(str(rolling_path), rolling_schema)
+        states = {c: _RollState(window, min_periods, agg) for c in cols}
+        try:
+            for b in ArrowIPCBatchReader(str(sorted_path), None):
+                self._memory_guard.check_batch(
+                    b, name="rolling_on.sorted_input"
+                )
+                rid_list = b.column("row_id").to_pylist()
+                arrays: list[pa.Array] = [
+                    pa.array(rid_list, type=pa.uint64()),
+                ]
+                for c in cols:
+                    state = states[c]
+                    src_vals = b.column(c).to_pylist()
+                    rolled = [state.push(v) for v in src_vals]
+                    out_name, ot = out_type_by_col[c]
+                    arrays.append(pa.array(rolled, type=ot))
+                writer.write_batch(
+                    pa.RecordBatch.from_arrays(
+                        arrays, schema=rolling_schema,
+                    )
+                )
+        finally:
+            writer.close()
+
+        # 3. Sort back by __orig_rid. external_sort appends its own
+        # "row_id"; input already has "row_id" (original pos) → duplicate
+        # → ArrowInvalid. Rename to "__orig_rid" (§13.4/122).
+        def _iter_rolled():
+            for b in ArrowIPCBatchReader(str(rolling_path), None):
+                names = b.schema.names
+                rid_idx = names.index("row_id")
+                new_names = (
+                    ["__orig_rid"]
+                    + [n for i, n in enumerate(names) if i != rid_idx]
+                )
+                yield b.rename_columns(new_names)
+
+        sorted_rowid_path = external_sort(
+            _iter_rolled(),
+            key_columns=["__orig_rid"],
+            value_columns=rolling_out_cols,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "rolling" / "sort_by_rowid",
+            ascending=True,
+            log=False,
+        )
+
+        # 4. Zip original + rolling cols (APPEND; rolling doesn't replace).
+        batch_size = 10_000
+
+        def _iter_zipped():
+            orig_iter = self._iter_arrow_batches(batch_size=batch_size)
+            rolled_reader = ArrowIPCBatchReader(
+                str(sorted_rowid_path), rolling_out_cols,
+            )
+            accum: list[pa.RecordBatch] = []
+            accum_n = 0
+            rolled_gen = iter(rolled_reader)
+            for ob in orig_iter:
+                target_n = ob.num_rows
+                while accum_n < target_n:
+                    try:
+                        nb = next(rolled_gen)
+                    except StopIteration:
+                        raise RuntimeError(
+                            "rolling: rolled stream exhausted before "
+                            "original (batch mismatch)"
+                        )
+                    accum.append(nb)
+                    accum_n += nb.num_rows
+                combined = pa.Table.from_batches(accum)
+                take = combined.slice(0, target_n)
+                rest = combined.slice(
+                    target_n, combined.num_rows - target_n,
+                )
+                accum = list(rest.to_batches()) if rest.num_rows else []
+                accum_n = combined.num_rows - target_n
+                take_batch = take.combine_chunks().to_batches()[0]
+                arrays = [ob.column(c) for c in self._columns]
+                for out_name in rolling_out_cols:
+                    arrays.append(take_batch.column(out_name))
+                yield pa.RecordBatch.from_arrays(
+                    arrays, schema=out_schema,
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_zipped(), self._new_dataset_dir(),
         )
         return CadwDataFrame(
             new_ds,
@@ -2541,15 +2740,18 @@ class _RollState:
             if self._agg in ("sum", "mean"):
                 self._sum += float(v)
         self._buf.append((i, is_null, v))
+        # v0.8.4-fix (S1): null + non-empty _dq → `_dq[-1][1] >= None`
+        # raises TypeError. Nulls skip monotone-deque maintenance entirely
+        # (they don't contribute to min/max; window slot still consumed).
         if self._agg == "min":
-            while self._dq and self._dq[-1][1] >= v:
-                self._dq.pop()
             if not is_null:
+                while self._dq and self._dq[-1][1] >= v:
+                    self._dq.pop()
                 self._dq.append((i, v))
         elif self._agg == "max":
-            while self._dq and self._dq[-1][1] <= v:
-                self._dq.pop()
             if not is_null:
+                while self._dq and self._dq[-1][1] <= v:
+                    self._dq.pop()
                 self._dq.append((i, v))
 
         # 2. Evict if len > window

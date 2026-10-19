@@ -849,6 +849,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `fit_gbdt_multiclass` (v0.7.8: softmax, per-class) | ✅ | 22 |
 | `compute_feature_importance` (v0.7.9: gain/split) | ✅ | 15 |
 | `shift`/`diff` on=col (v0.8.2: sort-aware) | ✅ | 17 |
+| `rolling(on=col)` (v0.8.4: sort-aware, prototype-validated) | ✅ | 17 |
 | `expanding` + `ewm` (v0.8.0: cumulative/EWMA) | ✅ | 26 |
 | P-hash: pandas C-hash (v0.8.1) | ✅ | 17 |
 | `CovarianceMeanOp` — PCA single-pass (v0.8.0) | ✅ | 3 |
@@ -944,6 +945,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `fit_lasso` — `alpha` raw (не sklearn-style /n) | `cadw/ml/linear.py` (v0.7.7) | Совместимо с v0.7.0a Ridge alpha; документировано |
 | `feature_importance` default = 'gain' (v0.7.9) | viz adapters | Breaking change: было 'split'. Downstream relying on integer counts — `importance_type='split'` explicit |
 | permutation importance / SHAP — не реализовано | `cadw.ml.gbdt` | v0.7.10+ / вне scope |
+| `rolling` on=col — single column (v0.8.4) | `_rolling_on` | Multi-column on — v0.8.4a |
+| `groupby(...).rolling(...)` — не поддержано | `CadwDataFrame` | Per-group rolling — v0.8.5+ |
 | `shift`/`diff` on=col — single column (v0.8.2) | `_shift_on` | Multi-column on — v0.8.2a |
 | `groupby(...).shift(1, on='ts')` — не поддержано | `CadwDataFrame` | Per-group shift — v0.8.3+ |
 | `resample(freq)` — не поддержано | `CadwDataFrame` | timestamp parsing + bucket — v0.8.2 |
@@ -2248,6 +2251,141 @@ boundaries от external_sort). Re-chunk через accum + `Table.slice` —
 **Следующее (v0.8.3):** `resample(freq)` — Sort by timestamp + bucket +
 halo buffer на границе bucket'а. Плюс `freq` parser (`'5min'` → 5*60s).
 ~1 сессия, сложнее.
+
+**Эпизод 126 (prototype-first: 5 fix → 1; + latent row_id bug).**
+`rolling(on=col)` — третья composite API после `_shift_on` (v0.8.2) и
+`_diff_on`. v0.8.2 прошёл **5 fix-итераций** (anchor, import, duplicate
+row_id, replace vs append, ChunkedArray). Чтобы не повторить —
+**prototype-first** (§13.4/123): `scripts/proto_rolling_on.py` (10 минут,
+pure algorithm без touching `cadw/`), 3-path compare
+(A=sort_values+rolling+sort_values, B=external_sort+deque+external_sort,
+C=manual Python). Все три совпали → переносим код в `_rolling_on`.
+
+**Результат:** **1 итерация** (v0.8.4, 17/17 passed с первого раза).
+Экономия: 4 fix-итерации × ~20 минут = **80 минут**.
+
+**Прототип выявил latent bug:** user column `row_id` →
+`external_sort` appends свой `row_id` → duplicate → `KeyError: Field
+"row_id" exists 2 times in schema` (в `ArrowIPCBatchReader` через
+`sort_values`). Prototype `DATA = {"ts", "v", "row_id"}` — это
+**reserved name**, переименовал в `seq_id`. Тесты `test_shift_on_col.py`
+не всплыли, потому что их колонки `ts, v, cat` — без `row_id`.
+
+**Fix (v0.9):** guard в `external_sort` + `hash_shuffle`:
+`if "row_id" in all_columns: raise ValueError("row_id is reserved; rename user column")`.
+Fail-fast лучше, чем cryptic `KeyError` в `sort_values`. Плюс
+`Dataset` meta — `__row_id__` prefix для internal (v0.9+).
+
+**Урок (prototype-first — обобщение):**
+- Любая composite API (>50 строк, 2+ sorts) → **prototype** в `scripts/`,
+  **до** вставки в `cadw/`.
+- Prototype: 3-path compare (reference через существующий API / proposed
+  algorithm / manual ground truth). Расхождение хотя бы в одной паре —
+  debug **до** патча.
+- Prototype **не модифицирует** `cadw/`. Если найден latent bug в
+  существующем API — фиксировать в §11.5/backlog, не блокировать.
+- **Метрика успеха:** 1 итерация патча vs 5. При prototype-first
+  — достижимо (v0.8.4 показал 17/17 с первого раза).
+
+**Ограничение:** prototype не ловит import/anchor/ChunkedArray — те же
+runtime-классы. Только **алгоритм** валидируется. Для import/anchor
+— AST guards (уже есть); для ChunkedArray — AST guard `combine_chunks`
+(добавлен в `test_rolling_on_col.py::test_rolling_on_iter_zipped_appends_not_replaces`).
+
+**Следующее (v0.8.3 `resample(freq)`):** prototype-first, обязательно.
+Timestamp → bucket + halo buffer на границе. `freq` parser ('5min' →
+300s, '1h' → 3600s, '1D' → 86400s). Prototype `scripts/proto_resample.py`
+— 30 строк, 1 agg (sum), 2 bucket'а, проверка границ.
+
+**Эпизод 127 (S1 latent bug: min/max + null в rolling).** Найдено
+при аудите v0.8.4 — `_RollState.push(None)` с `agg='min'/'max'` и
+непустым `_dq` (monotone deque) падает `TypeError: '>=' not supported
+between 'int' and 'NoneType'`. Bug существует с v0.6.2c (позиционный
+rolling), **не покрыт тестами**: `test_rolling_with_nulls` использует
+`agg="sum"` только, а `test_rolling_min_w3`/`test_rolling_max_w3` — без
+nulls. Значит `df.rolling(3, 'min')` на данных с null падал.
+
+**Fix (v0.8.4-fix):** guard `if not is_null:` вокруг `while _dq and
+_dq[-1][1] >= v` (и `<=` для max). Nulls skip monotone-deque
+maintenance; window slot **всё равно потребляется** (позиционная
+семантика, matches pandas skipna=True: `pd.Series([3,None,1]).
+rolling(2,min_periods=1).min()` → `[3,3,1]`).
+
+**Урок (усиливает §13.4/52b, 99, 106, 52b):** "зелёные тесты ≠
+упражняется функциональность". `test_rolling_with_nulls` (sum) проходил,
+но `min`/`max` ветка `_dq` не тестировалась с null. Класс "fallback
+скрывает bug": sum-ветка не касается `_dq`, min/max — касается, но
+никто не проверял комбинацию.
+
+**Правило (новый AST/coverage guard для будущего):** для каждой
+ветки `if self._agg == X` в stateful op — тест с nulls. В `_RollState`
+ветки: sum/mean, count, min, max. Сейчас покрыты: sum+null (есть),
+count+null (есть), min+null (добавлено), max+null (добавлено). Все 4 — 
+хорошо. Для будущих composite (resample, groupby-shift) — тот же
+принцип.
+
+**Backlog:** добавить AST guard `test_rollstate_all_aggs_with_nulls` —
+walk по `_RollState.push` и assert каждый `_agg ==` имеет тест с
+nulls (не покрытие, а явная проверка). 20 минут, отложить.
+
+**Общий аудит v0.8.4 (см. ниже):**
+- 2 test-expectation errors (fixed).
+- 1 S1 latent bug (fixed).
+- Прочее: multi-key join cartesian fallback (S3), product-of-nunique
+  overestimate (S3), `_iter_zipped` duplication (S3), `row_id` reserved
+  (S3). Documented; см. §11.5/§11.6.
+
+**Эпизод 128 (test expectations ≠ prototype).** v0.8.4-fix добавил
+тесты `test_rolling_min/max_with_nulls` (позиционные) и `..._on_...`
+(+on=col) — 5 тестов, 4 прошли, 1 упал. Причина: **ошибка в
+ожидаемом значении** для max, не в коде.
+
+Дано: `v = [3, None, 1, None, 5]`, window=2, min_periods=1, positional.
+Walk:
+    pos0: [3]         → max=3
+    pos1: [3, None]   → max=3
+    pos2: [None, 1]   → max=1   (3 evicted — 3 в окне pos1, не pos2)
+    pos3: [1, None]   → max=1
+    pos4: [None, 5]   → max=5
+Правильно: `[3, 3, 1, 1, 5]`. Я написал `[3, 3, 3, 1, 5]` — мысленно
+"оставил" 3 как максимум на pos2.
+
+**Почему prototype это не поймал:** prototype проверил алгоритм
+(manual == external_sort+deque == sort_values+rolling), но **не проверял
+test expectations**. Test writer сгенерировал ожидания вручную
+(мысленная арифметика) — тот же класс ошибки, что "off-by-one" в
+ручных тестах.
+
+**Урок:** test expectations для composite ops (rolling, quantile,
+rank tie-breaking, shift с nulls) **нельзя** писать мысленной
+арифметикой. Три варианта:
+1. **pandas-equivalence:** `pd.Series(v).rolling(...).max().tolist()`
+   в самом тесте (медленно, но надёжно).
+2. **Explicit trace в docstring** — пошагово по позициям, как выше.
+   Пишешь → видишь ошибку в reasoning до запуска.
+3. **Prototype ground-truth** — `manual_rolling_on` уже содержит
+   правильную логику (deque на sorted); использовать **его** output
+   для test expectation, не пересчитывать вручную.
+
+**Применено:** docstring в `test_rolling_max_with_nulls` и
+`test_rolling_on_max_with_nulls` теперь содержит полный пошаговый trace
+(после fix2). `test_rolling_min_with_nulls` случайно прошёл — на этом
+датасете min и max совпадают (в окне 2 позиции, после pos 0 только
+один non-null → min == max).
+
+**Правило:** для тестов на rolling/shift/quantile+nulls — trace в
+docstring обязателен. Если trace длинный (>5 позиций) — используй
+`pandas.Series` или manual-функцию из prototype.
+
+**Связанный эпизод (§13.4/52b, 99, 106):** "зелёные тесты ≠
+упражняется функциональность". Здесь — "prototype passed ≠ test
+expectations correct". Два независимых failure mode в test-слое.
+Prototype-first (§13.4/123) фиксирует **алгоритм**, но не **тест**.
+
+**Backlog (v0.9):** `tests/_helpers/rolling_reference.py` — функция
+`expected_rolling(vals, window, agg, min_periods)` на deque, которая
+используется в тестах как ground truth. Разные тесты — одна реализация
+(не 4 копии) + нет мысленной арифметики.
 
 ### 13.5. Открытые вопросы
 

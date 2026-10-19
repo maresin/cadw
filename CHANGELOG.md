@@ -48,6 +48,59 @@
   spreads, missing column raises, invalid gridsize raises, nulls skipped.
 - fast: **~1026 passed**. slow: **8 passed**.
 
+## [0.8.4] — 2026-10-19
+
+### Добавлено
+- **`CadwDataFrame.rolling(window, agg, on=None)`** — time-aware rolling.
+  `on=None` — positional (v0.6.2c, unchanged); `on=str` — sort-aware:
+  1. external_sort by `[on]` (row_id tie-break from heap).
+  2. `_RollState.push` per row (reuse v0.6.2c state — same min/max
+     monotone deque, same null-skip, same min_periods).
+  3. external_sort by `__orig_rid` (rename `row_id` → `__orig_rid`,
+     §13.4/122).
+  4. Zip original + rolling cols **APPENDED** (`{col}_rolling_{agg}` —
+     rolling adds new columns, doesn't replace).
+  - Peak RAM = batch + O(window × #cols). Independent of N.
+
+### Валидировано prototype-first (§13.4/123)
+- `scripts/proto_rolling_on.py` — A (sort_values+rolling+sort_values)
+  == B (external_sort + deque + external_sort) == C (pure Python manual).
+- Same 5-row case as prototype; 1 итерация патча (v0.8.2: было 5 fix).
+
+### Исправлено (v0.8.4-fix — S1, latent bug с v0.6.2c)
+- **`_RollState.push(None)` для agg='min'/'max'** — `while _dq and
+  _dq[-1][1] >= None` → `TypeError: '>=' not supported between int and
+  NoneType`. Bug существовал с v0.6.2c (позиционный rolling), не
+  покрыт тестами (`test_rolling_with_nulls` использует sum). Fix:
+  guard `if not is_null` вокруг monotone-deque maintenance. Window
+  slot всё равно потребляется (positional semantics, как pandas).
+  Добавлены тесты: `test_rolling_min_with_nulls`,
+  `test_rolling_max_with_nulls`, `test_rolling_min_all_nulls`
+  (positional) + `test_rolling_on_min_with_nulls`,
+  `test_rolling_on_max_with_nulls` (on=col).
+- **v0.8.4 tests (2, not code)**: `test_rolling_on_with_nulls` и
+  `test_rolling_on_all_columns` — неверные ожидания. Actual code
+  корректен (nulls потребляют window slot, positional; matches pandas
+  skipna=True). Fixed expected values + comments.
+
+### Обнаружен latent bug (§13.4/126)
+- User column named `row_id` collides with internal `row_id`
+  (external_sort/hash_shuffle/merge) → `KeyError: Field "row_id" exists
+  2 times in schema` (в `sort_values`). Documented §11.5 as reserved
+  column name; fail-fast guard — v0.9.
+
+### Ограничения (v0.8.4, §11.5)
+- `on` — single column. Multi-column `on=['ts', 'sensor']` — v0.8.4a.
+- Per-group rolling (`groupby('sensor').rolling(...)`) — v0.8.5+.
+- `row_id` — reserved column name (internal).
+
+### Тесты
+- +17 в `test_rolling_on_col.py`: sum/mean/min/max/count, min_periods,
+  nulls, multibatch, preserved, all columns, sort-after, missing col,
+  non-numeric, no-on backward compat, +2 AST guards (row_id rename,
+  append-not-replace).
+- fast: **~1043 passed**. slow: **8 passed**.
+
 ## [0.8.2] — 2026-10-19
 
 ### Добавлено
