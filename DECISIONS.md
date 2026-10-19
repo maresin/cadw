@@ -347,37 +347,403 @@ Asc/desc; стабильность; multi-key; nulls_first/last; многоур�
 
 ---
 
-## 9. `MemoryGuard`
+## 9. `MemoryGuard`: планировщик памяти
 
-### 9.1. Размер батча
+### 9.0. Задача
 
-```
-batch_rows = floor(available_bytes * safety / (row_bytes_input * expansion_factor))
-```
-`safety=0.7`; `expansion_factor` — по плану (`filter/project ≤ 1.0`,
-`with_column = 1 + bytes_new/bytes_row`, неизвестная — `2.0`).
+MemoryGuard решает **обратную задачу**: по `available_bytes` (RAM-бюджет) и
+`data_chars` (schema, `N`, `K_est`, `row_size`, `avg_key_size`, `order`)
+**выбрать параметры** операции (`batch_size`, `P`, `max_dict_keys`,
+`k_fan_in`, `recurse_depth`, размеры буферов), такие что:
 
-### 9.2. Интерфейс
+    f_op(params, data_chars) <= available_bytes * safety,   safety = 0.7
 
-| Метод | Назначение |
+где `f_op` — **модель памяти** операции (пик RAM). Если решения нет ни при
+каких params — `MemoryLimitExceeded` с обоснованием: какая часть `f_op`
+превышает лимит, при каких params достигнут минимум, что можно изменить
+(увеличить available, уменьшить `K`, pre-aggregate).
+
+**MemoryGuard не задаёт `limit` от данных.** `limit` — вход (свободная RAM).
+Данные — тоже вход. Выход — план (params + predicted peak + outcome).
+
+**Никаких литералов в размерах.** Размеры значений — из `pyarrow.types`
+(`bit_width`, `avg_len` из sample). Калибровочные коэффициенты (`C_op`,
+`C_buffer`, `C_hash`) — из `Calibration` (§9.5), не хардкод. Если литерал
+появился в модели — это баг спеки.
+
+#### 9.0.1. Два уровня рекурсии: predict vs execute
+
+Рекурсия в CADW существует на двух уровнях, их нельзя смешивать.
+
+**Planner (predict).** `GroupByMemoryModel.solve` вычисляет `recurse_depth`
+по формуле:
+
+    recurse_depth = ceil(log(K_est / P / max_dict_keys) / log(P_recurse))
+
+Это **арифметика на числах**: данные не читаются, материализации нет.
+Результат — **upper bound**: максимальное число уровней, которое может
+понадобиться.
+
+**Runtime (execute).** `_local_groupby` обходит дерево партиций. На каждом
+узле проверяет:
+
+- (a) `file_size <= available * 0.5` — помещается ли файл партиции;
+- (b) `estimated_K_i * size_of_key <= available * 0.5` — помещается ли
+  hash-таблица `group_by` (must-fix, §11.4).
+
+Если (a) и (b) — `group_by` (terminal), узел материализуется **один раз**
+(≤ safety), родитель освобождается после split. Если хоть одно не
+выполнено — `hash_shuffle(seed=depth+1)` и рекурсия на подпартициях. В
+RAM одновременно — **один узел + его split-буферы** (`P_recurse *
+writer_buffer`), не всё дерево.
+
+**Инвариант.** `actual_max_depth <= plan.recurse_depth`. Runtime **не
+выходит за** `recurse_depth`. Если на глубине `recurse_depth` узел всё
+ещё не влезает — `PlannerError` (внутренний), сигнал «модель сломана», а
+не повод продолжать рекурсию молча. Planner предсказал feasibility; если
+prediction не сбылся, чинить нужно модель (калибровку `C_op`), а не
+обходить её.
+
+##### 9.0.2. Planner upper bound vs runtime per-node
+
+`recurse_depth` — **upper bound**, а не «ровно столько split'ов». Runtime
+решает per-node:
+
+- **Лёгкие партиции** (`K_i` мал, `file_size` мал) → `group_by` **без
+  split**, даже если `recurse_depth > 0`.
+- **Тяжёлые партиции** (`K_i` или `file_size` превышают safety) → split.
+
+Причины per-node (а не uniform split всех до `recurse_depth`):
+
+1. **Неравномерность `hash_shuffle`**: `K_est / P` — среднее, `K_i` —
+   фактическое. На skewed/кластеризованных данных `K_i` может быть в
+   разы больше или меньше среднего.
+2. **Экономия IO**: uniform split даёт пустые подпартиции для лёгких
+   корней (лишний `hash_shuffle` + writer flushes).
+3. **Defense**: check на каждом узле (a)+(b) ловит ошибку planner'а
+   (`C_op` вне `[0.5, 2.0]`), но не маскирует её — `PlannerError`, не
+   молчаливый обход.
+
+Per-node — прежде всего **оптимизация** (меньше IO на неравномерных
+данных). Защита — побочный эффект: проверки всё равно делаются.
+
+### 9.1. Типы и размеры
+
+    type_size(dtype, sample=None) -> int
+    row_size(schema, sample_batch=None) -> int
+
+| dtype | откуда размер |
 |---|---|
-| `available_bytes()` | текущий бюджет |
-| `get_batch_rows(row_bytes, ef)` | верхняя граница |
-| `min_batch_rows()` | нижняя (≥1000) |
-| `check_batch(batch, name, extra_factor=1.0)` | `batch.nbytes * ef ≤ available` |
-| `check_state(state_bytes)` | `state ≤ available * 0.5` |
-| `estimate_state_size(op, d, bins)` | до запуска |
-| `estimate_unique_keys(sample, total)` | выбор P |
-| `check_partition_buffers(P, buffer)` | `P*buffer ≤ available * 0.3` |
-| `recommended_partition_buffer_bytes(P)` | `buffer_limit // P` |
-| `log_step(...)` | подробное логирование |
+| `bool` | 1 B (Arrow Array: 1 B/значение при маскировании) |
+| `int*`, `uint*`, `float*` | `bit_width // 8` |
+| `timestamp`, `date*`, `time*` | `bit_width // 8` |
+| `string`, `binary` | `avg_len` из sample + offset (int32: 4 B). Без sample — `ValueError`. |
+| `dictionary` | `type_size(value) * nunique_est + type_size(index)` — v0.2 |
+| `list`, `struct` | рекурсивно `type_size(children)` + offset — v0.2 |
 
-**Инвариант:** если `check_*` падают — операция **не продолжается**.
+`avg_len` — **измерение** на sample (`mean(len(x))`), не константа.
+Если sample пуст — `ValueError` (нельзя планировать без оценки).
 
-### 9.3. Параметры по умолчанию
+`DataChars` — вход планировщика:
 
-`safety=0.7`, `state_safety=0.5`, `buffer_safety=0.3`, `min_batch_rows=1000`,
-`default_expansion_factor=2.0`, `bytes_per_key=80`.
+| Поле | Тип | Назначение |
+|---|---|---|
+| `schema` | `pa.Schema` | для `row_size` |
+| `n_rows` | `int` | `N` |
+| `row_size_bytes` | `int` | из `row_size` |
+| `k_est` | `int \| None` | оценка K (sample), для groupby/shuffle |
+| `avg_key_size_bytes` | `int \| None` | средний размер `repr(key).encode()` для `compute_hashes` |
+| `size_of_key_entry_bytes` | `int \| None` | tuple key + agg state, для dict groupby |
+| `order` | `"random" \| "sorted" \| "clustered"` | подсказка для sample-strategy |
+| `extras` | `dict` | расширение (без ломания API) |
+
+### 9.2. Модели операций
+
+Базовый интерфейс:
+
+    class OpMemoryModel:
+        op_name: str
+        def estimate(params, data_chars) -> int
+        def solve(available_bytes, data_chars, *, safety=0.7, op_context=None) -> Params | None
+        def describe() -> str
+
+Реестр: `_MODELS: dict[str, OpMemoryModel]`, `register_model(model)`,
+`get_model(op_name)`, `list_models()`. Идемпотентная перезапись с warning.
+
+**Контракт `solve`**: возвращает `Params`, такой что `estimate(params) <=
+available * safety`, или `None` если такого params не существует.
+`MemoryGuard.plan` при `None` поднимает `MemoryLimitExceeded` с
+`describe()`.
+
+**Контракт `estimate`**: пик RAM (байт), **верхняя** оценка, не средняя.
+
+#### 9.2.1. `ReduceMemoryModel` — ✅ реализовано (11-A-1)
+
+    f_reduce = batch_size * row_size + 2 * state_bytes
+
+`2 * state_bytes` — старый и новый state на время `update` (merge).
+
+`solve`:
+    usable = available * safety
+    available_for_batch = usable - 2 * state_bytes
+    если available_for_batch < row_size -> None (state не влезает)
+    batch_size = available_for_batch // row_size
+
+`op_context = {"state_bytes": int}` — обязателен. `state_bytes` считает
+вызывающий через `op.state_nbytes(op.init())` или через
+`MemoryGuard.estimate_state_size`. Модель не знает про конкретные `ReduceOp`.
+
+**Размеры state (не литералы, а вычисление из dtype):**
+
+| Op | state_bytes |
+|---|---|
+| `CountOp` | `2 * sizeof(int64) = 16` |
+| `SumOp` | `2 * sizeof(int64) = 16` |
+| `MeanOp` | `2 * sizeof(int64) = 16` |
+| `MinMaxOp` | `sizeof(dtype) + sizeof(bool)` |
+| `StdOp` | `3 * sizeof(float64) = 24` (Welford) |
+| `CovarianceOp(d)` | `sizeof(int64) + d * sizeof(float64) + d² * sizeof(float64)` |
+| `HistogramOp(bins)` | `bins * sizeof(int64) + 2 * sizeof(float64)` |
+| `t-digest` (v0.3) | `size(ε) * sizeof(centroid)`, `size = O(1/ε)` |
+
+**Пример.** `CovarianceOp(d=100)`: state = 80 808 B. `available = 10 MB`,
+`safety = 0.7` → usable 7 MB. `batch_size = (7 340 032 - 161 616) / 16 ≈
+448 000`. Для `d=10^5`: state ≈ 80 GB > 7 MB → `None` →
+`MemoryLimitExceeded("state 80 GB > available 7 MB")`.
+
+#### 9.2.2. `HashShuffleMemoryModel` — 11-A-2
+
+`Params = {batch_size, P, writer_buffer_bytes}`.
+
+    f_shuffle = batch_size * row_size
+              + P * writer_buffer_bytes
+              + C_hash * batch_size
+
+`C_hash` — overhead `compute_hashes` (`to_pylist`): `repr(v).encode()` +
+Python int. Из `Calibration` (v0.2), начально — из
+`DataChars.avg_key_size_bytes` + overhead Python int (`sys.getsizeof(int)`,
+тоже калибровка).
+
+`solve`:
+- `P` — из `K_est` и целевого `max_keys_per_partition =
+  available * 0.5 / size_of_key`. `P = max(2, ceil(K_est * safety /
+  max_keys_per_partition))`, округление до степени двойки (для `_mod_p`
+  fast path).
+- `writer_buffer_bytes = available * 0.1 / P`, ограничено снизу
+  `C_writer_min` и сверху `C_writer_max` (из калибровки).
+- `batch_size = (available * safety - P * writer_buffer) / (row_size +
+  C_hash)`.
+
+Если `P * C_writer_min > available * 0.4` — `None` (слишком много
+партиций для бюджета).
+
+#### 9.2.3. `SortMemoryModel` — 11-A-2
+
+`Params = {run_buffer_bytes, read_buffer_bytes, k, read_batch_size}`.
+
+    f_sort_phase1 = run_buffer_bytes
+    f_sort_phase2 = k * read_buffer_bytes
+                  + k * sizeof(heap_entry)
+                  + read_batch_size * row_size
+
+`solve`:
+- `run_buffer_bytes = available * 0.5` (фаза 1, накопление run)
+- `read_batch_target = from_calibration` (начально `max(1000, ...)`)
+- `k_target = max(2, available * 0.3 / (read_batch_target * row_size))`
+- `k = k_target` (число run'ов, открываемых одновременно)
+- `read_buffer_bytes = available * 0.3 / k`
+- `read_batch_size = read_buffer_bytes // row_size`
+
+Если `k < 2` — `None` (merge невозможен).
+
+#### 9.2.4. `GroupByMemoryModel` — 11-A-2
+
+Составная: `HashShuffle` (9.2.2) + `_local_groupby` + `concat`.
+
+`Params = {shuffle_params, max_dict_keys, recurse_depth, P_recurse}`.
+
+    f_groupby = max(f_shuffle, f_local_groupby)
+    f_local_groupby = partition_bytes + dict_bytes + C_group_by_temp
+
+- `partition_bytes = (K_est / P) * row_size`
+- `dict_bytes = (K_est / P) * size_of_key_entry`
+  — **must-fix (§11.4)**: сейчас `_local_groupby` проверяет только
+  `table.nbytes`, не `dict_bytes`. Для узких строк dict больше файла,
+  pyarrow OOM-ит внутри `group_by` после успешного `check_state`.
+- `C_group_by_temp` — temp в `pyarrow.group_by` (калибровка; начально
+  `2 * output_bytes`).
+
+`solve`:
+- `P` из `HashShuffleMemoryModel.solve`
+- `max_dict_keys = available * 0.5 / size_of_key_entry`
+- если `K_est / P > max_dict_keys`:
+  - `recurse_depth = ceil(log((K_est/P) / max_dict_keys) / log(P_recurse))`,
+    `P_recurse = 4` (калибровка)
+  - если `recurse_depth > MAX_DEPTH (5)` → `None` (K не сводится)
+- `P_recurse` — из `Params`, может быть переопределён planner'ом для
+  оптимизации IO.
+
+### 9.3. Pipeline planner
+
+    plan_pipeline(ops: list[Op], data_chars, available) -> PipelinePlan
+
+`PipelinePlan`:
+- `steps: list[StepPlan]` — по одной на op: `{op_name, params, estimate_bytes}`
+- `peak_bytes: int`
+- `spill_boundaries: list[int]` — индексы между steps, где вставлен spill
+- `estimated_io: int` — грубая оценка (байт)
+- `predicted_outcome: "fits" | "fits_with_spill" | "does_not_fit"`
+
+**Алгоритм:**
+
+1. **Пропагация `DataChars`** через цепочку. `output_chars(op, input_chars,
+   params)`:
+   - `filter`: `N' <= N`, `k_est'` из sample, `row_size' = row_size`
+   - `groupby`: `N' = K`, `k_est' = K`, `row_size'` от агрегата
+   - `sort`: `N' = N`, `order = "sorted"`
+   - `with_column`: `row_size' = row_size + type_size(new_col)`
+
+2. **Peak по цепочке** = `max(estimate(step_i))`. Если `estimate(step_i) >
+   available * safety`, но `estimate(step_{i-1})` можно **сбросить** до
+   `estimate(step_i)` — вставить spill-boundary между `i-1` и `i`.
+
+3. **Spill-boundary** = `write_parquet(temp) + read_from_temp` — композиция,
+   не новая операция. `peak` после spill = `max(estimate(write),
+   estimate(read), estimate(step_i))`.
+
+4. **Если и после spill** `estimate > available * safety` для какого-то
+   `step_i` при **всех** допустимых params → `predicted_outcome =
+   "does_not_fit"` + `PipelineMemoryError` с указанием step, estimate,
+   available, `describe()`.
+
+5. **`estimated_io`** — сумма по steps: `N_i * row_size_i / throughput`
+   (грубая; используется для выбора между closed-form и grid search).
+
+**Тесты pipeline проверяют prediction vs actual:**
+- `fits` → операция успешна, `peak_rss <= available * 1.5`;
+- `fits_with_spill` → успешна, spill-граница фактически сработала;
+- `does_not_fit` → `MemoryLimitExceeded` **до** чтения данных.
+
+### 9.4. Оптимизация
+
+**Closed form** — для `Reduce`, `HashShuffle`, `Sort` (§9.2.1–9.2.3). Одна
+формула, O(1).
+
+**Grid search** — если closed form не существует или multi-objective:
+- `GroupBy` (композиция) — поиск по `(P, max_dict_keys, recurse_depth)`
+  с ограничением `estimate <= available * safety`, минимизация
+  `estimated_io` (число проходов × P).
+- `Join` (v0.2) — аналогично + выбор build-side.
+- `GBDT` (v0.3) — `(num_leaves, num_bins, batch_size)`, grid по
+  `histograms_bytes = num_leaves * num_features * num_bins * 2 *
+  sizeof(float64)`.
+
+**Multi-op joint optimization** (v0.3+): если соседние stages делят `P`
+или `batch_size`, planner решает совместно. В v0.2 — каждый op независимо.
+
+**Контракт grid search:** O(log(range) * #params) шагов; каждый шаг —
+`estimate(params)`, не прогон. Если `estimate` дорогой — кэш.
+
+### 9.5. Калибровка
+
+    class Calibration:
+        def measure(op, sample, params) -> MeasuredPeak
+        def update_coefficients(op_name, measured, estimated)
+        def get(op_name) -> Coefficients | None
+
+**Процедура:**
+
+1. Sample `min(10_000, N)` строк, `data_chars = data_chars_from_sample(...)`.
+2. Для каждой операции — пробный прогон на sample с `params =
+   solve(available, sample_chars)`. Замер `peak_rss` через
+   `psutil.Process().memory_info().rss` до/после (или `tracemalloc` для
+   allocator-level).
+3. `C_op = measured / estimated`. Если `C_op ∈ [0.5, 2.0]` — модель
+   верна, коэффициент применяется в сессии. Если вне — warning + попытка
+   скорректировать `C_hash`/`C_group_by_temp`; если не удаётся — следующее
+   `plan` с этим op поднимает `MemoryLimitExceeded` (модель ненадёжна для
+   данной схемы).
+4. **Кэш:** `cache_dir/calibration.json`, ключ `(op_name,
+   pyarrow_version, schema_hash)`. Инвалидация при смене версии или схемы.
+   `schema_hash = sha256(schema.serialize())`.
+5. **Когда обязательна:** при первом запуске на новой схеме/pyarrow.
+   `MemoryGuard.plan` проверяет `get(op) is None` → `measure`.
+
+**Тест (11-A-4):** `C_op ∈ [0.5, 2.0]` для sample каждой из 4 операций.
+Если вне — fail с `C_op`, `measured`, `estimated`.
+
+### 9.6. Гарантии и failure modes
+
+**Инвариант:** перед каждой операцией — `assert estimate(params) <=
+available * safety`. Нарушение — bug в planner: `RuntimeError` в
+debug-режиме, `MemoryLimitExceeded` в production.
+
+**Runtime monitor:** каждые N батчей — `psutil.Process().memory_info().rss`.
+- `rss > available * 1.2` → `logger.warning`
+- `rss > available * 1.8` → abort с `MemoryLimitExceeded("runtime RSS
+  drift: ...")`
+
+Не заменяет планирование, но ловит дрейф из-за GC (не мгновенный),
+pyarrow temp buffers (не в модели), внешних библиотек (не должны, но).
+
+**Failure modes, документированные:**
+
+| Условие | Сигнал |
+|---|---|
+| `state_bytes > available * 0.5` (`CovarianceOp(d)`) | `MemoryLimitExceeded` до `op.init()`. `describe()` даёт `d`, `state_bytes`, `available` |
+| `K_est / P / P_recurse^d > max_dict_keys` при `d = MAX_DEPTH` | `MemoryLimitExceeded` с указанием на skew. Рекомендация: увеличить available, уменьшить K (pre-aggregate), увеличить P_max |
+| `P * C_writer_min > available * 0.4` (`HashShuffle`) | `MemoryLimitExceeded`. Рекомендация: уменьшить P (но тогда dict больше — противоречие, значит бюджет недостаточен) |
+| `k < 2` (`Sort`) | `MemoryLimitExceeded`. Рекомендация: увеличить available |
+| Runtime `depth >= recurse_depth` и узел не влезает | `PlannerError` (внутренний). Модель сломана; нужна калибровка |
+
+### 9.7. Расширение
+
+Чтобы добавить операцию:
+
+1. `NewOpMemoryModel(OpMemoryModel)` с `estimate`, `solve`, `describe`.
+2. `register_model(NewOpMemoryModel())` — в `cadw/core/models_<op>.py`.
+3. Коэффициенты в `Calibration` (по умолчанию `C_op = 1.0`).
+4. Пропагация `output_chars` для `NewOpMemoryModel` — в `planner.py`.
+5. Тесты:
+   - `estimate(solve(x)) <= x * safety` (unit);
+   - прогон на sample → `C_op ∈ [0.5, 2.0]` (calibration);
+   - pipeline test с `NewOpMemoryModel` в цепочке (integration).
+
+**Список операций v0.2 (приоритет):**
+- `join` (build-side выбор, sort-merge как fallback), модель
+  `f_join = build_partition + probe_batch + output`;
+- `drop_duplicates` — `HashShuffle + first`, модель как `GroupBy`;
+- `rank`/`quantile` — `Sort` + локальный ранг, модель как `Sort`.
+
+**v0.3:** GBDT (`f_gbdt = histograms_bytes + gradients_buffer +
+tree_structure`), `num_leaves * num_features * num_bins * 2 *
+sizeof(float64)` для гистограмм; градиенты — `N * 2 * sizeof(float64)` на
+диске (потоково при tree building).
+
+### 9.8. Статус реализации
+
+| Подраздел | Компонент | Статус |
+|---|---|---|
+| §9.0 | задача, обратная MemoryGuard | ✅ |
+| §9.0.1 | два уровня рекурсии | ✅ (спека) |
+| §9.0.2 | per-node vs uniform | ✅ (спека) |
+| §9.1 | `type_size`, `row_size`, `DataChars` | ✅ 11-A-1 |
+| §9.2 | `OpMemoryModel`, реестр, `Params` | ✅ 11-A-1 |
+| §9.2.1 | `ReduceMemoryModel` | ✅ 11-A-1 |
+| §9.2.2 | `HashShuffleMemoryModel` | ⏳ 11-A-2 |
+| §9.2.3 | `SortMemoryModel` | ⏳ 11-A-2 |
+| §9.2.4 | `GroupByMemoryModel` | ⏳ 11-A-2 |
+| §9.3 | `PipelinePlan`, `plan_pipeline` | ⏳ 11-A-3 |
+| §9.4 | оптимизация (closed + grid) | ⏳ 11-A-3 |
+| §9.5 | `Calibration` | ⏳ 11-A-4 |
+| §9.6 | runtime monitor, failure modes | ⏳ 11-A-4 |
+| §9.7 | `register_model` для новых op | ✅ (API готов) |
+
+**Тесты 11-A-1:** 16 в `tests/test_models.py`. Полный прогон: 216 fast + 5 slow = 221 passed, 1 skipped.
+
+**Must-fix §11.4, связанные с §9:**
+- (b) `_local_groupby` dict check до `group_by` — 11-A-4;
+- `Plan` pipeline для цепочек — 11-A-3.
 
 ---
 
