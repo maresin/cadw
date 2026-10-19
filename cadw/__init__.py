@@ -27,6 +27,7 @@ from .ml import (
     KMeansStepOp, KMeansModel, fit_kmeans,
     PCA, fit_pca,
     GBDTRegressor, fit_gbdt_regressor,
+    GBDTClassifier, fit_gbdt_classifier,
 )
 
 from .viz import (
@@ -45,6 +46,7 @@ __all__ = [
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "PCA", "fit_pca",
     "GBDTRegressor", "fit_gbdt_regressor",
+    "GBDTClassifier", "fit_gbdt_classifier",
     "CadwIndex",
     "RangeIndex",
     "MaterializedIndex",

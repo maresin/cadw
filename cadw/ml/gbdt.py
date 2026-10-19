@@ -1,35 +1,31 @@
-"""Gradient Boosting Decision Tree — regression (v0.7.3a).
+"""Gradient Boosting Decision Trees — regression + classification (v0.7.5).
 
 Composition: Reduce (histograms) + Reduce (assign leaves) + Reduce
 (leaf values). Level-wise tree growth.
 
-Loss: L2 (regression). For classification — v0.7.3b.
+Losses:
+    - 'l2'              : regression (GBDTRegressor)
+    - 'logloss_binary'  : binary classification (GBDTClassifier)
 
 Peak RAM = batch + O(n × 32B) internal state (pred, cur_leaf, grad, hess)
 + O(nodes × feat × bins) histograms. Guarded via MemoryGuard.
-The O(n) state is inherent to Newton-based boosting (same as XGBoost).
+The O(n) state is inherent to Newton-based boosting (XGBoost/LightGBM).
+
+For multiclass (softmax) — v0.7.6.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from cadw.ops.reduce import ReduceOp, reduce
 
 
-# ============ helpers ============
-
-def _stack_numeric(
-    batch: pa.RecordBatch, cols: Sequence[str],
-) -> np.ndarray:
-    parts = [_column_to_f64(batch.column(c)) for c in cols]
-    return np.column_stack(parts)
-
+# ============ helpers: type conversion, gradient ============
 
 def _column_to_f64(arr: pa.Array) -> np.ndarray:
     np_arr = arr.to_numpy(zero_copy_only=False)
@@ -41,34 +37,52 @@ def _column_to_f64(arr: pa.Array) -> np.ndarray:
     return np_arr.astype(np.float64, copy=False)
 
 
-def _iter_with_state(
-    df,
-    X_cols: Sequence[str],
-    y_col: str,
-    pred: np.ndarray,
-    leaf: np.ndarray,
-):
-    """Yield (batch_index, offset, X, y, grad, hess, leaf_subset).
-
-    Batches come from df._iter_filtered_batches in row order.
-    """
-    offset = 0
-    for bi, b in enumerate(df._iter_filtered_batches()):
-        n = b.num_rows
-        X = _stack_numeric(b, X_cols)
-        y = _column_to_f64(b.column(y_col))
-        p = pred[offset:offset + n]
-        lf = leaf[offset:offset + n]
-        # mask: skip rows with null X or y (they get NaN in pred)
-        valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
-        # grad = pred - y (L2 loss); hess = 1
-        g = np.where(valid, p - y, 0.0)
-        h = np.where(valid, 1.0, 0.0)
-        yield bi, offset, X, y, g, h, lf, valid
-        offset += n
+def _stack_numeric(
+    batch: pa.RecordBatch, cols: Sequence[str],
+) -> np.ndarray:
+    return np.column_stack([_column_to_f64(batch.column(c)) for c in cols])
 
 
-# ============ ReduceOps ============
+def _sigmoid(z: np.ndarray) -> np.ndarray:
+    """Numerically stable sigmoid."""
+    return 0.5 * (1.0 + np.tanh(0.5 * z))
+
+
+_LOSSES = ("l2", "logloss_binary")
+
+
+def _grad_hess(
+    pred: np.ndarray, y: np.ndarray, loss: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Grad and hess per row for given loss."""
+    if loss == "l2":
+        return pred - y, np.ones_like(y, dtype=np.float64)
+    if loss == "logloss_binary":
+        p = _sigmoid(pred)
+        return p - y, np.maximum(p * (1.0 - p), 1e-16)
+    raise ValueError(f"_grad_hess: unknown loss {loss!r}")
+
+
+def _base_prediction(y_sum: float, n: int, loss: str) -> float:
+    if loss == "l2":
+        return y_sum / n
+    if loss == "logloss_binary":
+        p = y_sum / n
+        eps = 1e-6
+        p = min(max(p, eps), 1.0 - eps)
+        return float(np.log(p / (1.0 - p)))
+    raise ValueError(f"_base_prediction: unknown loss {loss!r}")
+
+
+def _link(pred: np.ndarray, loss: str) -> np.ndarray:
+    if loss == "l2":
+        return pred
+    if loss == "logloss_binary":
+        return _sigmoid(pred)
+    raise ValueError(f"_link: unknown loss {loss!r}")
+
+
+# ============ ReduceOps (loss-agnostic) ============
 
 class _MinMaxOp(ReduceOp):
     """Global min/max per feature (ignore nulls)."""
@@ -104,12 +118,9 @@ class _MinMaxOp(ReduceOp):
 
 
 class _AllNodeHistOp(ReduceOp):
-    """Accumulate (grad, hess) histograms for ALL nodes in a single pass.
+    """Accumulate (grad, hess) histograms for all nodes in one pass.
 
-    State: g_hist (slots × f × bins), h_hist (same), g_tot, h_tot, n_tot.
-    Slots = internal node_ids at current level (leaf-of-tree-so-far).
-
-    Batch must have columns: features + __g + __h + __leaf.
+    State: g_hist (S, F, B), h_hist (S, F, B), g_tot, h_tot, n_tot per slot.
     """
 
     def __init__(
@@ -156,7 +167,6 @@ class _AllNodeHistOp(ReduceOp):
             Xn = X[m]
             gn = g[m]
             hn = h[m]
-            # Skip rows with NaN X (should be rare — valid mask applied upstream)
             valid = ~np.isnan(Xn).any(axis=1)
             if not valid.any():
                 continue
@@ -195,12 +205,7 @@ class _AllNodeHistOp(ReduceOp):
 
 
 class _AssignLeavesOp(ReduceOp):
-    """Assign rows to leaf_ids per current tree structure.
-
-    Returns (n,) int64 — leaf_id for each row (0 = internal node's
-    fallback for null X). Accumulates list of per-batch arrays,
-    concatenated in finalize.
-    """
+    """Assign rows to leaf_ids per current tree structure."""
 
     def __init__(
         self,
@@ -217,7 +222,7 @@ class _AssignLeavesOp(ReduceOp):
         self.range = np.where(self.mx - self.mn > 0,
                               self.mx - self.mn, 1.0)
         self.bins = int(bins)
-        self.tree = dict(tree)  # node_id -> (feat_idx, bin_thr, left, right) | None
+        self.tree = dict(tree)
         self.root_id = int(root_id)
 
     def init(self):
@@ -227,9 +232,7 @@ class _AssignLeavesOp(ReduceOp):
         X = _stack_numeric(batch, self.feature_cols)
         n = X.shape[0]
         leaf = np.full(n, self.root_id, dtype=np.int64)
-        # v0.7.3-fix: rows with NaN feature stay at root (never descend).
         nan_rows = np.isnan(X).any(axis=1)
-        # Traverse depth-by-depth.
         max_iter = 32
         with np.errstate(divide="ignore", invalid="ignore"):
             for _ in range(max_iter):
@@ -261,8 +264,6 @@ class _AssignLeavesOp(ReduceOp):
         return int(sum(x.nbytes for x in state) + 8)
 
     def estimate_state_nbytes(self):
-        # State is per-batch leaves; total bounded by n_total × 8 bytes,
-        # already covered by the n×32 pre-check in fit_gbdt_regressor.
         return 0
 
     def finalize(self, state):
@@ -270,10 +271,7 @@ class _AssignLeavesOp(ReduceOp):
 
 
 class _LeafValuesOp(ReduceOp):
-    """Per-leaf: sum_grad, sum_hess. Output dict leaf_id -> value.
-
-    Leaf values = -sum_grad / (sum_hess + reg_lambda) (Newton step for L2).
-    """
+    """Per-leaf: sum_grad, sum_hess → Newton step for any loss."""
 
     def __init__(self, reg_lambda: float = 1.0) -> None:
         self.reg_lambda = float(reg_lambda)
@@ -303,7 +301,6 @@ class _LeafValuesOp(ReduceOp):
         return 16 * max(1, len(state))
 
     def estimate_state_nbytes(self):
-        # O(leaves) bounded by 2^depth; covered by n×32 pre-check.
         return 0
 
     def finalize(self, state):
@@ -313,11 +310,81 @@ class _LeafValuesOp(ReduceOp):
         }
 
 
-# ============ model ============
+# ============ tree utility ============
+
+def _find_best_split(
+    slot: int,
+    gh: np.ndarray, hh: np.ndarray,
+    gt: float, ht: float, n_tot: int,
+    bins: int,
+    min_child_weight: float,
+    min_gain: float,
+    reg_lambda: float,
+) -> Optional[tuple[int, int, float]]:
+    if ht <= 1e-12:
+        return None
+    parent_denom = ht + reg_lambda
+    parent_gain = gt * gt / parent_denom
+    best = None
+    F = gh.shape[0]
+    for j in range(F):
+        g_l = np.cumsum(gh[j])[:-1]
+        h_l = np.cumsum(hh[j])[:-1]
+        g_r = gt - g_l
+        h_r = ht - h_l
+        valid = (h_l >= min_child_weight) & (h_r >= min_child_weight)
+        if not valid.any():
+            continue
+        with np.errstate(divide="ignore", invalid="ignore"):
+            g_l_sq = g_l * g_l / (h_l + reg_lambda)
+            g_r_sq = g_r * g_r / (h_r + reg_lambda)
+        gains = np.where(
+            valid, g_l_sq + g_r_sq - parent_gain, -np.inf,
+        )
+        k = int(np.argmax(gains))
+        if gains[k] > (best[2] if best is not None else min_gain):
+            best = (j, k, float(gains[k]))
+    return best
+
+
+def _assign_leaf_from_array(
+    X: np.ndarray, tree_struct: dict,
+    mn: np.ndarray, mx: np.ndarray, bins: int,
+) -> np.ndarray:
+    n = X.shape[0]
+    leaf = np.zeros(n, dtype=np.int64)
+    nan_rows = np.isnan(X).any(axis=1)
+    rng = np.where(mx - mn > 0, mx - mn, 1.0)
+    for nid, spec in tree_struct.items():
+        if spec is None:
+            continue
+        j, thr, left, right = spec
+        m = (leaf == nid) & ~nan_rows
+        if not m.any():
+            continue
+        b_idx = np.clip(
+            ((X[m, j] - mn[j]) / rng[j] * bins)
+            .astype(np.int64), 0, bins - 1,
+        )
+        leaf[m] = np.where(b_idx <= thr, left, right)
+    return leaf
+
+
+def _leaf_vector(lv_map: dict, leaf: np.ndarray) -> np.ndarray:
+    if not lv_map:
+        return np.zeros_like(leaf, dtype=np.float64)
+    max_lid = max(lv_map.keys())
+    arr = np.zeros(max_lid + 1, dtype=np.float64)
+    for lid, v in lv_map.items():
+        arr[lid] = v
+    return arr[leaf]
+
+
+# ============ models ============
 
 @dataclass
 class GBDTRegressor:
-    """Fitted GBDT regression model (level-wise, L2 loss)."""
+    """GBDT regression (L2 loss)."""
 
     trees_: list
     base_prediction_: float
@@ -333,27 +400,29 @@ class GBDTRegressor:
     fitted_: bool = True
 
     def predict(self, X):
-        """Predict.
-
-        - np.ndarray (n, d) → np.ndarray (n,)
-        - CadwDataFrame → CadwDataFrame with `{target}_pred` column.
-        """
         if isinstance(X, np.ndarray):
-            if X.ndim == 1:
-                X = X.reshape(1, -1)
-            if X.shape[1] != self.n_features_in_:
-                raise ValueError(
-                    f"predict: X has {X.shape[1]} features, "
-                    f"expected {self.n_features_in_}"
-                )
-            pred = np.full(X.shape[0], self.base_prediction_, dtype=np.float64)
-            for tree in self.trees_:
-                leaf = self._assign(X, tree["structure"])
-                pred += self.learning_rate_ * self._leaf_vector(
-                    tree["leaf_values"], leaf,
-                )
-            return pred
+            return self._predict_np(X)
+        return self._predict_df(X)
 
+    def _predict_np(self, X: np.ndarray) -> np.ndarray:
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"predict: X has {X.shape[1]} features, "
+                f"expected {self.n_features_in_}"
+            )
+        pred = np.full(X.shape[0], self.base_prediction_, dtype=np.float64)
+        for tree in self.trees_:
+            leaf = _assign_leaf_from_array(
+                X, tree["structure"], self.mn_, self.mx_, self.bins_,
+            )
+            pred += self.learning_rate_ * _leaf_vector(
+                tree["leaf_values"], leaf,
+            )
+        return pred
+
+    def _predict_df(self, X):
         from cadw.dataframe import CadwDataFrame
         from cadw.dataset import Dataset
         if not isinstance(X, CadwDataFrame):
@@ -375,47 +444,25 @@ class GBDTRegressor:
         base = self.base_prediction_
         mn = self.mn_
         mx = self.mx_
-        rng = np.where(mx - mn > 0, mx - mn, 1.0)
         bins = self.bins_
+        feat = self.feature_names_
 
         def _iter_pred():
             for b in X._iter_filtered_batches():
-                Xm = _stack_numeric(b, self.feature_names_)
+                Xm = _stack_numeric(b, feat)
                 n = Xm.shape[0]
-                # v0.7.3-fix2: rows with any NaN feature stay at leaf=0,
-                # nulled in output. Avoids NaN.astype(int64) warnings.
                 nan_rows = np.isnan(Xm).any(axis=1)
                 pred = np.full(n, base, dtype=np.float64)
                 for tree in trees:
-                    leaf = np.zeros(n, dtype=np.int64)
-                    for nid, spec in tree["structure"].items():
-                        if spec is None:
-                            continue
-                        j, thr, left, right = spec
-                        m = (leaf == nid) & ~nan_rows
-                        if not m.any():
-                            continue
-                        b_idx = np.clip(
-                            ((Xm[m, j] - mn[j]) / rng[j] * bins)
-                            .astype(np.int64),
-                            0, bins - 1,
-                        )
-                        leaf[m] = np.where(b_idx <= thr, left, right)
-                    lv_map = tree["leaf_values"]
-                    # Vector: leaf_values array indexed by leaf_id; default 0
-                    max_lid = max(lv_map.keys()) if lv_map else 0
-                    lv_arr = np.zeros(max_lid + 1, dtype=np.float64)
-                    for lid, val in lv_map.items():
-                        lv_arr[lid] = val
-                    pred += lr * lv_arr[leaf]
+                    leaf = _assign_leaf_from_array(
+                        Xm, tree["structure"], mn, mx, bins,
+                    )
+                    pred += lr * _leaf_vector(tree["leaf_values"], leaf)
                 arrays = [b.column(c) for c in X._columns]
-                # NaN X → null predictions
-                nan_mask = np.isnan(Xm).any(axis=1)
-                pred_with_null = pa.array(
+                arrays.append(pa.array(
                     pred, type=pa.float64(),
-                    mask=nan_mask if nan_mask.any() else None,
-                )
-                arrays.append(pred_with_null)
+                    mask=nan_rows if nan_rows.any() else None,
+                ))
                 yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
 
         new_ds = Dataset.from_batches(
@@ -427,32 +474,134 @@ class GBDTRegressor:
             spill_dir=X._spill_dir,
         )
 
-    def _assign(self, X: np.ndarray, tree_struct: dict) -> np.ndarray:
-        n = X.shape[0]
-        leaf = np.zeros(n, dtype=np.int64)
-        rng = np.where(self.mx_ - self.mn_ > 0, self.mx_ - self.mn_, 1.0)
-        for nid, spec in tree_struct.items():
-            if spec is None:
-                continue
-            j, thr, left, right = spec
-            m = leaf == nid
-            if not m.any():
-                continue
-            b_idx = np.clip(
-                ((X[m, j] - self.mn_[j]) / rng[j] * self.bins_)
-                .astype(np.int64), 0, self.bins_ - 1,
-            )
-            leaf[m] = np.where(b_idx <= thr, left, right)
-        return leaf
+    def to_dict(self) -> dict:
+        return {
+            "base_prediction": float(self.base_prediction_),
+            "feature_names": self.feature_names_,
+            "target_col": self.target_col_,
+            "n_estimators": int(self.n_estimators_),
+            "max_depth": int(self.max_depth_),
+            "learning_rate": float(self.learning_rate_),
+            "bins": int(self.bins_),
+            "n_trees": len(self.trees_),
+            "loss": "l2",
+        }
 
-    def _leaf_vector(self, lv_map: dict, leaf: np.ndarray) -> np.ndarray:
-        if not lv_map:
-            return np.zeros_like(leaf, dtype=np.float64)
-        max_lid = max(lv_map.keys())
-        arr = np.zeros(max_lid + 1, dtype=np.float64)
-        for lid, v in lv_map.items():
-            arr[lid] = v
-        return arr[leaf]
+
+@dataclass
+class GBDTClassifier:
+    """GBDT binary classification (logloss).
+
+    predict_proba -> P(y=1|x); predict -> {0,1} by threshold.
+    """
+
+    trees_: list
+    base_prediction_: float
+    feature_names_: list
+    target_col_: str
+    mn_: np.ndarray
+    mx_: np.ndarray
+    bins_: int
+    learning_rate_: float
+    n_estimators_: int
+    max_depth_: int
+    n_features_in_: int
+    fitted_: bool = True
+
+    def _raw_score_np(self, X: np.ndarray) -> np.ndarray:
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"predict: X has {X.shape[1]} features, "
+                f"expected {self.n_features_in_}"
+            )
+        pred = np.full(X.shape[0], self.base_prediction_, dtype=np.float64)
+        for tree in self.trees_:
+            leaf = _assign_leaf_from_array(
+                X, tree["structure"], self.mn_, self.mx_, self.bins_,
+            )
+            pred += self.learning_rate_ * _leaf_vector(
+                tree["leaf_values"], leaf,
+            )
+        return pred
+
+    def predict_proba(self, X):
+        if isinstance(X, np.ndarray):
+            return _sigmoid(self._raw_score_np(X))
+        return self._predict_df(X, proba_only=True, threshold=0.5)
+
+    def predict(self, X, threshold: float = 0.5):
+        if not (0.0 <= threshold <= 1.0):
+            raise ValueError(
+                f"predict: threshold must be in [0, 1]; got {threshold}"
+            )
+        if isinstance(X, np.ndarray):
+            proba = self.predict_proba(X)
+            return (proba >= threshold).astype(np.int64)
+        return self._predict_df(X, proba_only=False, threshold=threshold)
+
+    def _predict_df(self, X, *, proba_only: bool, threshold: float):
+        from cadw.dataframe import CadwDataFrame
+        from cadw.dataset import Dataset
+        if not isinstance(X, CadwDataFrame):
+            raise TypeError(
+                f"predict: X must be np.ndarray or CadwDataFrame; "
+                f"got {type(X).__name__}"
+            )
+        for c in self.feature_names_:
+            if c not in X.columns:
+                raise KeyError(f"predict: column {c!r} not in df")
+
+        prob_col = f"{self.target_col_}_prob"
+        pred_col = f"{self.target_col_}_pred"
+        orig_schema = X._dataset.schema
+        out_fields = [orig_schema.field(c) for c in X._columns]
+        out_fields.append(pa.field(prob_col, pa.float64(), nullable=True))
+        if not proba_only:
+            out_fields.append(pa.field(pred_col, pa.int64(), nullable=True))
+        out_schema = pa.schema(out_fields)
+        trees = self.trees_
+        lr = self.learning_rate_
+        base = self.base_prediction_
+        mn = self.mn_
+        mx = self.mx_
+        bins = self.bins_
+        feat = self.feature_names_
+
+        def _iter_pred():
+            for b in X._iter_filtered_batches():
+                Xm = _stack_numeric(b, feat)
+                n = Xm.shape[0]
+                nan_rows = np.isnan(Xm).any(axis=1)
+                pred = np.full(n, base, dtype=np.float64)
+                for tree in trees:
+                    leaf = _assign_leaf_from_array(
+                        Xm, tree["structure"], mn, mx, bins,
+                    )
+                    pred += lr * _leaf_vector(tree["leaf_values"], leaf)
+                proba = _sigmoid(pred)
+                arrays = [b.column(c) for c in X._columns]
+                arrays.append(pa.array(
+                    proba, type=pa.float64(),
+                    mask=nan_rows if nan_rows.any() else None,
+                ))
+                if not proba_only:
+                    pred01 = (proba >= threshold).astype(np.int64)
+                    arrays.append(pa.array(
+                        pred01, type=pa.int64(),
+                        mask=nan_rows if nan_rows.any() else None,
+                    ))
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_pred(), X._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=X._memory_guard,
+            spill_dir=X._spill_dir,
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -464,96 +613,33 @@ class GBDTRegressor:
             "learning_rate": float(self.learning_rate_),
             "bins": int(self.bins_),
             "n_trees": len(self.trees_),
+            "loss": "logloss_binary",
         }
 
 
-# ============ fit ============
+# ============ shared fit ============
 
-def _find_best_split(
-    slot: int,
-    gh: np.ndarray, hh: np.ndarray,
-    gt: float, ht: float, n_tot: int,
-    bins: int,
-    min_child_weight: float,
-    min_gain: float,
-    reg_lambda: float,
-) -> Optional[tuple[int, int, float]]:
-    """Return (feat_idx, bin_thr, gain) or None."""
-    if ht <= 1e-12:
-        return None
-    parent_denom = ht + reg_lambda
-    parent_gain = gt * gt / parent_denom
-    best = None
-    F = gh.shape[0]
-    for j in range(F):
-        g_l = np.cumsum(gh[j])[:-1]  # (bins-1,)
-        h_l = np.cumsum(hh[j])[:-1]
-        g_r = gt - g_l
-        h_r = ht - h_l
-        # min_child_weight: hess in each child
-        valid = (h_l >= min_child_weight) & (h_r >= min_child_weight)
-        if not valid.any():
-            continue
-        with np.errstate(divide="ignore", invalid="ignore"):
-            g_l_sq = g_l * g_l / (h_l + reg_lambda)
-            g_r_sq = g_r * g_r / (h_r + reg_lambda)
-        gains = np.where(
-            valid,
-            g_l_sq + g_r_sq - parent_gain,
-            -np.inf,
-        )
-        k = int(np.argmax(gains))
-        if gains[k] > (best[2] if best is not None else min_gain):
-            best = (j, k, float(gains[k]))
-    return best
-
-
-def fit_gbdt_regressor(
-    df,
-    X_cols,
-    y_col: str,
-    *,
-    n_estimators: int = 100,
-    max_depth: int = 3,
-    learning_rate: float = 0.1,
-    bins: int = 32,
-    min_child_weight: float = 1.0,
-    reg_lambda: float = 1.0,
-    min_gain: float = 0.0,
-    memory_guard: Optional[MemoryGuard] = None,
-) -> GBDTRegressor:
-    """Fit GBDT regression via level-wise Newton boosting.
-
-    - X_cols: numeric features.
-    - y_col: numeric target.
-    - n_estimators, max_depth, learning_rate, bins, min_child_weight,
-      reg_lambda, min_gain: hyperparams (XGBoost-style defaults).
-    - memory_guard: default df._memory_guard.
-
-    Peak RAM = batch + O(n × 32B) for pred/cur_leaf/grad/hess
-    + O(nodes × feat × bins) for histograms. Guarded via check_state.
-    """
+def _validate_fit_args(
+    df, X_cols, y_col, *, n_estimators, max_depth, learning_rate, bins,
+    min_child_weight, reg_lambda,
+):
     if isinstance(X_cols, str):
         X_cols = [X_cols]
     else:
         X_cols = list(X_cols)
     if not X_cols:
-        raise ValueError("fit_gbdt_regressor: X_cols must be non-empty")
+        raise ValueError("fit_gbdt: X_cols must be non-empty")
     if y_col in X_cols:
-        raise ValueError(
-            f"fit_gbdt_regressor: target {y_col!r} must not be in X_cols"
-        )
+        raise ValueError(f"fit_gbdt: target {y_col!r} must not be in X_cols")
     for c in X_cols + [y_col]:
         if c not in df.columns:
-            raise KeyError(f"fit_gbdt_regressor: column {c!r} not in df")
-
+            raise KeyError(f"fit_gbdt: column {c!r} not in df")
     schema = df._dataset.schema
     for c in X_cols + [y_col]:
         t = schema.field(c).type
         if not (pa.types.is_integer(t) or pa.types.is_floating(t)):
             raise TypeError(
-                f"fit_gbdt_regressor: column {c!r} has type {t}; "
-                f"numeric required (use encode_categorical for strings)"
+                f"fit_gbdt: column {c!r} has type {t}; numeric required"
             )
     if n_estimators < 1:
         raise ValueError(f"n_estimators must be >= 1; got {n_estimators}")
@@ -567,27 +653,72 @@ def fit_gbdt_regressor(
         raise ValueError(f"min_child_weight must be >= 0; got {min_child_weight}")
     if reg_lambda < 0:
         raise ValueError(f"reg_lambda must be >= 0; got {reg_lambda}")
+    return X_cols
+
+
+def _validate_binary_y(df, y_col: str) -> None:
+    """Ensure y has both classes {0, 1}."""
+    seen: set = set()
+    for b in df._iter_filtered_batches():
+        col = b.column(y_col)
+        try:
+            uniq = col.unique()
+            vals = uniq.to_pylist() if uniq is not None else col.to_pylist()
+        except Exception:
+            vals = col.to_pylist()
+        for v in vals:
+            if v is None:
+                continue
+            fv = float(v)
+            if fv != 0.0 and fv != 1.0:
+                raise ValueError(
+                    f"fit_gbdt_classifier: y must be binary (0/1); got {v!r}"
+                )
+            seen.add(fv)
+    if len(seen) < 2:
+        raise ValueError(
+            f"fit_gbdt_classifier: y must have both classes 0 and 1; got {seen}"
+        )
+
+
+def _fit_boosting(
+    df, X_cols, y_col, *,
+    loss: str,
+    n_estimators: int,
+    max_depth: int,
+    learning_rate: float,
+    bins: int,
+    min_child_weight: float,
+    reg_lambda: float,
+    min_gain: float,
+    memory_guard: Optional[MemoryGuard],
+):
+    """Common level-wise boosting fit for l2 and logloss_binary."""
+    if loss not in _LOSSES:
+        raise ValueError(f"_fit_boosting: unknown loss {loss!r}")
+
+    X_cols = _validate_fit_args(
+        df, X_cols, y_col,
+        n_estimators=n_estimators, max_depth=max_depth,
+        learning_rate=learning_rate, bins=bins,
+        min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+    )
+
+    if loss == "logloss_binary":
+        _validate_binary_y(df, y_col)
 
     mg = memory_guard or df._memory_guard
-
-    # v0.7.3-fix: n_total MUST be filtered count, not total_rows.
-    # pred/cur_leaf are sized to filtered rows, because _iter_filtered_batches
-    # iterates filtered batches only.
     n_total = df.count()
     if n_total == 0:
-        raise ValueError(
-            "fit_gbdt_regressor: no valid (non-null) rows "
-            "(filtered count is 0)"
-        )
+        raise ValueError("fit_gbdt: no valid (non-null) rows (filtered count 0)")
     est_n_state = n_total * 32
     try:
         mg.check_state(est_n_state, name="gbdt.internal_state")
     except MemoryLimitExceeded:
         raise MemoryLimitExceeded(
-            f"fit_gbdt_regressor: internal state O(n) = {est_n_state} B "
-            f"({n_total} rows × 32B) > available * state_safety. "
-            f"GBDT requires materializing per-row gradients (like XGBoost). "
-            f"Increase budget or sample. See §13.4/92."
+            f"fit_gbdt: internal state O(n) = {est_n_state} B "
+            f"({n_total} rows × 32B) > state_limit. GBDT requires "
+            f"materializing gradients. See §13.4/92."
         )
 
     # 1. Global min/max
@@ -596,86 +727,92 @@ def fit_gbdt_regressor(
     mn = mm_res["min"]
     mx = mm_res["max"]
     if np.any(np.isinf(mn)) or np.any(np.isinf(mx)):
-        raise ValueError("fit_gbdt_regressor: no valid (non-null) rows")
+        raise ValueError("fit_gbdt: no valid (non-null) rows")
 
-    # 2. Base prediction: mean(y) over valid rows
+    # 2. Base prediction (loss-specific) — needs y_sum and n_valid
     y_sum = 0.0
     n_valid = 0
-    for bi, off, X, y, g, h, lf, valid in _iter_with_state(
-        df, X_cols, y_col, np.zeros(n_total), np.zeros(n_total, dtype=np.int64),
-    ):
+    offset = 0
+    for b in df._iter_filtered_batches():
+        n = b.num_rows
+        X = _stack_numeric(b, X_cols)
+        y = _column_to_f64(b.column(y_col))
+        valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
         y_v = y[valid]
         y_sum += float(y_v.sum())
         n_valid += int(valid.sum())
+        offset += n
     if n_valid == 0:
-        raise ValueError("fit_gbdt_regressor: no valid rows")
-    base_pred = y_sum / n_valid
+        raise ValueError("fit_gbdt: no valid rows")
+    base_pred = _base_prediction(y_sum, n_valid, loss)
 
-    # 3. Init pred / leaf
+    # 3. Init pred
     pred = np.full(n_total, base_pred, dtype=np.float64)
-    # For invalid rows, keep pred (won't be updated via leaf)
+
     trees = []
 
-    # 4. Boosting rounds
-    max_nodes_full = (1 << (max_depth + 1)) - 1  # full binary tree nodes
+    def _iter_with_state():
+        """Yield enriched batches with __g, __h, __leaf."""
+        off = 0
+        for b in df._iter_filtered_batches():
+            n = b.num_rows
+            X = _stack_numeric(b, X_cols)
+            y = _column_to_f64(b.column(y_col))
+            p = pred[off:off + n]
+            lf = cur_leaf[off:off + n]
+            valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
+            g, h = _grad_hess(p, y, loss)
+            g = np.where(valid, g, 0.0)
+            h = np.where(valid, h, 0.0)
+            cols = [b.column(c) for c in X_cols]
+            cols.append(pa.array(g, type=pa.float64()))
+            cols.append(pa.array(h, type=pa.float64()))
+            cols.append(pa.array(lf, type=pa.int64()))
+            names = list(X_cols) + ["__g", "__h", "__leaf"]
+            yield pa.RecordBatch.from_arrays(cols, names=names)
+            off += n
+
+    def _iter_for_leaves():
+        off = 0
+        for b in df._iter_filtered_batches():
+            n = b.num_rows
+            X = _stack_numeric(b, X_cols)
+            y = _column_to_f64(b.column(y_col))
+            p = pred[off:off + n]
+            lf = cur_leaf[off:off + n]
+            valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
+            g, h = _grad_hess(p, y, loss)
+            g = np.where(valid, g, 0.0)
+            h = np.where(valid, h, 0.0)
+            yield pa.RecordBatch.from_arrays(
+                [pa.array(g, type=pa.float64()),
+                 pa.array(h, type=pa.float64()),
+                 pa.array(lf, type=pa.int64())],
+                names=["__g", "__h", "__leaf"],
+            )
+            off += n
+
     for round_i in range(n_estimators):
-        # Fresh tree per round
-        # node_id → (feat, bin_thr, left_id, right_id) or None (leaf)
         tree: dict = {0: None}
         cur_leaf = np.zeros(n_total, dtype=np.int64)
         next_node_id = 1
 
         for level in range(max_depth):
-            # Internal nodes at current level (leaves of tree-so-far)
             internal = [nid for nid, t in tree.items() if t is None]
             if not internal:
                 break
 
-            # --- Pass 1: histograms for all internal nodes ---
-            def _iter_with_ghl():
-                for bi, off, X, y, g, h, lf, valid in _iter_with_state(
-                    df, X_cols, y_col, pred, cur_leaf,
-                ):
-                    n = X.shape[0]
-                    # Add __g, __h, __leaf columns
-                    b = next(df._iter_filtered_batches()) if False else None
-                    # We need the batch itself. Re-iterate.
-                    yield (bi, off, X, g, h, lf)
-
-            # Rebuild batches with state columns
-            def _iter_batches_with_state():
-                offset = 0
-                for b in df._iter_filtered_batches():
-                    n = b.num_rows
-                    X = _stack_numeric(b, X_cols)
-                    y = _column_to_f64(b.column(y_col))
-                    p = pred[offset:offset + n]
-                    lf = cur_leaf[offset:offset + n]
-                    valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
-                    g = np.where(valid, p - y, 0.0)
-                    h = np.where(valid, 1.0, 0.0)
-                    # null-y rows: mask pred update later via valid array
-                    # Build enriched RecordBatch
-                    cols = [b.column(c) for c in X_cols]
-                    cols.append(pa.array(g, type=pa.float64()))
-                    cols.append(pa.array(h, type=pa.float64()))
-                    cols.append(pa.array(lf, type=pa.int64()))
-                    names = list(X_cols) + ["__g", "__h", "__leaf"]
-                    yield pa.RecordBatch.from_arrays(cols, names=names)
-                    offset += n
-
             hist_op = _AllNodeHistOp(X_cols, internal, mn, mx, bins)
-            hist_res = reduce(_iter_batches_with_state(), hist_op, mg, log=False)
-            gh = hist_res["g_hist"]     # (S, F, B)
+            hist_res = reduce(_iter_with_state(), hist_op, mg, log=False)
+            gh = hist_res["g_hist"]
             hh = hist_res["h_hist"]
-            gt = hist_res["g_tot"]      # (S,)
+            gt = hist_res["g_tot"]
             ht = hist_res["h_tot"]
             nt = hist_res["n_tot"]
 
-            # --- Split decisions per internal node ---
             for slot, nid in enumerate(internal):
                 if ht[slot] < min_child_weight * 2:
-                    continue  # node stays leaf
+                    continue
                 best = _find_best_split(
                     slot, gh[slot], hh[slot],
                     float(gt[slot]), float(ht[slot]), int(nt[slot]),
@@ -691,42 +828,19 @@ def fit_gbdt_regressor(
                 tree[left_id] = None
                 tree[right_id] = None
 
-            # --- Pass 2: reassign leaves ---
             assign_op = _AssignLeavesOp(X_cols, mn, mx, bins, tree)
             cur_leaf = reduce(
                 df._iter_filtered_batches(), assign_op, mg, log=False,
             )
 
-        # --- Pass 3: leaf values ---
-        def _iter_for_leaves():
-            offset = 0
-            for b in df._iter_filtered_batches():
-                n = b.num_rows
-                X = _stack_numeric(b, X_cols)
-                y = _column_to_f64(b.column(y_col))
-                p = pred[offset:offset + n]
-                lf = cur_leaf[offset:offset + n]
-                valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
-                g = np.where(valid, p - y, 0.0)
-                h = np.where(valid, 1.0, 0.0)
-                cols = [
-                    pa.array(g, type=pa.float64()),
-                    pa.array(h, type=pa.float64()),
-                    pa.array(lf, type=pa.int64()),
-                ]
-                yield pa.RecordBatch.from_arrays(cols, names=["__g", "__h", "__leaf"])
-                offset += n
-
         lv_op = _LeafValuesOp(reg_lambda=reg_lambda)
         leaf_values = reduce(_iter_for_leaves(), lv_op, mg, log=False)
 
-        # Store tree
         trees.append({
             "structure": dict(tree),
             "leaf_values": dict(leaf_values),
         })
 
-        # Update pred: for each row, pred += lr * leaf_values[leaf_id]
         if leaf_values:
             max_lid = max(leaf_values.keys())
             lv_arr = np.zeros(max_lid + 1, dtype=np.float64)
@@ -734,16 +848,58 @@ def fit_gbdt_regressor(
                 lv_arr[lid] = v
             pred += learning_rate * lv_arr[cur_leaf]
 
-    return GBDTRegressor(
-        trees_=trees,
-        base_prediction_=float(base_pred),
-        feature_names_=list(X_cols),
-        target_col_=y_col,
-        mn_=mn,
-        mx_=mx,
-        bins_=int(bins),
-        learning_rate_=float(learning_rate),
-        n_estimators_=int(n_estimators),
-        max_depth_=int(max_depth),
-        n_features_in_=len(X_cols),
+    return {
+        "trees_": trees,
+        "base_prediction_": float(base_pred),
+        "feature_names_": list(X_cols),
+        "target_col_": y_col,
+        "mn_": mn,
+        "mx_": mx,
+        "bins_": int(bins),
+        "learning_rate_": float(learning_rate),
+        "n_estimators_": int(n_estimators),
+        "max_depth_": int(max_depth),
+        "n_features_in_": len(X_cols),
+    }
+
+
+def fit_gbdt_regressor(
+    df, X_cols, y_col: str,
+    *, n_estimators: int = 100, max_depth: int = 3,
+    learning_rate: float = 0.1, bins: int = 32,
+    min_child_weight: float = 1.0, reg_lambda: float = 1.0,
+    min_gain: float = 0.0,
+    memory_guard: Optional[MemoryGuard] = None,
+) -> GBDTRegressor:
+    """GBDT regression (L2 loss) — v0.7.3 (unchanged API)."""
+    out = _fit_boosting(
+        df, X_cols, y_col, loss="l2",
+        n_estimators=n_estimators, max_depth=max_depth,
+        learning_rate=learning_rate, bins=bins,
+        min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+        min_gain=min_gain, memory_guard=memory_guard,
     )
+    return GBDTRegressor(**out)
+
+
+def fit_gbdt_classifier(
+    df, X_cols, y_col: str,
+    *, n_estimators: int = 100, max_depth: int = 3,
+    learning_rate: float = 0.1, bins: int = 32,
+    min_child_weight: float = 1.0, reg_lambda: float = 1.0,
+    min_gain: float = 0.0,
+    memory_guard: Optional[MemoryGuard] = None,
+) -> GBDTClassifier:
+    """GBDT binary classification (logloss) — v0.7.5.
+
+    y must be {0, 1}, both classes present. predict_proba → P(y=1|x);
+    predict → {0,1} by threshold (default 0.5).
+    """
+    out = _fit_boosting(
+        df, X_cols, y_col, loss="logloss_binary",
+        n_estimators=n_estimators, max_depth=max_depth,
+        learning_rate=learning_rate, bins=bins,
+        min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+        min_gain=min_gain, memory_guard=memory_guard,
+    )
+    return GBDTClassifier(**out)

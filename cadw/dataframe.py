@@ -1678,6 +1678,36 @@ class CadwDataFrame:
             memory_guard=self._memory_guard,
         )
 
+    # ---------------- ML: fit_gbdt_classifier ----------------
+
+    def fit_gbdt_classifier(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        n_estimators: int = 100,
+        max_depth: int = 3,
+        learning_rate: float = 0.1,
+        bins: int = 32,
+        min_child_weight: float = 1.0,
+        reg_lambda: float = 1.0,
+        min_gain: float = 0.0,
+    ):
+        """Fit GBDT binary classification (logloss) — v0.7.5.
+
+        y must be {0, 1}, both classes present.
+        Returns GBDTClassifier (predict_proba, predict).
+        """
+        from cadw.ml.gbdt import fit_gbdt_classifier
+        return fit_gbdt_classifier(
+            self, X_cols, y_col,
+            n_estimators=n_estimators, max_depth=max_depth,
+            learning_rate=learning_rate, bins=bins,
+            min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+            min_gain=min_gain,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(
