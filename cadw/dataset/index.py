@@ -247,3 +247,153 @@ class MaterializedIndex(CadwIndex):
         preview = self._values.slice(0, min(5, n)).to_pylist()
         suffix = "..." if n > 5 else ""
         return f"MaterializedIndex({preview}{suffix}, n={n})"
+
+
+
+class MaterializedMultiIndex(CadwIndex):
+    """Multi-level index: tuple labels from k equal-length Arrow Arrays.
+
+    pandas-style MultiIndex. Not subclass of MaterializedIndex — tuple
+    semantics differ. Call sites check `_index_kind` discriminator:
+      "range" | "materialized" | "multi".
+    """
+
+    __slots__ = ("_levels", "_n")
+
+    def __init__(self, levels):
+        if len(levels) < 2:
+            raise ValueError(
+                f"MaterializedMultiIndex requires at least 2 levels; "
+                f"got {len(levels)}"
+            )
+        combined = []
+        n = None
+        for i, lv in enumerate(levels):
+            if isinstance(lv, pa.ChunkedArray):
+                if lv.num_chunks > 1:
+                    lv = lv.combine_chunks()
+                if lv.num_chunks == 1:
+                    lv = lv.chunk(0)
+            if n is None:
+                n = len(lv)
+            elif len(lv) != n:
+                raise ValueError(
+                    f"level {i} has {len(lv)} values, expected {n}"
+                )
+            combined.append(lv)
+        self._levels = combined
+        self._n = n if n is not None else 0
+
+    @property
+    def nlevels(self):
+        return len(self._levels)
+
+    @property
+    def level_types(self):
+        return [lv.type for lv in self._levels]
+
+    def __len__(self):
+        return self._n
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            if key < 0:
+                key += self._n
+            if not (0 <= key < self._n):
+                raise IndexError(f"index out of range: {key}")
+            return tuple(lv[key].as_py() for lv in self._levels)
+        if isinstance(key, slice):
+            start, stop, _step = key.indices(self._n)
+            return MaterializedMultiIndex([
+                lv.slice(start, stop - start) for lv in self._levels
+            ])
+        raise TypeError(
+            f"MaterializedMultiIndex: unsupported key {type(key).__name__}"
+        )
+
+    def __iter__(self):
+        for i in range(self._n):
+            yield tuple(lv[i].as_py() for lv in self._levels)
+
+    def to_arrow(self):
+        return pa.StructArray.from_arrays(
+            self._levels,
+            names=[f"level_{i}" for i in range(self.nlevels)],
+        )
+
+    def equals(self, other):
+        if not isinstance(other, MaterializedMultiIndex):
+            return False
+        if self.nlevels != other.nlevels or self._n != other._n:
+            return False
+        return all(a.equals(b) for a, b in zip(self._levels, other._levels))
+
+    def has_duplicates(self):
+        seen = set()
+        for t in self:
+            if t in seen:
+                return True
+            seen.add(t)
+        return False
+
+    def get_indexer(self, labels):
+        single = isinstance(labels, tuple)
+        targets = [labels] if single else list(labels)
+        m = {}
+        for i, t in enumerate(self):
+            if t not in m:
+                m[t] = i
+        return [m.get(t, -1) for t in targets]
+
+    def get_positions_all(self, label):
+        result = []
+        for i, t in enumerate(self):
+            if t == label:
+                result.append(i)
+        return result
+
+    def is_monotonic_increasing(self):
+        prev = None
+        first = True
+        for t in self:
+            if first:
+                prev = t
+                first = False
+                continue
+            try:
+                if t < prev:
+                    return False
+            except TypeError:
+                return False
+            prev = t
+        return True
+
+    def is_monotonic_decreasing(self):
+        prev = None
+        first = True
+        for t in self:
+            if first:
+                prev = t
+                first = False
+                continue
+            try:
+                if t > prev:
+                    return False
+            except TypeError:
+                return False
+            prev = t
+        return True
+
+    def is_monotonic(self):
+        if self._n <= 1:
+            return True
+        return self.is_monotonic_increasing() or self.is_monotonic_decreasing()
+
+    def __repr__(self):
+        preview = list(self)[:5]
+        suffix = "..." if self._n > 5 else ""
+        return (
+            f"MaterializedMultiIndex({preview}{suffix}, "
+            f"nlevels={self.nlevels}, n={self._n})"
+        )
+

@@ -146,19 +146,23 @@ class _ILocIndexer:
 
 
 def _rebuild_index(parent: "CadwDataFrame", raw_positions: list[int]):
-    """Rebuild index for iloc[list] result (v0.4.0d — filter-compat).
+    """Rebuild index for iloc[list] result (v0.6.1a: multi-aware).
 
-    `raw_positions` — позиции в **unfiltered** dataset (из
-    _iter_filtered_batches_with_positions).
-
-    - parent RangeIndex → MaterializedIndex([start + p, ...]).
-    - parent MaterializedIndex → subset `_index_values[p]`.
+    - RangeIndex → MaterializedIndex([start+p, ...]).
+    - MaterializedIndex → subset.
+    - MaterializedMultiIndex → per-level subset.
     """
-    from cadw.dataset.index import MaterializedIndex
+    from cadw.dataset.index import MaterializedIndex, MaterializedMultiIndex
 
     if parent._index_kind == "range":
         vals = [parent._index_start + p for p in raw_positions]
         return MaterializedIndex(pa.array(vals, type=pa.int64()))
+
+    if parent._index_kind == "multi":
+        assert parent._index_levels is not None
+        idx = pa.array(raw_positions, type=pa.int64())
+        new_levels = [lv.take(idx) for lv in parent._index_levels]
+        return MaterializedMultiIndex(new_levels)
 
     src = parent._index_values
     vals = [src[p] for p in raw_positions]
@@ -179,8 +183,15 @@ def _table_to_cadwdf(table: pa.Table, parent: "CadwDataFrame", new_index):
         spill_dir=parent._spill_dir,
     )
     if new_index is not None:
-        new._index_kind = "materialized"
-        new._index_values = new_index.to_arrow()
+        from cadw.dataset.index import MaterializedMultiIndex
+        if isinstance(new_index, MaterializedMultiIndex):
+            new._index_kind = "multi"
+            new._index_values = None
+            new._index_levels = list(new_index._levels)
+        else:
+            new._index_kind = "materialized"
+            new._index_values = new_index.to_arrow()
+            new._index_levels = None
         new._index_start = 0
         new._index_stop = len(new_index)
     return new
@@ -204,6 +215,12 @@ class _LocIndexer:
             raise TypeError(
                 "loc: requires MaterializedIndex (after set_index). "
                 "RangeIndex — use iloc."
+            )
+
+        if p._index_kind == "multi":
+            raise NotImplementedError(
+                "loc: MultiIndex not supported in v0.6.1a. "
+                "Use reset_index + loc, or iloc. v0.6.1b adds loc[tuple]."
             )
         if p._row_filters:
             idx = p.index

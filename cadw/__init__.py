@@ -2,7 +2,7 @@
 from .core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from .dataset import (
     Dataset,
-    CadwIndex, RangeIndex, MaterializedIndex,
+    CadwIndex, RangeIndex, MaterializedIndex, MaterializedMultiIndex,
     RowFilter, PredicateFilter, AndFilter, OrFilter, NotFilter, SliceFilter,
 )
 from .dataframe import CadwDataFrame
@@ -25,6 +25,7 @@ __all__ = [
     "CadwIndex",
     "RangeIndex",
     "MaterializedIndex",
+    "MaterializedMultiIndex",
     "MemoryGuard", "MemoryLimitExceeded", "Dataset", "CadwDataFrame",
     "RowFilter", "PredicateFilter", "AndFilter", "OrFilter", "NotFilter", "SliceFilter",
     "ParquetBatchReader", "ArrowIPCBatchReader",

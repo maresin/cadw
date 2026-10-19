@@ -123,3 +123,7 @@ Trigger a new analysis when:
       materialize), P5 (sort buffer), P6/P11 (`to_pylist`).
 - [ ] Check Arrow version for `pc.rank`/`pc.quantile`/`pc.rank_quantile`
       availability (would fix P11 immediately).
+- [ ] Benchmark speed-fix BEFORE and AFTER; не полагаться на
+      "C++ vs pandas" гипотезу.
+- [ ] I/O reduction (num_partitions, combiner, compression) — часто
+      даёт больше, чем CPU-оптимизация.

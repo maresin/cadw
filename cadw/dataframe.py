@@ -31,6 +31,7 @@ from cadw.dataset import (
     CadwIndex,
     RangeIndex,
     MaterializedIndex,
+    MaterializedMultiIndex,
     RowFilter,
     MaskFilter,
     PredicateFilter,
@@ -99,11 +100,13 @@ class CadwDataFrame:
             if c not in dataset.columns:
                 raise KeyError(f"column {c!r} not found in dataset")
         self._row_filters: list[RowFilter] = list(row_filters) if row_filters else []
-        # Index state: "range" (lazy) or "materialized" (Arrow Array).
+        # Index state: "range" (lazy) | "materialized" (single Arrow Array)
+        # | "multi" (list of Arrays, tuple labels).
         self._index_kind: str = "range"
         self._index_start: int = 0
         self._index_stop: int = dataset.total_rows
         self._index_values: pa.Array | None = None
+        self._index_levels: list[pa.Array] | None = None
 
     @classmethod
     def from_parquet(
@@ -148,6 +151,9 @@ class CadwDataFrame:
         if not self._row_filters:
             if self._index_kind == "range":
                 return RangeIndex(self._index_start, self._index_stop)
+            if self._index_kind == "multi":
+                assert self._index_levels is not None
+                return MaterializedMultiIndex(self._index_levels)
             assert self._index_values is not None
             return MaterializedIndex(self._index_values)
 
@@ -163,6 +169,11 @@ class CadwDataFrame:
         if self._index_kind == "range":
             values = positions + self._index_start
             return MaterializedIndex(pa.array(values, type=pa.int64()))
+        if self._index_kind == "multi":
+            assert self._index_levels is not None
+            idx_arr = pa.array(positions, type=pa.int64())
+            new_levels = [lv.take(idx_arr) for lv in self._index_levels]
+            return MaterializedMultiIndex(new_levels)
         assert self._index_values is not None
         values = self._index_values.take(
             pa.array(positions, type=pa.int64())
@@ -212,7 +223,7 @@ class CadwDataFrame:
 
     def set_index(
         self,
-        col: str,
+        col: "str | Sequence[str]",
         drop: bool = True,
         inplace: bool = False,
     ) -> "CadwDataFrame":
@@ -225,46 +236,69 @@ class CadwDataFrame:
         Материализует колонку в память (Arrow Array). Для больших N — O(N).
         Требует отсутствия активных фильтров (v0.4.0a).
         """
-        if not isinstance(col, str):
+        # v0.6.1a: str or list[str] (MultiIndex if len >= 2).
+        if isinstance(col, str):
+            cols = [col]
+        elif isinstance(col, (list, tuple)):
+            cols = list(col)
+            if not cols:
+                raise ValueError("set_index: empty column list")
+            for c in cols:
+                if not isinstance(c, str):
+                    raise TypeError(
+                        f"set_index: col[{c!r}] must be str"
+                    )
+        else:
             raise TypeError(
-                f"set_index: col must be str; got {type(col).__name__}"
+                f"set_index: col must be str | Sequence[str]; "
+                f"got {type(col).__name__}"
             )
-        if col not in self._columns:
-            raise KeyError(
-                f"set_index: column {col!r} not in {self._columns}"
-            )
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"set_index: column {c!r} not in {self._columns}"
+                )
         if not isinstance(drop, bool):
             raise TypeError("set_index: drop must be bool")
 
-        # v0.4.0d: материализуем col для **всего** dataset (не filtered).
-        # Это O(N) scan, но `_index_values` всегда full → filtered.index =
-        # subset через positions. §13.4/59.
-        chunks: list[pa.Array] = []
-        for b in self._dataset.iter_batches(columns=[col]):
-            chunks.append(b.column(col))
-        if not chunks:
-            values: pa.Array | pa.ChunkedArray = pa.array(
-                [], type=self._dataset.schema.field(col).type
-            )
-        elif len(chunks) == 1:
-            values = chunks[0]
-        else:
-            values = pa.chunked_array(chunks)
+        chunks_by_col = {c: [] for c in cols}
+        for b in self._dataset.iter_batches(columns=cols):
+            for c in cols:
+                chunks_by_col[c].append(b.column(c))
+
+        def _combine(chunks, c):
+            if not chunks:
+                return pa.array(
+                    [], type=self._dataset.schema.field(c).type
+                )
+            if len(chunks) == 1:
+                return chunks[0]
+            return pa.chunked_array(chunks).combine_chunks()
+
+        level_arrays = [_combine(chunks_by_col[c], c) for c in cols]
 
         new_columns = list(self._columns)
         if drop:
-            new_columns.remove(col)
+            for c in cols:
+                new_columns.remove(c)
+
+        def _apply(df):
+            if len(cols) == 1:
+                df._index_kind = "materialized"
+                df._index_values = level_arrays[0]
+                df._index_levels = None
+                df._index_start = 0
+                df._index_stop = len(level_arrays[0])
+            else:
+                df._index_kind = "multi"
+                df._index_values = None
+                df._index_levels = level_arrays
+                df._index_start = 0
+                df._index_stop = len(level_arrays[0])
 
         if inplace:
             self._columns = new_columns
-            self._index_kind = "materialized"
-            self._index_values = (
-                values.combine_chunks()
-                if isinstance(values, pa.ChunkedArray)
-                else values
-            )
-            self._index_start = 0
-            self._index_stop = len(self._index_values)
+            _apply(self)
             return self
 
         new = CadwDataFrame.__new__(CadwDataFrame)
@@ -273,14 +307,7 @@ class CadwDataFrame:
         new._spill_dir = self._spill_dir
         new._columns = new_columns
         new._row_filters = list(self._row_filters)
-        new._index_kind = "materialized"
-        new._index_values = (
-            values.combine_chunks()
-            if isinstance(values, pa.ChunkedArray)
-            else values
-        )
-        new._index_start = 0
-        new._index_stop = len(new._index_values)
+        _apply(new)
         return new
 
     def reset_index(
@@ -323,7 +350,106 @@ class CadwDataFrame:
                 "Use reset_index(drop=True) or set_index(col) first."
             )
 
-        # materialized
+        if self._index_kind == "multi":
+            assert self._index_levels is not None
+            levels = self._index_levels
+            nlevels = len(levels)
+            if drop:
+                if inplace:
+                    self._index_kind = "range"
+                    self._index_start = 0
+                    self._index_stop = len(levels[0])
+                    self._index_values = None
+                    self._index_levels = None
+                    return self
+                new = CadwDataFrame.__new__(CadwDataFrame)
+                new._dataset = self._dataset
+                new._memory_guard = self._memory_guard
+                new._spill_dir = self._spill_dir
+                new._columns = list(self._columns)
+                new._row_filters = list(self._row_filters)
+                new._index_kind = "range"
+                new._index_start = 0
+                new._index_stop = len(levels[0])
+                new._index_values = None
+                new._index_levels = None
+                return new
+
+            new_names = []
+            for i in range(nlevels):
+                base = f"level_{i}"
+                name = base
+                j = 0
+                while name in self._columns or name in new_names:
+                    name = f"level_{i}_{j}"
+                    j += 1
+                new_names.append(name)
+
+            new_columns = list(self._columns) + new_names
+            new_schema = pa.schema(
+                [self._dataset.schema.field(c) for c in self._columns]
+                + [
+                    pa.field(new_names[i], levels[i].type)
+                    for i in range(nlevels)
+                ]
+            )
+
+            if self._row_filters:
+                def _iter_with_multi():
+                    for b, positions in self._iter_filtered_batches_with_positions():
+                        idx = pa.array(positions, type=pa.int64())
+                        out = b
+                        for i, lv in enumerate(levels):
+                            out = out.append_column(
+                                new_names[i], lv.take(idx)
+                            )
+                        yield out
+                _iter_impl = _iter_with_multi
+            else:
+                offset = [0]
+
+                def _iter_with_multi_unfiltered():
+                    for b in self._iter_filtered_batches():
+                        n = b.num_rows
+                        out = b
+                        for i, lv in enumerate(levels):
+                            out = out.append_column(
+                                new_names[i],
+                                lv.slice(offset[0], n),
+                            )
+                        offset[0] += n
+                        yield out
+                _iter_impl = _iter_with_multi_unfiltered
+
+            new_ds = Dataset.from_batches(
+                new_schema, _iter_impl(), self._new_dataset_dir()
+            )
+
+            if inplace:
+                self._dataset = new_ds
+                self._columns = new_columns
+                self._row_filters = []
+                self._index_kind = "range"
+                self._index_start = 0
+                self._index_stop = new_ds.total_rows
+                self._index_values = None
+                self._index_levels = None
+                return self
+
+            new = CadwDataFrame.__new__(CadwDataFrame)
+            new._dataset = new_ds
+            new._memory_guard = self._memory_guard
+            new._spill_dir = self._spill_dir
+            new._columns = new_columns
+            new._row_filters = []
+            new._index_kind = "range"
+            new._index_start = 0
+            new._index_stop = new_ds.total_rows
+            new._index_values = None
+            new._index_levels = None
+            return new
+
+        # materialized (single level)
         assert self._index_values is not None
         values = self._index_values
 
@@ -489,6 +615,7 @@ class CadwDataFrame:
             new._index_start = self._index_start
             new._index_stop = self._index_stop
             new._index_values = self._index_values
+            new._index_levels = self._index_levels
             return new
 
         # 3. str: прокси для сравнений (df['a'] > 0)
@@ -519,6 +646,7 @@ class CadwDataFrame:
         new._index_start = self._index_start
         new._index_stop = self._index_stop
         new._index_values = self._index_values
+        new._index_levels = self._index_levels
         return new
 
     # ---------------- filtered iteration ----------------
