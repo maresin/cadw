@@ -83,7 +83,9 @@ def test_merge_cartesian_skew_raises(tmp_path):
         {"k": ["HOT"] * 1000, "b": list(range(1000))},
         chunk=200, mem_mb=20,
     )
-    with pytest.raises(MemoryLimitExceeded, match="cartesian|expected"):
+    # Сообщение: "exact matches between this probe batch ... Likely skew."
+    # (с v0.2.5 cartesian check заменён на exact-match; §13.4/47).
+    with pytest.raises(MemoryLimitExceeded, match="exact matches|Likely skew"):
         left.merge(right, on="k")
 
 

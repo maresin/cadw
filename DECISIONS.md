@@ -840,6 +840,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `JoinMemoryModel` (v0.2.3: §9.2.5) | ✅ | 17 |
 | `propagate_chars("join")` (v0.2.3: planner chain с join) | ✅ | 9 |
 | `CadwDataFrame.merge` + `JoinMemoryModel` (v0.2.4) | ✅ | 8 |
+| E2E join (v0.2.5: 100k×10k, skew, left) | ✅ | 3 slow |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -1224,6 +1225,61 @@ O(1) (одна строка на колонку), не O(N). Но был пол�
 эпизод 4b: `test_facade_has_no_as_py` был текстовым vs AST). **Урок:**
 если хочется добавить `as_py` в facade «по-мелочи» — сигнал, что место
 кода не в facade. AST guard фиксирует **слой**, а не только намерение.
+
+**Эпизод 46 (E2E join, планировщик предсказал).** 100k FK × 10k PK
+(string keys, 20 MB budget): planner видит k_est=10k/10k (sample даёт
+реалистичную cardinality), `JoinMemoryModel.solve` выбирает P из
+`HashShuffleMemoryModel.solve` обеих сторон, `max_output_rows` из
+`output_budget / (row_size_out × (1+c_merge))`. Результат: 100k строк
+(каждый left матчит ровно один right PK), RSS-дельта < 200 MB (при
+бюджете 20 MB — запас на Arrow/pandas overhead), время < 60 s. Skew-тест
+(100k × 100k один ключ) ловится **per-partition** `expected_probe_output
+= len(probe) × avg_matches_per_probe` — 10k × 100k = 10^9 >> `max_output_rows`.
+RSS-дельта до raise < 500 MB (фактически ~50 MB: build_df 100k × ~24 B +
+probe_batch 10k × ~24 B, `pd.merge` не вызывается). Left join (100k ×
+5k, half unmatched): 100k preserved, right nulls совпадают с pandas по
+null-mask. **Урок:** E2E с string keys на реальном бюджете — единственный
+тест, доказывающий, что planner+shuffle+merge укладываются в RAM на
+данных, где есть и hash-partitioning, и `pd.merge` temp. 20 MB budget +
+100k строк — минимальный масштаб, где все три компонента встречаются
+без «тестовых поблажек». Если бы planner не работал, `expected_probe_output`
+на одной партиции (10k × 100k = 10^9) уже упал бы на первом batche.
+
+**Эпизод 47 (cartesian — не OOM-граница).** Runtime проверял
+`len(build) × len(probe) > max_cartesian_rows` с `max_cartesian_rows =
+10 × max_output_rows`. Для PK-FK join 100k × 10k (8 партиций):
+cartesian = 5005 × 2519 = 12.6M при **реальном output 2519 строк**.
+`max_cartesian_rows = 407k` → ложный `MemoryLimitExceeded`. **Причина:**
+`pd.merge` материализует только совпадения, не cartesian. **Fix:** точная
+оценка `actual_matches = sum over common keys(build_count × probe_count)`
+через `build_df.groupby(on).size()` (один раз) × `probe_df.groupby(on)
+.size()` (per batch) × `merge`. O(build + probe) на уникальных ключах —
+дёшево. **Урок:** верхняя граница должна быть **звуковой** (≥ output);
+cartesian over-reject'ит, exact match — нет.
+
+**Эпизод 47b (regex в патч-скриптах).** Шаг 1d 11-B-2d-fix использовал
+`s.replace(old, new)` с многострочным шаблоном. Шаблон не совпал (символы
+`×`/`≈`/отступы), `str.replace` молча вернул исходную строку. Файл
+остался в промежуточном состоянии: определение удалено (шаг 1c), check'и
+ссылаются на несуществующее имя → NameError. **Fix:** regex по маркерам
++ явная проверка «что заменяем». **Урок (усиливает эпизод 44):** для
+больших блоков — regex по маркерам, не точный шаблон.
+
+**Эпизод 47c (strict check на docstring).** Шаг 3 проверял `if
+"max_cartesian_rows" in s` и падал на **docstring** `merge`. Проверка
+включила комментарии/докстринги — over-strict. **Урок:** «нет упоминаний»
+— два контракта: «нет в коде» (важно, AST) и «нет в тексте» (обычно
+избыточно). Default — AST.
+
+**Эпизод 47d (`raise` до `write_text` теряет прогресс).** fix2 сделал
+замены в памяти, но проверка docstring упала **до** `p.write_text(s)` —
+файл не сохранён. fix3 увидел те же 3 refs, поправил docstring (в
+памяти), снова упал на той же проверке — тоже не сохранил. Итог: две
+сессии «делали» одно и то же, файл не менялся. **Fix:** `write_text`
+(сохранить) **→** проверить **→** вывести warning, но не raise (или
+raise **после** write). **Урок:** патч-скрипт с `try/finally` вокруг
+всех замен + `write_text` в `finally`. Или простая дисциплина:
+сохраняем, потом проверяем. Потеря прогресса хуже, чем неполный warning.
 
 ### 13.5. Открытые вопросы
 

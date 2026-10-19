@@ -89,6 +89,41 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.2.5] — 2026-10-19
+### Исправлено (§13.4 эпизод 47)
+- `hash_join`: cartesian check заменён на **точную** оценку совпадений
+  `actual_matches = sum over common keys(build_count × probe_count)` через
+  `groupby.size()`. O(build + probe), дёшево. Устраняет ложные reject'ы
+  для PK-FK (cartesian 12.6M при реальном output 2519).
+- Удалены: `max_cartesian_rows` (все слои), `c_cartesian`.
+- 2 AST guard'а: `test_actual_matches_checked_before_pd_merge`,
+  `test_no_cartesian_check_in_join`.
+
+
+
+### Добавлено (финал v0.2)
+- `tests/test_e2e_join.py` (3 slow):
+  - `test_e2e_join_100k_x_10k`: 100k FK × 10k PK (string keys), 20 MB
+    budget, inner join; pandas-equivalence; RSS-дельта < 200 MB;
+    elapsed < 60 s.
+  - `test_e2e_join_skew_reject`: 100k × 100k один ключ →
+    `MemoryLimitExceeded` до OOM; RSS-дельта < 500 MB.
+  - `test_e2e_join_left_preserve`: 100k × 5k, half unmatched → 100k
+    preserved; null-mask совпадает с pandas.
+
+### Закрыто (v0.2)
+- `CadwDataFrame.merge(inner/left)` — пользовательская функция.
+- `hash_join(how, max_output_rows, max_cartesian_rows)` — runtime.
+- `JoinMemoryModel` + `propagate_chars("join")` — planner integration.
+- OOM safety: size-check до materialize, schema-correct empty IPC,
+  recursive partition split, per-partition unique_build check.
+- `use_planner=True` в `merge`, sampling helpers в `cadw/core/sampling.py`.
+
+### Тесты v0.2
+- fast: 330 passed, 1 skipped.
+- slow: 8 passed (5 был + 3 E2E join).
+- Всего: **338 passed, 1 skipped**.
+
 ## [0.2.4] — 2026-10-19
 
 ### Исправлено (§13.4 эпизод 42)

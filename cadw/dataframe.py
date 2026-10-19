@@ -372,7 +372,7 @@ class CadwDataFrame:
         - num_partitions: число партиций HashShuffle; None — из
           JoinMemoryModel (если use_planner), иначе дефолт 8.
         - use_planner: использовать JoinMemoryModel.solve() для выбора
-          num_partitions / max_output_rows / max_cartesian_rows. Если
+          num_partitions / max_output_rows. Если
           False — runtime использует старые дефолты (0.3 * available / 256).
         """
         if how not in ("inner", "left"):
@@ -398,7 +398,6 @@ class CadwDataFrame:
 
         # --- Planner: sample first batch, plan, override defaults. ---
         max_output_rows: int | None = None
-        max_cartesian_rows: int | None = None
 
         if use_planner:
             left_sample = peek_first_batch(self._iter_filtered_batches())
@@ -421,7 +420,6 @@ class CadwDataFrame:
                 if num_partitions is None:
                     num_partitions = params.num_partitions
                 max_output_rows = params.max_output_rows
-                max_cartesian_rows = params.max_cartesian_rows
             else:
                 # Одна из сторон пуста — planner не нужен; hash_join
                 # короткозамкнёт. num_partitions не важен.
@@ -443,7 +441,6 @@ class CadwDataFrame:
             suffixes=suffixes,
             num_partitions=num_partitions,
             max_output_rows=max_output_rows,
-            max_cartesian_rows=max_cartesian_rows,
         )
         return self._wrap_result_table(result_table)
 

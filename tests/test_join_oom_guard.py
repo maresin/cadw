@@ -211,12 +211,12 @@ def test_safe_materialize_empty_file_has_columns(tmp_path):
     )
     assert table.num_rows == 0
 
-def test_process_partition_pair_defines_avg_matches_before_use():
-    """avg_matches_per_probe определён ДО использования (AST, lineno).
+def test_actual_matches_checked_before_pd_merge():
+    """Exact-match guard вызывается ДО pd.merge в _process_partition_pair.
 
-    Регрессия 11-B-2c-3: шаг 2d патча молча не сработал (str.replace с
-    несуществующим шаблоном — no-op), и avg_matches_per_probe использовался
-    без определения. NameError в runtime. Guard фиксирует порядок.
+    Регрессия 11-B-2d: cartesian check (build × probe > max_cartesian_rows)
+    давал ложные reject'ы для PK-FK (build уникален, реальный output =
+    probe count, а не cartesian). Fix: точная оценка через _exact_actual_matches.
     """
     from cadw.ops.join import _process_partition_pair
     import ast
@@ -224,27 +224,35 @@ def test_process_partition_pair_defines_avg_matches_before_use():
     src = inspect.getsource(_process_partition_pair)
     tree = ast.parse(inspect.cleandoc(src))
 
-    # Найти все Store и Load для имени "avg_matches_per_probe"
-    stores: list[int] = []
-    loads: list[int] = []
+    exact_lines: list[int] = []
+    merge_lines: list[int] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id == "avg_matches_per_probe":
-            if isinstance(node.ctx, ast.Store):
-                stores.append(node.lineno)
-            elif isinstance(node.ctx, ast.Load):
-                loads.append(node.lineno)
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Name) and f.id == "_exact_actual_matches":
+                exact_lines.append(node.lineno)
+            if isinstance(f, ast.Attribute) and f.attr == "merge" \
+                    and isinstance(f.value, ast.Name) and f.value.id == "pd":
+                merge_lines.append(node.lineno)
 
-    assert stores, (
-        "avg_matches_per_probe never assigned in _process_partition_pair "
-        "(NameError at runtime)"
+    assert exact_lines, "_exact_actual_matches not called in _process_partition_pair"
+    assert merge_lines, "pd.merge not called in _process_partition_pair"
+    assert min(exact_lines) < min(merge_lines), (
+        f"_exact_actual_matches (line {min(exact_lines)}) must precede "
+        f"pd.merge (line {min(merge_lines)})"
     )
-    assert loads, (
-        "avg_matches_per_probe never read in _process_partition_pair"
-    )
-    first_store = min(stores)
-    first_load = min(loads)
-    assert first_store < first_load, (
-        f"avg_matches_per_probe: first Store at line {first_store}, "
-        f"first Load at line {first_load} — use before assignment"
+
+
+def test_no_cartesian_check_in_join():
+    """max_cartesian_rows не упоминается в join.py (cartesian — не OOM-граница)."""
+    from cadw.ops import join as join_mod
+    src = inspect.getsource(join_mod)
+    offending = [
+        (i + 1, line) for i, line in enumerate(src.splitlines())
+        if "max_cartesian_rows" in line and not line.strip().startswith("#")
+    ]
+    assert not offending, (
+        "max_cartesian_rows must be removed from join.py code: "
+        f"{offending}"
     )
 

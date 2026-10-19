@@ -181,7 +181,6 @@ def _process_partition_pair(
     depth: int = 0,
     max_depth: int = 5,
     max_output_rows: int = 0,
-    max_cartesian_rows: int = 0,
 ) -> list[pa.RecordBatch]:
     """Обработать пару партиций (lp, rp) с учётом how.
 
@@ -252,7 +251,6 @@ def _process_partition_pair(
                     num_partitions_recurse=num_partitions_recurse,
                     depth=depth + 1, max_depth=max_depth,
                     max_output_rows=max_output_rows,
-                    max_cartesian_rows=max_cartesian_rows,
                 )
             )
         return out
@@ -295,26 +293,40 @@ def _process_partition_pair(
             right_rest = [c for c in right_schema.names if c not in on]
             build_df = pd.DataFrame(columns=list(on) + right_rest)
 
-    # Per-partition skew check: unique_build_keys + avg_matches_per_probe.
-    # Ловит partition-level skew, которого глобальная модель не видит:
-    # после hash_shuffle все строки с одним ключом идут в одну партицию,
-    # и там build может дублироваться сильнее, чем в среднем.
-    unique_build_keys = len(build_df)
+    # Точная оценка совпадений: build_counts × probe_counts (не cartesian).
+    build_counts_df = None
     if len(build_df) > 0 and len(on) > 0:
         try:
-            if len(on) == 1:
-                unique_build_keys = int(build_df[on[0]].nunique(dropna=True))
-            else:
-                unique_build_keys = int(
-                    build_df.drop_duplicates(subset=list(on)).shape[0]
-                )
-            unique_build_keys = max(1, unique_build_keys)
+            build_counts_df = (
+                build_df.groupby(list(on), dropna=False)
+                .size()
+                .rename("__bc")
+                .reset_index()
+            )
         except Exception:
-            unique_build_keys = len(build_df)
-    avg_matches_per_probe = (
-        len(build_df) / max(1, unique_build_keys)
-        if unique_build_keys > 0 else 1.0
-    )
+            build_counts_df = None
+
+    def _exact_actual_matches(probe_df: pd.DataFrame) -> int:
+        """Точное число совпадений build × probe. Fallback — cartesian."""
+        if len(probe_df) == 0 or len(build_df) == 0:
+            return 0
+        if build_counts_df is None:
+            return len(build_df) * len(probe_df)
+        try:
+            probe_counts = (
+                probe_df.groupby(list(on), dropna=False)
+                .size()
+                .rename("__pc")
+                .reset_index()
+            )
+            joined = build_counts_df.merge(
+                probe_counts, on=list(on), how="inner"
+            )
+            if len(joined) == 0:
+                return 0
+            return int((joined["__bc"] * joined["__pc"]).sum())
+        except Exception:
+            return len(build_df) * len(probe_df)
 
     out_batches: list[pa.RecordBatch] = []
     empty_schema = _empty_result_schema(
@@ -332,30 +344,15 @@ def _process_partition_pair(
                 continue
         # how='left': probe preserved.
 
-        # 1. Expected output (avg_matches × probe) против max_output_rows.
-        #    Ловит per-partition skew: если в этой партиции build дублируется
-        #    сильнее, чем в среднем по датасету.
-        expected_probe_output = int(
-            len(probe_df) * max(1.0, avg_matches_per_probe)
-        )
-        if expected_probe_output > max_output_rows:
+        # Точное число строк, которое pd.merge материализует (не cartesian).
+        actual_matches = _exact_actual_matches(probe_df)
+        if actual_matches > max_output_rows:
             raise MemoryLimitExceeded(
-                f"hash_join(how={how!r}): expected output from this "
-                f"partition ≈ {expected_probe_output} rows "
-                f"({len(probe_df)} probe × {avg_matches_per_probe:.2f} "
-                f"avg_matches) > max_output_rows={max_output_rows}. "
-                f"Likely partition-level skew."
-            )
-        # 2. Cartesian worst case (build × probe) против max_cartesian_rows.
-        #    Ловит экстремальный skew, где даже probe-строка с уникальным
-        #    ключом матчит много build-строк.
-        cartesian = len(build_df) * len(probe_df)
-        if cartesian > max_cartesian_rows:
-            raise MemoryLimitExceeded(
-                f"hash_join(how={how!r}): cartesian worst case "
-                f"{len(build_df)} × {len(probe_df)} = {cartesian} > "
-                f"max_cartesian_rows={max_cartesian_rows}. "
-                f"Likely extreme skew."
+                f"hash_join(how={how!r}): exact matches between this "
+                f"probe batch ({len(probe_df)} rows) and build "
+                f"({len(build_df)} rows) = {actual_matches} > "
+                f"max_output_rows={max_output_rows}. Likely skew. "
+                f"Увеличьте budget или уменьшите num_partitions."
             )
 
         if how == "left":
@@ -408,7 +405,6 @@ def hash_join(
     num_partitions: int = 8,
     hash_seed: int = 0,
     max_output_rows: Optional[int] = None,
-    max_cartesian_rows: Optional[int] = None,
 ) -> pa.Table:
     """Grace hash join. how ∈ {'inner', 'left'} (v0.2.2).
 
@@ -475,10 +471,6 @@ def hash_join(
         max_output_rows = max(
             1, int(memory_guard.available_bytes() * 0.3 / 256)
         )
-    if max_cartesian_rows is None:
-        # Default: 10× expected (c_cartesian из JoinMemoryModel)
-        max_cartesian_rows = max_output_rows * 10
-
     empty_schema = _empty_result_schema(left_schema, right_schema, on, suffixes)
     all_batches: list[pa.RecordBatch] = []
 
@@ -524,7 +516,6 @@ def hash_join(
                 lp, rp, left_schema, right_schema, on, suffixes,
                 memory_guard, spill_dir, how=how,
                 max_output_rows=max_output_rows,
-                max_cartesian_rows=max_cartesian_rows,
             )
         )
 
@@ -544,7 +535,6 @@ def inner_join(
     num_partitions: int = 8,
     hash_seed: int = 0,
     max_output_rows: Optional[int] = None,
-    max_cartesian_rows: Optional[int] = None,
 ) -> pa.Table:
     """Inner join. Обёртка над hash_join(how='inner')."""
     return hash_join(
@@ -552,7 +542,6 @@ def inner_join(
         memory_guard, spill_dir,
         how="inner", suffixes=suffixes, num_partitions=num_partitions,
         hash_seed=hash_seed, max_output_rows=max_output_rows,
-        max_cartesian_rows=max_cartesian_rows,
     )
 
 
@@ -569,7 +558,6 @@ def left_join(
     num_partitions: int = 8,
     hash_seed: int = 0,
     max_output_rows: Optional[int] = None,
-    max_cartesian_rows: Optional[int] = None,
 ) -> pa.Table:
     """Left join. Обёртка над hash_join(how='left')."""
     return hash_join(
@@ -577,5 +565,4 @@ def left_join(
         memory_guard, spill_dir,
         how="left", suffixes=suffixes, num_partitions=num_partitions,
         hash_seed=hash_seed, max_output_rows=max_output_rows,
-        max_cartesian_rows=max_cartesian_rows,
     )
