@@ -24,11 +24,13 @@ from .ops.quantile import quantile
 from .ml import (
     XTXOp, LinearModel, fit_linear,
     LogisticGradOp, LogisticModel, fit_logistic,
+    KMeansStepOp, KMeansModel, fit_kmeans,
 )
 
 __all__ = [
     "XTXOp", "LinearModel", "fit_linear",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
+    "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "CadwIndex",
     "RangeIndex",
     "MaterializedIndex",

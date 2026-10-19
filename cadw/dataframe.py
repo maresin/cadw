@@ -1597,6 +1597,32 @@ class CadwDataFrame:
             memory_guard=self._memory_guard,
         )
 
+    # ---------------- ML: fit_kmeans ----------------
+
+    def fit_kmeans(
+        self,
+        X_cols: "str | Sequence[str]",
+        k: int,
+        *,
+        n_init: int = 3,
+        max_iter: int = 300,
+        tol: float = 1e-4,
+        seed: int = 42,
+    ):
+        """Fit k-means clustering via iter-Reduce (v0.7.1).
+
+        Each iteration = one Reduce pass (assign + accumulate). Peak
+        RAM = batch + O(k×d).
+
+        Returns KMeansModel (cluster_centers_, predict).
+        """
+        from cadw.ml.kmeans import fit_kmeans
+        return fit_kmeans(
+            self, X_cols, k,
+            n_init=n_init, max_iter=max_iter, tol=tol, seed=seed,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(
