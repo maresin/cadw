@@ -1,0 +1,182 @@
+"""
+Indexers: .iloc / .loc (pandas-compatible), v0.4.0b MVP.
+
+`_ILocIndexer` — positional indexer. Позиция = позиция в текущем view
+(filtered stream или raw). Возвращает:
+  - `iloc[int]` → dict[str, Any] (row values by column).
+  - `iloc[slice]` → CadwDataFrame (lazy, via SliceFilter).
+  - `iloc[list[int]]` → CadwDataFrame (materialize K=len(list) rows).
+
+Ограничения v0.4.0b:
+- `iloc[bool_array]` — raise (use df[mask]).
+- `iloc[list]` на filtered view → default RangeIndex (не сохраняет
+  parent index; v0.4.0c — filter-compat).
+- `iloc[list]` на unfiltered → preserves parent index (RangeIndex →
+  MaterializedIndex; MaterializedIndex → subset values).
+- `iloc[slice]` полностью lazy (не читает данные).
+
+Почему indexers в отдельном модуле от dataframe.py: AST guard
+`test_facade_has_no_as_py` проверяет весь модуль dataframe.py. `iloc[int]`
+использует `.as_py()` (O(K), K=1 или len(list)) — это не O(N), но facade
+guard не различает. Отдельный модуль — обход, и семантически правильнее
+(facade без data-примитивов; indexers — новый layer).
+"""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+import pyarrow as pa
+
+if TYPE_CHECKING:
+    from cadw.dataframe import CadwDataFrame
+
+
+class _ILocIndexer:
+    def __init__(self, parent: "CadwDataFrame") -> None:
+        self._parent = parent
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            return self._slice(key)
+        if isinstance(key, int) and not isinstance(key, bool):
+            return self._one(key)
+        if isinstance(key, list) and all(
+            isinstance(x, int) and not isinstance(x, bool) for x in key
+        ):
+            return self._many(key)
+        if isinstance(key, pa.Array) and pa.types.is_boolean(key.type):
+            raise NotImplementedError(
+                "iloc[bool_array]: not supported in v0.4.0b. Use df[mask]."
+            )
+        raise TypeError(
+            f"iloc: unsupported key type {type(key).__name__}; "
+            f"expected int, slice, or list[int]"
+        )
+
+    def _view_size(self) -> int:
+        p = self._parent
+        if p._row_filters:
+            return p.count()
+        return p._dataset.total_rows
+
+    def _resolve_int(self, i: int) -> int:
+        if i < 0:
+            n = self._view_size()
+            i = n + i
+            if i < 0:
+                raise IndexError(f"iloc: index out of range (n={n})")
+        return i
+
+    def _one(self, i: int) -> dict[str, Any]:
+        i = self._resolve_int(i)
+        running = 0
+        for b in self._parent._iter_filtered_batches():
+            if running + b.num_rows > i:
+                local = i - running
+                return {
+                    name: b.column(name)[local].as_py()
+                    for name in b.schema.names
+                }
+            running += b.num_rows
+        raise IndexError(f"iloc: position {i} out of range (n={running})")
+
+    def _slice(self, key: slice):
+        n = self._view_size()
+        start, stop, step = key.indices(n)
+        # Delegates to __getitem__(slice) = SliceFilter — lazy + already
+        # composes with existing filters.
+        return self._parent[slice(start, stop, step)]
+
+    def _many(self, positions: list[int]):
+        resolved = [self._resolve_int(p) for p in positions]
+        if not resolved:
+            return self._empty_view()
+
+        targets = sorted(set(resolved))
+        target_set = set(targets)
+
+        collected: dict[int, dict[str, Any]] = {}
+        running = 0
+        for b in self._parent._iter_filtered_batches():
+            n = b.num_rows
+            batch_start = running
+            batch_end = running + n
+            for p in targets:
+                if batch_start <= p < batch_end:
+                    local = p - batch_start
+                    collected[p] = {
+                        name: b.column(name)[local].as_py()
+                        for name in b.schema.names
+                    }
+            running = batch_end
+            if len(collected) == len(targets):
+                break
+
+        missing = target_set - set(collected.keys())
+        if missing:
+            raise IndexError(
+                f"iloc: positions out of range: {sorted(missing)[:5]} "
+                f"(n={running})"
+            )
+
+        rows = [collected[p] for p in resolved]  # keep order + duplicates
+        return self._rows_to_cadwdf(rows, resolved)
+
+    def _empty_view(self):
+        parent = self._parent
+        schema = pa.schema(
+            [parent._dataset.schema.field(c) for c in parent._columns]
+        )
+        table = pa.Table.from_batches([], schema=schema)
+        return _table_to_cadwdf(table, parent, None)
+
+    def _rows_to_cadwdf(self, rows, resolved_positions):
+        parent = self._parent
+        schema = pa.schema(
+            [parent._dataset.schema.field(c) for c in parent._columns]
+        )
+        table = pa.Table.from_pylist(rows, schema=schema)
+        new_index = _rebuild_index(parent, resolved_positions)
+        return _table_to_cadwdf(table, parent, new_index)
+
+
+def _rebuild_index(parent: "CadwDataFrame", positions: list[int]):
+    """Rebuild index for iloc[list] result.
+
+    Returns None → use default RangeIndex (filtered view or unfilterable).
+    Returns MaterializedIndex → preserve parent index at positions.
+    """
+    from cadw.dataset.index import MaterializedIndex
+
+    if parent._row_filters:
+        return None  # filtered view → default RangeIndex (v0.4.0c: fix)
+
+    if parent._index_kind == "range":
+        vals = [parent._index_start + p for p in positions]
+        return MaterializedIndex(pa.array(vals, type=pa.int64()))
+
+    # materialized
+    src = parent._index_values
+    vals = [src[p] for p in positions]
+    return MaterializedIndex(pa.array(vals, type=src.type))
+
+
+def _table_to_cadwdf(table: pa.Table, parent: "CadwDataFrame", new_index):
+    """Build a CadwDataFrame from a materialized table (+ optional index)."""
+    from cadw.dataframe import CadwDataFrame
+    from cadw.dataset import Dataset
+
+    new_ds = Dataset.from_batches(
+        table.schema, iter(table.to_batches()), parent._new_dataset_dir()
+    )
+    new = CadwDataFrame(
+        new_ds,
+        memory_guard=parent._memory_guard,
+        spill_dir=parent._spill_dir,
+    )
+    if new_index is not None:
+        new._index_kind = "materialized"
+        new._index_values = new_index.to_arrow()
+        new._index_start = 0
+        new._index_stop = len(new_index)
+    return new

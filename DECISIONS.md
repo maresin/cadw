@@ -845,7 +845,8 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `rank` (v0.3.1/3.2: Sort + stream; first/min/dense/max/last/average) | ✅ | 34 |
 | `quantile` (v0.3.3: Sort + indexed lookup; scalar q, linear) | ✅ | 20 |
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
-| `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 20 |
+| `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 26 |
+| `iloc` (v0.4.0b: positional indexer) | ✅ | 21 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -917,6 +918,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
 | `groupby_aggregate` combiner не поддерживает std (v0.3.4) | `groupby_aggregate` | warning + fallback на обычный путь. v0.3.5 — Welford partial. |
+| `iloc[bool_array]` не поддерживается (v0.4.0b) | `_ILocIndexer` | raise `NotImplementedError`; используйте `df[mask]` (RowFilter). |
+| `iloc[list]` на filtered view не сохраняет parent index (v0.4.0b) | `_ILocIndexer` | default `RangeIndex(0, K)`; preserve — v0.4.0c (filter-compat, нужна `_iter_filtered_batches_with_positions`). |
 | `df.index`/`set_index`/`reset_index` с активными фильтрами (v0.4.0a) | `CadwDataFrame` | raise NotImplementedError; синхронизация index↔filter — v0.4.0b (iloc, через row_id). §13.4/55. |
 | `set_index` материализует колонку (O(N) RAM) | `CadwDataFrame` | Для больших N — future: `RangeIndex` fast path + streaming loc. v0.4.1. |
 | Index не сохраняется в Parquet (write_parquet → reload = RangeIndex) | `write_parquet` | Parquet не имеет index-метаданных; документировано. §13.4/55. |
@@ -1597,6 +1600,46 @@ MVP без filter-compat — осознанное решение: v0.4.0b (iloc)
 - `set_index`/`reset_index` с фильтрами — использовать filtered positions.
 
 **v0.4.0c (loc):** label-based через MaterializedIndex.get_indexer.
+
+**Эпизод 57 (iloc — indexer в отдельном модуле).** `_ILocIndexer` живёт
+в `cadw/indexers.py`, не в `cadw/dataframe.py`. Причина: `iloc[int]`
+использует `.as_py()` для возврата dict {col: value}. AST guard
+`test_facade_has_no_as_py` проверяет **весь** `dataframe.py` и упал бы.
+`.as_py()` в `iloc` — O(K), K=1 или len(list); это не row-loop (не O(N)),
+но guard не различает. Отдельный модуль — правильно.
+
+**`iloc[slice]` = `df[slice]`.** Слайс-семантика для позиций в filtered
+view **идентична** SliceFilter: `df[5:10]` на raw = global positions 5..9;
+`df[mask][5:10]` = filtered positions 5..9. Значит `_ILocIndexer._slice`
+просто делегирует `parent[slice]`. Нулевой код, полная lazy-семантика.
+
+**`iloc[int]`** — stream-forward-count. Итерируем `_iter_filtered_batches`,
+считаем строки; на позиции `i` возвращаем dict. O(i) RAM, O(i) I/O —
+пользователь просил конкретную строку.
+
+**`iloc[list]`** — stream-scan, collect target positions. O(K) memory,
+O(N) I/O (нужно дойти до последней target). Результат materialize как
+новый `Dataset`. Index — preserve parent (MaterializedIndex) если no-filter;
+reset на filtered (v0.4.0c — filter-compat).
+
+**Negative indices** — работают. Для slice — через `key.indices(n)`.
+Для int/list — resolve через `_view_size()` (count() с фильтрами —
+O(N) scan; total_rows без — O(1)). «Работает всегда, цена зависит».
+
+**`iloc[bool_array]`** — raise `NotImplementedError`, use `df[mask]`.
+Причина: у нас уже есть `MaskFilter`, `iloc[bool]` семантически =
+`df[mask]`, только с другим API. Не дублировать.
+
+**Урок:** indexers — отдельный layer, как `_GroupBy`. Facade остаётся
+без data-примитивов. Каждый следующий indexer (`loc`, `.at`, `.iat`)
+— сюда же. `dataframe.py` — только property, возвращающее indexer.
+
+**Следующее (v0.4.0c — loc):**
+- `MaterializedIndex.get_indexer(labels)` → positions (O(N) scan, dict).
+- `iloc[list]` на filtered view — preserve parent index через
+  `_iter_filtered_batches_with_positions` (для `filtered.index` тоже).
+- `.at[label, col]` / `.iat[pos, col]` — scalar access.
+- Duplicate labels — v0.4.1.
 
 ### 13.5. Открытые вопросы
 

@@ -37,6 +37,7 @@ from cadw.dataset import (
 )
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ParquetBatchWriter
+from cadw.indexers import _ILocIndexer
 from cadw.ops.groupby import groupby_aggregate
 from cadw.ops.join import hash_join
 from cadw.ops.sort import external_sort
@@ -148,6 +149,21 @@ class CadwDataFrame:
             return RangeIndex(self._index_start, self._index_stop)
         assert self._index_values is not None
         return MaterializedIndex(self._index_values)
+
+    @property
+    def iloc(self) -> "_ILocIndexer":
+        """Pandas-style positional indexer (v0.4.0b).
+
+        - `df.iloc[5]` → dict {col: value} — 6-я строка текущего view.
+        - `df.iloc[1:3]` → CadwDataFrame — позиции 1..2 (lazy, SliceFilter).
+        - `df.iloc[[0, 5, 7]]` → CadwDataFrame — три строки (materialize K).
+
+        Negative indices работают: для slice — стандартная Python semantics;
+        для int/list — resolve через count() (O(N) с фильтрами, O(1) без).
+
+        `iloc[bool_array]` — raise (use df[mask]).
+        """
+        return _ILocIndexer(self)
 
     def set_index(
         self,

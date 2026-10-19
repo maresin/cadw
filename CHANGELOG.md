@@ -89,6 +89,36 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.4.0b] — 2026-10-19
+
+### Добавлено
+- `CadwDataFrame.iloc` — positional indexer (pandas-style).
+  - `iloc[int]` → `dict[str, Any]` — одна строка.
+  - `iloc[slice]` → `CadwDataFrame` — lazy, через `SliceFilter`.
+  - `iloc[list[int]]` → `CadwDataFrame` — materialize K=len(list) rows.
+  - Negative indices работают (int/list — resolve через count();
+    slice — через `key.indices(n)`).
+- `cadw/indexers.py` — модуль для indexers (`_ILocIndexer`). Отдельно
+  от facade (`dataframe.py`), чтобы не ломать AST guard
+  `test_facade_has_no_as_py`.
+
+### Ограничения (v0.4.0b, §11.5)
+- **`iloc[bool_array]`** — `NotImplementedError` (use `df[mask]`).
+- **`iloc[list]` на filtered view** → default `RangeIndex` (не сохраняет
+  parent index); v0.4.0c — filter-compat.
+- **`iloc[list]` на unfiltered** — preserves parent index:
+  RangeIndex → MaterializedIndex([start+p, ...]);
+  MaterializedIndex → subset values (dtype preserved).
+- **`iloc[list]`** — O(N) I/O scan (нужно дойти до последней позиции);
+  O(K) память результата.
+
+### Тесты
+- 21 тест в `test_iloc.py`: iloc[int] (mid/last/negative/out-of-range),
+  iloc[slice] (basic/step/negative/filtered), iloc[list]
+  (basic/duplicates/negative/empty/out-of-range/filtered), index
+  preservation (range/materialized/filtered-reset), errors
+  (bool_array/unsupported type), AST guard sanity.
+
 ## [0.4.0a] — 2026-10-19
 
 ### Добавлено
