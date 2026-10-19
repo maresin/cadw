@@ -294,3 +294,57 @@ def test_external_sort_phase1_limit_small():
         "phase-1 limit must NOT be `available // 2` (0.5×) — P5b regression"
     )
 
+def test_numpy_backed_builder_null_bitmap_direct():
+    """_NumpyBackedBuilder: Arrow bitmap 1=valid (not 1=null).
+
+    Регрессия v0.7.6.1 (B2): до фикса `packbits(mask=True=null)` давал
+    1 в null-позициях, Arrow читал 1=valid → null↔valid инвертированы.
+    Диагностика: packbits([F,F,T]) → pa.Array.from_buffers → [None,None,30]
+    (2 nulls, неверно). После фикса: [10,20,None] (1 null).
+
+    Тест прямой (не через external_sort) — чтобы не маскировалось
+    native builder'ом, если он есть в текущем pyarrow.
+    """
+    from cadw.ops.sort import _NumpyBackedBuilder
+    import numpy as np
+
+    b = _NumpyBackedBuilder(pa.int64(), np.int64)
+    b.append(10)
+    b.append(20)
+    b.append_null()
+    arr = b.finish()
+
+    assert arr.to_pylist() == [10, 20, None], (
+        f"null position wrong: {arr.to_pylist()} (expected [10, 20, None])"
+    )
+    assert arr.null_count == 1, f"null_count={arr.null_count}, expected 1"
+
+
+def test_numpy_backed_builder_null_first():
+    """Bitmap: null at position 0, then valid."""
+    from cadw.ops.sort import _NumpyBackedBuilder
+    import numpy as np
+
+    b = _NumpyBackedBuilder(pa.float64(), np.float64)
+    b.append_null()
+    b.append(1.5)
+    b.append(2.5)
+    arr = b.finish()
+
+    assert arr.to_pylist() == [None, 1.5, 2.5]
+    assert arr.null_count == 1
+
+
+def test_numpy_backed_builder_all_valid():
+    """No nulls — buffer path (no bitmap)."""
+    from cadw.ops.sort import _NumpyBackedBuilder
+    import numpy as np
+
+    b = _NumpyBackedBuilder(pa.int64(), np.int64)
+    b.append(1)
+    b.append(2)
+    arr = b.finish()
+
+    assert arr.to_pylist() == [1, 2]
+    assert arr.null_count == 0
+

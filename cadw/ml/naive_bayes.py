@@ -535,6 +535,24 @@ class _MultinomialPredictMixin:
 
 # ============ fit entry points ============
 
+def _check_X_non_negative(df, X_cols) -> None:
+    """Multinomial NB requires X >= 0 (counts). 1-pass, cheap.
+
+    Raises ValueError on first negative found. Silent NaN otherwise
+    (feature_sum + alpha may go negative → log → nan).
+    """
+    import pyarrow.compute as pc
+    for b in df._iter_filtered_batches():
+        for c in X_cols:
+            col = b.column(c)
+            min_val = pc.min(col, skip_nulls=True).as_py()
+            if min_val is not None and min_val < 0:
+                raise ValueError(
+                    f"fit_multinomial_nb: X column {c!r} has negative "
+                    f"value {min_val}; counts must be >= 0"
+                )
+
+
 def _validate_common(df, X_cols, y_col):
     if isinstance(X_cols, str):
         X_cols = [X_cols]
@@ -611,6 +629,7 @@ def fit_multinomial_nb(
     if alpha < 0:
         raise ValueError(f"alpha must be >= 0; got {alpha}")
     mg = memory_guard or df._memory_guard
+    _check_X_non_negative(df, X_cols)
     op = _MultinomialStatsOp(X_cols, y_col)
     res = reduce(df._iter_filtered_batches(), op, mg, log=False)
     classes = res["classes"]

@@ -656,9 +656,15 @@ def _validate_fit_args(
     return X_cols
 
 
-def _validate_binary_y(df, y_col: str) -> None:
-    """Ensure y has both classes {0, 1}."""
+def _validate_binary_y(df, y_col: str) -> tuple[float, int]:
+    """Ensure y has both classes {0, 1}. Returns (y_sum, n_valid).
+
+    v0.7.6.1 (I5): returns y_sum and n_valid so _fit_boosting can skip
+    a second full scan. Single pass over df instead of two.
+    """
     seen: set = set()
+    y_sum = 0.0
+    n_valid = 0
     for b in df._iter_filtered_batches():
         col = b.column(y_col)
         try:
@@ -675,10 +681,17 @@ def _validate_binary_y(df, y_col: str) -> None:
                     f"fit_gbdt_classifier: y must be binary (0/1); got {v!r}"
                 )
             seen.add(fv)
+        # Accumulate y_sum / n_valid in same pass
+        import numpy as np
+        y_np = _column_to_f64(col)
+        mask = ~np.isnan(y_np)
+        y_sum += float(y_np[mask].sum())
+        n_valid += int(mask.sum())
     if len(seen) < 2:
         raise ValueError(
             f"fit_gbdt_classifier: y must have both classes 0 and 1; got {seen}"
         )
+    return y_sum, n_valid
 
 
 def _fit_boosting(
@@ -704,8 +717,10 @@ def _fit_boosting(
         min_child_weight=min_child_weight, reg_lambda=reg_lambda,
     )
 
+    precomputed_y_sum: Optional[float] = None
+    precomputed_n_valid: Optional[int] = None
     if loss == "logloss_binary":
-        _validate_binary_y(df, y_col)
+        precomputed_y_sum, precomputed_n_valid = _validate_binary_y(df, y_col)
 
     mg = memory_guard or df._memory_guard
     n_total = df.count()
@@ -729,19 +744,22 @@ def _fit_boosting(
     if np.any(np.isinf(mn)) or np.any(np.isinf(mx)):
         raise ValueError("fit_gbdt: no valid (non-null) rows")
 
-    # 2. Base prediction (loss-specific) — needs y_sum and n_valid
-    y_sum = 0.0
-    n_valid = 0
-    offset = 0
-    for b in df._iter_filtered_batches():
-        n = b.num_rows
-        X = _stack_numeric(b, X_cols)
-        y = _column_to_f64(b.column(y_col))
-        valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
-        y_v = y[valid]
-        y_sum += float(y_v.sum())
-        n_valid += int(valid.sum())
-        offset += n
+    # 2. Base prediction (loss-specific) — needs y_sum and n_valid.
+    # v0.7.6.1 (I5): reuse precomputed values from _validate_binary_y
+    # for logloss_binary (skip 2nd scan). For l2 — scan once here.
+    if precomputed_y_sum is not None and precomputed_n_valid is not None:
+        y_sum = precomputed_y_sum
+        n_valid = precomputed_n_valid
+    else:
+        y_sum = 0.0
+        n_valid = 0
+        for b in df._iter_filtered_batches():
+            X = _stack_numeric(b, X_cols)
+            y = _column_to_f64(b.column(y_col))
+            valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
+            y_v = y[valid]
+            y_sum += float(y_v.sum())
+            n_valid += int(valid.sum())
     if n_valid == 0:
         raise ValueError("fit_gbdt: no valid rows")
     base_pred = _base_prediction(y_sum, n_valid, loss)

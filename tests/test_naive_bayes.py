@@ -310,3 +310,23 @@ def test_fit_naive_bayes_invalid_variant(tmp_path):
     df = make_df(tmp_path, data)
     with pytest.raises(ValueError, match="variant"):
         df.fit_naive_bayes(["x0", "x1"], "y", variant="unknown")
+
+def test_multinomial_nb_negative_X_raises(tmp_path):
+    """Multinomial NB: X < 0 → ValueError (counts must be >= 0).
+
+    Без валидации: feature_sum + alpha может уйти в отрицательное
+    → log(negative) = nan → молчаливые nan предсказания.
+    """
+    data = {"x0": [-1.0, 2.0, 3.0], "x1": [0.0, 1.0, 0.0], "y": [0.0, 0.0, 1.0]}
+    df = make_df(tmp_path, data)
+    with pytest.raises(ValueError, match="must be >= 0"):
+        fit_multinomial_nb(df, ["x0", "x1"], "y")
+
+
+def test_multinomial_nb_non_negative_X_passes(tmp_path):
+    """All-zero X — валидно (sparse counts)."""
+    data = {"x0": [0.0, 0.0, 0.0], "x1": [0.0, 0.0, 0.0], "y": [0.0, 0.0, 1.0]}
+    df = make_df(tmp_path, data)
+    model = fit_multinomial_nb(df, ["x0", "x1"], "y")
+    assert model is not None
+

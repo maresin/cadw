@@ -179,9 +179,14 @@ class _NumpyBackedBuilder:
     def finish(self) -> pa.Array:
         import numpy as np
         values = self._buf[: self._n].copy()
+        # Arrow validity bitmap: bit=1 means VALID, bit=0 means NULL.
+        # _nulls[i] = True means NULL (inverted vs Arrow).
+        # So packed = packbits(~_nulls).
+        # Regression: v0.7.6 diagnostic showed packbits(mask) produced
+        # wrong null positions (null↔valid inversion). Fix: packbits(~mask).
         mask = self._nulls[: self._n]
         if mask.any():
-            packed = np.packbits(mask, bitorder="little")
+            packed = np.packbits(~mask, bitorder="little")
             arr = pa.Array.from_buffers(
                 self._arrow_type, self._n,
                 [pa.py_buffer(packed), pa.py_buffer(values)],
