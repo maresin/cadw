@@ -1124,6 +1124,106 @@ class CadwDataFrame:
             log=False,
         )
 
+    # ---------------- encode_categorical ----------------
+
+    def encode_categorical(
+        self,
+        columns: "str | Sequence[str]",
+    ) -> "tuple[CadwDataFrame, dict[str, list]]":
+        """Encode categorical columns as int32 (v0.6.2a).
+
+        - columns: str or Sequence[str]. Must be string/binary columns.
+        - Pass 1: collect unique values (pc.value_counts per batch),
+          sorted for determinism. Nulls excluded (become null ids).
+        - Pass 2: pc.index_in(col, value_set=pa.array(sorted_values))
+          per batch → int32 (null stays null).
+
+        Returns:
+            (encoded_df, reverse_maps): new CadwDataFrame with int32
+            columns (same names); original df unchanged.
+            reverse_maps[col] = sorted_values; id k → reverse_maps[col][k].
+
+        Memory: O(K) per column, independent of N.
+        Raises TypeError for non-string columns.
+        """
+        import pyarrow.compute as pc
+
+        if isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        if not cols:
+            raise ValueError("encode_categorical: columns must be non-empty")
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"encode_categorical: column {c!r} not in {self._columns}"
+                )
+
+        # Validate types — only string/binary encodable.
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            if not (pa.types.is_string(t) or pa.types.is_large_string(t)
+                    or pa.types.is_binary(t) or pa.types.is_large_binary(t)):
+                raise TypeError(
+                    f"encode_categorical: column {c!r} has type {t}; "
+                    f"only string/binary supported"
+                )
+
+        # Pass 1: collect unique values per column.
+        reverse_maps: dict[str, list] = {}
+        for col in cols:
+            uniques: set = set()
+            for b in self._iter_filtered_batches():
+                arr = b.column(col)
+                vc = pc.value_counts(arr)  # struct<values, counts>
+                if isinstance(vc, pa.ChunkedArray):
+                    vc = vc.combine_chunks()
+                values = vc.field("values")
+                for v in values.to_pylist():  # K per batch, not N
+                    if v is not None:
+                        uniques.add(v)
+            try:
+                sorted_vals = sorted(uniques)
+            except TypeError:
+                sorted_vals = sorted(uniques, key=lambda x: str(x))
+            reverse_maps[col] = sorted_vals
+
+        # Pass 2: encode.
+        schema = pa.schema(
+            [
+                (
+                    pa.field(c, pa.int32())
+                    if c in cols
+                    else self._dataset.schema.field(c)
+                )
+                for c in self._columns
+            ]
+        )
+
+        def _iter_encoded():
+            for b in self._iter_filtered_batches():
+                arrays = []
+                for c in self._columns:
+                    if c in cols:
+                        arr = b.column(c)
+                        value_set = pa.array(reverse_maps[c], type=arr.type)
+                        ids = pc.index_in(arr, value_set=value_set)
+                        arrays.append(ids.cast(pa.int32()))
+                    else:
+                        arrays.append(b.column(c))
+                yield pa.RecordBatch.from_arrays(arrays, schema=schema)
+
+        new_ds = Dataset.from_batches(
+            schema, _iter_encoded(), self._new_dataset_dir()
+        )
+        new_df = CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+        return new_df, reverse_maps
+
     # ---------------- merge ----------------
 
     def merge(
