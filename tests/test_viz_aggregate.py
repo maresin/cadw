@@ -118,3 +118,56 @@ def test_sample_bad_n(tmp_path):
     df = make_df(tmp_path, {"x": [1.0]})
     with pytest.raises(ValueError, match="n must be >= 1"):
         sample(df, n=0)
+
+# ---------- v0.7.4c: random sample ----------
+
+def test_sample_random_uniform(tmp_path):
+    """random=True: not just first n rows — should include later positions."""
+    n = 1000
+    rng = np.random.default_rng(0)
+    x = np.arange(n, dtype=np.float64)
+    df = make_df(tmp_path, {"x": x.tolist()}, chunk=200)
+    smp = sample(df, n=100, random=True)
+    got = smp.count()
+    assert got == 100
+    # Extract x values, verify: not all from first 100 (i.e. max > 100)
+    from cadw.viz import _aggregate
+    xs = []
+    for b in smp._iter_filtered_batches():
+        xs.extend(b.column("x").to_pylist())
+    assert max(xs) > 500, f"random sample didn't reach later rows: max={max(xs)}"
+    assert min(xs) < 500, f"random sample is not uniform: min={min(xs)}"
+
+
+def test_sample_random_small_df_returns_self(tmp_path):
+    """count() <= n → returns df, random flag ignored."""
+    df = make_df(tmp_path, {"x": [1.0, 2.0, 3.0]})
+    s1 = sample(df, n=10, random=False)
+    s2 = sample(df, n=10, random=True)
+    assert s1 is df and s2 is df
+
+
+def test_sample_random_deterministic(tmp_path):
+    """Same seed → same sample (deterministic)."""
+    n = 500
+    rng = np.random.default_rng(0)
+    df = make_df(tmp_path, {"x": rng.normal(size=n).tolist()}, chunk=100)
+    s1 = sample(df, n=50, random=True)
+    s2 = sample(df, n=50, random=True)
+    xs1 = []
+    xs2 = []
+    for b in s1._iter_filtered_batches():
+        xs1.extend(b.column("x").to_pylist())
+    for b in s2._iter_filtered_batches():
+        xs2.extend(b.column("x").to_pylist())
+    assert xs1 == xs2
+
+
+def test_sample_head_default_still_works(tmp_path):
+    """random=False (default): head behavior unchanged."""
+    n = 100
+    df = make_df(tmp_path, {"x": list(range(n))}, chunk=50)
+    smp = sample(df, n=20)
+    got = smp.count()
+    assert got == 20
+

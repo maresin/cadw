@@ -31,9 +31,13 @@ def _plt():
     return plt
 
 
-def _sample_pair(df, x: str, y: str, n: int):
-    """Pull (x, y) numpy arrays for at most n rows."""
-    smp = _aggregate.sample(df, n=n)
+def _sample_pair(df, x: str, y: str, n: int, *, random: bool = False):
+    """Pull (x, y) numpy arrays for at most n rows.
+
+    random=False (default): head (fast, may be biased on ordered data).
+    random=True: uniform random sample (full O(N) scan).
+    """
+    smp = _aggregate.sample(df, n=n, random=random)
     xs: list[np.ndarray] = []
     ys: list[np.ndarray] = []
     for b in smp._iter_filtered_batches():
@@ -195,6 +199,59 @@ def scatter(
         return fig, ax
     # Aggregate mode
     return hist2d_plot(df, x, y, bins=bins, ax=ax, cmap=cmap, **kwargs)
+
+
+def hexbin_plot(
+    df, x: str, y: str,
+    *,
+    gridsize: int = 30,
+    n: int = 10_000,
+    random: bool = True,
+    ax=None,
+    cmap: str = "viridis",
+    log_scale: bool = True,
+    **kwargs,
+):
+    """Hexbin via sample(n) + plt.hexbin (v0.7.4c, matplotlib native).
+
+    **Sample-based, not aggregate-first**: hexbin aggregation on a
+    hexagonal grid is non-trivial (matplotlib does its own binning
+    internally via plt.hexbin). We pass sampled (xs, ys), not counts.
+
+    - n=10_000: bounded sample (same pattern as scatter).
+    - random=True (default): unbiased. Full O(N) scan — set False for
+      fast preview on ordered data (head, may be biased).
+    - gridsize: matplotlib hexagon count.
+    - log_scale=True: LogNorm for colorbar (typical scatter density).
+
+    Plotly/Seaborn don't have native hexbin — use hist2d_plot instead.
+    """
+    plt = _plt()
+    import matplotlib.colors as mcolors
+    if gridsize < 1:
+        raise ValueError(f"hexbin_plot: gridsize must be >= 1; got {gridsize}")
+    xs, ys = _sample_pair(df, x, y, n, random=random)
+    # Drop NaN rows (both x and y must be valid)
+    mask = ~(np.isnan(xs) | np.isnan(ys))
+    xs = xs[mask]
+    ys = ys[mask]
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 5))
+    else:
+        fig = ax.figure
+    norm = mcolors.LogNorm() if log_scale and len(xs) > 0 else None
+    hb = ax.hexbin(
+        xs, ys,
+        gridsize=gridsize,
+        cmap=cmap,
+        norm=norm,
+        **kwargs,
+    )
+    fig.colorbar(hb, ax=ax, label="count")
+    ax.set_xlabel(x)
+    ax.set_ylabel(y)
+    ax.set_title(f"hexbin({x}, {y}, gridsize={gridsize}, n={len(xs)})")
+    return fig, ax
 
 
 def feature_importance(

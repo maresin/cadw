@@ -154,17 +154,30 @@ def line_agg(
     return order
 
 
-def sample(df, n: int = 10_000):
-    """Bounded sample: returns df if count() <= n, else df.head(n).
+def sample(df, n: int = 10_000, *, random: bool = False):
+    """Bounded sample (v0.7.4c: +random).
 
-    v0.7.4a-fix: df.head(n) returns pa.Table, not CadwDataFrame.
-    Wrap via Dataset.from_batches to keep API consistent.
+    - random=False (default, fast): df.head(n). Bounded I/O (first n).
+      **May be biased** if data is ordered (e.g. time-sorted parquet) —
+      samples only prefix. Use for quick preview.
+    - random=True: uniform random sample of n rows. Full O(N) scan
+      (count + iloc[random_indices] → reads to max position). O(n) memory.
+      Use for viz correctness on arbitrary/ordered data.
+
+    Returns CadwDataFrame either way (count() <= n → returns df unchanged).
     """
     if n < 1:
         raise ValueError(f"sample: n must be >= 1; got {n}")
     cnt = df.count()
     if cnt <= n:
         return df
+    if random:
+        import numpy as _np
+        rng = _np.random.default_rng(42)
+        idx = _np.sort(rng.choice(cnt, size=n, replace=False))
+        # df.iloc[list] → CadwDataFrame (v0.4.0b, filter-compat v0.4.0d)
+        return df.iloc[idx.tolist()]
+    # head (fast, may be biased)
     from cadw.dataframe import CadwDataFrame
     from cadw.dataset import Dataset
     table = df.head(n)

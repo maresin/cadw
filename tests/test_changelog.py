@@ -20,23 +20,39 @@ def test_changelog_exists():
 
 
 def test_changelog_has_latest_tag():
-    """Top CHANGELOG entry == tag on HEAD (only checked when HEAD is tagged).
+    """Top CHANGELOG entry == tag on HEAD (only checked on `master`).
 
-    Why --exact-match: patch-branch workflow has HEAD ahead of latest
-    release tag; CHANGELOG legitimately has entries for versions that
-    are not yet tagged. Skip is correct — this test fires on release
-    commits, not during development.
+    Why branch check (v0.7.4c-fix): after `git checkout -b patch/...`
+    from a tagged commit (e.g., right after squash+tag v0.8.2), HEAD
+    still carries the old tag. `git describe --exact-match` then
+    succeeds, but CHANGELOG legitimately has an in-progress entry
+    (`[0.7.4c]`) that's not yet tagged. Test would fail.
+
+    Guard fires only in release context: **current branch == master**
+    AND HEAD is on a semver tag. On patch branches — skip.
 
     Why --match "v[0-9]*": `backup-pre-*` and other non-semver tags
     would otherwise be picked up by `git describe`. Only `vX.Y.Z`.
     """
+    # v0.7.4c-fix: only on `master`
+    branch_r = subprocess.run(
+        ["git", "branch", "--show-current"],
+        capture_output=True, text=True,
+    )
+    current_branch = branch_r.stdout.strip()
+    if current_branch != "master":
+        pytest.skip(
+            f"not on master (current branch: {current_branch or 'detached'}); "
+            f"CHANGELOG guard fires only on master (release context)"
+        )
+
     r = subprocess.run(
         ["git", "describe", "--tags", "--exact-match",
          "--match", "v[0-9]*"],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
-        pytest.skip("HEAD is not on a semver tag (in development)")
+        pytest.skip("master HEAD is not on a semver tag (post-merge, pre-tag)")
 
     tag = r.stdout.strip()          # e.g. "v0.8.1"
     version = tag.lstrip("v")       # "0.8.1"

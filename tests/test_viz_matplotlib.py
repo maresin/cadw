@@ -144,3 +144,61 @@ def test_feature_importance_non_gbdt_raises():
         pass
     with pytest.raises(TypeError, match="GBDT"):
         feature_importance(FakeModel())
+
+# ---------- v0.7.4c: hexbin_plot ----------
+
+def test_hexbin_plot_writes_png(tmp_path):
+    """hexbin_plot: sample + plt.hexbin, writes PNG."""
+    rng = np.random.default_rng(0)
+    n = 10_000
+    x = rng.normal(size=n)
+    y = rng.normal(size=n)
+    df = make_df(tmp_path, {"x": x.tolist(), "y": y.tolist()})
+    from cadw.viz.matplotlib_adapter import hexbin_plot
+    fig, ax = hexbin_plot(df, "x", "y", gridsize=20, n=2000)
+    out = tmp_path / "hexbin.png"
+    fig.savefig(str(out), dpi=80, bbox_inches="tight")
+    assert out.stat().st_size > 1500
+
+
+def test_hexbin_plot_random_sample(tmp_path):
+    """random=True: sample spreads across dataset."""
+    n = 5000
+    rng = np.random.default_rng(1)
+    df = make_df(tmp_path, {
+        "x": np.arange(n, dtype=np.float64).tolist(),
+        "y": rng.normal(size=n).tolist(),
+    })
+    from cadw.viz.matplotlib_adapter import hexbin_plot
+    fig, ax = hexbin_plot(df, "x", "y", gridsize=20, n=500, random=True)
+    # If sample were head, all x ∈ [0, 500]; check title contains n=500
+    assert "n=500" in ax.get_title()
+
+
+def test_hexbin_plot_missing_column(tmp_path):
+    df = make_df(tmp_path, {"x": [1.0, 2.0], "y": [3.0, 4.0]})
+    from cadw.viz.matplotlib_adapter import hexbin_plot
+    import pytest
+    with pytest.raises(KeyError, match="nope"):
+        hexbin_plot(df, "nope", "y")
+
+
+def test_hexbin_plot_invalid_gridsize(tmp_path):
+    df = make_df(tmp_path, {"x": [1.0, 2.0], "y": [3.0, 4.0]})
+    from cadw.viz.matplotlib_adapter import hexbin_plot
+    import pytest
+    with pytest.raises(ValueError, match="gridsize"):
+        hexbin_plot(df, "x", "y", gridsize=0)
+
+
+def test_hexbin_plot_skips_nulls(tmp_path):
+    """Rows with null in x or y — dropped before plt.hexbin."""
+    df = make_df(tmp_path, {
+        "x": [1.0, None, 3.0, 4.0],
+        "y": [1.0, 2.0, None, 4.0],
+    })
+    from cadw.viz.matplotlib_adapter import hexbin_plot
+    fig, ax = hexbin_plot(df, "x", "y", n=100, random=False)
+    # 2 valid rows (1,1) and (4,4) — hexbin shows both
+    assert "n=2" in ax.get_title()
+

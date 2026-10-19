@@ -12,6 +12,42 @@
   инвариант.
 -->
 
+## [0.7.4c] — 2026-10-19
+
+### Добавлено
+- **`matplotlib_adapter.hexbin_plot(df, x, y, gridsize=30, n=10_000,
+  random=True, ...)`** — 2D hexagonal binning (matplotlib native).
+  - Sample-based (`sample(n)` + `plt.hexbin`), **не** aggregate-first:
+    hexbin aggregation на гексагональной сетке требует custom binning,
+    matplotlib делает это сам через `plt.hexbin`.
+  - `log_scale=True` (default): LogNorm для colorbar (плотность scatter).
+  - **Plotly/Seaborn:** нет native hexbin — используйте `hist2d_plot`
+    (прямоугольная сетка). Documented.
+
+- **`_aggregate.sample(df, n, *, random=False)`** — новый параметр.
+  - `random=False` (default, fast): `df.head(n)` — bounded I/O,
+    но **может быть смещён** на time-sorted данных (только префикс).
+  - `random=True`: uniform random sample через
+    `df.iloc[np.sort(rng.choice(cnt, n, replace=False))]`. Full O(N)
+    scan, O(n) memory. Deterministic (seed=42).
+  - `scatter` / `_sample_pair`: `random=False` по умолчанию
+    (backward compat v0.7.4a).
+
+### Ограничения (v0.7.4c, §11.5)
+- `hexbin_plot` — только matplotlib. Plotly/Seaborn — нет hexbin
+  (документировано; use hist2d).
+- `random=True`: 2× O(N) scan (count + iloc to max position). Для 10^7
+  строк ~секунды. `random=False` — fast preview.
+- hexbin sample-based, не aggregate-first — n=10_000 bounded, shape
+  approximate.
+
+### Тесты
+- +4 в `test_viz_aggregate.py`: sample(random=True) uniformity,
+  small-df returns-self, deterministic, head default unchanged.
+- +5 в `test_viz_matplotlib.py`: hexbin_plot writes PNG, random sample
+  spreads, missing column raises, invalid gridsize raises, nulls skipped.
+- fast: **~1026 passed**. slow: **8 passed**.
+
 ## [0.8.2] — 2026-10-19
 
 ### Добавлено
