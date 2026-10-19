@@ -2,6 +2,81 @@
 
 Все значимые изменения проекта CADW. Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 
+<!--
+  CHANGELOG был сломан с v0.1.5: каждый patch_changelog() вставлял
+  перед [0.X.Y-1], а при отсутствии anchor `str.replace` был silent
+  no-op. Цепочка оборвалась на v0.1.4, все последующие версии не
+  попали. Полная история — `git log --oneline --grep='^v'`.
+  Ниже — последние записи (v0.7.7+); восстанавливаем по мере
+  необходимости. AST guard `test_changelog_has_latest_tag` фиксирует
+  инвариант.
+-->
+
+## [0.8.1] — 2026-10-19
+
+### Изменено — performance
+- **`compute_hashes`: pandas C-hash для numeric, Python для string.**
+  - Numeric/boolean/timestamp/date → `pd.util.hash_pandas_object`
+    (C-level SipHash). Bench: int64 39.2→2.0 ms (**19.6×**),
+    float64 39.2→1.0 ms (**39.2×**).
+  - String/large_string → Python `repr().encode()` + xxhash. Причина:
+    pandas `hash_pandas_object` для object dtype — per-element Cython,
+    50 ms/100k, **22% медленнее** Python (§13.4/107). Без регрессии.
+  - struct/list/dict/uint64 → Python loop (fallback).
+  - Seed через `h_np ^= np.uint64(seed)` **до** avalanche.
+- **Avalanche (splitmix64) — всегда**, не только при seed. Причина:
+  pandas `hash_pandas_object` для object dtype `hash << 1` (reserves 0
+  для NA), все string hashes чётные → `h & 3` использует только
+  партиции `{0, 2}` → recursion split 2-way вместо 4-way →
+  `MemoryLimitExceeded` при depth=5 (§13.4/107). Fix: 3 умножения +
+  3 XOR-shift, ~0.3 ms/100k.
+
+### Критично для корректности
+- **`types_mapper=Int64Dtype`** в `arr.to_pandas()` (numeric): без него
+  `int64` с nulls → `float64` (NaN), без nulls → `int64` → разные hash
+  для одного значения в разных батчах → нарушение partition-disjoint.
+- Тесты: `test_int64_consistent_hash_across_null_presence`,
+  `test_avalanche_spreads_low_bits`,
+  `test_avalanche_seed_spreads_low_bits`.
+- `test_shuffle.py::test_stable_hash_across_batches` — убран лишний
+  `assert a_parts != b_parts` (partition-disjoint ≠ different partitions;
+  коллизии разных ключей в одной партиции — норма).
+
+### Тесты
+- +20 в `test_hash_v081.py`: cross-batch consistency (int32/int64/string
+  с/без nulls), deterministic, seed, nulls, dispatch (string→python,
+  numeric→pandas), partition-disjoint (int+string), avalanche (low-bit
+  spread + seed + similar strings), groupby recursion end-to-end.
+
+### Ожидание
+- int64 shuffle 1M: 0.61s → **~0.22s** (2.76×).
+- 500 GB / 50 B / int64 keys: ~100 min → **~40 min**.
+
+## [0.8.0] — 2026-10-19
+
+### Добавлено — time-series
+- `CadwDataFrame.expanding(agg, min_periods=1, columns=None)` —
+  кумулятивное окно. Aggs: `sum`/`mean`/`min`/`max`/`count`. O(1) state
+  (scalar accumulators; min/max — текущий min/max, без deque). Nulls
+  skip; null row → null output. Output: `{col}_expanding_{agg}`.
+- `CadwDataFrame.ewm(alpha/span/halflife/com, adjust=True, min_periods=0,
+  columns=None)` — экспоненциально-взвешенное среднее. Ровно один из
+  4 параметров. `adjust=True`: `(s_num, s_den)`, `y = s_num/s_den`.
+  `adjust=False`: `(ewm,)`, `y = (1-α)·y_prev + α·x`. Nulls skip
+  (`ignore_na=True` семантика). Output: `{col}_ewm`.
+
+### Добавлено — PCA single-pass
+- `CovarianceMeanOp(CovarianceOp)` — тот же state, `finalize` →
+  `{cov, mean, n}`. `fit_pca` → **2× I/O reduction**.
+- `CovarianceOp` (bare matrix) не меняется — backward compat.
+
+### Ограничения (v0.8.0, §11.5)
+- `expanding`/`ewm` не поддерживают `on=col`.
+- `ewm(ignore_na=False)`, `ewm(bias=True)` — не реализованы.
+
+### Тесты
+- +26 в `test_expanding_ewm.py`, +3 (CovarianceMeanOp + fit_pca regression).
+
 ## [0.1.4] — 2026-10-18
 
 ### Исправлено (must-fix §11.4, класс «materialize-before-check»)

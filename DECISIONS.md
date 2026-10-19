@@ -847,6 +847,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
 | `fit_lasso`/`fit_elasticnet` (v0.7.7: coord descent) | ✅ | 22 |
 | `expanding` + `ewm` (v0.8.0: cumulative/EWMA) | ✅ | 26 |
+| P-hash: pandas C-hash (v0.8.1) | ✅ | 17 |
 | `CovarianceMeanOp` — PCA single-pass (v0.8.0) | ✅ | 3 |
 | `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 26 |
 | `iloc` (v0.4.0b: positional indexer) | ✅ | 22 |
@@ -2018,6 +2019,88 @@ O(1) per row.
 Для `resample` — не строить «новую примитивную операцию»; это `Sort` по
 timestamp + `Reduce` по bucket'ам + halo-буфер на границе bucket'а.
 **Композиция > новый примитив**, пока не доказано обратное.
+
+**Эпизод 103 (`pc.list_functions()` ≠ `pc.hash_one`; `types_mapper`
+для cross-batch consistency).** Два урока из v0.8.1.
+
+**(1) `pc.list_functions()` содержит `hash_*` — но это Acero aggregate
+kernels, не per-row hash.** `hash_count_distinct`, `hash_sum`,
+`hash_first` — внутренние реализации `Table.group_by().aggregate()`,
+экспонированные для удобства. **Не подходят** для `HashShuffle` (нужен
+per-row uint64 для `_mod_p`). `pc.hash_one` (per-row) **отсутствует в
+PyArrow 26** (PR #45001 open с 2023). Diagnostic должен проверять
+**конкретные имена** (`hash_one`, `hash_64`), а не факт наличия
+подстроки `hash` — иначе ложноположительно.
+
+**(2) `arr.to_pandas()` даёт inconsistent dtype для integer в зависимости
+от null presence.** Без nulls → `int64`; с nulls → `float64` (NaN).
+Pandas `hash_pandas_object` hashes int64 и float64 **разными путями**
+(SipHash разных kernel) → hash(1) в batch без nulls ≠ hash(1.0) в batch
+с nulls. Для out-of-core **partition-disjoint** это критично: одно
+значение в разных батчах попадает в разные партиции → wrong results
+**молча** (нет crash, нет wrong count, только wrong groupby/join/dedup).
+
+**Fix:** `types_mapper=Int64Dtype` в `to_pandas()` — форсирует
+nullable Int64 независимо от null pattern. Then hash(1) consistent
+across batches.
+
+**Урок (усиливает §13.4/52b, 99):** для любой конвертации, влияющей на
+partitioning/hashing, **cross-batch consistency — обязательный тест**.
+Не только "same value → same hash **within a batch**" (тривиально), но
+"same value → same hash **across batches with different null patterns**".
+Правило: если операция недетерминирована на null-паттерне, тест на
+неё — обязателен.
+
+**Дополнительно:** `pandas.util.hash_pandas_object` в pandas 3.x
+изменил API — `hash_key` для string требует `str`, не `int` (numeric
+всё ещё `int`). Мы не передаём `hash_key` явно (default `None`) —
+работает и для numeric, и для string. Seed применяется через XOR —
+универсально.
+
+**Ожидаемый эффект:** hash_shuffle 1M int64: 0.61s → ~0.25s (2.5×).
+На 500 GB: 100 min → 40 min. String — зависит от pandas 3.x string-hash
+стабильности (v0.8.1-fix при необходимости).
+
+**Следующее (v0.7.8):** multiclass GBDT (softmax, k деревьев/round).
+Откладывать hash fix было бы ошибкой — 2.5× на всё shuffle-based.
+
+**Эпизод 107 (pandas hash для strings медленнее Python; pandas `<<1`
+для NA; avalanche).** Два независимых наблюдения из v0.8.1.
+
+**(1) `pd.util.hash_pandas_object` string → Cython per-element, медленнее.**
+v0.8.1 bench:
+    int64    39.2 → 2.02 ms  (19.4× speedup)
+    float64  39.2 → 0.99 ms  (39.6× speedup)
+    string   39.2 → 50.44 ms (0.78× — 22% SLOWER)
+
+`hash_pandas_object` на object dtype вызывает `hash_object_array` —
+Cython-цикл per-element (~500 ns/string) + categorical detection.
+Python `repr(v).encode()` + `xxhash.xxh64` — ~390 ns/string. Pandas
+не имеет fast path для strings в 3.x. **Fix (v0.8.1-fix3): strings →
+`_python_hash_column`.** Numeric → pandas.
+
+**(2) pandas `<<1` для object dtype; avalanche ОБЯЗАТЕЛЕН.**
+`hash_pandas_object` для object/string dtype сдвигает hash << 1
+(reserves `0` для NA) → **все string hashes чётные** (`h & 1 == 0`).
+Для P=4 (`h & 3`) используются только партиции {0, 2}; для P=2 —
+только {0}. Recursion split'ит 2-way вместо 4-way → на depth=5 партиция
+1/32 от исходной (не 1/1024) → **`MemoryLimitExceeded`** в
+`test_groupby_aggregate_recursion_end_to_end`.
+
+**Fix:** splitmix64 avalanche (3 умножения + 3 XOR-shift, numpy) —
+применяется всегда, seed XOR до avalanche, ~0.3 ms/100k.
+`(h ^ (h>>30)) * C1; (h ^ (h>>27)) * C2; h ^ (h>>31)` — стандартный
+финализатор Java SplittableRandom.
+
+**Урок (усиливает §13.4/52b, 99, 106):** hash-функция требует
+**low-bit distribution test**, не только `different value → different
+hash`. `test_different_value_different_hash` проходил, но `h & 3` давал
+2-way split. Правильный тест: `np.bincount(h & (P-1), minlength=P)` для
+P ∈ {2,4,8,16} — каждая ~N/P. **Третий случай за сессию**, когда
+«зелёные тесты скрывали структурную проблему».
+
+**Правило hash-tests: минимум 3** — determinism, distinct-values,
+**low-bit distribution**.
 
 ### 13.5. Открытые вопросы
 

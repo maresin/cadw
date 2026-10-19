@@ -130,8 +130,15 @@ def test_empty_input_raises(tmp_path):
 
 
 def test_stable_hash_across_batches(tmp_path):
-    """Одинаковые ключи из разных батчей → одна партиция."""
-    # много A в разных батчах + немного B
+    """Одинаковые ключи из разных батчей → одна партиция.
+
+    **Не проверяет**, что разные ключи попадают в разные партиции —
+    это не invariant. Partition-disjoint = «все строки одного ключа в
+    одной партиции»; коллизии h & 3 между разными ключами — норма
+    (downstream различает по значению). Раньше xxhash+repr случайно
+    разносил "A" и "B"; pandas SipHash + avalanche может их коллизировать
+    в одну партицию — корректно.
+    """
     table = pa.table({
         "cat": ["A"] * 10 + ["B"] * 5,
         "val": list(range(15)),
@@ -144,7 +151,7 @@ def test_stable_hash_across_batches(tmp_path):
     b_parts = [i for i, rows in enumerate(partitions) if any(r["cat"] == "B" for r in rows)]
     assert len(a_parts) == 1, f"A split across {a_parts}"
     assert len(b_parts) == 1, f"B split across {b_parts}"
-    assert a_parts != b_parts
+    # NOTE: a_parts may equal b_parts (hash collision on h & 3) — valid.
 
 
 # ---------------- детерминированность хэша ----------------
