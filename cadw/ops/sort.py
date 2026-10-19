@@ -14,6 +14,7 @@ Sort: внешняя сортировка. Два этапа (DECISIONS.md §7):
 """
 from __future__ import annotations
 
+import gc
 import heapq
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
@@ -96,25 +97,219 @@ def _write_run(
     spill_dir: Path,
     run_idx: int,
 ) -> Path:
+    """v0.5.2a-fix6 (P5b): batch-wise take/write to avoid materializing
+    whole sorted_table. Peak in _write_run = table (via from_batches) +
+    order + chunk (small), not table + order + sorted_table (×3).
+    """
     table = pa.Table.from_batches(batches)
-    # null_placement передаётся per-key (per-key API с 25.0.0; глобальный
-    # SortOptions.null_placement deprecated).
     null_placement = "at_start" if nulls_first else "at_end"
     sort_keys = [
         (col, "ascending" if asc else "descending", null_placement)
         for col, asc in zip(key_columns, ascending)
     ]
     order = pc.sort_indices(table, sort_keys=sort_keys)
-    sorted_table = table.take(order)
 
     path = spill_dir / f"run_{run_idx:05d}.arrow"
-    writer = ArrowIPCBatchWriter(str(path), sorted_table.schema)
+    writer = ArrowIPCBatchWriter(str(path), table.schema)
     try:
-        for b in sorted_table.to_batches():
-            writer.write_batch(b)
+        # Batch-wise: take small chunk, write it, free. No full materialize.
+        chunk = 50_000
+        for i in range(0, len(order), chunk):
+            sub_order = order.slice(i, chunk)
+            sub_table = table.take(sub_order)
+            for b in sub_table.to_batches():
+                writer.write_batch(b)
     finally:
         writer.close()
     return path
+
+
+
+
+class _NumpyBackedBuilder:
+    """v0.5.2a-fix5: minimal fixed-width builder backed by np.ndarray.
+
+    PyArrow 26 не экспортирует `Float64Builder`/`Int64Builder`/etc.
+    (проверено: hasattr(pa, 'Float64Builder') == False). Только
+    `StringBuilder` есть в `pa.lib`.
+
+    Peak = capacity × arrow_size (без Python-object overhead: int/float
+    в PyArrow = 4-8 B, не 28). Amortized O(n) через geometric grow.
+
+    Null bitmap: bit-packed (np.packbits), LSB-first — совместимо с
+    pa.Array.from_buffers.
+    """
+
+    __slots__ = ("_dtype", "_arrow_type", "_buf", "_nulls", "_n", "_capacity")
+
+    def __init__(self, arrow_type: pa.DataType, np_dtype):
+        import numpy as np
+        self._dtype = np_dtype
+        self._arrow_type = arrow_type
+        self._capacity = 64
+        self._buf = np.empty(self._capacity, dtype=np_dtype)
+        self._nulls = np.ones(self._capacity, dtype=bool)  # True = null
+        self._n = 0
+
+    def _grow(self):
+        import numpy as np
+        newcap = self._capacity * 2
+        new_buf = np.empty(newcap, dtype=self._dtype)
+        new_buf[: self._n] = self._buf[: self._n]
+        new_nulls = np.ones(newcap, dtype=bool)
+        new_nulls[: self._n] = self._nulls[: self._n]
+        self._buf = new_buf
+        self._nulls = new_nulls
+        self._capacity = newcap
+
+    def append(self, value):
+        if self._n == self._capacity:
+            self._grow()
+        self._buf[self._n] = value
+        self._nulls[self._n] = False
+        self._n += 1
+
+    def append_null(self):
+        if self._n == self._capacity:
+            self._grow()
+        self._buf[self._n] = 0
+        self._nulls[self._n] = True
+        self._n += 1
+
+    def finish(self) -> pa.Array:
+        import numpy as np
+        values = self._buf[: self._n].copy()
+        mask = self._nulls[: self._n]
+        if mask.any():
+            packed = np.packbits(mask, bitorder="little")
+            arr = pa.Array.from_buffers(
+                self._arrow_type, self._n,
+                [pa.py_buffer(packed), pa.py_buffer(values)],
+            )
+        else:
+            arr = pa.Array.from_buffers(
+                self._arrow_type, self._n,
+                [None, pa.py_buffer(values)],
+            )
+        # Reset
+        self._capacity = 64
+        self._buf = np.empty(self._capacity, dtype=self._dtype)
+        self._nulls = np.ones(self._capacity, dtype=bool)
+        self._n = 0
+        return arr
+
+
+def _make_builder(dtype: pa.DataType):
+    """Create pa.Array.Builder or numpy fallback (v0.5.2a-fix5).
+
+    PyArrow 26 не экспортирует numeric `*Builder` (hasattr(pa,
+    'Float64Builder') == False). Fallback chain:
+      1. Native pyarrow *Builder (pa / pa.lib / pa.compute) — для
+         string/binary/timestamp/date (если есть).
+      2. `_NumpyBackedBuilder` — для fixed-width numeric
+         (int/uint/float).
+      3. BinaryBuilder для string (cast at flush).
+
+    Returns builder (native or numpy-backed) or None.
+    """
+    import numpy as np
+    try:
+        import pyarrow.lib as _plib
+    except ImportError:
+        _plib = None
+    try:
+        import pyarrow.compute as _pcomp
+    except ImportError:
+        _pcomp = None
+
+    _mods = [pa, _plib, _pcomp]
+
+    def _try(*names):
+        for name in names:
+            for mod in _mods:
+                if mod is None:
+                    continue
+                cls = getattr(mod, name, None)
+                if cls is not None:
+                    try:
+                        return cls()
+                    except Exception:
+                        continue
+        return None
+
+    # Numeric — native builder if available; else numpy-backed.
+    if pa.types.is_int64(dtype):
+        return _try("Int64Builder") or _NumpyBackedBuilder(dtype, np.int64)
+    if pa.types.is_int32(dtype):
+        return _try("Int32Builder") or _NumpyBackedBuilder(dtype, np.int32)
+    if pa.types.is_uint64(dtype):
+        return _try("UInt64Builder") or _NumpyBackedBuilder(dtype, np.uint64)
+    if pa.types.is_uint32(dtype):
+        return _try("UInt32Builder") or _NumpyBackedBuilder(dtype, np.uint32)
+    if pa.types.is_float64(dtype):
+        return _try("Float64Builder") or _NumpyBackedBuilder(dtype, np.float64)
+    if pa.types.is_float32(dtype):
+        return _try("Float32Builder") or _NumpyBackedBuilder(dtype, np.float32)
+    if pa.types.is_boolean(dtype):
+        return _try("BooleanBuilder")
+
+    if pa.types.is_string(dtype) or pa.types.is_large_string(dtype):
+        b = _try("StringBuilder", "Utf8Builder",
+                 "LargeStringBuilder", "LargeUtf8Builder")
+        if b is not None:
+            return b
+        return _try("BinaryBuilder", "LargeBinaryBuilder")
+
+    if pa.types.is_binary(dtype) or pa.types.is_large_binary(dtype):
+        return _try("BinaryBuilder", "LargeBinaryBuilder")
+
+    if pa.types.is_timestamp(dtype):
+        for mod in _mods:
+            if mod is None:
+                continue
+            cls = getattr(mod, "TimestampBuilder", None)
+            if cls is not None:
+                return cls(dtype.unit)
+        return _NumpyBackedBuilder(dtype, np.int64)
+    if pa.types.is_date32(dtype):
+        return _try("Date32Builder") or _NumpyBackedBuilder(dtype, np.int32)
+    if pa.types.is_date64(dtype):
+        return _try("Date64Builder") or _NumpyBackedBuilder(dtype, np.int64)
+    return None
+
+
+def _flush_builders(builders: dict, schema: pa.Schema) -> pa.RecordBatch:
+    """Finish builders → RecordBatch (v0.5.2a-fix2).
+
+    Auto-casts if builder output type differs from schema target
+    (e.g. BinaryBuilder used for string → cast to string).
+    """
+    arrays = []
+    for f in schema:
+        b = builders[f.name]
+        if b is None:
+            raise RuntimeError(
+                f"_flush_builders: no builder for {f.name} ({f.type}); "
+                f"bug in _make_builder (v0.5.2a-fix2)"
+            )
+        arr = b.finish()
+        if arr.type != f.type:
+            # e.g. binary → string (utf8 validation); cheap relative to
+            # Python-object overhead that P5 was fixing.
+            arr = arr.cast(f.type)
+        arrays.append(arr)
+    return pa.RecordBatch.from_arrays(arrays, schema=schema)
+
+
+def _append_to_builders(builders: dict, batch: pa.RecordBatch, pos: int, schema: pa.Schema) -> None:
+    """Append one row (via per-column scalar) to builders."""
+    for f in schema:
+        val = batch.column(f.name)[pos].as_py()
+        b = builders[f.name]
+        if val is None:
+            b.append_null()
+        else:
+            b.append(val)
 
 
 def _merge_keys(
@@ -168,23 +363,34 @@ def _merge_keys(
     schema = pa.schema([pa.field(c, readers[0].schema.field(c).type) for c in out_columns])
     writer = ArrowIPCBatchWriter(str(out_path), schema)
 
-    buffer: dict[str, list] = {c: [] for c in out_columns}
+    # v0.5.2a (P5): pa.Array.Builder вместо Python-list.
+    # Peak = read_batch_size × arrow-size (не ×28-80 per Python object).
+    builders: dict = {}
+    for f in schema:
+        b = _make_builder(f.type)
+        if b is None:
+            raise NotImplementedError(
+                f"external_sort: no Arrow Builder for column {f.name!r} "
+                f"type {f.type}; P5 fix covers int/uint/float/bool/string/"
+                f"binary/timestamp/date. File an issue for other types."
+            )
+        builders[f.name] = b
+
+    rows_in_buffer = [0]
 
     def flush() -> None:
-        if not buffer[out_columns[0]]:
+        if rows_in_buffer[0] == 0:
             return
-        arrays = [pa.array(buffer[c], type=schema.field(c).type) for c in out_columns]
-        batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
+        batch = _flush_builders(builders, schema)
         writer.write_batch(batch)
-        for c in out_columns:
-            buffer[c].clear()
+        rows_in_buffer[0] = 0
 
     try:
         while heap:
             _, _, run_idx, b, pos = heapq.heappop(heap)
-            for c in out_columns:
-                buffer[c].append(b.column(c)[pos].as_py())
-            if len(buffer[out_columns[0]]) >= read_batch_size:
+            _append_to_builders(builders, b, pos, schema)
+            rows_in_buffer[0] += 1
+            if rows_in_buffer[0] >= read_batch_size:
                 flush()
             nxt = fetch(run_idx)
             if nxt is not None:
@@ -241,7 +447,10 @@ def external_sort(
     buf: list[pa.RecordBatch] = []
     buf_bytes = 0
     row_id_offset = 0
-    limit = max(1, memory_guard.available_bytes() // 2)
+    # v0.5.2a-fix6 (P5b): phase-1 peak is 3×buf (buf + from_batches-copy
+    # + take-copy). Reducing limit from 0.5× to 0.2× cuts peak from
+    # ~3×15MB → ~3×6MB (for 30 MB budget). More runs, but bounded.
+    limit = max(1, int(memory_guard.available_bytes() * 0.2))
 
     for batch in batch_iter:
         memory_guard.check_batch(batch, name="external_sort.batch")
@@ -265,6 +474,10 @@ def external_sort(
         )
     if not runs:
         raise ValueError("external_sort: пустой вход")
+
+    # v0.5.2a-fix6: release phase-1 buffers before merge (frees numpy/Arrow
+    # allocations held by builder state / table refs).
+    gc.collect()
 
     # --- Фаза 2: k-way merge (при необходимости — многоуровневый) ---
     row_bytes = max(1, memory_guard.row_size_bytes)

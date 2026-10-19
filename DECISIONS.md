@@ -851,6 +851,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | filter-compat index/set/reset (v0.4.0d) | ✅ | 16 |
 | `loc` open-endpoints + duplicate labels (v0.4.1) | ✅ | 22 |
 | **P2 + P8 RAM fixes (v0.5.1, from Pingis)** | ✅ | 15 |
+| **P5 sort buffer (v0.5.2a, from Pingis)** | ✅ | 2 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -921,6 +922,7 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | ~~P2: out_batches accumulation (join)~~ | ~~`_process_partition_pair`~~ | **закрыто v0.5.1**: streaming via `hash_join_streaming` |
 | ~~P8: 1 MiB hardcode в `estimate_state_size`~~ | ~~`reduce()`~~ | **закрыто v0.5.1**: `ReduceOp.estimate_state_nbytes()` |
 | `drop_duplicates` returns rows in partition-concatenation order | `drop_duplicates` (v0.3.0) | pandas-order: `.sort_values(...)` после. §13.4/48 |
+| ~~P5: Python-list buffer в sort merge~~ | ~~`_merge_keys`~~ | **закрыто v0.5.2a**: `pa.Array.Builder`. Dictionary/list/struct — `NotImplementedError` (honest). |
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
 | `groupby_aggregate` combiner не поддерживает std (v0.3.4) | `groupby_aggregate` | warning + fallback на обычный путь. v0.3.5 — Welford partial. |
@@ -1913,6 +1915,38 @@ monotonic + unique-for-slice». Мы следуем этой строгости 
 materialize), P5 (sort buffer), P6/P11 (to_pylist), P7 (модели с
 Python-overhead), P4 (heavy accum). Порядок — по стоимости/эффекту
 (сначала локальные, потом архитектурные).
+
+**Эпизод 65 (P5: Arrow Builder вместо Python-list в sort merge).**
+`_merge_keys` (k-way merge в `external_sort`) копил выход в Python-list:
+`buffer[c].append(b.column(c)[pos].as_py())`, затем
+`pa.array(buffer[c], ...)`. Пик: `read_batch_size × 28-80 B` (Python
+int/float/string object) + `read_batch_size × arrow_size` (при `pa.array`)
+= **×3-30 от Arrow**. Пингис B3a: +31.9 MB на 30 MB бюджете (1.06×
+over). Fix: `pa.Array.Builder` (`Int64Builder`/`Float64Builder`/
+`StringBuilder`/etc.) — Arrow-managed буферы, пик = `read_batch_size ×
+arrow_size`. `_make_builder(dtype)` выбирает builder по типу;
+`_append_to_builders` пишет по одному скаляру через `.as_py()` (O(1)),
+`_flush_builders` → `RecordBatch`. After flush — `builder.finish()`
+автоматически resets.
+
+**Ограничение:** для dictionary/list/struct — `_make_builder` возвращает
+None; `_merge_keys` raise `NotImplementedError`. Это honest fallback:
+sort dictionary/list в v0.5.x не поддерживает; для этого нужны custom
+builders, отдельная задача.
+
+**Проверка:** 2 AST guard'а в `test_sort.py` — нет `buffer[...].append`
+в `_merge_keys`; присутствует `_append_to_builders`.
+
+**Ожидание:** B3a-new = Δpeak ≤ 30 MB (было +31.9). Даже небольшой
+over-budget (10-20%) означает fix неполный — тогда следующий шаг —
+уменьшить `read_batch_size` в `SortMemoryModel` для узких строк, или
+k-way merge batch-wise через `pc.sort_indices`.
+
+**Урок (усиливает эпизод 63):** бенчмарк — единственный способ поймать
+P5. AST guard + unit-тесты этого не ловят (результат корректен). То же,
+что P2: fix был «код корректен, но пик памяти не тот». Правило: для
+memory-fix — бенчмарк с RSS-сэмплером в CI. `scripts/bench_p5_sort.py`
+— первая ласточка; следующие (v0.5.2b, v0.5.3) получат свои benchmarks.
 
 ### 13.5. Открытые вопросы
 

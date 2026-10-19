@@ -89,6 +89,35 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.5.2a] — 2026-10-19
+
+По результатам Pingis audit: P5 (S2) — sort merge Python-list buffer.
+
+### Исправлено
+- **P5: `_merge_keys`** — заменить Python-list buffer (`buffer[c].append(
+  as_py())`) на `pa.Array.Builder` (`Int64Builder`/`Float64Builder`/
+  `StringBuilder`/etc.). Пик на merge: `read_batch_size × arrow_size`,
+  а не `read_batch_size × 28-80 B` (Python-object overhead).
+  - `_make_builder(dtype)` — выбор builder по Arrow-типу.
+  - `_append_to_builders` — append одного значения (с `.as_py()` O(1)).
+  - `_flush_builders` — finish → `RecordBatch`.
+  - Dictionary/list/struct → `NotImplementedError` (honest; не покрыто).
+
+### Добавлено
+- `scripts/bench_p5_sort.py` — RSS-сэмплер benchmark для sort
+  (сравнение с Pingis baseline +31.9 MB).
+- `tests/test_sort.py::test_merge_keys_uses_arrow_builder_not_python_list`
+  — AST guard (нет `buffer[...].append`).
+- `tests/test_sort.py::test_merge_keys_uses_arrow_builder` — presence check.
+
+### Ожидаемый эффект
+- B3a (1M rows, 30 MB budget): Δpeak ≤ 30 MB (baseline: +31.9 MB).
+
+### Ограничения (v0.5.2a, §11.5)
+- Dictionary/list/struct columns: `NotImplementedError` в sort merge.
+- `.as_py()` per value — CPU overhead остаётся; P5 — memory-fix, не
+  speed-fix. CPU-оптимизация (batch-wise `pc.sort_indices`) — v0.5.4.
+
 ## [0.5.1] — 2026-10-19
 
 По результатам мультиагентного анализа Pingis (`_FOR_PINGIS/REPORT.md`):

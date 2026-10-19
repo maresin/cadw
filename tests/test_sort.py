@@ -159,3 +159,138 @@ def test_sort_row_id_unique(tmp_path):
     rows = collect(path, ["val"])
     row_ids = [r["row_id"] for r in rows]
     assert sorted(row_ids) == list(range(6))
+
+# ---------- v0.5.2a (P5): AST guard against Python-list buffer in merge ----------
+
+def test_merge_keys_uses_arrow_builder_not_python_list():
+    """_merge_keys must use pa.Array.Builder, not `buffer[c].append(as_py())`.
+
+    Регрессия P5 (Pingis audit): Python-list buffer даёт ×3-5 peak vs
+    Arrow. AST guard: нет `buffer[...].append` в _merge_keys.
+    """
+    import ast
+    import inspect
+    from cadw.ops import sort as sort_mod
+
+    src = inspect.getsource(sort_mod._merge_keys)
+    tree = ast.parse(src)
+
+    # Никаких `buffer[...].append(...)` вызовов
+    violations = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, ast.Attribute) and f.attr == "append":
+            # f.value должно быть Subscript с base Name == 'buffer'
+            base = f.value
+            if isinstance(base, ast.Subscript) and isinstance(base.value, ast.Name):
+                if base.value.id == "buffer":
+                    violations.append(f"buffer[...].append() at line {node.lineno}")
+
+    assert not violations, (
+        "P5 must use pa.Array.Builder; Python-list buffer detected:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_merge_keys_uses_arrow_builder():
+    """_merge_keys must call _append_to_builders (P5 fix marker)."""
+    import inspect
+    from cadw.ops import sort as sort_mod
+    src = inspect.getsource(sort_mod._merge_keys)
+    assert "_append_to_builders" in src, (
+        "P5 fix: _merge_keys must call _append_to_builders (Arrow Builder)"
+    )
+
+def test_sort_string_with_builder(tmp_path):
+    """P5 fix: string sort must work with pyarrow 26 builder API.
+
+    Regression: v0.5.2a used pa.StringBuilder which doesn't exist in
+    pyarrow 26. v0.5.2a-fix2 uses multi-name fallback + BinaryBuilder→cast.
+    """
+    data = {"s": ["c", "a", "b", "a"], "v": [3.0, 1.0, 2.0, 4.0]}
+    it = make_iter(data, 2, value_columns=["s", "v"], key_columns=["s"])
+    path = external_sort(
+        it, ["s"], ["s", "v"], make_guard(), tmp_path,
+        ascending=True, nulls_first=False, log=False,
+    )
+    rows = collect(path, ["s", "v"])
+    assert [r["s"] for r in rows] == ["a", "a", "b", "c"]
+    assert [r["v"] for r in rows] == [1.0, 4.0, 2.0, 3.0]
+
+
+def test_sort_string_large_string(tmp_path):
+    """Large string builder fallback."""
+    data = {"s": ["y", "x", "z"], "v": [1.0, 2.0, 3.0]}
+    it = make_iter(data, 2, value_columns=["s", "v"], key_columns=["s"])
+    path = external_sort(
+        it, ["s"], ["s", "v"], make_guard(), tmp_path,
+        ascending=True, nulls_first=False, log=False,
+    )
+    rows = collect(path, ["s", "v"])
+    assert [r["s"] for r in rows] == ["x", "y", "z"]
+
+def test_sort_int_with_nulls_builder_path(tmp_path):
+    """Numeric with nulls — exercises _NumpyBackedBuilder null bitmap
+    (np.packbits). Regression for v0.5.2a-fix5/fix6.
+    """
+    data = {
+        "v": pa.array([3, None, 1, None, 2], type=pa.int64()),
+        "id": list(range(5)),
+    }
+    it = make_iter(data, 2, value_columns=["v"], key_columns=["id"])
+    path = external_sort(
+        it, ["v"], ["v"], make_guard(), tmp_path,
+        ascending=True, nulls_first=False, log=False,
+    )
+    rows = collect(path, ["v"])
+    assert [r["v"] for r in rows] == [1, 2, 3, None, None]
+
+
+def test_sort_float_with_nulls_builder_path(tmp_path):
+    """Float64 with nulls — np.packbits null bitmap."""
+    data = {
+        "v": pa.array([3.5, None, 1.5, None, 2.5], type=pa.float64()),
+        "id": list(range(5)),
+    }
+    it = make_iter(data, 2, value_columns=["v"], key_columns=["id"])
+    path = external_sort(
+        it, ["v"], ["v"], make_guard(), tmp_path,
+        ascending=True, nulls_first=False, log=False,
+    )
+    rows = collect(path, ["v"])
+    assert [r["v"] for r in rows] == [1.5, 2.5, 3.5, None, None]
+
+
+def test_sort_int_nulls_first_builder_path(tmp_path):
+    """Numeric nulls_first — bitmap at start."""
+    data = {
+        "v": pa.array([3, None, 1, None, 2], type=pa.int64()),
+        "id": list(range(5)),
+    }
+    it = make_iter(data, 2, value_columns=["v"], key_columns=["id"])
+    path = external_sort(
+        it, ["v"], ["v"], make_guard(), tmp_path,
+        ascending=True, nulls_first=True, log=False,
+    )
+    rows = collect(path, ["v"])
+    assert [r["v"] for r in rows] == [None, None, 1, 2, 3]
+
+
+def test_external_sort_phase1_limit_small():
+    """AST guard (P5b): phase-1 buffer must be ≤ 0.25× available.
+
+    Baseline v0.5.2a-fix5 had 0.5× → peak 3× buf. v0.5.2a-fix6 = 0.2×.
+    """
+    import inspect
+    from cadw.ops import sort as sort_mod
+    src = inspect.getsource(sort_mod.external_sort)
+    assert "0.2" in src or "0.25" in src or "0.3" in src, (
+        "phase-1 buffer limit must be small (0.2-0.3× available); "
+        "was 0.5× (P5b regression). See DECISIONS §13.4/71."
+    )
+    assert "memory_guard.available_bytes() // 2" not in src, (
+        "phase-1 limit must NOT be `available // 2` (0.5×) — P5b regression"
+    )
+
