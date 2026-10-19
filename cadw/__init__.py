@@ -20,6 +20,7 @@ from .ops.groupby import groupby_aggregate, write_groupby_result
 from .ops.dedup import drop_duplicates
 from .ops.rank import compute_ranks_to_disk, VALID_METHODS
 from .ops.quantile import quantile
+from .ops.resample import parse_freq, resample_to_disk
 
 from .ml import (
     XTXOp, LinearModel, fit_linear,
@@ -71,5 +72,5 @@ __all__ = [
     "hash_shuffle", "compute_hashes", "estimate_num_partitions",
     "read_partition_batches",
     "external_sort", "read_sorted",
-    "groupby_aggregate", "write_groupby_result", "drop_duplicates", "compute_ranks_to_disk", "VALID_METHODS", "quantile",
+    "groupby_aggregate", "write_groupby_result", "drop_duplicates", "compute_ranks_to_disk", "VALID_METHODS", "quantile", "parse_freq", "resample_to_disk",
 ]

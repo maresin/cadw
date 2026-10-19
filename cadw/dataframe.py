@@ -51,6 +51,10 @@ from cadw.ops.sort import external_sort
 from cadw.ops.dedup import drop_duplicates as _ops_drop_duplicates
 from cadw.ops.rank import compute_ranks_to_disk, VALID_METHODS
 from cadw.ops.quantile import quantile as _ops_quantile
+from cadw.ops.resample import (
+    parse_freq as _parse_freq,
+    resample_to_disk as _resample_to_disk,
+)
 
 
 class _ColumnProxy:
@@ -2051,6 +2055,126 @@ class CadwDataFrame:
         new_ds = Dataset.from_batches(
             out_schema, _iter_zipped(), self._new_dataset_dir(),
         )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    # ---------------- resample ----------------
+
+    def resample(
+        self,
+        freq: "int | str",
+        agg: str,
+        *,
+        on: str,
+        columns: "str | Sequence[str] | None" = None,
+    ) -> "CadwDataFrame":
+        """Bucket aggregation by `on` (v0.8.7).
+
+        - freq: int (seconds) or str (`'5s'`, `'1min'`, `'1h'`, `'1D'`).
+        - agg ∈ {'sum', 'mean', 'min', 'max', 'count'}.
+        - on: timestamp / date / integer column (single).
+        - columns=None → all except `on`; else subset.
+
+        Algorithm: sort by `on` → stream + bucket transition (`(t//freq)*freq`)
+        → write output batches (BATCH=1000).
+
+        Output: [on, f'{col}_{agg}'...]. Bucket column dtype = `on` dtype.
+        Rows in original order? **No** — output sorted by bucket.
+
+        Semantics (MVP):
+        - Empty bucket (gap in ts) → skip (no NaN fill; use `.reindex` after).
+        - Null in `on` → skip row.
+        - All-null agg bucket → skip row.
+        - Null in agg col → skip value.
+
+        Peak RAM: batch + O(#cols) state + 1 output batch. Independent of N
+        and bucket size (running accumulator, not `list`).
+        """
+        # Validate freq
+        freq_seconds = _parse_freq(freq)
+
+        # Validate on
+        if not isinstance(on, str):
+            raise TypeError(
+                f"resample: on must be str; got {type(on).__name__}"
+            )
+        if on not in self._columns:
+            raise KeyError(
+                f"resample: on column {on!r} not in {self._columns}"
+            )
+        on_type = self._dataset.schema.field(on).type
+        if not (
+            pa.types.is_timestamp(on_type)
+            or pa.types.is_date(on_type)
+            or pa.types.is_integer(on_type)
+        ):
+            raise TypeError(
+                f"resample: on column {on!r} has type {on_type}; "
+                f"expected timestamp, date, or integer"
+            )
+        if pa.types.is_uint64(on_type):
+            raise TypeError(
+                f"resample: on column {on!r} is uint64 (overflow risk); "
+                f"cast to int64 or timestamp"
+            )
+
+        # Validate agg
+        if agg not in ("sum", "mean", "min", "max", "count"):
+            raise ValueError(
+                f"resample: agg must be one of sum/mean/min/max/count; "
+                f"got {agg!r}"
+            )
+
+        # Validate columns
+        if columns is None:
+            cols = [c for c in self._columns if c != on]
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        if not cols:
+            raise ValueError("resample: columns must be non-empty")
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"resample: column {c!r} not in {self._columns}"
+                )
+            if c == on:
+                raise ValueError(
+                    f"resample: on column {on!r} cannot be in columns"
+                )
+            if agg != "count":
+                t = self._dataset.schema.field(c).type
+                if not (pa.types.is_integer(t) or pa.types.is_floating(t)):
+                    raise TypeError(
+                        f"resample: column {c!r} has type {t}; "
+                        f"agg={agg!r} requires numeric"
+                    )
+
+        col_types = {c: self._dataset.schema.field(c).type for c in cols}
+
+        out_schema, out_path = _resample_to_disk(
+            self._iter_filtered_batches(),
+            on=on,
+            on_type=on_type,
+            freq_seconds=freq_seconds,
+            agg=agg,
+            columns=cols,
+            col_types=col_types,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "resample",
+        )
+        try:
+            new_ds = Dataset.from_batches(
+                out_schema,
+                ArrowIPCBatchReader(str(out_path), None),
+                self._new_dataset_dir(),
+            )
+        finally:
+            out_path.unlink(missing_ok=True)
         return CadwDataFrame(
             new_ds,
             memory_guard=self._memory_guard,

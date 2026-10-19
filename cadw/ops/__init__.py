@@ -11,6 +11,7 @@ from .groupby import groupby_aggregate, write_groupby_result
 from .dedup import drop_duplicates
 from .rank import compute_ranks_to_disk, VALID_METHODS
 from .quantile import quantile
+from .resample import parse_freq, resample_to_disk
 
 __all__ = [
     "reduce", "ReduceOp",
@@ -19,5 +20,5 @@ __all__ = [
     "hash_shuffle", "compute_hashes", "estimate_num_partitions",
     "read_partition_batches",
     "external_sort", "read_sorted", "compute_fan_in", "hash_join", "hash_join_streaming", "inner_join", "left_join",
-    "groupby_aggregate", "write_groupby_result", "drop_duplicates", "compute_ranks_to_disk", "VALID_METHODS", "quantile",
+    "groupby_aggregate", "write_groupby_result", "drop_duplicates", "compute_ranks_to_disk", "VALID_METHODS", "quantile", "parse_freq", "resample_to_disk",
 ]

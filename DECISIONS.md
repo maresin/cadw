@@ -945,6 +945,10 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `fit_lasso` — `alpha` raw (не sklearn-style /n) | `cadw/ml/linear.py` (v0.7.7) | Совместимо с v0.7.0a Ridge alpha; документировано |
 | `feature_importance` default = 'gain' (v0.7.9) | viz adapters | Breaking change: было 'split'. Downstream relying on integer counts — `importance_type='split'` explicit |
 | permutation importance / SHAP — не реализовано | `cadw.ml.gbdt` | v0.7.10+ / вне scope |
+| `resample` empty bucket → skip (v0.8.7) | `resample` | NaN-fill нет; для gap-fill — `.reindex` после. §13.4/132 |
+| `resample` uint64 on → reject (v0.8.7) | `resample` | overflow risk; cast to int64 |
+| `resample` date64 through parquet → date32 (v0.8.7) | `resample` | Parquet has no ms-date type; date64 read back as date32. Same day-granularity semantics; use `freq >= '1D'`. §13.4/135 |
+| `resample` freq — int seconds / '5s'|'1min'|'1h'|'1D' only (v0.8.7) | `parse_freq` | compound/sub-second/calendar — нет |
 | `on` multi-column — composite sort, not per-group (v0.8.6) | `_shift_on` / `_rolling_on` | `on=["ts","sensor"]` = lexicographic; per-group — `groupby(...)` (v0.8.5a+) |
 | `rolling` on=col — single column (v0.8.4) | `_rolling_on` | Multi-column on — v0.8.4a |
 | `groupby(...).rolling(...)` — не поддержано | `CadwDataFrame` | Per-group rolling — v0.8.5+ |
@@ -2480,6 +2484,142 @@ concat. Требует prototype-first (как v0.8.2/v0.8.4).
 
 **Следующее:** v0.8.3 `resample(freq)` — prototype-first, prototype
 `scripts/proto_resample.py` (30 строк, 1 agg, bucket boundaries).
+
+**Эпизод 132 (resample: prototype-first + renumber).**
+`resample(freq)` — bucket aggregation, planned as v0.8.3. Prototype-first
+(§13.4/123): `scripts/proto_resample.py` (3-path compare:
+manual == pandas groupby(bucket) == external_sort + bucket transition).
+5 buckets × sum: `[(0,4),(5,13),(10,23),(15,32),(20,22)]`. Все три
+совпали → 1 итерация патча (28/28 passed first try). При v0.8.2 (без
+prototype) было 5 fix-итераций.
+
+**Rename v0.8.3 → v0.8.7.** CHANGELOG descending guard (v0.8.5,
+§13.4/130) требует top = highest version. После v0.8.4/v0.8.5/v0.8.6
+уже tagged, `[0.8.3]` над `[0.8.6]` → `test_changelog_is_descending`
+fails. Также `test_changelog_has_latest_tag` (top == tag on master)
+fails, если `[0.8.7]` положить не сверху, а tag — v0.8.7. Circular →
+renamed. Roadmap-нумерация (§12.7) может дрейфовать; фактический
+порядок = теги.
+
+**Semantics decision (empty bucket):** pandas `resample()` даёт NaN для
+всех aggs включая `count` (для gap-бакетов, без rows). Мы **skip**
+все empty buckets — потому что output = «compact summary», NaN-rows
+бесполезны для типичных post-processing (join, agg). Для fill —
+`.reindex` после (pandas-стиль). Documented §11.5.
+
+**Semantics decision (all-null bucket):** bucket с rows, но все values
+null в agg-колонке → `count=0`, `sum/mean/min/max=NaN` в pandas.
+Наш MVP: **skip** row (все колонки None → skip). Причина: consistency
+с empty bucket; `count=0` бесполезен если `sum=NaN`. Documented.
+
+**Semantics decision (null in `on`):** null timestamp → skip row
+(cannot bucket). pandas: `groupby(ts.dt.floor('5s'))` — null → отдельный
+NaN-bucket → `groupby(dropna=True)` (default) drop'ает. Совпадает.
+
+**Урок:** prototype-first работает (28/28 с 1-й итерации). Renumber —
+честный trade-off: документировать в CHANGELOG + §13.4, не «молча
+исправить». Future tags — только последовательные (v0.8.8, v0.8.9, …),
+не backport'ить roadmap-номера.
+
+**Time-series API закрыт (v0.8.7):**
+- `shift/diff` — positional + sort-aware single/multi.
+- `rolling` — positional + sort-aware single/multi.
+- `expanding/ewm` — cumulative/EWMA.
+- `resample` — bucket agg.
+- `row_id` reserved guard (v0.8.5).
+
+**Следующее:** v0.8.5a per-group rolling/shift (~1.5 сессии,
+prototype-first) — последний большой remaining в time-series.
+Non-time-series backlog: `_iter_zipped` refactor (30 мин), reference
+helpers для shift/diff/quantile (1.5 ч), multi-key join estimate
+(45 мин).
+
+**Эпизод 133 (pyarrow 26: date32 → int64 cast not implemented).**
+`_to_unix_seconds` для `pa.types.is_date32` делал `pc.cast(arr,
+pa.int64())` — **ArrowNotImplementedError: Unsupported cast from
+date32[day] to int64**. `date32 = int32 days-since-epoch` — по
+представлению это int32, но pyarrow не реализовал `cast(date32, int64)`
+(только `date32 → int32` через same bit-width reinterpretation).
+
+**Fix:** route через int32: `date32 → int32 → int64 → *86400 → int64
+seconds`. Similarly для output (`int64 → int32 → date32`). date64
+(int64 ms) — direct cast работает.
+
+**Урок (API contract):** cast matrix pyarrow **неполный**. То, что
+`date32` физически int32, не гарантирует `cast(date32, int64)`. При
+cross-type cast — сначала `cast` в same-bit-width (int32/int64),
+потом scale. **Правило:** для `date*` типов — через int32/date32 или
+int64/date64 (matching bit-width), не jump через оба уровня.
+
+**Эпизод 134 (`null`-typed column в test data).** `test_resample_all_
+null_bucket_skipped` использовал `{"v": [None, None, None]}` — pyarrow
+вывел `null` type (не `float64`). `resample` корректно отвергает
+`null` как non-numeric (honest: null type has no aggregation semantics).
+Test authoring: для "all-null float64" явно `pa.array([None]*3,
+type=pa.float64())`.
+
+Добавлен `test_resample_null_typed_agg_col_raises` — верифицирует
+честное отклонение `null`-typed columns. Documented §11.5.
+
+**Урок (test-authoring):** при `pa.table({...})` из Python lists —
+pyarrow **infers** тип. `[None, None]` → `null`, `[None, 1.0]` →
+`float64`, `[1, 2]` → `int64`. Если нужен конкретный тип — explicit
+`pa.array(..., type=...)`. Тот же класс, что v0.8.4-fix2 (§13.4/128 —
+"expected value derived, not authored"), но в **data setup**, не в
+expected.
+
+**Связанные:** §13.4/99 (numpy fallback hidden by native), §13.4/107
+(pandas low-bit), §13.4/128 (test expectations). Все — "hidden by
+green tests": (99) numpy fallback не exercised; (107) low-bit test
+missing; (128) expected values wrong; (134) input type different from
+intended.
+
+**Следующее:** v0.8.8 per-group (prototype-first).
+
+**Эпизод 135 (date64 через parquet → date32: silent downcast).**
+`test_resample_date64` использовал `pa.array([datetime(2020,1,1,0,0,2),
+...], type=pa.date64())` — ожидал 2 buckets по 5s. Failure: 1 bucket.
+Output schema — `ts: date32[day]`, не `date64`. Два независимых
+проблемы:
+
+**Проблема 1 (test data, semantics).** `date64` — day-granularity тип
+семантически. `datetime(2020,1,1,0,0,2)` → pyarrow **truncates** до
+midnight (2020-01-01). Date64 = int64 ms, но **всегда** midnight-aligned.
+Sub-day bucket (`freq='5s'`) на date64 бессмыслен: 5s-бакет ≈
+86400*N-бакет ≈ bucket-per-day.
+
+**Проблема 2 (parquet roundtrip).** `pq.write_table(date64)` →
+`pq.read_table` → `date32[day]`. Parquet имеет **только Date logical
+type** = int32 days; ms-date не представлен. `make_df` (from_parquet)
+видит on_type = date32. Так и произошло.
+
+**Fix (v0.8.7-fix2):**
+1. Убрать `test_resample_date64` (parquet roundtrip невозможен).
+2. Unit-тесты `_to_unix_seconds(date64)` / `_bucket_to_arrow(...,
+   date64)` / `_to_unix_seconds(date32)` — direct on helpers.
+3. `test_resample_date64_day_freq_through_parquet_limitation` —
+   документирует, что real usage date64→date32 через parquet, работает
+   корректно для `freq >= '1D'`.
+4. §11.5: "date64 through parquet → date32; use freq >= '1D'".
+
+**Урок (аналогичен §13.4/134 «input type different from intended»):**
+`pa.date64` — **legacy/compat type** в pyarrow. Parquet не поддерживает
+(нет logical type для ms-date). Arrow IPC сохраняет, но
+`write_parquet` → `read_parquet` = date32. Правило: **не тестировать
+date64 через parquet**; для date64-specific — unit-level helpers или
+in-memory Dataset (без parquet).
+
+**Ещё урок (semantics):** date64 = day, не sub-second. Если нужна
+sub-second precision — только timestamp, не date. `resample(on=date_col)`
+с `freq='5s'` — баг пользователя (не CADW): все → 1 bucket/день.
+
+**Связанные:** §13.4/133 (pyarrow cast matrix incomplete: no
+date32→int64), §13.4/134 (null vs float64 inference). Класс «hidden by
+green tests»: (133) date32→int64 nonexistent — caught; (134) null→
+float64 mismatch — caught; (135) date64→date32 parquet — caught (и
+выявил test-authoring error, не code).
+
+**Следующее:** v0.8.8 per-group (prototype-first).
 
 ### 13.5. Открытые вопросы
 

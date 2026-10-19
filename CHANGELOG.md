@@ -14,6 +14,68 @@
   `test_changelog_is_descending` (v0.8.5) фиксируют инвариант.
 -->
 
+## [0.8.7] — 2026-10-19
+
+### Добавлено
+- **`CadwDataFrame.resample(freq, agg, on=..., columns=None)`** —
+  bucket aggregation по временной/целочисленной колонке.
+  - `freq: int | str` — секунды (`5`) или строка (`'5s'`, `'1min'`/
+    `'1m'`, `'1h'`, `'1D'`).
+  - `agg ∈ {sum, mean, min, max, count}`.
+  - `on: str` — timestamp / date / integer column. Bucket =
+    `(t_sec // freq) * freq`.
+  - Output: `[on, f'{col}_{agg}'...]`. Bucket column dtype = `on` dtype
+    (timestamp → timestamp, int → int, date → date).
+  - Peak RAM: batch + O(#cols) state + 1 output batch (BATCH=1000
+    buckets). **Independent of N и bucket size** (running accumulator,
+    не `list(values)`).
+
+### Валидировано prototype-first (§13.4/123)
+- `scripts/proto_resample.py`: A (pandas groupby ts//freq) == B
+  (external_sort + bucket transition) == C (manual). 5 buckets × sum:
+  `[(0,4),(5,13),(10,23),(15,32),(20,22)]`.
+
+### Renamed: v0.8.3 → v0.8.7 (§13.4/132)
+- Планировалось как v0.8.3 (roadmap). После v0.8.4/v0.8.5/v0.8.6 уже
+  tagged, `test_changelog_is_descending` требует top = highest →
+  v0.8.7 (не v0.8.3).
+
+### Semantics (MVP, §11.5)
+- **Empty bucket** (gap in ts) → skip (no NaN fill; для fill —
+  `.reindex` после).
+- **Null in `on`** → skip row (cannot bucket).
+- **All-null agg bucket** → skip row (all columns None).
+- **Null in agg col** → skip value (matches pandas skipna).
+- **Nulls_all**: bucket с только null значениями (все cols) → skip row.
+- **Partition**: bucket spanning batches — accumulator живёт через
+  batch boundary (running state, O(1) RAM).
+
+### Ограничения (v0.8.7, §11.5)
+- `on` — single column. Multi-column (e.g. `on=['ts', 'sensor']` для
+  per-group buckets) — не поддерживается (composite sort ≠ per-group;
+  для per-group — `groupby(...)`).
+- `freq` — только `int` секунды или строка `'Ns'|'Nmin'|'Nm'|'Nh'|'ND'`.
+  Compound (`'5min30s'`), `'W'`, `'M'`, `'Y'`, sub-second (`'500ms'`) —
+  не поддерживаются.
+- `uint64` on — reject (overflow risk при bucket arithmetic; cast в
+  int64 required).
+- `date` on — granularity = days (freq should be ≥ `'1D'`; `'5s'` на
+  date даст O(#days) buckets с 0 rows → skip → фактически пустой
+  output для одного дня).
+- All-null bucket + `count` — skip (не 0; для zero-fill — post-process
+  через `left_merge`).
+- `nan` timestamp bucket on far future (>year 2262 для ns) — overflow
+  (int64). Documented, edge case.
+
+### Тесты
+- +28 в `test_resample.py`: sum/mean/min/max/count (prototype data),
+  multibatch bucket, empty bucket skip, nulls, all-null bucket, null
+  in on, timestamp('s'/'ms'), date32, validation (missing on,
+  non-time-type, uint64, on-in-columns, invalid agg, non-numeric,
+  empty columns), freq parser (9 param + 5 edge), preserves original,
+  filtered, 2 AST guards.
+- fast: **~1092 passed**. slow: **8 passed**.
+
 ## [0.8.6] — 2026-10-19
 
 ### Добавлено
