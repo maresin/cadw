@@ -26,13 +26,25 @@ from .ml import (
     LogisticGradOp, LogisticModel, fit_logistic,
     KMeansStepOp, KMeansModel, fit_kmeans,
     PCA, fit_pca,
+    GBDTRegressor, fit_gbdt_regressor,
+)
+
+from .viz import (
+    hist as viz_hist,
+    hist2d as viz_hist2d,
+    box_stats as viz_box_stats,
+    line_agg as viz_line_agg,
+    sample as viz_sample,
 )
 
 __all__ = [
+    "viz_hist", "viz_hist2d", "viz_box_stats",
+    "viz_line_agg", "viz_sample",
     "XTXOp", "LinearModel", "fit_linear",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "PCA", "fit_pca",
+    "GBDTRegressor", "fit_gbdt_regressor",
     "CadwIndex",
     "RangeIndex",
     "MaterializedIndex",

@@ -33,7 +33,11 @@ testpaths = ["tests"]
 norecursedirs = ["_legacy", ".venv", "build", "dist"]
 
 [dependency-groups]
+viz = [
+    "matplotlib>=3.8",
+]
 dev = [
+    "matplotlib>=3.8",
     "pytest>=9.0.3",
     "pylint>=4.0.5",
     "pyright>=1.1.409",

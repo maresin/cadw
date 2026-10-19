@@ -1645,6 +1645,39 @@ class CadwDataFrame:
             memory_guard=self._memory_guard,
         )
 
+    # ---------------- ML: fit_gbdt_regressor ----------------
+
+    def fit_gbdt_regressor(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        n_estimators: int = 100,
+        max_depth: int = 3,
+        learning_rate: float = 0.1,
+        bins: int = 32,
+        min_child_weight: float = 1.0,
+        reg_lambda: float = 1.0,
+        min_gain: float = 0.0,
+    ):
+        """Fit GBDT regression (L2 loss, level-wise) — v0.7.3a.
+
+        Peak RAM = batch + O(n × 32B) internal state + O(nodes × feat × bins).
+        O(n) state is inherent to Newton-based boosting (XGBoost/LightGBM
+        same). Guarded via MemoryGuard.
+
+        Returns GBDTRegressor (trees_, predict).
+        """
+        from cadw.ml.gbdt import fit_gbdt_regressor
+        return fit_gbdt_regressor(
+            self, X_cols, y_col,
+            n_estimators=n_estimators, max_depth=max_depth,
+            learning_rate=learning_rate, bins=bins,
+            min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+            min_gain=min_gain,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(
