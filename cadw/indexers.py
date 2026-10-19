@@ -209,27 +209,28 @@ class _LocIndexer:
         self._parent = parent
 
     def _materialized(self):
-        from cadw.dataset.index import MaterializedIndex
+        """v0.6.1b: returns MaterializedIndex or MaterializedMultiIndex."""
+        from cadw.dataset.index import (
+            MaterializedIndex,
+            MaterializedMultiIndex,
+        )
         p = self._parent
         if p._index_kind == "range":
             raise TypeError(
                 "loc: requires MaterializedIndex (after set_index). "
                 "RangeIndex — use iloc."
             )
-
-        if p._index_kind == "multi":
-            raise NotImplementedError(
-                "loc: MultiIndex not supported in v0.6.1a. "
-                "Use reset_index + loc, or iloc. v0.6.1b adds loc[tuple]."
-            )
         if p._row_filters:
             idx = p.index
-            if not isinstance(idx, MaterializedIndex):
+            if not isinstance(idx, (MaterializedIndex, MaterializedMultiIndex)):
                 raise TypeError(
                     f"loc: filtered index is {type(idx).__name__}, "
-                    f"expected MaterializedIndex"
+                    f"expected MaterializedIndex or MaterializedMultiIndex"
                 )
             return idx
+        if p._index_kind == "multi":
+            assert p._index_levels is not None
+            return MaterializedMultiIndex(p._index_levels)
         assert p._index_values is not None
         return MaterializedIndex(p._index_values)
 
