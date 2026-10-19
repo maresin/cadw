@@ -22,6 +22,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.sampling import (
+    data_chars_for_join,
+    peek_first_batch,
+)
 from cadw.dataset import (
     Dataset,
     RowFilter,
@@ -355,16 +359,21 @@ class CadwDataFrame:
         how: str = "inner",
         *,
         suffixes: tuple[str, str] = ("_x", "_y"),
-        num_partitions: int = 8,
+        num_partitions: int | None = None,
+        use_planner: bool = True,
     ) -> "CadwDataFrame":
-        """Hash join (v0.2.2). how ∈ {'inner', 'left'}.
+        """Hash join (v0.2.4). how ∈ {'inner', 'left'}.
 
         - how='inner': только совпадающие ключи.
         - how='left':  все строки self сохраняются; right-колонки -> NULL
           при отсутствии совпадения.
         - on: имена общих колонок в обеих сторонах.
         - suffixes: для пересекающихся не-on колонок.
-        - num_partitions: число партиций HashShuffle (обе стороны).
+        - num_partitions: число партиций HashShuffle; None — из
+          JoinMemoryModel (если use_planner), иначе дефолт 8.
+        - use_planner: использовать JoinMemoryModel.solve() для выбора
+          num_partitions / max_output_rows / max_cartesian_rows. Если
+          False — runtime использует старые дефолты (0.3 * available / 256).
         """
         if how not in ("inner", "left"):
             raise NotImplementedError(
@@ -387,6 +396,41 @@ class CadwDataFrame:
             [right._dataset.schema.field(c) for c in right.columns]
         )
 
+        # --- Planner: sample first batch, plan, override defaults. ---
+        max_output_rows: int | None = None
+        max_cartesian_rows: int | None = None
+
+        if use_planner:
+            left_sample = peek_first_batch(self._iter_filtered_batches())
+            right_sample = peek_first_batch(right._iter_filtered_batches())
+
+            # Пустая сторона: короткое замыкание (runtime обработает).
+            if left_sample is not None and right_sample is not None:
+                left_chars = data_chars_for_join(
+                    left_sample, self._dataset.total_rows,
+                    on_list, self._memory_guard,
+                )
+                right_chars = data_chars_for_join(
+                    right_sample, right._dataset.total_rows,
+                    on_list, self._memory_guard,
+                )
+                params = self._memory_guard.plan(
+                    "join", left_chars,
+                    op_context={"right_chars": right_chars, "how": how},
+                )
+                if num_partitions is None:
+                    num_partitions = params.num_partitions
+                max_output_rows = params.max_output_rows
+                max_cartesian_rows = params.max_cartesian_rows
+            else:
+                # Одна из сторон пуста — planner не нужен; hash_join
+                # короткозамкнёт. num_partitions не важен.
+                if num_partitions is None:
+                    num_partitions = 8
+        else:
+            if num_partitions is None:
+                num_partitions = 8
+
         result_table = hash_join(
             self._iter_filtered_batches(),
             right._iter_filtered_batches(),
@@ -398,6 +442,8 @@ class CadwDataFrame:
             how=how,
             suffixes=suffixes,
             num_partitions=num_partitions,
+            max_output_rows=max_output_rows,
+            max_cartesian_rows=max_cartesian_rows,
         )
         return self._wrap_result_table(result_table)
 

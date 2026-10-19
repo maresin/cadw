@@ -44,6 +44,7 @@ class JoinParams(Params):
     probe_batch_size: int
     build_partition_bytes: int
     max_output_rows: int
+    max_cartesian_rows: int   # worst case (для runtime защиты от skew)
     right_chars: DataChars
     probe_row_size: int
     output_row_size: int
@@ -61,6 +62,7 @@ class JoinMemoryModel(OpMemoryModel):
         probe_ratio: float = 0.3,       # CALIBRATION DEFAULT
         output_ratio: float = 0.3,      # CALIBRATION DEFAULT
         c_merge_ratio: float = 2.0,     # pandas temp ≈ 2 × output
+        c_cartesian: float = 10.0,      # max_cartesian = c_cartesian × max_output
     ) -> None:
         self.shuffle_model = shuffle_model or get_model("hash_shuffle")
         if not isinstance(self.shuffle_model, HashShuffleMemoryModel):
@@ -79,10 +81,13 @@ class JoinMemoryModel(OpMemoryModel):
             )
         if c_merge_ratio < 0:
             raise ValueError("c_merge_ratio must be >= 0")
+        if c_cartesian < 1.0:
+            raise ValueError("c_cartesian must be >= 1.0")
         self.build_ratio = float(build_ratio)
         self.probe_ratio = float(probe_ratio)
         self.output_ratio = float(output_ratio)
         self.c_merge_ratio = float(c_merge_ratio)
+        self.c_cartesian = float(c_cartesian)
 
     def estimate(self, params: JoinParams, data_chars: DataChars) -> int:
         """Пик RAM: build_partition + probe_batch + output_batch×(1+c_merge)."""
@@ -182,6 +187,13 @@ class JoinMemoryModel(OpMemoryModel):
         max_output_rows = max(
             1, int(output_budget / max(1.0, row_size_out * (1.0 + self.c_merge_ratio)))
         )
+        # worst-case: cartesian product. Не связан с output_budget (merge
+        # материализует только совпадения, не cartesian); c_cartesian —
+        # множитель от expected для detection катастрофического skew.
+        max_cartesian_rows = max(
+            max_output_rows + 1,
+            int(self.c_cartesian * max_output_rows),
+        )
 
         params = JoinParams(
             build_side=build_side,
@@ -190,6 +202,7 @@ class JoinMemoryModel(OpMemoryModel):
             probe_batch_size=int(probe_batch_size),
             build_partition_bytes=int(build_partition_bytes),
             max_output_rows=int(max_output_rows),
+            max_cartesian_rows=int(max_cartesian_rows),
             right_chars=right_chars,
             probe_row_size=int(probe_chars.row_size_bytes),
             output_row_size=int(row_size_out),
@@ -213,7 +226,8 @@ class JoinMemoryModel(OpMemoryModel):
             f"build_ratio={self.build_ratio:.2f}, "
             f"probe_ratio={self.probe_ratio:.2f}, "
             f"output_ratio={self.output_ratio:.2f}, "
-            f"c_merge={self.c_merge_ratio:.2f}"
+            f"c_merge={self.c_merge_ratio:.2f}, "
+            f"c_cartesian={self.c_cartesian:.2f}"
         )
 
 

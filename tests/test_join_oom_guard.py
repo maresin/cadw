@@ -211,3 +211,40 @@ def test_safe_materialize_empty_file_has_columns(tmp_path):
     )
     assert table.num_rows == 0
 
+def test_process_partition_pair_defines_avg_matches_before_use():
+    """avg_matches_per_probe определён ДО использования (AST, lineno).
+
+    Регрессия 11-B-2c-3: шаг 2d патча молча не сработал (str.replace с
+    несуществующим шаблоном — no-op), и avg_matches_per_probe использовался
+    без определения. NameError в runtime. Guard фиксирует порядок.
+    """
+    from cadw.ops.join import _process_partition_pair
+    import ast
+
+    src = inspect.getsource(_process_partition_pair)
+    tree = ast.parse(inspect.cleandoc(src))
+
+    # Найти все Store и Load для имени "avg_matches_per_probe"
+    stores: list[int] = []
+    loads: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id == "avg_matches_per_probe":
+            if isinstance(node.ctx, ast.Store):
+                stores.append(node.lineno)
+            elif isinstance(node.ctx, ast.Load):
+                loads.append(node.lineno)
+
+    assert stores, (
+        "avg_matches_per_probe never assigned in _process_partition_pair "
+        "(NameError at runtime)"
+    )
+    assert loads, (
+        "avg_matches_per_probe never read in _process_partition_pair"
+    )
+    first_store = min(stores)
+    first_load = min(loads)
+    assert first_store < first_load, (
+        f"avg_matches_per_probe: first Store at line {first_store}, "
+        f"first Load at line {first_load} — use before assignment"
+    )
+

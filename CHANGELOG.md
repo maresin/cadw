@@ -89,6 +89,40 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.2.4] — 2026-10-19
+
+### Исправлено (§13.4 эпизод 42)
+- Модель `JoinMemoryModel` возвращает два лимита: `max_output_rows`
+  (expected, из `output_budget / row_size_out`) и
+  `max_cartesian_rows` (`c_cartesian × max_output_rows`, default 10×).
+  Runtime `hash_join` разделяет проверки:
+  - `expected_probe_output = len(probe) × avg_matches_per_probe >
+    max_output_rows` → raise (per-partition skew);
+  - `len(build) × len(probe) > max_cartesian_rows` → raise (extreme cartesian).
+  Ранее `len(build) × len(probe) > max_output_rows` ошибочно сравнивал
+  cartesian с expected → `plan_pipeline` мог сказать `"fits"`, а `merge` —
+  упасть.
+
+### Добавлено
+- `JoinMemoryModel.c_cartesian` (default 10.0) — множитель для worst-case.
+- `JoinParams.max_cartesian_rows`.
+- `hash_join(..., max_cartesian_rows=None)`; default `10 × max_output_rows`.
+- `CadwDataFrame.merge(..., num_partitions=None, use_planner=True)`:
+  - `use_planner=True` (default): sample first batch каждой стороны,
+    `mg.plan("join", ...)`, параметры пробрасываются в `hash_join`.
+  - `use_planner=False`: старые дефолты (`num_partitions=8`,
+    `max_output_rows = 0.3 × available / 256`).
+  - `num_partitions` явно → override модели, но `max_output_rows` /
+    `max_cartesian_rows` всё равно из модели.
+- Per-partition `unique_build_keys` (pandas `.nunique`/`drop_duplicates`
+  на build) — уточнённый `avg_matches_per_probe`, недоступный глобальной
+  модели.
+
+### Тесты
+- 8 новых в `test_merge_planner.py`: planner default, `use_planner=False`,
+  explicit `num_partitions`, early-fail план, cartesian-skew reject,
+  left-planner, empty-side inner/left.
+
 ## [0.2.3] — 2026-10-19
 
 ### Добавлено

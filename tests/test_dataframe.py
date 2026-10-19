@@ -232,3 +232,19 @@ def test_facade_has_no_row_loops():
     assert not offenders, (
         f"row-level loops over batch.num_rows in facade: {offenders}"
     )
+
+def test_facade_does_not_define_sampling_helpers():
+    """`_peek_first`/`_data_chars_for_join` не живут в dataframe.py.
+
+    Регрессия 11-B-2c-3-fix2: helpers были добавлены в dataframe.py и
+    использовали as_py, нарушая test_facade_has_no_as_py. Правило:
+    helpers для сэмплинга — в cadw/core/sampling.py; facade остаётся
+    без as_py.
+    """
+    src = inspect.getsource(df_mod)
+    for name in ("_peek_first", "_data_chars_for_join"):
+        assert f"def {name}(" not in src, (
+            f"{name!r} must live in cadw/core/sampling.py, "
+            f"not in facade"
+        )
+

@@ -839,6 +839,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `hash_join` inner/left (v0.2.2: HashShuffle обеих сторон + pd.merge) | ✅ | 15 |
 | `JoinMemoryModel` (v0.2.3: §9.2.5) | ✅ | 17 |
 | `propagate_chars("join")` (v0.2.3: planner chain с join) | ✅ | 9 |
+| `CadwDataFrame.merge` + `JoinMemoryModel` (v0.2.4) | ✅ | 8 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -1157,16 +1158,72 @@ schema=empty_schema)`. **Урок:** для left/outer join **все** output
 **Симптом:** `plan_pipeline` говорит `"fits"`, а `merge` поднимает
 `MemoryLimitExceeded`. **Причины:** модель оптимистичнее (правильно для
 типичных данных), runtime консервативнее (правильно для защиты от
-skew). **Статус:** 11-B-2c-3 — согласовать: либо runtime использует
-`max_output_rows` как expected (а cartesian вынести в отдельный лимит
-`max_cartesian_rows`), либо модель использует cartesian как upper bound
-(over-conservative, отвергает валидные join'ы). Мой выбор — первое:
-runtime проверяет `len(build) × len(probe) > max_cartesian_rows` (с
-большим запасом, `c_cartesian ≈ 10×` от expected) и `expected_output >
-max_output_rows`. Это разделяет «защиту от OOM» (expected) и «защиту от
-skew» (cartesian). **Урок:** модель предсказывает **ожидаемый** пик,
-runtime защищает от **worst case**. Это два разных числа, их нельзя
-смешивать в одном параметре.
+skew). **Статус (закрыто 11-B-2c-3):** разделены `max_output_rows` (expected,
+из `output_budget / row_size_out`) и `max_cartesian_rows` (`c_cartesian
+× max_output_rows`, default 10×). Runtime проверяет:
+- `expected_probe_output = len(probe) × avg_matches_per_probe >
+  max_output_rows` → raise (per-partition skew);
+- `len(build) × len(probe) > max_cartesian_rows` → raise (extreme skew);
+где `avg_matches_per_probe = len(build) / unique_build_keys` — оценка
+по **фактической** build-партиции, а не глобальная. Это позволяет
+ловить partition-level skew, который глобальная модель не видит.
+`CadwDataFrame.merge(use_planner=True)` пробрасывает `num_partitions`,
+`max_output_rows`, `max_cartesian_rows` из `mg.plan("join", ...)`.
+**Урок:** модель предсказывает **ожидаемый** пик, runtime защищает
+от **worst case**. Это два разных числа, их нельзя смешивать в одном
+параметре. Плюс — runtime может compute more precise estimate per
+partition (unique_build_keys), чем глобальная модель.
+
+**Эпизод 43 (sample-based plan в merge).** `CadwDataFrame.merge` теперь
+сэмплирует первый батч с обеих сторон (`_peek_first`), вычисляет `DataChars`
+через `_data_chars_for_join` (`k_est` из `MemoryGuard.estimate_unique_keys`
+на on-колонках sample, `avg_key_size` из repr().encode() первой строки),
+и вызывает `mg.plan("join", left_chars, op_context={"right_chars": ...})`.
+Плюсы: пользователь получает раннюю ошибку `MemoryLimitExceeded`, если
+план не сходится, а не OOM в середине merge. Минусы: (a) sample — это
+первый батч, может быть нерепрезентативным; (b) `k_est` экстраполируется
+наивно (`unique_in_sample × n_total / sample_rows`), при сильно скошенном
+sample — over-/under-estimate; (c) `_iter_filtered_batches` теперь
+вызывается дважды (sample + real), но sample = первый батч, цена
+пренебрежима. **Урок:** planner в операции — баланс между точностью
+(нужен sample) и стоимостью (лишний проход). Первый батч — разумный
+компромисс: не читает всё, даёт порядок величины. Если пользователь
+знает cardinality лучше, `use_planner=False` + явный `num_partitions`.
+
+**Эпизод 44 (str.replace silent no-op).** Патч 11-B-2c-3 содержал
+две замены: (2d) вставить `unique_build_keys`/`avg_matches_per_probe`
+перед `out_batches`, и (2e) заменить cartesian-check на два новых.
+Шаг 2e сработал, шаг 2d — **молча нет**: шаблон `old` включал комментарий
+`# how='left': пустой build — продолжаем (left preserved).`, которого в
+файле после 11-B-2b-fix2 не было. `str.replace(old, new)` при отсутствии
+`old` возвращает исходную строку без ошибки. Итог: код ссылается на
+`avg_matches_per_probe`, которая никогда не вычисляется. **Fix:** guard
+`assert old in s` перед каждым `s.replace(old, new, 1)`, или (лучше)
+AST guard на порядок define→use (`test_process_partition_pair_defines_
+avg_matches_before_use`). **Урок:** `str.replace` в патч-скриптах —
+это DSL без проверки синтаксиса. Любой silent no-op допустим только
+если он явно логируется; в нашем случае молчание скрыло баг от
+`test_join.py` (там `avg_matches_per_probe` не использовался в
+существующих тестах, только в новых из `test_merge_planner.py`).
+**Более сильный фикс:** AST guard `define before use` — ловит **класс**
+багов, а не конкретный случай.
+
+**Эпизод 45 (facade AST guard scope).** `merge(use_planner=True)`
+требует sample first batch → `DataChars` → `MemoryGuard.plan("join", ...)`.
+Помощник `_data_chars_for_join` использует `sample.column(c)[0].as_py()` —
+O(1) (одна строка на колонку), не O(N). Но был положен в
+`cadw/dataframe.py` — AST guard `test_facade_has_no_as_py` проверяет
+**весь модуль**, не только класс `CadwDataFrame`, и упал (2 теста:
+`test_facade_has_no_as_py` + `test_facade_has_no_as_py_ast`).
+**Fix:** вынести `peek_first_batch`/`data_chars_for_join` в новый
+`cadw/core/sampling.py` с документированным «as_py здесь O(1)». Facade
+(`dataframe.py`) остаётся без `as_py`. Guard-скоуп «весь модуль» —
+намеренно строгий: помогает держать `dataframe.py` без любых row-level
+примитивов, даже O(1). **Альтернатива** (сузить guard до класса) —
+отвергнута: ослабила бы инвариант, который уже ловил регрессии (§13.4
+эпизод 4b: `test_facade_has_no_as_py` был текстовым vs AST). **Урок:**
+если хочется добавить `as_py` в facade «по-мелочи» — сигнал, что место
+кода не в facade. AST guard фиксирует **слой**, а не только намерение.
 
 ### 13.5. Открытые вопросы
 
