@@ -89,6 +89,39 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.3.2] — 2026-10-19
+
+### Добавлено
+- `CadwDataFrame.rank` теперь поддерживает `method='max'|'last'|'average'`
+  через **двухпроходный streaming** (O(1) RAM):
+  - Pass 1: scan sorted_by → `(first_rank, group_count)` per tie-group
+    на диск. State O(1) + per-batch accumulators (O(batch_size)).
+  - Pass 2: scan sorted_by + advance по group file (sequential).
+    `pos_in_group = global_pos - first_rank + 1`;
+    `last_rank = first_rank + group_count - 1`;
+    `max → last_rank`; `last → first_rank + count - pos`;
+    `average → (first + last) / 2`.
+- `VALID_METHODS = ('first', 'min', 'dense', 'max', 'last', 'average')`.
+- `_VALID_STREAMABLE` / `_VALID_BUFFERABLE` — разделение методов.
+- `_rank_dtype(method, pct)`: int64 для int-методов без pct; float64
+  для average или pct.
+
+### Изменено
+- `compute_ranks_to_disk(sorted_path: Path, ...)` — принимает **Path**
+  вместо `Iterable[RecordBatch]`, потому что bufferable-методы требуют
+  двух проходов. Единственный caller — `CadwDataFrame.rank` — обновлён.
+
+### Ограничения (v0.3.2, §11.5)
+- **null values**: участвуют как значения (null == null); pandas
+  `rank(skipna=True)` не поддерживается.
+- **cost**: `max`/`last`/`average` = 2 passes by sorted_by + 1 pass
+  by row_id (re-sort). Против 1 pass у streamable.
+
+### Тесты
+- 15 новых в `test_rank.py`: max/last/average на asc и desc, pct для
+  average, dtype-проверки, after filter, pandas-equivalence для всех
+  трёх, all-same для max/last/average.
+
 ## [0.3.1] — 2026-10-19
 
 ### Добавлено

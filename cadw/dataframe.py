@@ -425,10 +425,13 @@ class CadwDataFrame:
     ) -> "CadwDataFrame":
         """Ранг по колонке `by` (v0.3.1).
 
-        - method ∈ {'first', 'min', 'dense'}:
-            - 'first': 1-based позиция в sorted order (ties по row_id asc).
-            - 'min':   минимум из рангов в tie-группе.
-            - 'dense': 1, 2, 3, ... для уникальных значений.
+        - method ∈ {'first', 'min', 'dense', 'max', 'last', 'average'}:
+            - 'first':   1-based позиция в sorted order (ties по row_id asc).
+            - 'min':     минимум из рангов в tie-группе.
+            - 'dense':   1, 2, 3, ... для уникальных значений.
+            - 'max':     максимум из рангов в tie-группе.
+            - 'last':    reverse of 'first' (CADW extension, НЕ в pandas).
+            - 'average': (min + max) / 2 (float).
         - ascending: True — меньшие значения получают меньший ранг.
         - pct: делить rank на total_n.
         - output_col: имя новой колонки (default `{by}_rank`).
@@ -439,14 +442,13 @@ class CadwDataFrame:
         Null values участвуют как значения (null == null). pandas skipna
         не поддерживается в v0.3.1.
 
-        Методы 'max'/'average'/'last' — v0.3.2 (требуют буферизации
-        tie-группы, O(N) при all-equal).
+        Методы 'max'/'last'/'average' реализованы двухпроходным
+        streaming (O(1) RAM): pass 1 → group file, pass 2 → join.
         """
         if method not in VALID_METHODS:
             raise NotImplementedError(
-                f"rank: method={method!r} not supported in v0.3.1. "
-                f"Supported: {VALID_METHODS}. "
-                f"'max'/'average'/'last' — v0.3.2."
+                f"rank: method={method!r} not supported. "
+                f"Supported: {VALID_METHODS}."
             )
         if by not in self._columns:
             raise KeyError(f"rank: by={by!r} not in columns {self._columns}")
@@ -461,7 +463,7 @@ class CadwDataFrame:
         total_n = self.count()
         if total_n == 0:
             # Empty: append an empty rank column of proper dtype.
-            rank_dtype = pa.float64() if pct else pa.int64()
+            rank_dtype = pa.float64() if (pct or method == "average") else pa.int64()
             out_fields = [
                 self._dataset.schema.field(c) for c in self._columns
             ]
@@ -501,9 +503,11 @@ class CadwDataFrame:
         )
 
         # Step 2: rank per row → (row_id, rank) on disk.
+        # compute_ranks_to_disk принимает Path (не iterable) — bufferable
+        # методы требуют двух проходов по sorted_by.
         from cadw.io.batch_reader import ArrowIPCBatchReader as _IPCReader
         rank_pairs_path = compute_ranks_to_disk(
-            _IPCReader(str(sorted_by_val), [by, "row_id"]),
+            sorted_by_val,
             by=by,
             output_col=output_col,
             method=method,
@@ -531,7 +535,7 @@ class CadwDataFrame:
         )
 
         # Step 4: build rank Dataset (in original order via __orig_rid).
-        rank_dtype = pa.float64() if pct else pa.int64()
+        rank_dtype = pa.float64() if (pct or method == "average") else pa.int64()
         rank_schema = pa.schema([
             ("__orig_rid", pa.uint64()),
             (output_col, rank_dtype),

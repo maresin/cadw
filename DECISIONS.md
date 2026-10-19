@@ -842,7 +842,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `CadwDataFrame.merge` + `JoinMemoryModel` (v0.2.4) | ✅ | 8 |
 | E2E join (v0.2.5: 100k×10k, skew, left) | ✅ | 3 slow |
 | `drop_duplicates` (v0.3.0: HashShuffle + local pandas) | ✅ | 19 |
-| `rank` (v0.3.1: Sort + local stream; first/min/dense) | ✅ | 19 |
+| `rank` (v0.3.1/3.2: Sort + stream; first/min/dense/max/last/average) | ✅ | 35 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -912,7 +912,7 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `df[-5:]` (отрицательный slice) — не поддержано | `SliceFilter` | `step > 0`, `start >= 0`; для отрицательных — `count()` + пересчёт |
 | `drop_duplicates` returns rows in partition-concatenation order | `drop_duplicates` (v0.3.0) | pandas-order: `.sort_values(...)` после. §13.4/48 |
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
-| `rank` без max/average/last | `rank` (v0.3.1) | требуют буферизации tie-группы (O(N) при all-equal); v0.3.2 — двухпроходный streaming или bounded-buffer. §13.4/49 |
+| `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
 | `rank` nulls участвуют как значения (pandas skipna не поддерживается) | `rank` (v0.3.1) | v0.3.2: skip nulls (аналог pandas `rank(na_option='keep')`) |
 
 **Политика ML (после патча 09).** CADW **не является ML-фреймворком**.
@@ -1329,10 +1329,26 @@ streamability:
   10^9 рангов в RAM). Пандас не парится (in-memory), но для out-of-core
   это OOM.
 
-MVP v0.3.1 = streamable trio. v0.3.2: `max`/`average`/`last` через
-двухпроходный streaming (первый проход: group_end_rank per group → на
-диск; второй: join с sorted stream) или bounded-buffer с spill при
-группе > budget.
+MVP v0.3.1 = streamable trio. v0.3.2 (закрыто): `max`/`average`/`last`
+реализованы двухпроходным streaming:
+  Pass 1: scan sorted_by → `(first_rank, group_count)` per tie-group
+         на диск. State: prev_val/group_start/global_pos + per-batch
+         accumulators (O(batch_size)).
+  Pass 2: scan sorted_by + advance по group file (sequential).
+         pos_in_group = global_pos - first_rank + 1.
+         last_rank = first_rank + group_count - 1.
+         max → last_rank; last → first_rank + count - pos;
+         average → (first + last) / 2.
+Итого: O(1) RAM независимо от max tie group size. Плата — два
+прохода по sorted_by (I/O) + промежуточный group file
+(`N_groups × 16 B`, обычно << N × row_size). API `compute_ranks_to_disk`
+принимает Path (не iterable) — файл открывается 1–2 раза.
+**Урок:** буферизуемое состояние можно эмулировать O(1) RAM
+**двухпроходным** streaming'ом; цена — 2× I/O и промежуточный файл.
+Это общий паттерн: `median`/`quantile`/`mode` per-group — та же схема
+(счётчики → файл → join). Выбор 'однопроходный streamable' vs
+'двухпроходный bufferable' — по принципу: streamable только если
+реально O(1)-state; иначе — не притворяться.
 
 **Порядок результата:** rank — свойство исходной строки, поэтому
 возвращаем в original order. Реализуется двумя сортировками:

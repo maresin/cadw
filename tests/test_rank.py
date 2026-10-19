@@ -180,7 +180,7 @@ def test_rank_custom_output_col(tmp_path):
 
 def test_rank_invalid_method(tmp_path):
     df = make_df(tmp_path, "L", {"k": [1, 2], "v": [1, 2]})
-    for bad in ("max", "average", "last", "unknown"):
+    for bad in ("unknown", "min_max", "FOO"):
         with pytest.raises(NotImplementedError, match="method"):
             df.rank(by="k", method=bad)
 
@@ -288,3 +288,173 @@ def test_rank_then_groupby(tmp_path):
     result.write_parquet(out)
     rows = {r["g"]: r["k_rank_mean"] for r in pq.read_table(out).to_pylist()}
     assert rows == {"A": 2.0, "B": 3.0}
+
+# ====================================================================
+# Bufferable: max / last / average (v0.3.2, two-pass streaming)
+# ====================================================================
+
+def test_rank_max_with_ties(tmp_path):
+    df = make_df(tmp_path, "L", {"k": ["a", "b", "a", "c", "a"], "v": list(range(5))})
+    result = df.rank(by="k", method="max")
+    got = read_df(result, tmp_path)
+    # sorted: a(1), a(2), a(3), b(4), c(5)
+    # group a: first=1, last=3; group b: 4; group c: 5
+    # original (a,b,a,c,a): 3, 4, 3, 5, 3
+    assert got["k_rank"].tolist() == [3, 4, 3, 5, 3]
+
+
+def test_rank_last_with_ties(tmp_path):
+    df = make_df(tmp_path, "L", {"k": ["a", "b", "a", "c", "a"], "v": list(range(5))})
+    result = df.rank(by="k", method="last")
+    got = read_df(result, tmp_path)
+    # sorted: a(pos1,2,3), b(4), c(5)
+    # group a: pos_in_group 1→3, 2→2, 3→1 (reverse); b→4; c→5
+    # original (a,b,a,c,a): row_id 0(a,pos1)→3, 1(b)→4, 2(a,pos2)→2, 3(c)→5, 4(a,pos3)→1
+    assert got["k_rank"].tolist() == [3, 4, 2, 5, 1]
+
+
+def test_rank_average_with_ties(tmp_path):
+    df = make_df(tmp_path, "L", {"k": ["a", "b", "a", "c", "a"], "v": list(range(5))})
+    result = df.rank(by="k", method="average")
+    got = read_df(result, tmp_path)
+    # group a: first=1, last=3 → avg=2.0; b→4.0; c→5.0
+    # original (a,b,a,c,a): 2.0, 4.0, 2.0, 5.0, 2.0
+    assert got["k_rank"].tolist() == [2.0, 4.0, 2.0, 5.0, 2.0]
+
+
+def test_rank_max_all_same(tmp_path):
+    n = 10
+    df = make_df(tmp_path, "L", {"k": ["X"] * n, "v": list(range(n))})
+    result = df.rank(by="k", method="max")
+    got = read_df(result, tmp_path)
+    assert got["k_rank"].tolist() == [n] * n
+
+
+def test_rank_last_all_same(tmp_path):
+    n = 10
+    df = make_df(tmp_path, "L", {"k": ["X"] * n, "v": list(range(n))})
+    result = df.rank(by="k", method="last")
+    got = read_df(result, tmp_path)
+    # sorted all same: pos_in_group 1..n, last = n - pos + 1 → n, n-1, ..., 1
+    assert got["k_rank"].tolist() == list(range(n, 0, -1))
+
+
+def test_rank_average_all_same(tmp_path):
+    n = 10
+    df = make_df(tmp_path, "L", {"k": ["X"] * n, "v": list(range(n))})
+    result = df.rank(by="k", method="average")
+    got = read_df(result, tmp_path)
+    # group first=1, last=n → avg=(1+n)/2
+    expected = (1 + n) / 2
+    assert got["k_rank"].tolist() == [expected] * n
+
+
+def test_rank_max_descending(tmp_path):
+    df = make_df(tmp_path, "L", {"k": ["b", "a", "c", "a"], "v": list(range(4))})
+    result = df.rank(by="k", method="max", ascending=False)
+    got = read_df(result, tmp_path)
+    # sorted desc: c(1), b(2), a(3), a(4)
+    # max: c=1, b=2, a=4 (last in group)
+    # original (b,a,c,a): 2, 4, 1, 4
+    assert got["k_rank"].tolist() == [2, 4, 1, 4]
+
+
+def test_rank_max_pandas_equivalence(tmp_path):
+    n = 100
+    rng = np.random.default_rng(7)
+    data = {
+        "k": rng.integers(0, 5, size=n).tolist(),
+        "v": list(range(n)),
+    }
+    df = make_df(tmp_path, "L", data, chunk=10)
+    result = df.rank(by="k", method="max")
+    got = read_df(result, tmp_path)
+
+    pdf = pd.DataFrame(data)
+    expected = pdf["k"].rank(method="max").astype("int64")
+    np.testing.assert_array_equal(
+        got["k_rank"].to_numpy(), expected.to_numpy()
+    )
+
+
+def test_rank_last_is_reverse_first(tmp_path):
+    """method='last' — CADW extension (pandas не поддерживает 'last').
+
+    Семантика: reverse of 'first' within each tie group — элемент с
+    меньшим row_id получает БОЛЬШИЙ rank. Identity:
+        last(i) = group_first + group_last - first(i)
+    где group_first/group_last — min/max first-rank в группе.
+    """
+    n = 100
+    rng = np.random.default_rng(7)
+    data = {
+        "k": rng.integers(0, 5, size=n).tolist(),
+        "v": list(range(n)),
+    }
+    df = make_df(tmp_path, "L", data, chunk=10)
+    result = df.rank(by="k", method="last")
+    got = read_df(result, tmp_path)
+
+    pdf = pd.DataFrame(data)
+    tmp = pdf.copy()
+    tmp["first"] = tmp["k"].rank(method="first").astype("int64")
+    tmp["group_first"] = tmp.groupby("k")["first"].transform("min")
+    tmp["group_last"] = tmp.groupby("k")["first"].transform("max")
+    expected = (tmp["group_first"] + tmp["group_last"] - tmp["first"]).to_numpy()
+
+    np.testing.assert_array_equal(got["k_rank"].to_numpy(), expected)
+
+
+def test_rank_average_pandas_equivalence(tmp_path):
+    n = 100
+    rng = np.random.default_rng(7)
+    data = {
+        "k": rng.integers(0, 5, size=n).tolist(),
+        "v": list(range(n)),
+    }
+    df = make_df(tmp_path, "L", data, chunk=10)
+    result = df.rank(by="k", method="average")
+    got = read_df(result, tmp_path)
+
+    pdf = pd.DataFrame(data)
+    expected = pdf["k"].rank(method="average")
+    np.testing.assert_allclose(
+        got["k_rank"].to_numpy(), expected.to_numpy(), rtol=1e-10
+    )
+
+
+def test_rank_average_pct(tmp_path):
+    df = make_df(tmp_path, "L", {"k": ["a", "b", "a", "c"], "v": list(range(4))})
+    result = df.rank(by="k", method="average", pct=True)
+    got = read_df(result, tmp_path)
+    # groups sorted: a(1,2 → avg 1.5), b(3), c(4)
+    # original (a,b,a,c): 1.5, 3, 1.5, 4 → /4 = 0.375, 0.75, 0.375, 1.0
+    assert got["k_rank"].tolist() == [0.375, 0.75, 0.375, 1.0]
+
+
+def test_rank_max_dtype_int(tmp_path):
+    df = make_df(tmp_path, "L", {"k": [1, 2, 1], "v": [1, 2, 3]})
+    result = df.rank(by="k", method="max")
+    got = read_df(result, tmp_path)
+    assert got["k_rank"].dtype.kind == "i"  # int64
+
+
+def test_rank_average_dtype_float(tmp_path):
+    df = make_df(tmp_path, "L", {"k": [1, 2, 1], "v": [1, 2, 3]})
+    result = df.rank(by="k", method="average")
+    got = read_df(result, tmp_path)
+    assert got["k_rank"].dtype.kind == "f"  # float64
+
+
+def test_rank_max_after_filter(tmp_path):
+    df = make_df(tmp_path, "L", {
+        "k": ["a", "a", "b", "b", "c"],
+        "v": [1, 2, 3, 4, 5],
+    })
+    filtered = df[df["v"] > 2]  # (b,3),(b,4),(c,5)
+    result = filtered.rank(by="k", method="max")
+    got = read_df(result, tmp_path)
+    # sorted: b(1), b(2), c(3) → max: b=2, b=2, c=3
+    # output in filtered order: [2, 2, 3]
+    assert got["k_rank"].tolist() == [2, 2, 3]
+
