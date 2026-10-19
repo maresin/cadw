@@ -89,6 +89,37 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.4.0a] — 2026-10-19
+
+### Добавлено
+- `CadwIndex` (ABC) + `RangeIndex(start, stop, step)` (lazy, O(1))
+  + `MaterializedIndex(values)` (Arrow Array).
+- `CadwDataFrame.index` property — RangeIndex (default) или
+  MaterializedIndex (после set_index).
+- `CadwDataFrame.set_index(col, drop=True, inplace=False)`:
+  материализует колонку в память (Arrow Array).
+- `CadwDataFrame.reset_index(drop=False, inplace=False)`:
+  `drop=True` — отбрасывает index; `drop=False` — выносит в колонку
+  `index` (или `level_0` при коллизии).
+- Экспорт: `cadw.CadwIndex`, `cadw.RangeIndex`,
+  `cadw.MaterializedIndex`.
+- `cadw.dataset.index` — модуль.
+
+### Ограничения (v0.4.0a, §11.5)
+- **с активными фильтрами**: `df.index`, `set_index`, `reset_index` —
+  raise `NotImplementedError` (RangeIndex+filter = O(N) scan;
+  синхронизация — v0.4.0b).
+- **`set_index`** материализует колонку (O(N) RAM). Для больших N —
+  future (streaming loc — v0.4.1).
+- **Index не сохраняется в Parquet** (`write_parquet` → reload =
+  RangeIndex). Pandas-совместимое поведение.
+
+### Тесты
+- 20 тестов в `test_cadw_index.py`: RangeIndex/MaterializedIndex API,
+  set_index drop=True/False/inplace, reset_index drop=True/False,
+  коллизия «index» → «level_0», chained, filter-limit raise,
+  persistence.
+
 ## [0.3.4] — 2026-10-19
 
 ### Добавлено

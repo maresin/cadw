@@ -28,6 +28,9 @@ from cadw.core.sampling import (
 )
 from cadw.dataset import (
     Dataset,
+    CadwIndex,
+    RangeIndex,
+    MaterializedIndex,
     RowFilter,
     PredicateFilter,
     SliceFilter,
@@ -89,6 +92,11 @@ class CadwDataFrame:
             if c not in dataset.columns:
                 raise KeyError(f"column {c!r} not found in dataset")
         self._row_filters: list[RowFilter] = list(row_filters) if row_filters else []
+        # Index state: "range" (lazy) or "materialized" (Arrow Array).
+        self._index_kind: str = "range"
+        self._index_start: int = 0
+        self._index_stop: int = dataset.total_rows
+        self._index_values: pa.Array | None = None
 
     @classmethod
     def from_parquet(
@@ -118,6 +126,222 @@ class CadwDataFrame:
     @property
     def columns(self) -> list[str]:
         return list(self._columns)
+
+    @property
+    def index(self) -> CadwIndex:
+        """Индекс строк (v0.4.0a).
+
+        - Без фильтров: RangeIndex(0, N) или MaterializedIndex (после
+          set_index).
+        - С активными фильтрами: raise NotImplementedError — синхронизация
+          RangeIndex с filter требует O(N) scan. v0.4.0b (iloc).
+        """
+        if self._row_filters:
+            raise NotImplementedError(
+                "df.index: с активными фильтрами не поддерживается в "
+                "v0.4.0a (RangeIndex+filter = O(N) scan). "
+                "Сбросьте фильтры через reset_index() перед filter, "
+                "или используйте set_index(col) — но и он требует "
+                "отсутствия фильтров. См. §13.4/55."
+            )
+        if self._index_kind == "range":
+            return RangeIndex(self._index_start, self._index_stop)
+        assert self._index_values is not None
+        return MaterializedIndex(self._index_values)
+
+    def set_index(
+        self,
+        col: str,
+        drop: bool = True,
+        inplace: bool = False,
+    ) -> "CadwDataFrame":
+        """Set DataFrame index from column `col` (v0.4.0a).
+
+        - col: name of existing column.
+        - drop: True — remove col from columns; False — keep.
+        - inplace: True — modify self; False — return new CadwDataFrame.
+
+        Материализует колонку в память (Arrow Array). Для больших N — O(N).
+        Требует отсутствия активных фильтров (v0.4.0a).
+        """
+        if not isinstance(col, str):
+            raise TypeError(
+                f"set_index: col must be str; got {type(col).__name__}"
+            )
+        if col not in self._columns:
+            raise KeyError(
+                f"set_index: column {col!r} not in {self._columns}"
+            )
+        if self._row_filters:
+            raise NotImplementedError(
+                "set_index: не поддерживается с активными фильтрами в "
+                "v0.4.0a. Сбросьте фильтры или материализуйте через "
+                "df.write_parquet(...) и пересоздайте. §13.4/55."
+            )
+        if not isinstance(drop, bool):
+            raise TypeError("set_index: drop must be bool")
+
+        chunks: list[pa.Array] = []
+        for b in self._iter_filtered_batches():
+            chunks.append(b.column(col))
+        if not chunks:
+            values: pa.Array | pa.ChunkedArray = pa.array(
+                [], type=self._dataset.schema.field(col).type
+            )
+        elif len(chunks) == 1:
+            values = chunks[0]
+        else:
+            values = pa.chunked_array(chunks)
+
+        new_columns = list(self._columns)
+        if drop:
+            new_columns.remove(col)
+
+        if inplace:
+            self._columns = new_columns
+            self._index_kind = "materialized"
+            self._index_values = (
+                values.combine_chunks()
+                if isinstance(values, pa.ChunkedArray)
+                else values
+            )
+            self._index_start = 0
+            self._index_stop = len(self._index_values)
+            return self
+
+        new = CadwDataFrame.__new__(CadwDataFrame)
+        new._dataset = self._dataset
+        new._memory_guard = self._memory_guard
+        new._spill_dir = self._spill_dir
+        new._columns = new_columns
+        new._row_filters = list(self._row_filters)
+        new._index_kind = "materialized"
+        new._index_values = (
+            values.combine_chunks()
+            if isinstance(values, pa.ChunkedArray)
+            else values
+        )
+        new._index_start = 0
+        new._index_stop = len(new._index_values)
+        return new
+
+    def reset_index(
+        self,
+        drop: bool = False,
+        inplace: bool = False,
+    ) -> "CadwDataFrame":
+        """Reset index to RangeIndex(0, N) (v0.4.0a).
+
+        - drop=True: index просто отбрасывается (columns без изменений).
+        - drop=False: index становится колонкой `index` (или `level_0`
+          при коллизии).
+        - inplace=True: modify self; False — return new CadwDataFrame.
+
+        Если index уже RangeIndex: drop=True — no-op; drop=False — raise
+        ValueError (pandas: "cannot insert index, already have default").
+        """
+        if self._row_filters:
+            raise NotImplementedError(
+                "reset_index: не поддерживается с активными фильтрами в "
+                "v0.4.0a. §13.4/55."
+            )
+        if not isinstance(drop, bool):
+            raise TypeError("reset_index: drop must be bool")
+
+        if self._index_kind == "range":
+            if drop:
+                if inplace:
+                    return self
+                # new copy с тем же RangeIndex
+                new = CadwDataFrame.__new__(CadwDataFrame)
+                new._dataset = self._dataset
+                new._memory_guard = self._memory_guard
+                new._spill_dir = self._spill_dir
+                new._columns = list(self._columns)
+                new._row_filters = list(self._row_filters)
+                new._index_kind = "range"
+                new._index_start = self._index_start
+                new._index_stop = self._index_stop
+                new._index_values = None
+                return new
+            raise ValueError(
+                "reset_index(drop=False): already have a default "
+                "RangeIndex — cannot insert. "
+                "Use reset_index(drop=True) or set_index(col) first."
+            )
+
+        # materialized
+        assert self._index_values is not None
+        values = self._index_values
+
+        if drop:
+            if inplace:
+                self._index_kind = "range"
+                self._index_start = 0
+                self._index_stop = len(values)
+                self._index_values = None
+                return self
+            new = CadwDataFrame.__new__(CadwDataFrame)
+            new._dataset = self._dataset
+            new._memory_guard = self._memory_guard
+            new._spill_dir = self._spill_dir
+            new._columns = list(self._columns)
+            new._row_filters = list(self._row_filters)
+            new._index_kind = "range"
+            new._index_start = 0
+            new._index_stop = len(values)
+            new._index_values = None
+            return new
+
+        # drop=False: add "index" or "level_N" column
+        name = "index"
+        if name in self._columns:
+            i = 0
+            name = f"level_{i}"
+            while name in self._columns:
+                i += 1
+                name = f"level_{i}"
+
+        new_columns = list(self._columns) + [name]
+        new_schema = pa.schema(
+            [self._dataset.schema.field(c) for c in self._columns]
+            + [pa.field(name, values.type)]
+        )
+
+        offset = 0
+
+        def _iter_with_index():
+            nonlocal offset
+            for b in self._iter_filtered_batches():
+                n = b.num_rows
+                idx_slice = values.slice(offset, n)
+                yield b.append_column(name, idx_slice)
+                offset += n
+
+        new_ds = Dataset.from_batches(
+            new_schema, _iter_with_index(), self._new_dataset_dir()
+        )
+
+        if inplace:
+            self._dataset = new_ds
+            self._columns = new_columns
+            self._index_kind = "range"
+            self._index_start = 0
+            self._index_stop = new_ds.total_rows
+            self._index_values = None
+            return self
+
+        new = CadwDataFrame.__new__(CadwDataFrame)
+        new._dataset = new_ds
+        new._memory_guard = self._memory_guard
+        new._spill_dir = self._spill_dir
+        new._columns = new_columns
+        new._row_filters = []
+        new._index_kind = "range"
+        new._index_start = 0
+        new._index_stop = new_ds.total_rows
+        new._index_values = None
+        return new
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -159,6 +383,10 @@ class CadwDataFrame:
                 if c not in self._dataset.columns:
                     raise KeyError(f"column {c!r} not found in dataset")
             new._row_filters = list(self._row_filters)
+            new._index_kind = self._index_kind
+            new._index_start = self._index_start
+            new._index_stop = self._index_stop
+            new._index_values = self._index_values
             return new
 
         # 3. str: прокси для сравнений (df['a'] > 0)
@@ -183,6 +411,12 @@ class CadwDataFrame:
         new._spill_dir = self._spill_dir
         new._columns = list(self._columns)
         new._row_filters = list(self._row_filters) + [f]
+        # Index fields copied; .index будет raise при наличии filters
+        # (v0.4.0a). v0.4.0b (iloc) — синхронизация через row_id.
+        new._index_kind = self._index_kind
+        new._index_start = self._index_start
+        new._index_stop = self._index_stop
+        new._index_values = self._index_values
         return new
 
     # ---------------- filtered iteration ----------------
@@ -730,6 +964,8 @@ class CadwDataFrame:
         new_ds = Dataset.from_batches(
             table.schema, iter(table.to_batches()), self._new_dataset_dir()
         )
+        # Default RangeIndex(0, total_rows) — результат операций сбрасывает
+        # исходный index (как pandas после groupby/sort/merge).
         return CadwDataFrame(
             new_ds, memory_guard=self._memory_guard, spill_dir=self._spill_dir
         )

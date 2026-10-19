@@ -2,6 +2,7 @@
 from .core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from .dataset import (
     Dataset,
+    CadwIndex, RangeIndex, MaterializedIndex,
     RowFilter, PredicateFilter, AndFilter, OrFilter, NotFilter, SliceFilter,
 )
 from .dataframe import CadwDataFrame
@@ -21,6 +22,9 @@ from .ops.rank import compute_ranks_to_disk, VALID_METHODS
 from .ops.quantile import quantile
 
 __all__ = [
+    "CadwIndex",
+    "RangeIndex",
+    "MaterializedIndex",
     "MemoryGuard", "MemoryLimitExceeded", "Dataset", "CadwDataFrame",
     "RowFilter", "PredicateFilter", "AndFilter", "OrFilter", "NotFilter", "SliceFilter",
     "ParquetBatchReader", "ArrowIPCBatchReader",

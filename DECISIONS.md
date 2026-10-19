@@ -845,6 +845,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `rank` (v0.3.1/3.2: Sort + stream; first/min/dense/max/last/average) | ✅ | 34 |
 | `quantile` (v0.3.3: Sort + indexed lookup; scalar q, linear) | ✅ | 20 |
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
+| `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 20 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -916,6 +917,9 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
 | `groupby_aggregate` combiner не поддерживает std (v0.3.4) | `groupby_aggregate` | warning + fallback на обычный путь. v0.3.5 — Welford partial. |
+| `df.index`/`set_index`/`reset_index` с активными фильтрами (v0.4.0a) | `CadwDataFrame` | raise NotImplementedError; синхронизация index↔filter — v0.4.0b (iloc, через row_id). §13.4/55. |
+| `set_index` материализует колонку (O(N) RAM) | `CadwDataFrame` | Для больших N — future: `RangeIndex` fast path + streaming loc. v0.4.1. |
+| Index не сохраняется в Parquet (write_parquet → reload = RangeIndex) | `write_parquet` | Parquet не имеет index-метаданных; документировано. §13.4/55. |
 | `_detect_heavy_keys` absolute min = 100 (v0.3.4) | skew detection | Без абсолютного минимума tiny data (5 строк) ложно флагалась как skew. §13.4/52b. |
 | `groupby_aggregate` combiner не работает в skew-пути (v0.3.4) | `groupby_aggregate` | skew → warning + combiner disabled; heavy через streaming, light через shuffle без combiner. v0.3.5 — combiner для light. |
 | `quantile` без list q? — НЕТ, list q поддерживается. Без других interpolations ('lower'/'higher'/'nearest'/'midpoint') | `quantile` (v0.3.3) | v0.3.4 — добавление других interpolations (тривиально: другие формулы на v_lo/v_hi). List q уже работает. §13.4/51 |
@@ -1536,6 +1540,63 @@ Defensive dedup — обязательный шаг для reusable primitive. �
 **Следующее (v0.3.5):** тест на `hash_shuffle` с explicit duplicate
 key/value — должен не падать, dedupe молча. Плюс regression `test_unique`
 уже есть (был всегда).
+
+**Эпизод 55 (CadwIndex — MVP без filter-compat).** Первый кусок
+`CadwIndex` — абстрактный класс + два наследника:
+- `RangeIndex(start, stop, step)` — lazy, O(1) память. `__len__`,
+  `__getitem__` (int/slice), `__iter__`, `to_arrow`. Эмулирует pandas.
+- `MaterializedIndex(values: pa.Array)` — Arrow Array с типом колонки.
+  Для `set_index`; `.equals()` через Arrow `.equals()`.
+
+`CadwDataFrame` хранит `_index_kind` (`"range"` | `"materialized"`),
+`_index_start`/`_index_stop` (для range), `_index_values` (для
+materialized). Default — `RangeIndex(0, total_rows)`.
+
+**Ключевое ограничение MVP:** index не синхронизируется с активными
+фильтрами. `df[mask].index` — `NotImplementedError` (RangeIndex+filter
+требует O(N) scan: считать row_id, прошедшие маску). `set_index` и
+`reset_index` тоже raise с фильтрами.
+
+**Почему не «просто scan»:** `_iter_filtered_batches` теряет row_id
+(отдаёт только `_columns`), поэтому scan нужно делать отдельно. В
+v0.4.0b (`iloc`) появится `_iter_filtered_batches_with_positions()`
+yield'ит `(batch, positions)` — тогда index через filter = O(N) scan
+позиций (не O(N) data). Это приемлемо для `.index` access.
+
+**Почему не index-as-Dataset-column:** можно было добавить `__index__`
+в Dataset и позволить filter его фильтровать. Проблемы: (a) колонка
+входит в `_columns`, нужен hidden-флаг; (b) при `sort_values` index
+пересчитывается (a не сохраняется); (c) `Dataset` immutable — удаление
+колонки при `reset_index` = копирование. Итого — сложнее, чем хранить
+index в CadwDataFrame.
+
+**`reset_index(drop=True)` для RangeIndex:** no-op (pandas: то же).
+`reset_index(drop=False)` для RangeIndex — raise `ValueError` (pandas:
+«cannot insert level_0, already have default index»). Это
+pandas-совместимое поведение.
+
+**`set_index(inplace=True)`:** mutate `_columns`, `_index_*`. Возвращает
+self. `reset_index(inplace=True)` — mutate или создать новый Dataset.
+Это единственные «inplace»-операции в CadwDataFrame (facade остальной
+immutable).
+
+**Урок:** index — это **отдельный объект идентичности**, не колонка.
+Pandas делает его частью BlockManager (O(N) даже для RangeIndex),
+Arrow не имеет встроенного index. Хранить в CadwDataFrame с явным
+`_index_kind` (дискриминатор) — правильно для ленивой семантики.
+MVP без filter-compat — осознанное решение: v0.4.0b (iloc) даст
+правильный механизм, и тогда filter+index станет доступным без
+«временных» API.
+
+**Следующее (v0.4.0b — iloc):**
+- `_iter_filtered_batches_with_positions()` — yield `(batch, positions)`.
+- `iloc[i]` — scalar tuple.
+- `iloc[lo:hi]` — slice (lazy).
+- `iloc[[i,j,k]]` — позиции.
+- `filtered.index` — RangeIndex subset через positions (O(N) scan).
+- `set_index`/`reset_index` с фильтрами — использовать filtered positions.
+
+**v0.4.0c (loc):** label-based через MaterializedIndex.get_indexer.
 
 ### 13.5. Открытые вопросы
 

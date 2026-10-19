@@ -1,4 +1,5 @@
 from .dataset import Dataset
+from .index import CadwIndex, RangeIndex, MaterializedIndex
 from .row_filter import (
     RowFilter,
     MaskFilter,
@@ -11,6 +12,9 @@ from .row_filter import (
 
 __all__ = [
     "Dataset",
+    "CadwIndex",
+    "RangeIndex",
+    "MaterializedIndex",
     "RowFilter",
     "MaskFilter",
     "PredicateFilter",
