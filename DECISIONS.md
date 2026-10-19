@@ -836,6 +836,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | API availability guard (07, 18 assertions) | ✅ | 18 |
 | Materialize-before-check fix (10) | ✅ | (см. test_materialize_guard) |
 | dict check в `_local_groupby` (11-A-4a, must-fix §11.4) | ✅ | 5 |
+| `inner_join` (v0.2.1: HashShuffle обеих сторон + pd.merge) | ✅ | 9 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -1118,6 +1119,18 @@ recursion (не перечитываем с диска: `table.to_batches()`); �
 `depth >= max_depth` — `MemoryLimitExceeded`. **Урок:** `check_state`
 должен проверять **тот** объект, который реально строится следующей
 операцией. File size и dict size — разные объекты; проверять нужно оба.
+
+**Эпизод 36 (первый join, SQL null semantics).** При первом
+`inner_join` через `pd.merge` обнаружилось: **pandas.merge по умолчанию
+матчит NaN==NaN**, что отличается от SQL (NULL не совпадает). Для
+CADW выбрана SQL-семантика: `_drop_null_keys` фильтрует строки с NULL в
+on-колонках до `pd.merge`. Без фильтра `null` в key дал бы cartesian
+NaN×NaN — скрытый OOM. **Урок:** `pd.merge` — не «SQL join»; на key
+колонках NULL — отдельная семантика, её нужно реализовывать явно.
+Также: `inner_join` проверяет `len(build) * len(probe) > max_output_rows`
+**до** `pd.merge` — защита от cartesian-skew, который pyarrow/pandas
+молча материализуют. max_output_rows = 0.3 * available / 256 B
+(консервативно); в v0.2.2 — из `JoinMemoryModel.solve`.
 
 ### 13.5. Открытые вопросы
 

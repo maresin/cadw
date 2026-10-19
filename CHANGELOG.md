@@ -89,6 +89,26 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.2.0] — 2026-10-19
+
+### Добавлено
+- `CadwDataFrame.merge(right, on, how='inner', suffixes=('_x','_y'),
+  num_partitions=8)`: Grace hash inner join.
+- `cadw.ops.join.inner_join`: HashShuffle обеих сторон (один seed) →
+  партиции с одинаковыми ключами → для каждой пары: build = меньшая
+  партиция (`check_state`), probe батчами (`check_batch`),
+  `pd.merge(how='inner', suffixes=...)`.
+- SQL-семантика NULL: `_drop_null_keys` до `pd.merge` (pandas.merge
+  по умолчанию матчит NaN==NaN — не то).
+- Защита от cartesian-skew: `len(build) * len(probe) > max_output_rows`
+  → `MemoryLimitExceeded` **до** `pd.merge`.
+
+### Ограничения v0.2.1
+- `how='inner'` только; `left`/`right`/`outer` — v0.2.2.
+- `on` по имени в обеих сторонах; `left_on`/`right_on`, `on=index` —
+  v0.2.2.
+- `JoinMemoryModel` + `propagate_chars("join")` + E2E — 11-B-2.
+
 ## [0.1.7] — 2026-10-19
 
 ### Исправлено (must-fix §11.4)

@@ -31,6 +31,7 @@ from cadw.dataset import (
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ParquetBatchWriter
 from cadw.ops.groupby import groupby_aggregate
+from cadw.ops.join import inner_join
 from cadw.ops.sort import external_sort
 
 
@@ -344,6 +345,57 @@ class CadwDataFrame:
         return CadwDataFrame(
             new_ds, memory_guard=self._memory_guard, spill_dir=self._spill_dir
         )
+
+    # ---------------- merge ----------------
+
+    def merge(
+        self,
+        right: "CadwDataFrame",
+        on: str | Sequence[str],
+        how: str = "inner",
+        *,
+        suffixes: tuple[str, str] = ("_x", "_y"),
+        num_partitions: int = 8,
+    ) -> "CadwDataFrame":
+        """Inner join (v0.2.1). how ∈ {'inner'} только.
+
+        - on: имена общих колонок в обеих сторонах.
+        - suffixes: для пересекающихся не-on колонок.
+        - num_partitions: число партиций HashShuffle (обе стороны).
+        """
+        if how != "inner":
+            raise NotImplementedError(
+                f"merge: how={how!r}; only 'inner' supported in v0.2.1. "
+                f"'left'/'right'/'outer' — v0.2.2."
+            )
+        if not isinstance(right, CadwDataFrame):
+            raise TypeError("merge: right must be CadwDataFrame")
+        on_list = [on] if isinstance(on, str) else list(on)
+        for c in on_list:
+            if c not in self.columns:
+                raise KeyError(f"merge: on column {c!r} not in self")
+            if c not in right.columns:
+                raise KeyError(f"merge: on column {c!r} not in right")
+
+        left_schema = pa.schema(
+            [self._dataset.schema.field(c) for c in self.columns]
+        )
+        right_schema = pa.schema(
+            [right._dataset.schema.field(c) for c in right.columns]
+        )
+
+        result_table = inner_join(
+            self._iter_filtered_batches(),
+            right._iter_filtered_batches(),
+            left_schema,
+            right_schema,
+            on=on_list,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "join",
+            suffixes=suffixes,
+            num_partitions=num_partitions,
+        )
+        return self._wrap_result_table(result_table)
 
     # ---------------- write ----------------
 
