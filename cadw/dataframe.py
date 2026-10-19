@@ -1623,6 +1623,28 @@ class CadwDataFrame:
             memory_guard=self._memory_guard,
         )
 
+    # ---------------- ML: fit_pca ----------------
+
+    def fit_pca(
+        self,
+        X_cols: "str | Sequence[str]",
+        n_components: "int | None" = None,
+    ):
+        """Fit PCA via Reduce(CovarianceOp) + eigh (v0.7.2).
+
+        Returns PCA with sklearn-compatible attributes:
+            components_ (k, d), mean_, explained_variance_,
+            explained_variance_ratio_, singular_values_.
+
+        pca.transform(df) → df with pc0..pc{k-1} columns.
+        pca.inverse_transform(df) → reconstructed feature columns.
+        """
+        from cadw.ml.pca import fit_pca
+        return fit_pca(
+            self, X_cols, n_components,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(

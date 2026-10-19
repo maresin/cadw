@@ -25,12 +25,14 @@ from .ml import (
     XTXOp, LinearModel, fit_linear,
     LogisticGradOp, LogisticModel, fit_logistic,
     KMeansStepOp, KMeansModel, fit_kmeans,
+    PCA, fit_pca,
 )
 
 __all__ = [
     "XTXOp", "LinearModel", "fit_linear",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
+    "PCA", "fit_pca",
     "CadwIndex",
     "RangeIndex",
     "MaterializedIndex",
