@@ -89,6 +89,32 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.2.3] — 2026-10-19
+
+### Добавлено
+- `JoinMemoryModel` (§9.2.5): `f_join = build_partition + probe_batch +
+  output_batch × (1 + c_merge)`.
+  - `solve()`: `P` = max от shuffle обеих сторон; `build_side` по `how`
+    (right для left join; меньший state для inner);
+    `max_output_rows` из `output_budget / (row_size_out × (1+c_merge))`
+    вместо ad-hoc `0.3 × available / 256`;
+    `avg_matches` = upper bound `N_L × N_R / max(K_L, K_R)` (floor 1).
+  - `JoinParams`: `build_side`, `how`, `num_partitions`,
+    `probe_batch_size`, `build_partition_bytes`, `max_output_rows`,
+    `right_chars`, `probe_row_size`, `output_row_size`, `avg_matches`.
+- `propagate_chars("join")`: `N' = N_left × avg_matches`,
+  `row_size' = output_row_size`, `k_est' = N'` (upper bound),
+  `size_of_key_entry' = row_size' + 80`, `order = "random"`.
+  Требует `JoinParams` в `params` (из `get_model("join").solve()`).
+- `plan_pipeline` теперь планирует цепочки с join
+  (`filter → join → groupby`, `join → join`).
+
+### Открыто (11-B-2c-3)
+- Модель считает **expected** output, runtime — **cartesian worst case**.
+  `plan_pipeline` может предсказать `"fits"`, а `merge` — упасть.
+  Fix: разделить `max_output_rows` (expected) и `max_cartesian_rows`
+  (worst case, ~10× larger). §13.4 эпизод 42.
+
 ## [0.2.1] — 2026-10-19
 
 ### Добавлено

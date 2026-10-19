@@ -117,6 +117,8 @@ def propagate_chars(
       обычно узкие, но planner не знает тип agg).
     - sort: order = "sorted".
     - reduce: N' = 1, row_size' = state_bytes.
+    - join: N' = N_left × avg_matches, row_size' = output_row_size,
+      k_est' = N' (upper bound); требует JoinParams в params.
     """
     if op.name == "filter":
         return _copy_chars(input_chars)   # N' = N (консервативно)
@@ -153,10 +155,35 @@ def propagate_chars(
             row_size_bytes=state_bytes,
         )
 
+    if op.name == "join":
+        # params — JoinParams из get_model("join").solve(). Содержит
+        # right_chars (right-side DataChars) и avg_matches (upper bound).
+        from cadw.core.models_join import JoinParams
+        if not isinstance(params, JoinParams):
+            raise ValueError(
+                f"propagate_chars(join): params must be JoinParams, "
+                f"got {type(params).__name__ if params is not None else None}"
+            )
+        n_out = max(1, int(input_chars.n_rows * params.avg_matches))
+        row_out = int(params.output_row_size)
+        # k_est — upper bound: все выходные строки уникальны. Безопасно
+        # для downstream groupby/shuffle (over-estimate → over-recursion,
+        # не OOM). Точный k_est для конкретной колонки недоступен из
+        # модели — groupby_aggregate сам измерит sample.
+        return _copy_chars(
+            input_chars,
+            n_rows=n_out,
+            row_size_bytes=row_out,
+            k_est=n_out,
+            avg_key_size_bytes=row_out,
+            size_of_key_entry_bytes=row_out + 80,
+            order="random",
+        )
+
     # Для hash_shuffle и прочих пропагатор не определён
     raise ValueError(
         f"propagate_chars: unsupported op {op.name!r}. "
-        f"Supported: filter, with_column, groupby, sort, reduce."
+        f"Supported: filter, with_column, groupby, sort, reduce, join."
     )
 
 
@@ -178,7 +205,8 @@ def plan_pipeline(
     """Планирует цепочку (predict-only, §9.3).
 
     Для каждой op:
-      1. model = get_model(op.name) — если op.name есть в реестре.
+      1. model = get_model(op.name) — если op.name есть в реестре
+         (reduce, hash_shuffle, sort, groupby, join).
          Если нет ("filter", "with_column") — только propagate.
       2. params = model.solve(...). Если None — PipelineMemoryError.
       3. estimate = model.estimate(params). Инвариант solve гарантирует

@@ -14,6 +14,7 @@ from .models_reduce import ReduceMemoryModel, ReduceParams
 from .models_shuffle import HashShuffleMemoryModel, HashShuffleParams
 from .models_sort import SortMemoryModel, SortParams
 from .models_groupby import GroupByMemoryModel, GroupByParams
+from .models_join import JoinMemoryModel, JoinParams
 from .planner import (
     OpSpec,
     PipelineMemoryError,
@@ -43,6 +44,8 @@ __all__ = [
     "SortParams",
     "GroupByMemoryModel",
     "GroupByParams",
+    "JoinMemoryModel",
+    "JoinParams",
     "OpSpec",
     "PipelineMemoryError",
     "PipelinePlan",

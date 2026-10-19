@@ -837,6 +837,8 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | Materialize-before-check fix (10) | ✅ | (см. test_materialize_guard) |
 | dict check в `_local_groupby` (11-A-4a, must-fix §11.4) | ✅ | 5 |
 | `hash_join` inner/left (v0.2.2: HashShuffle обеих сторон + pd.merge) | ✅ | 15 |
+| `JoinMemoryModel` (v0.2.3: §9.2.5) | ✅ | 17 |
+| `propagate_chars("join")` (v0.2.3: planner chain с join) | ✅ | 9 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -1144,6 +1146,27 @@ NULL-ключ в left сохраняется с NULL в right-колонках (
 schema=empty_schema)`. **Урок:** для left/outer join **все** output
 колонки должны быть nullable, иначе materialize unmatched падает на
 типах. Right/outer (v0.3) — та же проблема, тот же фикс.
+
+**Эпизод 42 (planner vs runtime: expected vs cartesian).** Модель
+`JoinMemoryModel.estimate` считает пик по **ожидаемому** выходу:
+`probe_batch × avg_matches × row_size_out × (1+c_merge)`. Runtime `hash_join`
+проверяет `len(build_df) × len(probe_df) > max_output_rows` — это
+**cartesian worst case** (все ключи совпадают). Расхождение: при
+`build=250`, `probe=2187`, `avg_matches=10` модель предсказывает output
+~21 870 (влезает), runtime проверяет 250 × 2187 = 546 750 (не влезает).
+**Симптом:** `plan_pipeline` говорит `"fits"`, а `merge` поднимает
+`MemoryLimitExceeded`. **Причины:** модель оптимистичнее (правильно для
+типичных данных), runtime консервативнее (правильно для защиты от
+skew). **Статус:** 11-B-2c-3 — согласовать: либо runtime использует
+`max_output_rows` как expected (а cartesian вынести в отдельный лимит
+`max_cartesian_rows`), либо модель использует cartesian как upper bound
+(over-conservative, отвергает валидные join'ы). Мой выбор — первое:
+runtime проверяет `len(build) × len(probe) > max_cartesian_rows` (с
+большим запасом, `c_cartesian ≈ 10×` от expected) и `expected_output >
+max_output_rows`. Это разделяет «защиту от OOM» (expected) и «защиту от
+skew» (cartesian). **Урок:** модель предсказывает **ожидаемый** пик,
+runtime защищает от **worst case**. Это два разных числа, их нельзя
+смешивать в одном параметре.
 
 ### 13.5. Открытые вопросы
 
