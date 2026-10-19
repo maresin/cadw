@@ -212,12 +212,16 @@ def test_safe_materialize_empty_file_has_columns(tmp_path):
     )
     assert table.num_rows == 0
 
-def test_actual_matches_checked_before_pd_merge():
-    """Exact-match guard вызывается ДО pd.merge в _process_partition_pair.
+def test_actual_matches_checked_before_join():
+    """Exact-match guard вызывается ДО join-операции в _process_partition_pair.
+
+    v0.5.3 (P1): pandas → Arrow Table.join. Guard:
+    - `_exact_actual_matches_arrow` must be called;
+    - `Table.join` (или `.join(..., join_type=...)`) вызывается после.
 
     Регрессия 11-B-2d: cartesian check (build × probe > max_cartesian_rows)
-    давал ложные reject'ы для PK-FK (build уникален, реальный output =
-    probe count, а не cartesian). Fix: точная оценка через _exact_actual_matches.
+    давал ложные reject'ы для PK-FK. Fix: точная оценка через
+    `_exact_actual_matches_arrow` (pc.value_counts + join).
     """
     from cadw.ops.join import _process_partition_pair
     import ast
@@ -226,21 +230,34 @@ def test_actual_matches_checked_before_pd_merge():
     tree = ast.parse(inspect.cleandoc(src))
 
     exact_lines: list[int] = []
-    merge_lines: list[int] = []
+    join_lines: list[int] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            f = node.func
-            if isinstance(f, ast.Name) and f.id == "_exact_actual_matches":
-                exact_lines.append(node.lineno)
-            if isinstance(f, ast.Attribute) and f.attr == "merge" \
-                    and isinstance(f.value, ast.Name) and f.value.id == "pd":
-                merge_lines.append(node.lineno)
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        # Arrow-native exact-match check
+        if isinstance(f, ast.Name) and f.id == "_exact_actual_matches_arrow":
+            exact_lines.append(node.lineno)
+        # Table.join — method call with `join_type=` kwarg (signature
+        # `left_t.join(right_t, keys=..., join_type=...)`).
+        if isinstance(f, ast.Attribute) and f.attr == "join":
+            has_join_type = any(
+                kw.arg == "join_type" for kw in node.keywords
+            )
+            if has_join_type:
+                join_lines.append(node.lineno)
 
-    assert exact_lines, "_exact_actual_matches not called in _process_partition_pair"
-    assert merge_lines, "pd.merge not called in _process_partition_pair"
-    assert min(exact_lines) < min(merge_lines), (
-        f"_exact_actual_matches (line {min(exact_lines)}) must precede "
-        f"pd.merge (line {min(merge_lines)})"
+    assert exact_lines, (
+        "_exact_actual_matches_arrow not called in _process_partition_pair "
+        "(P1 v0.5.3 expects Arrow-native exact-match guard)"
+    )
+    assert join_lines, (
+        "Table.join (with join_type= kwarg) not called in "
+        "_process_partition_pair — P1 v0.5.3 expects Arrow-native join"
+    )
+    assert min(exact_lines) < min(join_lines), (
+        f"_exact_actual_matches_arrow (line {min(exact_lines)}) must precede "
+        f"Table.join (line {min(join_lines)})"
     )
 
 
