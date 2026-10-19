@@ -16,6 +16,7 @@ GroupBy: корректный при K > памяти.
 """
 from __future__ import annotations
 
+import gc
 import itertools
 
 import numpy as np
@@ -246,10 +247,22 @@ def _read_partition_safe(
         if size > limit:
             return None
 
-    batches = list(ArrowIPCBatchReader(str(partition_path), None))
-    if not batches:
-        return pa.Table.from_batches([], schema=pa.schema([]))
-    table = pa.Table.from_batches(batches)
+    # v0.5.4-fix (P3/P10): single-pass materialize.
+    # ArrowIPC file: schema доступна из ipc_reader без чтения batches.
+    # Если партиция пустая (0 batches) — Table.from_batches требует schema.
+    # Регулярный случай — generator (peak = Table only, не list + Table).
+    import pyarrow.ipc as _ipc
+    _reader = _ipc.open_file(str(partition_path))
+    _schema = _reader.schema
+    _n = _reader.num_record_batches
+    if _n == 0:
+        return pa.Table.from_batches([], schema=_schema)
+
+    def _iter_batches():
+        for i in range(_n):
+            yield _reader.get_batch(i)
+
+    table = pa.Table.from_batches(_iter_batches(), schema=_schema)
     if memory_guard is not None:
         memory_guard.check_state(
             table.nbytes,
@@ -316,6 +329,9 @@ def _local_groupby(
             dict_fits = estimated_dict_bytes <= dict_limit
 
         if dict_fits:
+            # v0.5.4 (P10): gc before group_by — освободить reader/writer
+            # buffers (Table уже materialized; old batches не нужны).
+            gc.collect()
             if partial_merge:
                 return _merge_partials(
                     table, by_columns,

@@ -79,3 +79,33 @@ def test_reduce_estimate_state_before_init():
         f"reduce: check_state (pos {check_pos}) must come BEFORE "
         f"op.init() (pos {init_pos})"
     )
+
+def test_read_partition_safe_no_list_reader():
+    """v0.5.4 (P3/P10): `_read_partition_safe` не делает `list(reader)`.
+
+    AST guard (не substring): ищем `ast.Call` с `func.id == "list"` в теле
+    функции. Docstring содержит `list(ArrowIPCBatchReader(...))` как текст —
+    не должен ловиться. §13.4/76.
+    """
+    import ast
+    import inspect
+    from cadw.ops import groupby as gb_mod
+
+    src = inspect.getsource(gb_mod._read_partition_safe)
+    tree = ast.parse(inspect.cleandoc(src))
+
+    violations: list[int] = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "list"):
+            violations.append(node.lineno)
+
+    assert not violations, (
+        f"_read_partition_safe calls list() at lines {violations} "
+        f"(P3 regression). Use Table.from_batches(reader) single-pass."
+    )
+    assert "Table.from_batches" in src, (
+        "_read_partition_safe must use Table.from_batches for materialize"
+    )
+
