@@ -38,7 +38,7 @@ from cadw.dataset import (
     SliceFilter,
 )
 from cadw.io.batch_reader import ArrowIPCBatchReader
-from cadw.io.batch_writer import ParquetBatchWriter
+from cadw.io.batch_writer import ArrowIPCBatchWriter, ParquetBatchWriter
 from cadw.indexers import (
     _ILocIndexer,
     _LocIndexer,
@@ -1232,6 +1232,7 @@ class CadwDataFrame:
         fill_value=None,
         *,
         columns: "str | Sequence[str] | None" = None,
+        on: "str | None" = None,
     ) -> "CadwDataFrame":
         """Shift values by `k` positions (v0.6.2b, lag).
 
@@ -1257,6 +1258,12 @@ class CadwDataFrame:
             )
         if k == 0:
             return self
+
+        # v0.8.2: sort-aware shift.
+        if on is not None:
+            return self._shift_on(
+                k, fill_value, columns=columns, on=on,
+            )
 
         if columns is None:
             cols = list(self._columns)
@@ -1334,6 +1341,7 @@ class CadwDataFrame:
         k: int = 1,
         *,
         columns: "str | Sequence[str] | None" = None,
+        on: "str | None" = None,
     ) -> "CadwDataFrame":
         """First difference: `out[i] = x[i] - x[i-k]` (v0.6.2b).
 
@@ -1349,6 +1357,10 @@ class CadwDataFrame:
             raise TypeError(f"diff: k must be int; got {type(k).__name__}")
         if k < 1:
             raise ValueError(f"diff: k must be >= 1; got {k}")
+
+        # v0.8.2: sort-aware diff = shift(on) - original.
+        if on is not None:
+            return self._diff_on(k=k, columns=columns, on=on)
 
         if columns is None:
             cols = list(self._columns)
@@ -1413,6 +1425,287 @@ class CadwDataFrame:
 
         new_ds = Dataset.from_batches(
             out_schema, _iter_diffed(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def _shift_on(
+        self,
+        k: int,
+        fill_value,
+        *,
+        columns: "str | Sequence[str] | None",
+        on: str,
+    ) -> "CadwDataFrame":
+        """Sort-aware shift on `on` column (v0.8.2).
+
+        Algorithm:
+          1. external_sort by [on, row_id] → sorted IPC.
+          2. Read sorted stream, apply stateful shift (deque per column,
+             O(k) memory). Output (row_id, shifted_cols) → IPC.
+          3. external_sort by row_id → original order.
+          4. Zip with original.
+
+        Peak RAM: batch + O(k × #cols). Independent of N.
+        """
+        from collections import deque
+
+        if on not in self._columns:
+            raise KeyError(
+                f"shift: on column {on!r} not in {self._columns}"
+            )
+
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"shift: column {c!r} not in {self._columns}"
+                )
+        shift_cols = set(cols)
+
+        out_fields = []
+        for c in self._columns:
+            f = self._dataset.schema.field(c)
+            if c in shift_cols:
+                f = pa.field(c, f.type, nullable=True)
+            out_fields.append(f)
+        out_schema = pa.schema(out_fields)
+
+        # 1. Sort by [on, row_id]
+        all_cols = list(self._columns)
+        sorted_path = external_sort(
+            self._iter_filtered_batches(),
+            key_columns=[on],
+            value_columns=all_cols,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "shift" / "sort_by_on",
+            ascending=True,
+            log=False,
+        )
+
+        # 2. Shift on sorted stream
+        sorted_reader = ArrowIPCBatchReader(str(sorted_path), None)
+        shift_schema = pa.schema(
+            [pa.field("row_id", pa.uint64())]
+            + [
+                pa.field(c, self._dataset.schema.field(c).type, nullable=True)
+                for c in cols
+            ]
+        )
+        shift_path = (
+            self._spill_dir / "shift" / "shifted_by_on.arrow"
+        )
+        shift_path.parent.mkdir(parents=True, exist_ok=True)
+
+        def _fill(size: int, type_: pa.DataType) -> pa.Array:
+            if fill_value is None:
+                return pa.nulls(size, type=type_)
+            return pa.array([fill_value] * size, type=type_)
+
+        writer = ArrowIPCBatchWriter(str(shift_path), shift_schema)
+        bufs: dict[str, deque] = {c: deque(maxlen=k) for c in cols}
+        try:
+            for b in sorted_reader:
+                self._memory_guard.check_batch(
+                    b, name="shift_on.sorted_input"
+                )
+                n = b.num_rows
+                arrays: list = [b.column("row_id")]
+                for c in cols:
+                    col_vals = b.column(c)
+                    prev = list(bufs[c])
+                    fill_n = max(0, k - len(prev))
+                    parts = []
+                    if fill_n > 0:
+                        parts.append(_fill(fill_n, col_vals.type))
+                    if prev:
+                        parts.append(pa.array(prev, type=col_vals.type))
+                    if n > k:
+                        parts.append(col_vals.slice(0, n - k))
+                    out = (
+                        pa.concat_arrays(parts) if parts
+                        else pa.array([], type=col_vals.type)
+                    )
+                    if len(out) > n:
+                        out = out.slice(0, n)
+                    elif len(out) < n:
+                        out = pa.concat_arrays([
+                            out,
+                            pa.nulls(n - len(out), type=col_vals.type),
+                        ])
+                    arrays.append(out)
+                    for v in col_vals.to_pylist():
+                        bufs[c].append(v)
+                rb = pa.RecordBatch.from_arrays(arrays, schema=shift_schema)
+                writer.write_batch(rb)
+        finally:
+            writer.close()
+
+        # 3. Sort back by __orig_rid.
+        # external_sort ALWAYS appends its own "row_id" column. Our stream
+        # already has "row_id" (= original position) → two row_ids would
+        # trigger ArrowInvalid: Multiple matches for FieldRef.Name(row_id).
+        # Rename "row_id" → "__orig_rid" so external_sort's appended row_id
+        # is a different column. Sort by __orig_rid ascending = original order.
+        def _iter_shifted():
+            for b in ArrowIPCBatchReader(str(shift_path), None):
+                names = b.schema.names
+                rid_idx = names.index("row_id")
+                new_names = (
+                    ["__orig_rid"]
+                    + [n for i, n in enumerate(names) if i != rid_idx]
+                )
+                yield b.rename_columns(new_names)
+
+        sorted_rowid_path = external_sort(
+            _iter_shifted(),
+            key_columns=["__orig_rid"],
+            value_columns=cols,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "shift" / "sort_by_rowid",
+            ascending=True,
+            log=False,
+        )
+
+        # 4. Zip (re-chunk to same batch_size)
+        batch_size = 10_000
+
+        def _iter_zipped():
+            orig_iter = self._iter_arrow_batches(batch_size=batch_size)
+            shifted_reader = ArrowIPCBatchReader(
+                str(sorted_rowid_path), cols,
+            )
+            accum: list[pa.RecordBatch] = []
+            accum_n = 0
+            shifted_gen = iter(shifted_reader)
+            for ob in orig_iter:
+                target_n = ob.num_rows
+                while accum_n < target_n:
+                    try:
+                        nb = next(shifted_gen)
+                    except StopIteration:
+                        raise RuntimeError(
+                            "shift: shifted stream exhausted before "
+                            "original (batch mismatch)"
+                        )
+                    accum.append(nb)
+                    accum_n += nb.num_rows
+                combined = pa.Table.from_batches(accum)
+                take = combined.slice(0, target_n)
+                rest = combined.slice(
+                    target_n, combined.num_rows - target_n,
+                )
+                accum = list(rest.to_batches()) if rest.num_rows else []
+                accum_n = combined.num_rows - target_n
+                # v0.8.2-fix4: (a) REPLACE shifted columns, not append —
+                # out_schema has self._columns (shift replaces column value,
+                # doesn't add new column; matches v0.6.2b semantics);
+                # (b) Table.column() returns ChunkedArray; combine_chunks()
+                # + to_batches()[0] → RecordBatch with Array columns.
+                take_batch = take.combine_chunks().to_batches()[0]
+                arrays = []
+                for c in self._columns:
+                    if c in shift_cols:
+                        arrays.append(take_batch.column(c))
+                    else:
+                        arrays.append(ob.column(c))
+                yield pa.RecordBatch.from_arrays(
+                    arrays, schema=out_schema,
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_zipped(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def _diff_on(
+        self,
+        *,
+        k: int,
+        columns: "str | Sequence[str] | None",
+        on: str,
+    ) -> "CadwDataFrame":
+        """Sort-aware diff: pc.subtract(col, shifted(col)) with on=col sort.
+
+        v0.8.2. Delegates to _shift_on + subtract per batch. No extra
+        sort needed (reuses shift's 2 sorts).
+        """
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"diff: column {c!r} not in {self._columns}"
+                )
+        # Validate numeric for diff
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            if not (
+                pa.types.is_integer(t) or pa.types.is_floating(t)
+            ):
+                raise TypeError(
+                    f"diff: column {c!r} has type {t}; numeric required"
+                )
+        diff_cols = set(cols)
+
+        # Shift with fill_value=None (nulls for first k rows)
+        shifted_df = self._shift_on(
+            k, None, columns=cols, on=on,
+        )
+
+        # Zip original + shifted, subtract
+        import pyarrow.compute as _pc
+        out_fields = []
+        for c in self._columns:
+            f = self._dataset.schema.field(c)
+            if c in diff_cols:
+                f = pa.field(c, f.type, nullable=True)
+            out_fields.append(f)
+        out_schema = pa.schema(out_fields)
+
+        batch_size = 10_000
+
+        def _iter_diffed():
+            orig_iter = self._iter_arrow_batches(batch_size=batch_size)
+            shifted_iter = shifted_df._iter_arrow_batches(
+                batch_size=batch_size,
+            )
+            for ob, sb in zip(orig_iter, shifted_iter):
+                if ob.num_rows != sb.num_rows:
+                    raise RuntimeError(
+                        f"diff_on: batch size mismatch "
+                        f"(orig={ob.num_rows}, shifted={sb.num_rows})"
+                    )
+                arrays = []
+                for c in self._columns:
+                    if c in diff_cols:
+                        arrays.append(
+                            _pc.subtract(ob.column(c), sb.column(c))
+                        )
+                    else:
+                        arrays.append(ob.column(c))
+                yield pa.RecordBatch.from_arrays(
+                    arrays, schema=out_schema,
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_diffed(), self._new_dataset_dir(),
         )
         return CadwDataFrame(
             new_ds,

@@ -12,6 +12,42 @@
   инвариант.
 -->
 
+## [0.8.2] — 2026-10-19
+
+### Добавлено
+- **`CadwDataFrame.shift(k, fill_value=None, columns=None, on=None)`** —
+  time-aware shift. `on=None` — positional (v0.6.2b, unchanged);
+  `on=str` — sort-aware:
+  1. external_sort by `[on, row_id]` (stable tie-break).
+  2. Stateful shift (deque per column, O(k)).
+  3. external_sort by `row_id` → original order.
+  4. Zip with original.
+  - Peak RAM = batch + O(k × #cols). Independent of N.
+  - 2 external_sorts (vs manual `df.sort_values(x).shift(x).sort_values(x)`).
+  - Multibatch consistent (chunk size не влияет).
+
+- **`CadwDataFrame.diff(k, columns=None, on=None)`** — time-aware diff.
+  `on=None` — positional (v0.6.2b); `on=str` — sort-aware via `_shift_on`
+  + `pc.subtract`. Reuses shift's 2 sorts, no extra sort.
+
+### Ограничения (v0.8.2, §11.5)
+- `on` — single column. Multi-column `on=['ts', 'sensor']` — v0.8.2a.
+- `on` с duplicates — stable sort (tie-break by row_id asc). Documented.
+- `on` должен быть sortable (monotonic не требуется — обычный sort).
+- Per-group shift (`groupby('sensor').shift(1, on='ts')`) — v0.8.3+.
+
+### Тесты
+- +17 в `test_shift_on_col.py`: shift on basic/k2/fill/string/all,
+  preserved, nulls, multibatch, missing col; diff on basic/k2/preserved,
+  non-numeric raises, non-monotonic stable, nulls; chain sort; backward
+  compat (no-on unchanged).
+- fast: **~1014 passed**. slow: **8 passed**.
+
+### Цена
+- Shift(1, on='ts') on 10^6 rows: ~2-3s (2× external_sort).
+- Same as user-manual `df.sort_values('ts').shift(1).sort_values('ts')`,
+  but API one-liner.
+
 ## [0.7.9] — 2026-10-19
 
 ### Исправлено в v0.7.9-fix

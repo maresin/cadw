@@ -847,7 +847,8 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
 | `fit_lasso`/`fit_elasticnet` (v0.7.7: coord descent) | ✅ | 22 |
 | `fit_gbdt_multiclass` (v0.7.8: softmax, per-class) | ✅ | 22 |
-| `compute_feature_importance` (v0.7.9: gain/split) | ✅ | 13 |
+| `compute_feature_importance` (v0.7.9: gain/split) | ✅ | 15 |
+| `shift`/`diff` on=col (v0.8.2: sort-aware) | ✅ | 17 |
 | `expanding` + `ewm` (v0.8.0: cumulative/EWMA) | ✅ | 26 |
 | P-hash: pandas C-hash (v0.8.1) | ✅ | 17 |
 | `CovarianceMeanOp` — PCA single-pass (v0.8.0) | ✅ | 3 |
@@ -943,7 +944,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `fit_lasso` — `alpha` raw (не sklearn-style /n) | `cadw/ml/linear.py` (v0.7.7) | Совместимо с v0.7.0a Ridge alpha; документировано |
 | `feature_importance` default = 'gain' (v0.7.9) | viz adapters | Breaking change: было 'split'. Downstream relying on integer counts — `importance_type='split'` explicit |
 | permutation importance / SHAP — не реализовано | `cadw.ml.gbdt` | v0.7.10+ / вне scope |
-| `shift`/`diff` с `on=col` — не поддержано | `CadwDataFrame` | сортировка + shift + ре-сортировка — v0.8.1 |
+| `shift`/`diff` on=col — single column (v0.8.2) | `_shift_on` | Multi-column on — v0.8.2a |
+| `groupby(...).shift(1, on='ts')` — не поддержано | `CadwDataFrame` | Per-group shift — v0.8.3+ |
 | `resample(freq)` — не поддержано | `CadwDataFrame` | timestamp parsing + bucket — v0.8.2 |
 | `ewm(ignore_na=False)` — не поддержано (только ignore_na=True semantics) | `ewm` (v0.8.0) | pandas default `ignore_na=False`; наша семантика: nulls skip state, output null для null row |
 | `_detect_heavy_keys` absolute min = 100 (v0.3.4) | skew detection | Без абсолютного минимума tiny data (5 строк) ложно флагалась как skew. §13.4/52b. |
@@ -2200,6 +2202,52 @@ breaking, если читать через slice. То же для dict (`spec.g
 Не реализуем сейчас: требует `sort_values` + `Reduce` на каждой
 перестановке feature, K×N passes. Для 100 features × 10^6 rows — дорого.
 В backlog, приоритет — ниже `resample`.
+
+**Эпизод 119 (shift(on=col) — 2 sorts, not dict).** v0.6.2b `shift`
+был positional — работал на физическом порядке строк. Для time-series
+это бессмысленно: пользователь часто имеет unsorted parquet.
+
+**Два подхода:**
+
+**(A) dict `{row_id → (col, k) → value}`** — один sort, accumulate в
+dict, потом zip. Но: **O(N) RAM** — нарушает memory contract. Для 10^7
+строк × d cols × 8 B = гигабайты.
+
+**(B) 2 external_sort** — sort by `[on, row_id]`, shift (deque O(k)),
+sort by `row_id` → original order. **O(k × #cols) RAM**, независимо от N.
+Цена — **2 полных I/O прохода** (sort). Для 10^6 строк ~2-3s.
+
+**Выбор — B.** Правильный по memory contract. Пользователь мог бы сделать
+`df.sort_values('ts').shift(1).sort_values('row_id')` сам — тоже 2 sort.
+`on=col` — convenience API, не speedup.
+
+**Row_id tie-break:** при duplicate `on` values — stable sort (row_id asc).
+Это **pandas semantics** для sort_values (stable по умолчанию). Документировано.
+
+**Implementing: re-chunking на zip.** `_iter_arrow_batches(batch_size=10k)`
+(original) + `ArrowIPCBatchReader(sorted_by_rowid)` (может иметь другие
+boundaries от external_sort). Re-chunk через accum + `Table.slice` —
+каждый batch выровнен. Гарантия: original и shifted имеют identical
+`num_rows` в каждом zip-batch. Иначе `RuntimeError`.
+
+**Урок:** для position-sensitive операций с sort-aware API — **не
+обходить memory contract** через dict. Даже если "просто dict" работает
+для 10^6, для 10^8 = OOM. 2 сорта — стандартный паттерн (используется
+в Dask, Spark sortWithinPartitions). Цена I/O приемлема; выгода —
+гарантия O(1) extra RAM.
+
+**Не в v0.8.2 (backlog):**
+- Multi-column `on=['ts', 'sensor']` — тривиально (key_columns list), но
+  требует валидации. v0.8.2a.
+- Per-group shift: `groupby('sensor').shift(1, on='ts')` — нужен
+  `HashShuffle` по group + sort по ts внутри group. v0.8.3+.
+- `shift(-k)` (lead) — направление: sort by `[on, row_id]` ascending,
+  shift backward = `shift(+k)` на reversed. То же 2 сорта + reverse.
+  v0.8.2a.
+
+**Следующее (v0.8.3):** `resample(freq)` — Sort by timestamp + bucket +
+halo buffer на границе bucket'а. Плюс `freq` parser (`'5min'` → 5*60s).
+~1 сессия, сложнее.
 
 ### 13.5. Открытые вопросы
 
