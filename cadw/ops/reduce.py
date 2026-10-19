@@ -40,6 +40,22 @@ class ReduceOp(ABC):
     @abstractmethod
     def state_nbytes(self, state: State) -> int: ...
 
+    def estimate_state_nbytes(self) -> "int | None":
+        """Upper bound on state size BEFORE init() (v0.5.1, P8 fix).
+
+        Called by `reduce()` for `MemoryGuard.check_state` *before*
+        `op.init()`, so the state must be estimable without allocation.
+
+        - Built-in ops override with known sizes (no allocation, O(1)).
+        - User ops should override — otherwise `MemoryGuard.
+          estimate_state_size` falls back to 1 MiB hardcode (P8 in
+          _FOR_PINGIS/REPORT.md, DECISIONS §9.2.4).
+        - Returning None means "use MemoryGuard fallback".
+
+        Contract: `estimate_state_nbytes() >= state_nbytes(init())`.
+        """
+        return None
+
 
 def reduce(
     batch_iter: Iterator[pa.RecordBatch],
@@ -54,12 +70,16 @@ def reduce(
     # d=10^5 (80 GB). HistogramOp(bins) — np.zeros(bins) — то же.
     # estimate_state_size знает про CovarianceOp (8+8d+8d²) и
     # HistogramOp (8*bins+16); для остальных — консервативный fallback.
-    _estimated = memory_guard.estimate_state_size(
-        type(op).__name__,
-        schema=None,
-        d=getattr(op, "d", None),
-        bins=getattr(op, "bins", 255),
-    )
+    # v0.5.1 (P8): prefer op.estimate_state_nbytes() when overridden;
+    # fall back to MemoryGuard.estimate_state_size for unknown ops.
+    _estimated = op.estimate_state_nbytes()
+    if _estimated is None:
+        _estimated = memory_guard.estimate_state_size(
+            type(op).__name__,
+            schema=None,
+            d=getattr(op, "d", None),
+            bins=getattr(op, "bins", 255),
+        )
     memory_guard.check_state(_estimated, name=f"{type(op).__name__}.estimated")
 
     state = op.init()
@@ -85,6 +105,9 @@ def reduce(
 # ---------------------------------------------------------------------------
 
 class CountOp(ReduceOp):
+
+    def estimate_state_nbytes(self) -> int:
+        return 16
     def __init__(self, column: str) -> None:
         self.column = column
 
@@ -111,6 +134,9 @@ class CountOp(ReduceOp):
 # ---------------------------------------------------------------------------
 
 class SumOp(ReduceOp):
+
+    def estimate_state_nbytes(self) -> int:
+        return 16
     """Сумма. Состояние — float64 (прототип; overflow int64 не обрабатывается)."""
 
     def __init__(self, column: str) -> None:
@@ -142,6 +168,9 @@ class SumOp(ReduceOp):
 # ---------------------------------------------------------------------------
 
 class MinMaxOp(ReduceOp):
+
+    def estimate_state_nbytes(self) -> int:
+        return 16
     def __init__(self, column: str, mode: str = "min") -> None:
         if mode not in ("min", "max"):
             raise ValueError("mode must be 'min' or 'max'")
@@ -188,6 +217,9 @@ class MinMaxOp(ReduceOp):
 # ---------------------------------------------------------------------------
 
 class MeanOp(ReduceOp):
+
+    def estimate_state_nbytes(self) -> int:
+        return 16
     def __init__(self, column: str) -> None:
         self.column = column
 
@@ -217,6 +249,9 @@ class MeanOp(ReduceOp):
 # ---------------------------------------------------------------------------
 
 class StdOp(ReduceOp):
+
+    def estimate_state_nbytes(self) -> int:
+        return 24
     """Параллельный Welford (Chan et al.). Численно устойчив к большому сдвигу."""
 
     def __init__(self, column: str, ddof: int = 1) -> None:
@@ -268,6 +303,9 @@ class StdOp(ReduceOp):
 # ---------------------------------------------------------------------------
 
 class CovarianceOp(ReduceOp):
+
+    def estimate_state_nbytes(self) -> int:
+        return 8 + 8 * self.d + 8 * self.d * self.d
     """Ковариационная матрица d×d. Состояние O(d²) — см. DECISIONS.md §5.4."""
 
     def __init__(self, columns: list[str]) -> None:
@@ -314,6 +352,9 @@ class CovarianceOp(ReduceOp):
 # ---------------------------------------------------------------------------
 
 class HistogramOp(ReduceOp):
+
+    def estimate_state_nbytes(self) -> int:
+        return 8 * self.bins + 16
     """Гистограмма. Требует фиксированных min_val/max_val (двухпроходный режим)."""
 
     def __init__(self, column: str, bins: int = 255,

@@ -850,6 +850,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `loc`/`.at`/`.iat` (v0.4.0c: label-based) | ✅ | 31 |
 | filter-compat index/set/reset (v0.4.0d) | ✅ | 16 |
 | `loc` open-endpoints + duplicate labels (v0.4.1) | ✅ | 22 |
+| **P2 + P8 RAM fixes (v0.5.1, from Pingis)** | ✅ | 15 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -917,6 +918,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `shape` на отфильтрованном `CadwDataFrame` — upper bound | `CadwDataFrame` | точное — `.count()` (сканирует) |
 | `df['a'] in [...]` через `==` возвращает `PredicateFilter`, не bool | `_ColumnProxy` | `df['a'].isin([...])` — кандидат v0.2; как в pandas |
 | `df[-5:]` (отрицательный slice) — не поддержано | `SliceFilter` | `step > 0`, `start >= 0`; для отрицательных — `count()` + пересчёт |
+| ~~P2: out_batches accumulation (join)~~ | ~~`_process_partition_pair`~~ | **закрыто v0.5.1**: streaming via `hash_join_streaming` |
+| ~~P8: 1 MiB hardcode в `estimate_state_size`~~ | ~~`reduce()`~~ | **закрыто v0.5.1**: `ReduceOp.estimate_state_nbytes()` |
 | `drop_duplicates` returns rows in partition-concatenation order | `drop_duplicates` (v0.3.0) | pandas-order: `.sort_values(...)` после. §13.4/48 |
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
@@ -1856,6 +1859,60 @@ monotonic + unique-for-slice». Мы следуем этой строгости 
 - `reset_index()` — «explode» multi-index в k колонок.
 
 **Следующее (v0.4.3): rolling/resample** — Sort + halo buffer.
+
+**Эпизод 63 (Pingis: P2 + P8 fixes).** Внешний мультиагентный
+аудит (`_FOR_PINGIS/`) нашёл 15 проблем RAM (P1–P15). Две самые
+показательные:
+- **P2**: `_process_partition_pair` возвращал `list[RecordBatch]` —
+  весь output 1:M join в RAM. Бенчмарк B1a: 100k×10k под 80 MB →
+  ΔRSS +140 MB = **2.5× бюджета**.
+- **P8**: `MemoryGuard.estimate_state_size` для custom `ReduceOp`
+  возвращал 1 MiB (хардкод). ML-прототипы (XTXOp, KMeansStepOp,
+  HistOp) получали warning; для state > 1 MiB — silently passed,
+  OOM после. Блокер ML-слоя.
+
+**v0.5.1 fixes:**
+
+- **P2 (streaming join):**
+  - `_process_partition_pair` → generator (yield вместо extend).
+  - `_left_preserve_with_nulls` → `_left_preserve_with_nulls_iter`
+    (streaming wrapper оставлен для совместимости).
+  - `_join_core` — общий setup, возвращает `(schema, iterator)`.
+  - `hash_join` — backward compat (собирает в Table).
+  - `hash_join_streaming` — NEW: пишет прямо в `ArrowIPCBatchWriter`,
+    возвращает `(schema, Path)`.
+  - `CadwDataFrame.merge` — использует `hash_join_streaming`, оборачивает
+    через `ArrowIPCBatchReader` + `Dataset.from_batches`, удаляет
+    промежуточный файл через `path.unlink(missing_ok=True)`.
+  - Peak: `max(build_partition) + probe_batch + writer_buffer` — **не
+    зависит от размера output**.
+
+- **P8 (state_bytes API):**
+  - `ReduceOp.estimate_state_nbytes() -> int | None` — метод ABC.
+    Default None (fallback на `MemoryGuard.estimate_state_size`).
+  - Built-in ops override: CountOp/SumOp/MinMaxOp/MeanOp → 16;
+    StdOp → 24; CovarianceOp → 8+8d+8d²; HistogramOp → 8bins+16.
+  - `reduce()` вызывает `op.estimate_state_nbytes()` **до** `op.init()`;
+    при None — fallback на `estimate_state_size` (старое поведение).
+  - Пользовательские ops могут override — это публичный контракт для ML.
+
+**Урок:** мультиагентный анализ дал **две независимые находки, которые
+мы сами пропустили**: (a) out_batches accumulation (2.5× OOM,
+бенчмарк — единственный способ увидеть); (b) хардкод 1 MiB в
+`estimate_state_size` блокировал ML. Обе — из класса «аудит горячих
+путей» — то, что мы не делали систематически. `_pingis/TASK.md` фиксирует
+этот процесс для будущих прогонов (после новых тегов, Arrow-версий,
+новых ops).
+
+**Второстепенно:** бенчмарк (RSS-сэмплер) — единственный способ
+подтвердить OOM, потому что `estimate` из модели ≠ реальный пик
+(эпизоды 42, 47). Мы должны включить RSS-сэмплер в собственные E2E-тесты
+(сейчас только `psutil` в e2e-join, но не в unit).
+
+**Roadmap после v0.5.1:** P1 (join без pandas), P3/P10 (groupby
+materialize), P5 (sort buffer), P6/P11 (to_pylist), P7 (модели с
+Python-overhead), P4 (heavy accum). Порядок — по стоимости/эффекту
+(сначала локальные, потом архитектурные).
 
 ### 13.5. Открытые вопросы
 

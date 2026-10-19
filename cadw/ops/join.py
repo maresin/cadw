@@ -1,21 +1,28 @@
 """
-Hash join: inner (v0.2.1), left (v0.2.2).
+Hash join: inner (v0.2.1), left (v0.2.2). Streaming path (v0.5.1, P2).
 
 Grace hash join: HashShuffle обеих сторон с одним seed → партиции с
 одинаковыми ключами → для каждой пары (left_p, right_p):
-  - build = меньшая партиция (по file size), materialize как pd.DataFrame;
-    check_state(build.nbytes);
-  - probe = другая, батчами; check_batch(probe_batch);
-  - проверка max_output_rows * probe_rows до pd.merge (защита от cartesian);
-  - null-ключи отбрасываются (SQL-семантика; pandas.merge по умолчанию
-    матчит NaN==NaN, что не то);
-  - pd.merge(how="inner", suffixes=...).
+  - build = меньшая партиция (inner) или right (left join); materialize.
+  - probe = другая; батчами.
+  - `_exact_actual_matches(probe)` ДО `pd.merge` (v0.2.5, §13.4/47) —
+    точная оценка `Σ_bc × pc` по общим ключам, а не cartesian.
+  - null-ключи отбрасываются (SQL semantics).
+  - `pd.merge(...)`.
 
-Ограничения v0.2.1:
-- how='inner' только.
-- on — общие колонки в обеих сторонах (по имени).
-- left_on/right_on, on=index — v0.2.2.
-- row_id не сохраняется (join создаёт новую идентичность).
+**v0.5.1 (P2 fix, DECISIONS §13.4/63):**
+- `_process_partition_pair` — generator (yield вместо накопления).
+- `_left_preserve_with_nulls_iter` — streaming вариант.
+- `_join_setup` — общая подготовка (validate, peek, shuffle) →
+  `(schema, iterator)`.
+- `hash_join` — backward compat (собирает output в `pa.Table`).
+- `hash_join_streaming` — пишет output потоково в IPC-файл,
+  возвращает `(schema, Path)`. Peak RAM **не зависит** от размера
+  output.
+
+Пик RAM на одну пару партиций:
+    max(build_partition) + probe_batch + writer_buffer
+а не `Σ output`.
 """
 from __future__ import annotations
 
@@ -29,6 +36,7 @@ import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from cadw.io.batch_reader import ArrowIPCBatchReader
+from cadw.io.batch_writer import ArrowIPCBatchWriter
 from cadw.ops.shuffle import hash_shuffle
 
 
@@ -78,11 +86,6 @@ def _safe_materialize_partition(
 
     Arrow IPC без сжатия: file size ≈ in-memory nbytes. Проверка stat()
     до list(reader) закрывает класс «materialize-before-check» (§11.4).
-
-    ВАЖНО: пустой файл (без record batches) НЕ 0 байт — Arrow IPC всегда
-    пишет schema-заголовок (~200-500 B). Возвращаем schema-correct
-    empty_table() с колонками, а не pa.schema([]) — иначе pd.merge
-    получит DataFrame без on-колонок → KeyError.
     """
     size = path.stat().st_size
     limit = int(memory_guard.available_bytes() * safety_ratio)
@@ -116,27 +119,21 @@ def _iter_probe_batches(path: Path) -> Iterable[pa.RecordBatch]:
         yield b.select(keep)
 
 
-def _left_preserve_with_nulls(
+def _left_preserve_with_nulls_iter(
     left_batches: Iterable[pa.RecordBatch],
     left_schema: pa.Schema,
     right_schema: pa.Schema,
     on: list[str],
     suffixes: tuple[str, str],
     memory_guard: MemoryGuard,
-) -> pa.Table:
-    """how='left' при пустом right: left preserved, right-колонки -> null.
-
-    Используется, когда right содержит 0 батчей: hash_shuffle не может
-    принять пустой вход (см. §6.7), а left join не требует shuffle, потому
-    что совпадений всё равно нет.
-    """
+):
+    """Streaming version (v0.5.1, P2): yields batches, not a Table."""
     on_set = set(on)
     right_rest = [c for c in right_schema.names if c not in on_set]
     overlap = {c for c in left_schema.names if c not in on_set} & set(right_rest)
 
     out_schema = _empty_result_schema(left_schema, right_schema, on, suffixes)
 
-    all_batches: list[pa.RecordBatch] = []
     for lb in left_batches:
         memory_guard.check_batch(lb, name="left_preserve.input")
         n = lb.num_rows
@@ -159,11 +156,25 @@ def _left_preserve_with_nulls(
             schema=out_schema,
         )
         if rb.num_rows > 0:
-            all_batches.append(rb)
+            yield rb
 
-    if not all_batches:
+
+def _left_preserve_with_nulls(
+    left_batches: Iterable[pa.RecordBatch],
+    left_schema: pa.Schema,
+    right_schema: pa.Schema,
+    on: list[str],
+    suffixes: tuple[str, str],
+    memory_guard: MemoryGuard,
+) -> pa.Table:
+    """Backward-compat wrapper (v0.5.1): collect to Table."""
+    out_schema = _empty_result_schema(left_schema, right_schema, on, suffixes)
+    batches = list(_left_preserve_with_nulls_iter(
+        left_batches, left_schema, right_schema, on, suffixes, memory_guard,
+    ))
+    if not batches:
         return pa.Table.from_batches([], schema=out_schema)
-    return pa.Table.from_batches(all_batches)
+    return pa.Table.from_batches(batches, schema=out_schema)
 
 
 def _process_partition_pair(
@@ -181,28 +192,21 @@ def _process_partition_pair(
     depth: int = 0,
     max_depth: int = 5,
     max_output_rows: int = 0,
-) -> list[pa.RecordBatch]:
-    """Обработать пару партиций (lp, rp) с учётом how.
+):
+    """Generator (v0.5.1, P2): yields output batches, not list.
 
-    Если хотя бы одна из партиций не влезает в бюджет (stat > available*0.5),
-    обе разбиваются hash_shuffle с seed=depth+1 на num_partitions_recurse
-    подпартиций, и рекурсия продолжается для соответствующих подпар.
-
-    Иначе: build = (right для left join; меньшая для inner), probe = другая;
-    _safe_materialize_partition для build; probe батчами.
+    Обход дерева партиций. Oversize → recursive `hash_shuffle(seed=depth+1)`
+    + recursion на подпартициях. Иначе: build/probe + `_exact_actual_matches`
+    + pd.merge; каждый output-batch yield'ится сразу.
     """
     lp_size = left_path.stat().st_size if left_path.exists() else 0
     rp_size = right_path.stat().st_size if right_path.exists() else 0
     if lp_size == 0 and rp_size == 0:
-        return []
-    if lp_size == 0:
-        if how == "inner":
-            return []
-        # how='left': left preserved, right null (right пуст)
-        # Обрабатываем через _left_preserve_with_nulls? Но здесь есть
-        # только одна партиция left. Проще: обработать как build_df пустой.
+        return
+    if lp_size == 0 and how == "inner":
+        return
     if rp_size == 0 and how == "inner":
-        return []
+        return
 
     limit = int(memory_guard.available_bytes() * 0.5)
     need_split = (lp_size > limit) or (rp_size > limit)
@@ -214,7 +218,6 @@ def _process_partition_pair(
                 f"lp={lp_size} B, rp={rp_size} B, limit={limit} B. "
                 f"Likely skew (DECISIONS §11.4)."
             )
-        # Разбиваем обе стороны согласованно.
         sub_left_dir = spill_dir / f"resplit_l_d{depth}_{left_path.stem}"
         sub_right_dir = spill_dir / f"resplit_r_d{depth}_{right_path.stem}"
         sub_left_dir.mkdir(parents=True, exist_ok=True)
@@ -242,21 +245,17 @@ def _process_partition_pair(
             memory_guard, sub_right_dir, hash_seed=depth + 1, log=False,
         )
 
-        out: list[pa.RecordBatch] = []
         for sub_l, sub_r in zip(sub_left, sub_right):
-            out.extend(
-                _process_partition_pair(
-                    sub_l, sub_r, left_schema, right_schema, on, suffixes,
-                    memory_guard, spill_dir, how=how,
-                    num_partitions_recurse=num_partitions_recurse,
-                    depth=depth + 1, max_depth=max_depth,
-                    max_output_rows=max_output_rows,
-                )
+            yield from _process_partition_pair(
+                sub_l, sub_r, left_schema, right_schema, on, suffixes,
+                memory_guard, spill_dir, how=how,
+                num_partitions_recurse=num_partitions_recurse,
+                depth=depth + 1, max_depth=max_depth,
+                max_output_rows=max_output_rows,
             )
-        return out
+        return
 
-    # Обе партиции влезают (или одна пуста).
-    # Выбор build/probe.
+    # Both fit (or one empty).
     if how == "inner":
         if lp_size <= rp_size:
             build_path, probe_path = left_path, right_path
@@ -270,15 +269,11 @@ def _process_partition_pair(
 
     build_table = _safe_materialize_partition(build_path, memory_guard)
     if build_table is None:
-        # Не должно произойти: мы проверили stat выше, но на случай
-        # гонки/сжатия — уходим в рекурсию.
         if depth >= max_depth:
             raise MemoryLimitExceeded(
                 f"hash_join: _safe_materialize returned None at depth={depth}, "
                 f"path={build_path.name}; max_depth exhausted."
             )
-        # Принудительный split через рекурсию (без повторного stat).
-        # Упрощённо: поднимаем MemoryLimitExceeded, чтобы не дублировать логику.
         raise MemoryLimitExceeded(
             f"hash_join: build partition {build_path.name} still too large "
             f"after stat check (size={build_path.stat().st_size} B). "
@@ -288,12 +283,13 @@ def _process_partition_pair(
     build_df = _drop_null_keys(build_table.to_pandas(), list(on))
     if len(build_df) == 0:
         if how == "inner":
-            return []
+            return
         if build_df.shape[1] == 0:
             right_rest = [c for c in right_schema.names if c not in on]
             build_df = pd.DataFrame(columns=list(on) + right_rest)
 
-    # Точная оценка совпадений: build_counts × probe_counts (не cartesian).
+    # v0.2.5 (§13.4/47): exact-match estimate. build_counts один раз;
+    # per-probe batch — merge counts. Σ bc*pc = точный размер output.
     build_counts_df = None
     if len(build_df) > 0 and len(on) > 0:
         try:
@@ -307,7 +303,6 @@ def _process_partition_pair(
             build_counts_df = None
 
     def _exact_actual_matches(probe_df: pd.DataFrame) -> int:
-        """Точное число совпадений build × probe. Fallback — cartesian."""
         if len(probe_df) == 0 or len(build_df) == 0:
             return 0
         if build_counts_df is None:
@@ -328,7 +323,6 @@ def _process_partition_pair(
         except Exception:
             return len(build_df) * len(probe_df)
 
-    out_batches: list[pa.RecordBatch] = []
     empty_schema = _empty_result_schema(
         left_schema, right_schema, on, suffixes
     )
@@ -344,7 +338,6 @@ def _process_partition_pair(
                 continue
         # how='left': probe preserved.
 
-        # Точное число строк, которое pd.merge материализует (не cartesian).
         actual_matches = _exact_actual_matches(probe_df)
         if actual_matches > max_output_rows:
             raise MemoryLimitExceeded(
@@ -386,9 +379,114 @@ def _process_partition_pair(
         memory_guard.check_state(
             out_table.nbytes, name=f"join_output({probe_path.name})"
         )
-        out_batches.extend(out_table.to_batches())
+        for b in out_table.to_batches():
+            yield b
 
-    return out_batches
+
+def _join_setup(
+    left_batches: Iterable[pa.RecordBatch],
+    right_batches: Iterable[pa.RecordBatch],
+    left_schema: pa.Schema,
+    right_schema: pa.Schema,
+    on: list[str],
+    memory_guard: MemoryGuard,
+    spill_dir: Path,
+    *,
+    how: str,
+    suffixes: tuple[str, str],
+    num_partitions: int,
+    hash_seed: int,
+    max_output_rows: Optional[int],
+):
+    """Общая подготовка: validate, peek, shuffle, → (schema, iterator).
+
+    Не собирает output — только setup. Используется и `hash_join`
+    (collect), и `hash_join_streaming` (write to disk).
+    """
+    if how not in ("inner", "left"):
+        raise NotImplementedError(
+            f"hash_join: how={how!r}; only 'inner' and 'left' supported "
+            f"in v0.5.x. 'right'/'outer' — v0.6."
+        )
+    if not on:
+        raise ValueError("hash_join: on must be non-empty")
+    for c in on:
+        if c not in left_schema.names:
+            raise KeyError(f"hash_join: on column {c!r} not in left schema")
+        if c not in right_schema.names:
+            raise KeyError(f"hash_join: on column {c!r} not in right schema")
+
+    left_rest = [c for c in left_schema.names if c not in on]
+    right_rest = [c for c in right_schema.names if c not in on]
+
+    left_it = iter(left_batches)
+    right_it = iter(right_batches)
+    try:
+        first_left = next(left_it)
+    except StopIteration:
+        empty_schema = _empty_result_schema(
+            left_schema, right_schema, on, suffixes
+        )
+        return empty_schema, iter([])
+    left_batches = chain([first_left], left_it)
+    try:
+        first_right = next(right_it)
+        right_batches = chain([first_right], right_it)
+    except StopIteration:
+        empty_schema = _empty_result_schema(
+            left_schema, right_schema, on, suffixes
+        )
+        if how == "inner":
+            return empty_schema, iter([])
+        return empty_schema, _left_preserve_with_nulls_iter(
+            left_batches, left_schema, right_schema, list(on), suffixes,
+            memory_guard,
+        )
+
+    spill_dir = Path(spill_dir)
+    spill_dir.mkdir(parents=True, exist_ok=True)
+    left_paths = hash_shuffle(
+        left_batches, list(on), left_rest, num_partitions, memory_guard,
+        spill_dir / "join_left", hash_seed=hash_seed, log=False,
+    )
+    right_paths = hash_shuffle(
+        right_batches, list(on), right_rest, num_partitions, memory_guard,
+        spill_dir / "join_right", hash_seed=hash_seed, log=False,
+    )
+
+    if max_output_rows is None:
+        max_output_rows = max(
+            1, int(memory_guard.available_bytes() * 0.3 / 256)
+        )
+    empty_schema = _empty_result_schema(
+        left_schema, right_schema, on, suffixes
+    )
+
+    def _iter_output():
+        for p in range(num_partitions):
+            lp = left_paths[p] if left_paths[p].exists() else None
+            rp = right_paths[p] if right_paths[p].exists() else None
+            if lp is None and rp is None:
+                continue
+            if how == "inner":
+                if lp is None or rp is None:
+                    continue
+            else:  # left
+                if lp is None:
+                    continue
+            if how == "left" and rp is None:
+                yield from _left_preserve_with_nulls_iter(
+                    _iter_probe_batches(lp), left_schema, right_schema,
+                    list(on), suffixes, memory_guard,
+                )
+                continue
+            yield from _process_partition_pair(
+                lp, rp, left_schema, right_schema, on, suffixes,
+                memory_guard, spill_dir, how=how,
+                max_output_rows=max_output_rows,
+            )
+
+    return empty_schema, _iter_output()
 
 
 def hash_join(
@@ -406,120 +504,55 @@ def hash_join(
     hash_seed: int = 0,
     max_output_rows: Optional[int] = None,
 ) -> pa.Table:
-    """Grace hash join. how ∈ {'inner', 'left'} (v0.2.2).
+    """Backward-compat wrapper (v0.5.1): collects streaming output to Table.
 
-    - how='inner': build = меньшая партиция (по file size); NULL-ключи
-      отбрасываются с обеих сторон (SQL).
-    - how='left':  build = right всегда (left — preserved); NULL-ключи
-      отбрасываются только из build (right), probe (left) сохраняется
-      с NULL в right-колонках.
+    For memory-bounded callers use `hash_join_streaming`.
     """
-    if how not in ("inner", "left"):
-        raise NotImplementedError(
-            f"hash_join: how={how!r}; only 'inner' and 'left' supported "
-            f"in v0.2.x. 'right'/'outer' — v0.3."
-        )
-    if not on:
-        raise ValueError("hash_join: on must be non-empty")
-    for c in on:
-        if c not in left_schema.names:
-            raise KeyError(f"hash_join: on column {c!r} not in left schema")
-        if c not in right_schema.names:
-            raise KeyError(f"hash_join: on column {c!r} not in right schema")
-
-    left_rest = [c for c in left_schema.names if c not in on]
-    right_rest = [c for c in right_schema.names if c not in on]
-
-    # Peek: пустой вход -> пустой результат
-    left_it = iter(left_batches)
-    right_it = iter(right_batches)
-    try:
-        first_left = next(left_it)
-    except StopIteration:
-        return pa.Table.from_batches(
-            [], schema=_empty_result_schema(left_schema, right_schema, on, suffixes)
-        )
-    left_batches = chain([first_left], left_it)
-    try:
-        first_right = next(right_it)
-        right_batches = chain([first_right], right_it)
-    except StopIteration:
-        if how == "inner":
-            return pa.Table.from_batches(
-                [], schema=_empty_result_schema(left_schema, right_schema, on, suffixes)
-            )
-        # how='left': right пуст -> left preserved с null right-cols
-        # Без hash_shuffle (пустой вход не принимается, §6.7).
-        return _left_preserve_with_nulls(
-            left_batches, left_schema, right_schema, list(on), suffixes,
-            memory_guard,
-        )
-
-    spill_dir = Path(spill_dir)
-    spill_dir.mkdir(parents=True, exist_ok=True)
-    left_paths = hash_shuffle(
-        left_batches, list(on), left_rest, num_partitions, memory_guard,
-        spill_dir / "join_left", hash_seed=hash_seed, log=False,
+    schema, it = _join_setup(
+        left_batches, right_batches, left_schema, right_schema, on,
+        memory_guard, spill_dir, how=how, suffixes=suffixes,
+        num_partitions=num_partitions, hash_seed=hash_seed,
+        max_output_rows=max_output_rows,
     )
-    right_paths = hash_shuffle(
-        right_batches, list(on), right_rest, num_partitions, memory_guard,
-        spill_dir / "join_right", hash_seed=hash_seed, log=False,
+    batches = list(it)
+    if not batches:
+        return pa.Table.from_batches([], schema=schema)
+    return pa.Table.from_batches(batches, schema=schema)
+
+
+def hash_join_streaming(
+    left_batches: Iterable[pa.RecordBatch],
+    right_batches: Iterable[pa.RecordBatch],
+    left_schema: pa.Schema,
+    right_schema: pa.Schema,
+    on: list[str],
+    memory_guard: MemoryGuard,
+    spill_dir: Path,
+    *,
+    how: str = "inner",
+    suffixes: tuple[str, str] = ("_x", "_y"),
+    num_partitions: int = 8,
+    hash_seed: int = 0,
+    max_output_rows: Optional[int] = None,
+) -> tuple[pa.Schema, Path]:
+    """Streaming join (v0.5.1, P2). Writes output to IPC; returns
+    (schema, path). Peak RAM ≠ f(output size).
+    """
+    schema, it = _join_setup(
+        left_batches, right_batches, left_schema, right_schema, on,
+        memory_guard, spill_dir, how=how, suffixes=suffixes,
+        num_partitions=num_partitions, hash_seed=hash_seed,
+        max_output_rows=max_output_rows,
     )
-
-    if max_output_rows is None:
-        # Консервативная оценка: 0.3 * available / 256 B на строку
-        max_output_rows = max(
-            1, int(memory_guard.available_bytes() * 0.3 / 256)
-        )
-    empty_schema = _empty_result_schema(left_schema, right_schema, on, suffixes)
-    all_batches: list[pa.RecordBatch] = []
-
-    for p in range(num_partitions):
-        lp = left_paths[p] if left_paths[p].exists() else None
-        rp = right_paths[p] if right_paths[p].exists() else None
-        if lp is None and rp is None:
-            continue
-        # Для inner: если хотя бы одна сторона пуста — пропускаем пару.
-        if how == "inner":
-            if lp is None or rp is None:
-                continue
-        else:  # left
-            if lp is None:
-                continue
-            # rp может быть None (пустая right) — _process_partition_pair
-            # обработает как build_df пустой.
-
-        # Если rp is None для left, создадим пустой временный файл? Нет,
-        # _process_partition_pair принимает Path; для None используем
-        # заглушку с пустым файлом. Проще: обработать отдельно.
-        if how == "left" and rp is None:
-            # left preserved, right null: используем _left_preserve_with_nulls
-            for b in _iter_probe_batches(lp):
-                # Собираем left-батчи и добавляем null right-колонки
-                # (упрощённо: вызываем _left_preserve_with_nulls на одном батче)
-                pass
-            # Пока оставим как есть: _process_partition_pair с rp=lp?
-            # Нет. Реализуем через _left_preserve_with_nulls на одном lp.
-            # Для простоты: создадим пустой right-файл с нужной схемой.
-            # Это редкий случай; в v0.2.2 оставим через _left_preserve_with_nulls
-            # на всех left_paths сразу (см. ниже).
-            all_batches.extend(
-                _left_preserve_with_nulls(
-                    _iter_probe_batches(lp), left_schema, right_schema,
-                    list(on), suffixes, memory_guard,
-                ).to_batches()
-            )
-            continue
-
-        all_batches.extend(
-            _process_partition_pair(
-                lp, rp, left_schema, right_schema, on, suffixes,
-                memory_guard, spill_dir, how=how,
-                max_output_rows=max_output_rows,
-            )
-        )
-
-    return pa.Table.from_batches(all_batches)
+    out_path = Path(spill_dir) / "join_output.arrow"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = ArrowIPCBatchWriter(str(out_path), schema)
+    try:
+        for b in it:
+            writer.write_batch(b)
+    finally:
+        writer.close()
+    return schema, out_path
 
 
 def inner_join(
@@ -536,12 +569,11 @@ def inner_join(
     hash_seed: int = 0,
     max_output_rows: Optional[int] = None,
 ) -> pa.Table:
-    """Inner join. Обёртка над hash_join(how='inner')."""
     return hash_join(
         left_batches, right_batches, left_schema, right_schema, on,
-        memory_guard, spill_dir,
-        how="inner", suffixes=suffixes, num_partitions=num_partitions,
-        hash_seed=hash_seed, max_output_rows=max_output_rows,
+        memory_guard, spill_dir, how="inner", suffixes=suffixes,
+        num_partitions=num_partitions, hash_seed=hash_seed,
+        max_output_rows=max_output_rows,
     )
 
 
@@ -559,10 +591,9 @@ def left_join(
     hash_seed: int = 0,
     max_output_rows: Optional[int] = None,
 ) -> pa.Table:
-    """Left join. Обёртка над hash_join(how='left')."""
     return hash_join(
         left_batches, right_batches, left_schema, right_schema, on,
-        memory_guard, spill_dir,
-        how="left", suffixes=suffixes, num_partitions=num_partitions,
-        hash_seed=hash_seed, max_output_rows=max_output_rows,
+        memory_guard, spill_dir, how="left", suffixes=suffixes,
+        num_partitions=num_partitions, hash_seed=hash_seed,
+        max_output_rows=max_output_rows,
     )

@@ -32,5 +32,6 @@ snapshot_*.py
 main.py
 
 # others
-.pingis/
+.pingis/*
+!.pingis/TASK.md
 _FOR_PINGIS/

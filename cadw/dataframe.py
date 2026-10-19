@@ -45,7 +45,7 @@ from cadw.indexers import (
     _IAtIndexer,
 )
 from cadw.ops.groupby import groupby_aggregate
-from cadw.ops.join import hash_join
+from cadw.ops.join import hash_join, hash_join_streaming
 from cadw.ops.sort import external_sort
 from cadw.ops.dedup import drop_duplicates as _ops_drop_duplicates
 from cadw.ops.rank import compute_ranks_to_disk, VALID_METHODS
@@ -1075,7 +1075,10 @@ class CadwDataFrame:
             if num_partitions is None:
                 num_partitions = 8
 
-        result_table = hash_join(
+        # v0.5.1 (P2): use streaming path — output written to disk
+        # batch-by-batch, never accumulated in RAM. Only the resulting
+        # Dataset is built from IPC reader (also streaming).
+        out_schema, out_path = hash_join_streaming(
             self._iter_filtered_batches(),
             right._iter_filtered_batches(),
             left_schema,
@@ -1088,7 +1091,19 @@ class CadwDataFrame:
             num_partitions=num_partitions,
             max_output_rows=max_output_rows,
         )
-        return self._wrap_result_table(result_table)
+        try:
+            new_ds = Dataset.from_batches(
+                out_schema,
+                ArrowIPCBatchReader(str(out_path), None),
+                self._new_dataset_dir(),
+            )
+        finally:
+            out_path.unlink(missing_ok=True)
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
 
     # ---------------- write ----------------
 

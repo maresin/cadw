@@ -89,6 +89,59 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.5.1] — 2026-10-19
+
+По результатам мультиагентного анализа Pingis (`_FOR_PINGIS/REPORT.md`):
+P2 (S1) + P8 (S2).
+
+### Исправлено
+- **P2 (S1, streaming join):**
+  - `_process_partition_pair` — теперь generator (`yield` вместо
+    `out_batches.extend(...)`).
+  - `_left_preserve_with_nulls_iter` — streaming-версия.
+  - `_join_core` — общий setup (validate, peek, shuffle) → `(schema, iter)`.
+  - `hash_join_streaming(...) -> (schema, Path)` — **NEW**: пишет
+    выходные батчи напрямую в `ArrowIPCBatchWriter`. Peak RAM =
+    `max(build_partition) + probe_batch + writer_buffer`, **не зависит
+    от размера output**.
+  - `CadwDataFrame.merge` использует `hash_join_streaming`; промежуточный
+    `.arrow` удаляется после `Dataset.from_batches`.
+  - `hash_join(...)` (старый API) сохраняет семантику — собирает
+    streaming-output в `pa.Table` (backward compat).
+
+- **P8 (S2, state_bytes API):**
+  - `ReduceOp.estimate_state_nbytes() -> int | None` — метод ABC
+    (default None → fallback на `MemoryGuard.estimate_state_size`).
+  - Built-in ops override: `CountOp`/`SumOp`/`MinMaxOp`/`MeanOp` → 16;
+    `StdOp` → 24; `CovarianceOp` → `8+8d+8d²`; `HistogramOp` → `8bins+16`.
+  - `reduce()` вызывает `op.estimate_state_nbytes()` **до** `op.init()`.
+  - User `ReduceOp` can override — публичный контракт для ML-слоя.
+
+### Добавлено
+- `cadw.ops.hash_join_streaming` — streaming join API.
+- `tests/test_reduce_state_bytes.py` — 8 тестов (built-in + custom +
+  fallback + oversized-state-rejects-before-init).
+- `tests/test_join_streaming.py` — 10 тестов (generator, disk write,
+  incremental batches, backward compat, merge uses streaming, cleanup,
+  empty input).
+- `.pingis/TASK.md` — periodic analysis task template.
+- `.gitignore`: exception для `.pingis/TASK.md`.
+
+### Изменено
+- `test_join_oom_guard.py::test_oversize_partition_raises_with_max_depth_zero`
+  — `next(gen)` вместо `gen(...)` (generator).
+
+### Ожидаемый эффект
+- Join B1a (100k × 10k под 80 MB) → Δpeak с ~140 MB до ≤ 80 MB (цель).
+- ML custom `ReduceOp` (XTXOp, KMeansStepOp, HistOp) не получают
+  warning про 1 MiB; правильный state-размер.
+
+### Ограничения (v0.5.1, §11.5)
+- P1 (join `to_pandas`/`pd.merge`) — отдельный патч (v0.5.2).
+- P3/P4/P5/P6/P7/P10/P11/P12/P14 — в roadmap после v0.5.2.
+- `hash_join` (не-streaming) всё ещё может OOM при большом output —
+  используйте `hash_join_streaming` или `CadwDataFrame.merge`.
+
 ## [0.4.1] — 2026-10-19
 
 ### Добавлено

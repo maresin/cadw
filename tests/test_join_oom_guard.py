@@ -141,12 +141,13 @@ def test_oversize_partition_raises_with_max_depth_zero(tmp_path):
     left_schema = pa.schema([("k", pa.int64()), ("a", pa.int64())])
     right_schema = pa.schema([("k", pa.int64()), ("b", pa.int64())])
 
+    # v0.5.1: _process_partition_pair is now a generator; trigger body.
     with pytest.raises(MemoryLimitExceeded, match="max_depth"):
-        _process_partition_pair(
+        next(_process_partition_pair(
             lp, rp, left_schema, right_schema, ["k"], ("_x", "_y"),
             guard, tmp_path / "spill", how="inner",
             depth=0, max_depth=0, max_output_rows=10**9,
-        )
+        ))
 
 
 # ---------- behavior: рекурсия при переполнении (с большим num_partitions) ----------
