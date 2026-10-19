@@ -39,6 +39,7 @@ from cadw.ops.join import hash_join
 from cadw.ops.sort import external_sort
 from cadw.ops.dedup import drop_duplicates as _ops_drop_duplicates
 from cadw.ops.rank import compute_ranks_to_disk, VALID_METHODS
+from cadw.ops.quantile import quantile as _ops_quantile
 
 
 class _ColumnProxy:
@@ -574,6 +575,42 @@ class CadwDataFrame:
             new_ds,
             memory_guard=self._memory_guard,
             spill_dir=self._spill_dir,
+        )
+
+    # ---------------- quantile ----------------
+
+    def quantile(
+        self,
+        column: str,
+        q: float | Sequence[float],
+        *,
+        interpolation: str = "linear",
+    ) -> float | list[float]:
+        """Quantile(s) of a single column (v0.3.3).
+
+        - q: scalar (returns float) или list (returns list[float]) ∈ [0, 1].
+        - interpolation='linear' (pandas default; v0.3.3 only).
+        - skipna=True (nulls не участвуют в n_valid и позициях).
+
+        Sort: всегда ascending (квантиль от порядка не зависит).
+
+        Для all-null или empty — NaN (или list of NaN).
+
+        Другие интерполяции ('lower'/'higher'/'nearest'/'midpoint') —
+        v0.3.4.
+        """
+        if column not in self._columns:
+            raise KeyError(
+                f"quantile: column {column!r} not in columns {self._columns}"
+            )
+        return _ops_quantile(
+            self._iter_filtered_batches(),
+            column=column,
+            q=q,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "quantile",
+            interpolation=interpolation,
+            log=False,
         )
 
     # ---------------- merge ----------------

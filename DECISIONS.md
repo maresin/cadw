@@ -842,7 +842,8 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `CadwDataFrame.merge` + `JoinMemoryModel` (v0.2.4) | ✅ | 8 |
 | E2E join (v0.2.5: 100k×10k, skew, left) | ✅ | 3 slow |
 | `drop_duplicates` (v0.3.0: HashShuffle + local pandas) | ✅ | 19 |
-| `rank` (v0.3.1/3.2: Sort + stream; first/min/dense/max/last/average) | ✅ | 35 |
+| `rank` (v0.3.1/3.2: Sort + stream; first/min/dense/max/last/average) | ✅ | 34 |
+| `quantile` (v0.3.3: Sort + indexed lookup; scalar q, linear) | ✅ | 20 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -913,6 +914,7 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `drop_duplicates` returns rows in partition-concatenation order | `drop_duplicates` (v0.3.0) | pandas-order: `.sort_values(...)` после. §13.4/48 |
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
+| `quantile` без list q? — НЕТ, list q поддерживается. Без других interpolations ('lower'/'higher'/'nearest'/'midpoint') | `quantile` (v0.3.3) | v0.3.4 — добавление других interpolations (тривиально: другие формулы на v_lo/v_hi). List q уже работает. §13.4/51 |
 | `rank` nulls участвуют как значения (pandas skipna не поддерживается) | `rank` (v0.3.1) | v0.3.2: skip nulls (аналог pandas `rank(na_option='keep')`) |
 
 **Политика ML (после патча 09).** CADW **не является ML-фреймворком**.
@@ -1366,6 +1368,42 @@ Pandas `rank(skipna=True)` → NaN ranks для null строк. Наш MVP эт
 Bufferable методы — O(max tie group size), где max — параметр данных,
 не бюджета; для pathological данных = O(N). Разделение по методам
 делает ограничение явным.
+
+**Эпизод 51 (quantile: только что материализовали — что дальше).**
+`quantile` — композиция `external_sort` + streamed indexed lookup по
+позициям. Ключевая идея: **позиции квантилей зависят только от n_valid
+и q**; сканируя sorted поток, мы собираем значения на фиксированных
+позициях `{lo_i, hi_i}`. Early exit при `pos > max(targets)` — если все
+q маленькие (`q=0.1`), не читаем 90% файла.
+
+**Порядок операций:** sort *до* count (не наоборот) — потому что sort
+это один поток, в котором мы параллельно считаем `n_valid` (side-effect
+счётчика в генераторе). Иначе нужно два прохода по входным batches
+(дорого — данные читаются с диска). Это оптимизация: сортируем +
+считаем в одном проходе; затем второй проход — по sorted (I/O на диск
+уже сделан).
+
+**Nulls:** `skipna=True` — nulls не участвуют в n и позициях. `arr.
+to_pylist()` даёт `None` — пропускаем, `pos` инкрементится только на
+valid. Это делает `n_valid` = число non-null, и `idx = q*(n_valid-1)`
+корректно покрывает valid-only позиции.
+
+**Interpolation:** в v0.3.3 только `'linear'` (pandas default). Другие
+('lower'/'higher'/'nearest'/'midpoint') — те же v_lo/v_hi, другие
+формулы. Отложены из-за объёма тестов: каждый вариант — 5+ тестов;
+2×20 строк vs 6×20 строк — разница ощутима, но не в функциональности.
+v0.3.4: 4 интерполяции + их комбинации с list q.
+
+**Урок:** «работает для scalar q + linear» — это 80% случаев. Оставшиеся
+20% (list q, other interp) — расширение, не переделка. МVP: только
+базовый путь, документировать остальное как v0.3.4. Для out-of-core
+это критично: каждая новая формула — новый раунд тестов на память,
+на интерполяцию на границах (q=0, q=1), на nulls.
+
+**Sort-or-ascending-only:** quantile не имеет `ascending` — квантили
+инвариантны к порядку сортировки (это про значения, не про позиции в
+исходном датасете). `q=0` = min, `q=1` = max; при desc-sort v[0] = max
+— пришлось бы инвертировать `idx → n_valid-1-idx`. Проще всегда asc.
 
 ### 13.5. Открытые вопросы
 

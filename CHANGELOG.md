@@ -89,6 +89,40 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.3.3] — 2026-10-19
+
+### Добавлено
+- `CadwDataFrame.quantile(column, q, interpolation='linear')`:
+  scalar q → `float`; list q → `list[float]`.
+  - `q ∈ [0, 1]`.
+  - `interpolation='linear'` (pandas default; v0.3.3 only).
+  - `skipna=True` (nulls не участвуют).
+  - Sort: всегда ascending (квантиль инвариантен к порядку).
+- `cadw.ops.quantile.quantile(batch_iter, column, q, mg, spill_dir,
+  interpolation='linear')` — runtime.
+- Экспорт: `cadw.quantile`, `cadw.ops.quantile`.
+
+### Алгоритм
+- Pass 1: external_sort по `column` (ascending) + side-effect count
+  `n_valid` (один проход по входам, без двойного I/O).
+- Positions: `idx_i = q_i*(n_valid-1)`; `lo_i = floor`, `hi_i = ceil`,
+  `frac_i = idx_i - lo_i`.
+- Pass 2: streaming scan sorted, dict `{pos → value}` для
+  unique(`lo_i`, `hi_i`). Early exit при `pos > max(targets)`.
+- Interpolation 'linear': `v_lo + frac*(v_hi - v_lo)`.
+
+### Ограничения (v0.3.3, §11.5)
+- **interpolation**: `'lower'/'higher'/'nearest'/'midpoint'` — v0.3.4.
+- **skipna=False**: не поддерживается; nulls всегда пропускаются.
+- **non-numeric columns**: `linear` требует numeric; для строк —
+  `NotImplementedError` (см. v0.3.4 `lower`/`higher`).
+
+### Тесты
+- 20 тестов в `test_quantile.py`: median/min/max, matches numpy для
+  5 q, scalar vs list return, n=1, nulls (skip, all-null), after filter,
+  pandas-equivalence (с/без nulls), errors (missing/invalid q/invalid
+  interp/empty list).
+
 ## [0.3.2] — 2026-10-19
 
 ### Добавлено
