@@ -118,12 +118,211 @@ def test_loc_slice_missing_hi_raises(tmp_path):
         df.loc["b":"zzz"]
 
 
-def test_loc_slice_none_endpoint_raises(tmp_path):
+def test_loc_slice_open_start(tmp_path):
+    """v0.4.1: loc[:'c'] — от начала до c включительно."""
     df = make_df(tmp_path).set_index("k", drop=False)
-    with pytest.raises(NotImplementedError, match="full-open"):
-        df.loc[:"c"]
-    with pytest.raises(NotImplementedError, match="full-open"):
-        df.loc["c":]
+    sub = df.loc[:"c"]
+    out = tmp_path / "o.parquet"
+    sub.write_parquet(out)
+    rows = pq.read_table(out).to_pylist()
+    assert [r["k"] for r in rows] == ["a", "b", "c"]
+
+
+def test_loc_slice_open_stop(tmp_path):
+    """v0.4.1: loc['c':] — от c до конца."""
+    df = make_df(tmp_path).set_index("k", drop=False)
+    sub = df.loc["c":]
+    out = tmp_path / "o.parquet"
+    sub.write_parquet(out)
+    rows = pq.read_table(out).to_pylist()
+    assert [r["k"] for r in rows] == ["c", "d", "e"]
+
+
+def test_loc_slice_open_both(tmp_path):
+    """v0.4.1: loc[:] — все строки."""
+    df = make_df(tmp_path).set_index("k", drop=False)
+    sub = df.loc[:]
+    out = tmp_path / "o.parquet"
+    sub.write_parquet(out)
+    rows = pq.read_table(out).to_pylist()
+    assert [r["k"] for r in rows] == ["a", "b", "c", "d", "e"]
+
+
+def test_loc_slice_open_start_missing_raises(tmp_path):
+    df = make_df(tmp_path).set_index("k", drop=False)
+    with pytest.raises(KeyError, match="not in index"):
+        df.loc[:"zzz"]
+
+
+def test_loc_slice_open_stop_missing_raises(tmp_path):
+    df = make_df(tmp_path).set_index("k", drop=False)
+    with pytest.raises(KeyError, match="not in index"):
+        df.loc["zzz":]
+
+
+def test_loc_slice_descending(tmp_path):
+    """v0.4.1: descending monotonic index — loc['b':'d'] returns d,c,b."""
+    df = make_df(tmp_path, data={
+        "k": ["e", "d", "c", "b", "a"],
+        "v": [50, 40, 30, 20, 10],
+    }).set_index("k", drop=False)
+    # descending index ['e','d','c','b','a']
+    sub = df.loc["b":"d"]
+    out = tmp_path / "o.parquet"
+    sub.write_parquet(out)
+    rows = pq.read_table(out).to_pylist()
+    assert [r["k"] for r in rows] == ["d", "c", "b"]
+
+
+def test_loc_slice_descending_open(tmp_path):
+    """descending + open: loc[:'c'] → ['e','d','c']; loc['c':] → ['c','b','a']."""
+    df = make_df(tmp_path, data={
+        "k": ["e", "d", "c", "b", "a"],
+        "v": [50, 40, 30, 20, 10],
+    }).set_index("k", drop=False)
+    sub1 = df.loc[:"c"]
+    sub2 = df.loc["c":]
+    out1 = tmp_path / "o1.parquet"
+    out2 = tmp_path / "o2.parquet"
+    sub1.write_parquet(out1)
+    sub2.write_parquet(out2)
+    assert [r["k"] for r in pq.read_table(out1).to_pylist()] == ["e", "d", "c"]
+    assert [r["k"] for r in pq.read_table(out2).to_pylist()] == ["c", "b", "a"]
+
+
+def test_loc_slice_non_monotonic_raises(tmp_path):
+    """Не monotonic index → NotImplementedError на slice."""
+    df = make_df(tmp_path, data={
+        "k": ["c", "a", "b"],
+        "v": [30, 10, 20],
+    }).set_index("k", drop=False)
+    with pytest.raises(NotImplementedError, match="monotonic"):
+        df.loc["a":"b"]
+
+
+# ---------- v0.4.1: duplicate labels ----------
+
+def test_loc_scalar_unique_returns_dict(tmp_path):
+    """Уникальный index: loc[label] → dict."""
+    df = make_df(tmp_path).set_index("k", drop=False)
+    row = df.loc["c"]
+    assert isinstance(row, dict)
+    assert row == {"k": "c", "v": 30}
+
+
+def test_loc_scalar_duplicate_returns_cadwdf(tmp_path):
+    """Duplicate labels: loc[label] → CadwDataFrame (pandas)."""
+    df = make_df(tmp_path, data={
+        "k": ["a", "a", "b", "c"],
+        "v": [10, 20, 30, 40],
+    }).set_index("k", drop=False)
+    sub = df.loc["a"]
+    assert isinstance(sub, CadwDataFrame)
+    out = tmp_path / "o.parquet"
+    sub.write_parquet(out)
+    rows = pq.read_table(out).to_pylist()
+    assert [(r["k"], r["v"]) for r in rows] == [("a", 10), ("a", 20)]
+
+
+def test_loc_scalar_duplicate_three_matches(tmp_path):
+    df = make_df(tmp_path, data={
+        "k": ["x", "y", "x", "z", "x"],
+        "v": [1, 2, 3, 4, 5],
+    }).set_index("k", drop=False)
+    sub = df.loc["x"]
+    assert isinstance(sub, CadwDataFrame)
+    out = tmp_path / "o.parquet"
+    sub.write_parquet(out)
+    rows = pq.read_table(out).to_pylist()
+    assert [r["v"] for r in rows] == [1, 3, 5]
+
+
+def test_loc_list_with_duplicates(tmp_path):
+    """loc[['a']] на duplicate index → все вхождения 'a'."""
+    df = make_df(tmp_path, data={
+        "k": ["a", "a", "b"],
+        "v": [1, 2, 3],
+    }).set_index("k", drop=False)
+    sub = df.loc[["a"]]
+    out = tmp_path / "o.parquet"
+    sub.write_parquet(out)
+    rows = pq.read_table(out).to_pylist()
+    assert [(r["k"], r["v"]) for r in rows] == [("a", 1), ("a", 2)]
+
+
+def test_loc_slice_with_duplicates_raises(tmp_path):
+    """loc[slice] на duplicate index → NotImplementedError (pandas semantics)."""
+    df = make_df(tmp_path, data={
+        "k": ["a", "a", "b"],
+        "v": [1, 2, 3],
+    }).set_index("k", drop=False)
+    with pytest.raises(NotImplementedError, match="unique index"):
+        df.loc["a":"b"]
+
+
+def test_at_duplicate_label_raises(tmp_path):
+    """`.at[label, col]` на duplicate label → KeyError (honest)."""
+    df = make_df(tmp_path, data={
+        "k": ["a", "a", "b"],
+        "v": [1, 2, 3],
+    }).set_index("k", drop=False)
+    with pytest.raises(KeyError, match="not unique"):
+        df.at["a", "v"]
+
+
+# ---------- v0.4.1: MaterializedIndex monotonic / has_duplicates / get_positions_all ----------
+
+def test_index_monotonic_increasing():
+    idx = MaterializedIndex(pa.array([1, 2, 3, 4]))
+    assert idx.is_monotonic_increasing()
+    assert not idx.is_monotonic_decreasing()
+    assert idx.is_monotonic()
+
+
+def test_index_monotonic_decreasing():
+    idx = MaterializedIndex(pa.array([4, 3, 2, 1]))
+    assert not idx.is_monotonic_increasing()
+    assert idx.is_monotonic_decreasing()
+    assert idx.is_monotonic()
+
+
+def test_index_not_monotonic():
+    idx = MaterializedIndex(pa.array([1, 3, 2, 4]))
+    assert not idx.is_monotonic_increasing()
+    assert not idx.is_monotonic_decreasing()
+    assert not idx.is_monotonic()
+
+
+def test_index_monotonic_single():
+    idx = MaterializedIndex(pa.array([5]))
+    assert idx.is_monotonic_increasing()
+    assert idx.is_monotonic_decreasing()
+    assert idx.is_monotonic()
+
+
+def test_index_has_duplicates_yes():
+    idx = MaterializedIndex(pa.array(["a", "b", "a"]))
+    assert idx.has_duplicates()
+
+
+def test_index_has_duplicates_no():
+    idx = MaterializedIndex(pa.array(["a", "b", "c"]))
+    assert not idx.has_duplicates()
+
+
+def test_get_positions_all_single():
+    idx = MaterializedIndex(pa.array([10, 20, 30]))
+    assert idx.get_positions_all(20) == [1]
+
+
+def test_get_positions_all_multiple():
+    idx = MaterializedIndex(pa.array(["a", "b", "a", "c", "a"]))
+    assert idx.get_positions_all("a") == [0, 2, 4]
+
+
+def test_get_positions_all_missing():
+    idx = MaterializedIndex(pa.array([10, 20, 30]))
+    assert idx.get_positions_all(99) == []
 
 
 # ---------- loc[[labels]] ----------

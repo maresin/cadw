@@ -133,6 +133,81 @@ class MaterializedIndex(CadwIndex):
             return False
         return self._values.equals(other._values)
 
+    def is_monotonic_increasing(self) -> bool:
+        """True iff values (skipping nulls) are non-decreasing."""
+        v = self._values.to_pylist()
+        prev = None
+        first = True
+        for x in v:
+            if x is None:
+                continue
+            if first:
+                prev = x
+                first = False
+                continue
+            try:
+                if x < prev:
+                    return False
+            except TypeError:
+                return False
+            prev = x
+        return True
+
+    def is_monotonic_decreasing(self) -> bool:
+        """True iff values (skipping nulls) are non-increasing."""
+        v = self._values.to_pylist()
+        prev = None
+        first = True
+        for x in v:
+            if x is None:
+                continue
+            if first:
+                prev = x
+                first = False
+                continue
+            try:
+                if x > prev:
+                    return False
+            except TypeError:
+                return False
+            prev = x
+        return True
+
+    def is_monotonic(self) -> bool:
+        """True iff increasing OR decreasing (or length <= 1)."""
+        if len(self) <= 1:
+            return True
+        return self.is_monotonic_increasing() or self.is_monotonic_decreasing()
+
+    def has_duplicates(self) -> bool:
+        """True iff at least one label appears more than once."""
+        v = self._values.to_pylist()
+        try:
+            return len(set(v)) < len(v)
+        except TypeError:
+            seen: list = []
+            for x in v:
+                if x in seen:
+                    return True
+                seen.append(x)
+            return False
+
+    def get_positions_all(self, label) -> list[int]:
+        """All 0-based positions matching `label` (v0.4.1).
+
+        O(N) scan, `==` comparison. For non-hashable labels — same cost.
+        Возвращает [] если не найдено (проверка на caller).
+        """
+        v = self._values.to_pylist()
+        positions: list[int] = []
+        for i, x in enumerate(v):
+            try:
+                if x == label:
+                    positions.append(i)
+            except TypeError:
+                pass
+        return positions
+
     def get_indexer(self, labels) -> list[int]:
         """Map labels -> positions. O(N) scan, dict lookup.
 

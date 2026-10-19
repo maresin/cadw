@@ -848,7 +848,8 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 26 |
 | `iloc` (v0.4.0b: positional indexer) | ✅ | 22 |
 | `loc`/`.at`/`.iat` (v0.4.0c: label-based) | ✅ | 31 |
-| filter-compat index/set/reset (v0.4.0d) | ✅ | 15 |
+| filter-compat index/set/reset (v0.4.0d) | ✅ | 16 |
+| `loc` open-endpoints + duplicate labels (v0.4.1) | ✅ | 22 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -920,9 +921,10 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
 | `groupby_aggregate` combiner не поддерживает std (v0.3.4) | `groupby_aggregate` | warning + fallback на обычный путь. v0.3.5 — Welford partial. |
+| `loc[slice]` на duplicate index — `NotImplementedError` (v0.4.1) | `_LocIndexer` | pandas: cannot slice non-unique; v0.4.2 — MultiIndex semantics. |
+| `loc[slice]` step != 1 — `NotImplementedError` (v0.4.1) | `_LocIndexer` | v0.4.2. |
+| `.at` на duplicate label — `KeyError` (v0.4.1) | `_AtIndexer` | pandas: undefined для duplicates; используйте `loc[[label]]`. |
 | `loc` требует `MaterializedIndex` (после `set_index`) | `_LocIndexer` | `RangeIndex` → `TypeError`; используйте `iloc`. |
-| `loc[lo:hi]` — только оба endpoint обязательны (v0.4.0c) | `_LocIndexer` | `loc[:hi]` / `loc[lo:]` — `NotImplementedError`. Step — тоже. v0.4.1. |
-| `loc` duplicates → first occurrence (v0.4.0c) | `_LocIndexer` | v0.4.1 — все вхождения (pandas semantics). |
 | `iloc[bool_array]` не поддерживается (v0.4.0b) | `_ILocIndexer` | raise `NotImplementedError`; используйте `df[mask]` (RowFilter). |
 | `set_index` материализует колонку (O(N) RAM) | `CadwDataFrame` | Для больших N — future: `RangeIndex` fast path + streaming loc. v0.4.1. |
 | Index не сохраняется в Parquet (write_parquet → reload = RangeIndex) | `write_parquet` | Parquet не имеет index-метаданных; документировано. §13.4/55. |
@@ -1794,6 +1796,66 @@ call, решила «уже есть» — def не добавлен. 12 из 15
 нужно сопроводить комментарием, **что именно** `X` означает —
 call, definition, import. Если X встречается в нескольких формах —
 проверка должна быть по форме, не по имени.
+
+**Эпизод 61 (loc complete: open endpoints + duplicates).** v0.4.1 закрывает
+последние дыры в `loc`:
+
+1. **Open endpoints.** `loc[:hi]`, `loc[lo:]`, `loc[:]` — работают на
+   monotonic index (asc или desc). Pandas использует `slice_locs`, который
+   понимает направление; мы делаем проще:
+   - `loc[:hi]` → `positions[0 : get_indexer(hi) + 1]` (для любого
+     монотонного направления).
+   - `loc[lo:]` → `positions[get_indexer(lo) : end]`.
+   - `loc[lo:hi]` explicit — для **increasing** `pl <= ph` → `positions[pl:ph+1]`,
+     иначе empty; для **decreasing** `ph <= pl` → `positions[ph:pl+1]`,
+     иначе empty. Reverse ranges → empty (pandas semantics).
+   - Non-monotonic → `NotImplementedError` (pandas 2.x тоже).
+
+2. **Duplicate labels.** `loc[label]`:
+   - unique → dict (1 строка);
+   - duplicate → `CadwDataFrame` (все вхождения).
+   `loc[[labels]]` — все вхождения для каждого label, конкатенированные в
+   original order.
+   `loc[lo:hi]` на duplicate → `NotImplementedError` (pandas: cannot slice
+   non-unique). Step — тоже.
+   `.at[label, col]` на duplicate → `KeyError` (pandas: undefined).
+
+**`MaterializedIndex.is_monotonic_*`** — O(N) scan, пропускает nulls.
+`has_duplicates()` — set-based, O(N). `get_positions_all(label)` — O(N),
+`==` по значениям (не hash).
+
+**Pandas-семантика reverse range:** `df.loc['d':'b']` на ascending index
+→ empty (не ошибка). Это уже было в v0.4.0c, теперь тестируется явно.
+На descending `df.loc['b':'d']` → `['d','c','b']` (по позиции в index).
+Это **общий** принцип: `loc[lo:hi]` на монотонном индексе возвращает
+позиции между `pl` и `ph`, упорядоченные по index direction.
+
+**Duplicate label → type change (`dict` → `CadwDataFrame`).** Pandas
+делает то же (Series → DataFrame). Это может ломать code, который
+делает `df.loc[label]['col']` — для unique это OK, для duplicate
+`['col']` вернёт `_ColumnProxy` (не скаляр). Правильно — `.at[label,
+col]` для scalar (unique) или `df.loc[label]` для «может быть
+несколько». Pandas имеет тот же gotcha (`.loc[a]['b']` deprecated).
+
+**Не в v0.4.1: MultiIndex.** `set_index(['a','b'])`, tuple labels,
+`loc[(x, y)]` — отдельная подсистема. v0.4.2. Также: `loc` на
+non-monotonic с явными lo/hi без duplicate — pandas 1.x предупреждал,
+2.x требует monotonic; мы явно raise.
+
+**Урок:** pandas API эволюционировал от «loc flexible» к «loc only if
+monotonic + unique-for-slice». Мы следуем этой строгости — honest
+`NotImplementedError` вместо «странных» результатов на non-monotonic.
+
+**Следующее (v0.4.2 — MultiIndex):**
+- `MaterializedMultiIndex(values: pa.ChunkedArray × k)` или
+  `pa.StructArray`.
+- `set_index(['a','b'])` — compose 2 columns в multi-key.
+- `loc[(x, y)]` — tuple labels.
+- `loc[('a','b'):('c','d')]` — tuple slice, требует лексикографической
+  монотонности.
+- `reset_index()` — «explode» multi-index в k колонок.
+
+**Следующее (v0.4.3): rolling/resample** — Sort + halo buffer.
 
 ### 13.5. Открытые вопросы
 

@@ -89,6 +89,45 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.4.1] — 2026-10-19
+
+### Добавлено
+- `CadwDataFrame.loc` — open-endpoint slices на monotonic index:
+  - `loc[:hi]` → от начала до `hi` (inclusive).
+  - `loc[lo:]` → от `lo` до конца.
+  - `loc[:]` → все строки (lazy view).
+  - descending monotonic тоже работает (`loc['b':'d']` → d,c,b).
+- `CadwDataFrame.loc[label]` — duplicate labels → `CadwDataFrame`
+  (pandas: Series→DataFrame). Unique → `dict` (без изменений).
+- `CadwDataFrame.loc[[labels]]` — все вхождения для каждого label
+  (ранее first-wins).
+- `MaterializedIndex.is_monotonic_increasing()`,
+  `is_monotonic_decreasing()`, `is_monotonic()` — O(N), nulls skipped.
+- `MaterializedIndex.has_duplicates()` — O(N), set-based.
+- `MaterializedIndex.get_positions_all(label)` — все позиции по `==`.
+
+### Изменено
+- `loc[slice]` на **non-monotonic** index → `NotImplementedError`
+  (pandas 2.x тоже).
+- `loc[slice]` на **duplicate** index → `NotImplementedError`
+  (pandas: cannot slice non-unique).
+- `loc[slice]` с `step != 1` → `NotImplementedError`.
+- `.at[label, col]` на duplicate label → `KeyError` (pandas: undefined;
+  используйте `loc[[label]]`).
+
+### Ограничения (v0.4.1, §11.5)
+- **MultiIndex** (`set_index(['a','b'])`) — v0.4.2.
+- **`loc[slice]` step** — v0.4.2.
+- **Non-monotonic + slice** — `NotImplementedError` (pandas-стиль).
+- **`.at` на duplicate** — `KeyError`.
+
+### Тесты
+- 22 новых в `test_loc.py`: open-endpoints (start/stop/both на
+  asc/desc), monotonic API, `get_positions_all`, `has_duplicates`,
+  duplicate-label `loc` (dict vs CadwDataFrame), `loc[[duplicates]]`,
+  slice на duplicate → raise, `.at` на duplicate → raise.
+- Обновлён 1 тест: `test_loc_slice_none_endpoint_raises` → 8 новых.
+
 ## [0.4.0d] — 2026-10-19
 
 ### Добавлено

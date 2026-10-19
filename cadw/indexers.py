@@ -188,14 +188,10 @@ def _table_to_cadwdf(table: pa.Table, parent: "CadwDataFrame", new_index):
 class _LocIndexer:
     """Label-based indexer (pandas-style). Требует MaterializedIndex.
 
-    - loc[label] -> dict (одна строка, KeyError если not found).
-    - loc[lo:hi] -> CadwDataFrame (inclusive labels, как pandas).
-    - loc[[l1, l2, ...]] -> CadwDataFrame (materialize K rows; KeyError
-      если хоть один not found).
-
-    RangeIndex (default) -> TypeError (use iloc).
-    `loc[bool_array]` -> NotImplementedError (use df[mask]).
-    Duplicate labels in index -> первое вхождение (v0.4.0c); v0.4.1 — all.
+    v0.4.1: open endpoints (`loc[:hi]`, `loc[lo:]`, `loc[:]`) на monotonic
+    index (asc или desc). Duplicate labels: `loc[label]` → CadwDataFrame
+    (несколько строк) вместо dict. `loc[slice]` требует уникального
+    индекса (pandas: cannot slice non-unique) и монотонности.
     """
 
     def __init__(self, parent: "CadwDataFrame") -> None:
@@ -209,8 +205,6 @@ class _LocIndexer:
                 "loc: requires MaterializedIndex (after set_index). "
                 "RangeIndex — use iloc."
             )
-        # v0.4.0d: с фильтрами тоже работаем — filtered.index даёт
-        # MaterializedIndex-subset, поверх него get_indexer работает.
         if p._row_filters:
             idx = p.index
             if not isinstance(idx, MaterializedIndex):
@@ -230,48 +224,88 @@ class _LocIndexer:
             return self._many(key, idx)
         if isinstance(key, pa.Array) and pa.types.is_boolean(key.type):
             raise NotImplementedError(
-                "loc[bool_array]: not supported in v0.4.0c. Use df[mask]."
+                "loc[bool_array]: not supported. Use df[mask]."
             )
-        # scalar label
-        pos = idx.get_indexer(key)[0]
-        if pos < 0:
+        # scalar label — duplicates → CadwDataFrame; unique → dict.
+        positions = idx.get_positions_all(key)
+        if not positions:
             raise KeyError(f"loc: label {key!r} not in index")
-        return self._parent.iloc[pos]
+        if len(positions) == 1:
+            return self._parent.iloc[positions[0]]
+        return self._parent.iloc[positions]
 
     def _slice(self, key, idx):
-        if key.start is None or key.stop is None:
-            raise NotImplementedError(
-                "loc[slice]: only [lo:hi] with both endpoints supported in "
-                "v0.4.0c (inclusive). Use iloc for full-open slices."
-            )
         if key.step is not None and key.step != 1:
             raise NotImplementedError(
-                "loc[slice]: step not supported in v0.4.0c."
+                "loc[slice]: step not supported in v0.4.1."
             )
-        lo_pos = idx.get_indexer(key.start)[0]
-        hi_pos = idx.get_indexer(key.stop)[0]
-        if lo_pos < 0:
-            raise KeyError(f"loc: label {key.start!r} not in index")
-        if hi_pos < 0:
-            raise KeyError(f"loc: label {key.stop!r} not in index")
-        if lo_pos > hi_pos:
-            # pandas: empty (не ошибка).
-            return self._parent.iloc[[]]
-        # Inclusive: [lo_pos, hi_pos]
-        return self._parent.iloc[list(range(lo_pos, hi_pos + 1))]
+        if idx.has_duplicates():
+            raise NotImplementedError(
+                "loc[slice]: requires unique index in v0.4.1. "
+                "Duplicate labels — use loc[list_of_labels]."
+            )
+
+        n = len(idx)
+        if key.start is None and key.stop is None:
+            # loc[:] — все строки (lazy view).
+            return self._parent[slice(0, n)]
+
+        pl = None
+        ph = None
+        if key.start is not None:
+            pl = idx.get_indexer(key.start)[0]
+            if pl < 0:
+                raise KeyError(f"loc: label {key.start!r} not in index")
+        if key.stop is not None:
+            ph = idx.get_indexer(key.stop)[0]
+            if ph < 0:
+                raise KeyError(f"loc: label {key.stop!r} not in index")
+
+        if pl is not None and ph is not None:
+            # explicit [lo:hi]
+            if idx.is_monotonic_increasing():
+                if pl <= ph:
+                    return self._parent.iloc[list(range(pl, ph + 1))]
+                return self._parent.iloc[[]]
+            if idx.is_monotonic_decreasing():
+                if ph <= pl:
+                    return self._parent.iloc[list(range(ph, pl + 1))]
+                return self._parent.iloc[[]]
+            raise NotImplementedError(
+                "loc[slice]: requires monotonic index (incr or decr)."
+            )
+
+        if pl is None:
+            # [ : hi] — from start up to hi (inclusive), any monotonic dir.
+            if not idx.is_monotonic():
+                raise NotImplementedError(
+                    "loc[slice]: requires monotonic index (incr or decr)."
+                )
+            return self._parent.iloc[list(range(0, ph + 1))]
+
+        # [lo : ] — from lo to end.
+        if not idx.is_monotonic():
+            raise NotImplementedError(
+                "loc[slice]: requires monotonic index (incr or decr)."
+            )
+        return self._parent.iloc[list(range(pl, n))]
 
     def _many(self, labels: list, idx):
-        positions = idx.get_indexer(labels)
-        missing = [lab for lab, pos in zip(labels, positions) if pos < 0]
+        all_positions: list[int] = []
+        missing: list = []
+        for lab in labels:
+            pos = idx.get_positions_all(lab)
+            if not pos:
+                missing.append(lab)
+            else:
+                all_positions.extend(pos)
         if missing:
-            raise KeyError(
-                f"loc: labels not in index: {missing[:5]}"
-            )
-        return self._parent.iloc[positions]
+            raise KeyError(f"loc: labels not in index: {missing[:5]}")
+        return self._parent.iloc[all_positions]
 
 
 class _AtIndexer:
-    """`.at[label, col]` — scalar access by label + column."""
+    """`.at[label, col]` — scalar access by label + column (v0.4.1)."""
 
     def __init__(self, parent: "CadwDataFrame") -> None:
         self._parent = parent
@@ -283,6 +317,11 @@ class _AtIndexer:
             )
         label, col = key
         row = self._parent.loc[label]
+        if not isinstance(row, dict):
+            raise KeyError(
+                f".at: label {label!r} is not unique in index; "
+                f"use .loc[{label!r}] for multiple rows"
+            )
         if col not in row:
             raise KeyError(f".at: column {col!r} not in df.columns")
         return row[col]

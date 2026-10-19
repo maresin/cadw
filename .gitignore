@@ -30,3 +30,7 @@ snapshot_*.py
 
 # uv init artifact (should not be tracked)
 main.py
+
+# others
+.pingis/
+_FOR_PINGIS/
