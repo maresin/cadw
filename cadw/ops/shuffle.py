@@ -101,10 +101,43 @@ def _hash_column(arr: pa.Array) -> np.ndarray:
     (hash_object_array) + categorical detection — ~500 ns/string vs Python
     repr().encode() + xxhash ~390 ns/string. No faster path in pandas 3.x.
     → route strings to Python, keep pandas for numeric/timestamp.
+
+    v0.8.9 (P-SH2): uint64 → bitcast to int64 (XOR 2^63, bijection) then
+    pandas hash. Prior code routed uint64 to Python `_python_hash_column`
+    (whole shuffle silently slow). Bitcast preserves partition-disjoint:
+    same uint64 value always yields same int64 → same hash.
     """
     t = arr.type
     # String → Python path (no benefit from pandas; slight regression)
     if pa.types.is_string(t) or pa.types.is_large_string(t):
+        return _python_hash_column(arr)
+    # v0.8.9-fix2 (P-SH2): uint64 → int64 via `pc.cast(safe=False)` (bitcast),
+    # then pandas C-hash. Prior v0.8.9-fix used XOR-2^63-then-cast, which
+    # raised ArrowInvalid: pc.cast(safe=True) rejects values >= 2^63, and
+    # XOR with sign bit pushes EVERY uint64 value into [2^63, 2^64) —
+    # guaranteed raise → silent fallback to Python (invariant preserved
+    # but 19× slower; the failure was hidden from tests by the spy).
+    #
+    # REPL check (§13.4/139 — fix adding/changing a library call must
+    # document its boundary via a runnable snippet):
+    #   >>> pc.cast(pa.array([2**63+1], type=pa.uint64()), pa.int64())
+    #   ArrowInvalid: Integer value 9223372036854775809 not in range
+    #   >>> pc.cast(pa.array([2**63+1], type=pa.uint64()), pa.int64(), safe=False)
+    #   <pyarrow.Int64Array>[-9223372036854775807]
+    # safe=False is a bitcast (two's-complement reinterpretation) — bijection
+    # over uint64 ↔ int64, so same uint64 value → same int64 → same hash
+    # (partition-disjoint invariant preserved). Nulls propagate unchanged
+    # through pc.cast (no numpy roundtrip, no cast warning).
+    if pa.types.is_uint64(t):
+        import pyarrow.compute as _pc
+        try:
+            signed = _pc.cast(arr, pa.int64(), safe=False)
+            h = _pandas_hash_column(signed)
+            if h is not None:
+                return h
+        except Exception:
+            pass
+        # extreme fallback: Python loop
         return _python_hash_column(arr)
     # Numeric / bool / timestamp / date / time → pandas C-hash (19-39×)
     if (pa.types.is_integer(t) or pa.types.is_floating(t)
@@ -114,7 +147,7 @@ def _hash_column(arr: pa.Array) -> np.ndarray:
         h = _pandas_hash_column(arr)
         if h is not None:
             return h
-    # Fallback: struct/list/dict/uint64, or pandas API mismatch.
+    # Fallback: struct/list/dict, or pandas API mismatch.
     return _python_hash_column(arr)
 
 

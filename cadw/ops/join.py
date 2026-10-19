@@ -73,6 +73,31 @@ def _empty_result_schema(
     return pa.schema(fields)
 
 
+def _estimate_row_bytes(schema: pa.Schema) -> int:
+    """Conservative bytes-per-row for a schema (v0.8.9, P-A3).
+
+    Fixed-width: bit_width // 8. String/binary: 50 B default (sample-based
+    sizing not available at this depth). +1 for null bitmap if any nullable.
+    """
+    total = 0
+    for field in schema:
+        t = field.type
+        if pa.types.is_boolean(t):
+            total += 1
+        elif pa.types.is_integer(t) or pa.types.is_floating(t):
+            total += max(1, t.bit_width // 8)
+        elif (pa.types.is_timestamp(t) or pa.types.is_date(t)
+              or pa.types.is_time(t)):
+            total += max(1, t.bit_width // 8)
+        elif pa.types.is_string(t) or pa.types.is_binary(t):
+            total += 50
+        else:
+            total += 8  # conservative fallback
+    if any(f.nullable for f in schema):
+        total += 1
+    return max(1, total)
+
+
 def _safe_materialize_partition(
     path: Path,
     memory_guard: MemoryGuard,
@@ -102,11 +127,16 @@ def _safe_materialize_partition(
     if n_batches == 0:
         return out_schema.empty_table()
 
-    batches = [
-        ipc_reader.get_batch(i).select(keep_cols)
-        for i in range(n_batches)
-    ]
-    table = pa.Table.from_batches(batches)
+    # v0.8.9 (P-A1): generator form. Pingis audit v0.8.8 measured list
+    # form = 0.93-1.03× file (retained batches) vs gen = 0.0× (zero-copy
+    # into chunked array, buffers released as consumed). `stat()` above
+    # guarantees file_size <= 0.5×avail, and `from_batches` for pyarrow 26
+    # is zero-copy from Arrow buffers — the O(T) cost was the list.
+    table = pa.Table.from_batches(
+        (ipc_reader.get_batch(i).select(keep_cols)
+         for i in range(n_batches)),
+        schema=out_schema,
+    )
     memory_guard.check_state(
         table.nbytes, name=f"join_build({path.name})"
     )
@@ -152,12 +182,6 @@ def _exact_actual_matches_arrow(
     import pyarrow.compute as _pc
     if build_table.num_rows == 0 or probe_table.num_rows == 0:
         return 0
-
-    # build_counts: key → count
-    build_counts = build_table.group_by(list(on)).aggregate(
-        [("__dummy", "count")] if "__dummy" in build_table.schema.names
-        else []
-    ) if False else None
 
     # Better: use value_counts
     # For single-column keys: direct
@@ -449,6 +473,15 @@ def _process_partition_pair(
                 f"max_output_rows={max_output_rows}. Likely skew. "
                 f"Увеличьте budget или уменьшите num_partitions."
             )
+        # v0.8.9 (P-A3): secondary pre-check — real row_bytes_out from schema,
+        # 5× multiplier from Pingis audit v0.8.8 (measured 6.85× RSS on
+        # narrow int64 @ 1M rows). Catches wide-schema outputs that fit
+        # max_output_rows (256 B/row heuristic) but exceed RSS budget.
+        _row_bytes_out = _estimate_row_bytes(empty_schema)
+        memory_guard.check_state(
+            5 * _row_bytes_out * actual_matches,
+            name=f"join_output_pre({probe_path.name})",
+        )
 
         # Determine join_type + suffix assignment.
         # Table.join: left_table.join(right_table, keys, join_type, left_suffix, right_suffix)

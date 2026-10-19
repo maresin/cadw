@@ -591,6 +591,13 @@ def _groupby_with_skew(batch_iter, by_columns, agg_columns, agg_funcs, heavy_key
     shuf_dir = spill_dir / "shuffle"
     shuf_dir.mkdir(parents=True, exist_ok=True)
     paths = [shuf_dir / f"partition_{p:05d}.arrow" for p in range(num_partitions)]
+    # v0.8.9 (P-G3): mirror hash_shuffle (shuffle.py:273) — check P writer
+    # buffer cost BEFORE opening writers. Prior code opened P writers
+    # without this check; the P × writer_buffer allocation was unbounded.
+    _buf_bytes = memory_guard.recommended_partition_buffer_bytes(num_partitions)
+    memory_guard.check_partition_buffers(
+        num_partitions, min(_buf_bytes, 64 * 1024)
+    )
     writers = [ArrowIPCBatchWriter(str(p), schema) for p in paths]
 
     accum: dict = {}
@@ -751,15 +758,19 @@ def groupby_aggregate(
         pass  # no-op; комбинирование применим после skew check
 
     sample_cap = 10_000
+    # v0.8.9 (P-G5): cap by bytes too — wide schemas (>=10 KB/row) hit
+    # 0.5×avail before 10k rows. Bound the sample to 0.3×avail.
+    sample_cap_bytes = max(1, int(memory_guard.available_bytes() * 0.3))
     batch_iter = iter(batch_iter)
     sample_batches: list[pa.RecordBatch] = []
     n_sample = 0
+    sample_bytes = 0
     for b in batch_iter:
         sample_batches.append(b)
         n_sample += b.num_rows
-        if n_sample >= sample_cap:
+        sample_bytes += b.nbytes
+        if n_sample >= sample_cap or sample_bytes >= sample_cap_bytes:
             break
-    sample_bytes = sum(b.nbytes for b in sample_batches)
     sample_limit = int(memory_guard.available_bytes() * 0.5)
     skip_skew = False
     if sample_bytes > sample_limit:

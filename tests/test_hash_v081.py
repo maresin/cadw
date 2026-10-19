@@ -148,8 +148,20 @@ def test_pandas_path_used_for_int64(monkeypatch):
     assert "int64" in called, f"pandas path not used for int64: {called}"
 
 
-def test_uint64_falls_back_to_python(monkeypatch):
-    """uint64 can't fit Int64Dtype → must skip pandas, use Python."""
+def test_uint64_uses_pandas_via_bitcast(monkeypatch):
+    """v0.8.9 (P-SH2): uint64 → int64 (safe=False bitcast) → pandas C-hash.
+
+    Replaces pre-v0.8.9 `test_uint64_falls_back_to_python`, which asserted
+    the OLD behaviour (uint64 → Python loop, because Int64Dtype can't hold
+    uint64 values ≥ 2^63). After P-SH2, `_hash_column` bitcasts uint64 to
+    int64 (bijection, partition-disjoint preserved) and routes through
+    the same pandas path as int64 (19× faster than Python).
+
+    v0.8.9-fix2: bitcast done via `pc.cast(arr, int64, safe=False)` — a
+    direct two's-complement reinterpretation. Prior variant XOR-2^63-then-
+    cast(safe=True) raised ArrowInvalid on every value (XOR pushes all
+    into ≥ 2^63) and silently fell back to Python.
+    """
     from cadw.ops import shuffle as sh
     called_pandas = []
     called_python = []
@@ -170,8 +182,15 @@ def test_uint64_falls_back_to_python(monkeypatch):
         [pa.array([1, 2, 3], type=pa.uint64())], names=["k"]
     )
     compute_hashes(b, ["k"])
-    # pandas called but returned None; Python called as fallback
-    assert "uint64" in called_python
+    # P-SH2: uint64 bitcast to int64 → pandas path (NOT Python fallback).
+    assert "int64" in called_pandas, (
+        f"uint64 should bitcast to int64 and use pandas hash; "
+        f"called_pandas={called_pandas}, called_python={called_python}"
+    )
+    assert "uint64" not in called_python, (
+        f"uint64 should NOT fall back to Python hash; "
+        f"called_python={called_python}"
+    )
 
 
 # ---------- partition-disjoint end-to-end ----------

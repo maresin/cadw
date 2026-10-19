@@ -89,6 +89,17 @@ rolling) — композиции готовых примитивов, не пе
     Также: `op.init()` может аллоцировать большой state
     (`CovarianceOp(d²)` = 80 GB при d=10^5); `reduce` вызывает
     `estimate_state_size` + `check_state` **до** `op.init()`.
+11. **Arrow call memory discipline.** Любой вызов Arrow/pandas/numpy,
+    аллоцирующий более O(batch), требует:
+    (a) документированной формулы пика в §9.2.N;
+    (b) явного `check_state(estimated)` / `check_batch` / `path.stat()`
+        **до** вызова, в том же function scope;
+    (c) AST guard (`test_arrow_call_memory_guard.py`) — список
+        high-risk attrs, каждый проверяется на preceding guard.
+    Whitelist: helpers с собственным guard'ом (`_safe_materialize_partition`,
+    `_local_dedup`, `_groupby_with_skew`, `hash_shuffle`).
+    Нарушение — must-fix. Trust = explicit bound, не «Arrow же оптимизирован».
+    См. §13.4/138.
 9. **Никаких ML-адаптеров.** CADW не подключает сторонние ML-модели
    через адаптеры, ни через `fit`, ни через `partial_fit`.
    - `fit`-модели (`lgb.train`, `PCA.fit`, `XGBRegressor.fit`,
@@ -583,6 +594,144 @@ Python int. Из `Calibration` (v0.2), начально — из
 - `P_recurse` — из `Params`, может быть переопределён planner'ом для
   оптимизации IO.
 
+### 9.2.6. `Table.join` — internal peak (from RSS bench)
+
+Measured v0.8.8 (N ∈ {100k, 500k, 1M}, narrow int64 schema):
+peak_delta = **34.7 / 72.5 / 114.7 MB** for 2.4 / 12 / 24 MB output
+(fit: `5 × output_nbytes + 40 MB`, residual < 3%).
+
+Note: `pa_delta` (Arrow allocation) = 3.4 × output; RSS = 6.85 × output
+for narrow schema. RSS is what MemoryGuard checks. Use `5 × output_nbytes`
+(conservative for narrow, adequate for wide where baseline 40 MB is
+relatively smaller).
+
+**Guard**: `check_state(5 × row_bytes_out × actual_matches)` **before** call.
+`row_bytes_out` = `_estimate_row_bytes(schema)` (bit_width//8 + null bitmap).
+
+**Verdict**: SAFE with guard. Currently guarded — this formula is the
+canonical reference for future code.
+
+### 9.2.7. `Table.sort_by`
+
+peak_delta @ 100k/1M/3M = 8 / 28 / 74 MB (input 1.6/16/48 MB).
+Fit: `1.5 × input_nbytes + 6 MB`, residual 2.8%.
+
+**Guard**: `check_state(1.5 × table.nbytes)` before call. UNGUARDED at
+`viz/_aggregate.py:153` — candidate fix in v0.8.10.
+
+### 9.2.8. `Table.group_by(...).aggregate(...)`
+
+peak_delta @ K=100: 16.3 MB flat; K=10k: 20.5 MB flat; K=N: grows with
+output (24.5/32.4/58.4 MB @ 30k/100k/300k).
+Fit: `20 MB + 20 × K × key_size + 8 × output_nbytes` (K-bounded, N-independent).
+
+**Guard**: `check_state(20 MB + 20×K×key + 8×output)` before call.
+`X × K` term dominates for K > ~10k.
+
+### 9.2.9. `Table.from_batches(list | generator, schema)`
+
+**Generator** (v0.8.9 P-A1 fix): `peak_delta = 0` (zero-copy — measured
+`pa_delta = 0.0` across N=100k..3M).
+**List**: `peak_delta ≈ file_size` (retained batches; measured
+0.93–1.03× file).
+
+**Guard**: gen form — none needed. List form —
+`check_state(Σ batch.nbytes)` before or `path.stat().st_size`.
+
+**Verdict**: SAFE. Prefer generator; list-only when source is a Python
+list already (or fall back to `check_state`).
+
+### 9.2.10. `pc.quantile(arr, q)` — single column
+
+peak_delta @ 100k/1M/3M = 5.3/11.3/27.3 MB; pa_delta = 0 / 7.6 / 22.9 MB
+(≈1× input). Sort-based working copy.
+
+**Guard**: `check_state(1.2 × N × element_size + 5 MB)` before call.
+For whole-partition quantile use per-batch + merge, or §9.2.11.
+**NEEDS-BATCHED** for columns > 0.3 × avail.
+
+### 9.2.11. `pc.tdigest(arr, delta=...)` — approximate quantile
+
+**`pc.hash_tdigest` does NOT exist in pyarrow 26.0.0** (AttributeError
+verified by bench). Working alternative: `pc.tdigest(delta=...)`.
+
+State = **3.5 MB constant** across N=100k..3M. O(1/δ) as claimed.
+
+**Guard**: none (fixed 4 MB reservation). Multiple concurrent tdigests:
+reserve `4 MB × count`.
+
+**Verdict**: SAFE (O(1) state).
+
+### 9.2.12. `pc.sort_indices(table | array)`
+
+peak_delta @ 100k/1M/3M = 5.3/14.5/37 MB (table); pa_delta = exactly 8×N
+(output = `int64[N]`; no internal buffer).
+
+**Guard**: `check_state(4 MB + 11 × N)` before call. Existing
+`buf ≤ 0.2 × avail` in `sort.py` is conservative (safe).
+
+### 9.2.13. `pc.value_counts(arr)`
+
+peak_delta K=100: 5.3 MB flat; K=10k: 9.3 MB flat; K=N: 13.3/15.3/31.3
+@ 30k/100k/300k. Fit: `max(5 MB, 8 MB + 90 × K)` for bounded K; O(K)
+when K ≈ N.
+
+**Guard**: `check_state(10 MB + 90 × K)` for bounded K; **NEEDS-BATCHED**
+for K ≈ N.
+
+### 9.2.14. `pc.index_in` / `pc.is_in`
+
+`index_in` peak_delta @ 100k/1M/3M = 5.7/11.7/17.6 MB → `5×N + 6 MB`
+(residual 17.8%, dominated by value-set hash build).
+`is_in` = `6 MB` flat (bool output = N bytes; allocated inside Arrow
+pool, released → no RSS growth).
+
+**Guard**: `check_state(N × 1 + 2 × K × key_size)` before call.
+
+### 9.2.15. `pc.dictionary_encode(arr)`
+
+peak_delta K=100/1000: 1.3 MB flat; K=N: 7.3/9.3/19.2 @ 30k/100k/300k.
+Fit: `max(3 MB, 60 × K)` for bounded K; O(N) when K≈N.
+
+**Guard**: `check_state(max(3 MB, 60 × K) + 4 × N)` before call.
+**NEEDS-BATCHED** for K≈N (dictionary degenerates to full column).
+
+### 9.2.16. `pa.concat_arrays(parts)`
+
+peak_delta = output_nbytes exactly (no fixed overhead; residual 175%
+against near-zero slope is trivial — fit is `0 × N + 0`).
+
+**Guard**: `check_state(output_nbytes)` before call.
+
+### 9.2.17. `pc.binary_join_element_wise(a, b, sep)`
+
+peak_delta @ 1M = 14.5 MB ≈ output 12.8 MB. Fit: `output_nbytes`.
+
+**Guard**: `check_state(output_nbytes)` before call.
+
+### 9.2.18. `Table.to_pandas()` — string and int
+
+**pandas 3.0.2 defaults to `StringDtype(na_value=nan)`, NOT `object`.**
+Measured ratio = `df.memory_usage(deep=True) / table.nbytes`:
+- string: **1.138–1.143×** (not the prior-audit claimed 3–5×)
+- int: **1.0×** (zero-copy under pandas 3 arrow-backed columns)
+- 3–5× figure only reachable with forced `.astype(object)`, which CADW
+  does not do.
+
+**Guard**: `check_state(1.5 × table.nbytes)` for `to_pandas` alone.
+If surrounding chain includes sort/group/drop (see P-D1 below), use 5×.
+
+**Verdict**: SAFE for `to_pandas` alone; the surrounding chain is
+the danger. See §11.6 P-D1 status.
+
+### 9.2.19. `Table.from_pandas(df, schema, preserve_index=False)`
+
+peak_delta ≈ 1.9–3.9 MB total, roughly flat across N; `pa_delta = 0.12 MB`
+for 30 MB df (near zero-copy — pandas 3 arrow-backed columns already
+backed by Arrow).
+
+**Guard**: `check_state(df.memory_usage(deep=True).sum())` before call.
+
 ### 9.3. Pipeline planner
 
     plan_pipeline(ops: list[Op], data_chars, available) -> PipelinePlan
@@ -987,7 +1136,7 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
    Итого ~8–11 сессий на весь ML-слой. Каждая функция — композиция
    примитивов, не адаптер, гарантия out-of-core сохраняется.
 
-### 11.6. Технический долг
+
 
 | Долг | Влияние |
 |---|---|
@@ -997,6 +1146,42 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `_Key` работает через `as_py()` | медленно для сложных типов |
 | `configure()` логирования не вызывается | логи по умолчанию не настроены |
 | ~~`scripts/check_api.py` отсутствует~~ | ~~24 эпизода API-контрактов~~ → **закрыто** (патч 07: `tests/test_api_availability.py`, 18 assertions) |
+
+
+**Pingis library-memory audit (2026-10-20) — findings closed in v0.8.9:**
+
+- ~~P-A1: list-form `Table.from_batches` in `_safe_materialize_partition`
+  and `_local_dedup`~~ — **closed v0.8.9**: generator form (measured
+  gen = 0.0× file vs list = 0.93–1.03×).
+- ~~P-A3: `Table.join` internal peak = 3.4–6.85× output~~ —
+  **closed v0.8.9**: pre-check `5 × row_bytes_out × actual_matches`
+  before call, real schema-based row size.
+- ~~P-D1: dedup pandas chain unchecked~~ — **closed v0.8.9**:
+  `check_state(5 × table.nbytes)` before `to_pandas`. Effective partition
+  limit shrinks to `avail × 0.1` (honest RSS bound; Arrow-native rewrite
+  deferred to v0.8.10).
+- ~~P-G3: `_groupby_with_skew` opens writers without
+  check_partition_buffers~~ — **closed v0.8.9**.
+- ~~P-G5: sample cache byte-cap~~ — **closed v0.8.9**.
+- ~~P-SH2: uint64 in Python hash fallback~~ — **closed v0.8.9**:
+  XOR 2^63 bitcast → int64 → pandas C-hash.
+
+**NEEDS-BATCHED (deferred to v0.8.10+ with prototype):**
+
+- P-Q2 `pc.quantile` whole column (sort-based, ~1× input) — per-batch
+  + merge, or `pc.tdigest` (§9.2.11).
+- P-R1 `pc.rank` whole column (2× output + sort buffer) — per-batch only.
+- P-G2/P-G5 `pc.value_counts` with K≈N — batch it, or `pc.dictionary_encode`.
+- P-SH1 `pc.dictionary_encode` with K≈N — same. String shuffle still
+  needs research (partition-disjoint at risk).
+
+**NEEDS-RESEARCH (deferred):**
+
+- P-A3 wide-schema benchmark — measured on int64 only; wide string
+  deferred to v0.8.10 (N=500k, 5 string cols).
+- P-G3 skew workload benchmark — code-review confirmed; workload
+  benchmark deferred.
+
 
 ---
 
@@ -2707,6 +2892,65 @@ append-only files (CHANGELOG, DECISIONS, patch scripts) → archive-полити
 **Следующее (после v0.8.8):** v0.8.9 per-group (`groupby('sensor').
 shift(1, on='ts')`) — prototype-first + type matrix (int64/timestamp/
 date32 + nulls). Последний большой remaining в time-series.
+
+**Эпизод 138 (доверие Arrow = доверие LightGBM).** Pingis
+library-memory audit (TASK2, run 2026-10-20) обнаружил, что CADW
+вызывал Arrow-функции (`Table.join`, `Table.group_by`, `to_pandas`)
+без явных проверок пика памяти до вызова. MemoryGuard контролировал
+`batch.nbytes` на входе, но не видел allocation **внутри**
+Arrow-функции.
+
+Это **тот же класс ошибки**, что §13.4/25 (LightGBM adapter) и
+§13.4/26 (partial_fit whitelist): «библиотека оптимизирована, значит
+безопасна». В случае Arrow — 5 подтверждённых live violations (P-A1,
+P-A3, P-D1, P-G3, P-G5) и 2 blind spots (P-Q2 full column, P-R1
+whole column для pc.rank).
+
+**Ключевое:** audit использовал `pa_delta` (pyarrow.total_allocated_bytes)
+для формул, но MemoryGuard проверяет **RSS** через psutil. Разница:
+- `Table.join` narrow int64 @ 1M: `pa_delta = 82 MB` (3.4× output),
+  RSS delta = **157 MB** (6.85× output). Factor 2× из-за Arrow memory
+  pool retained capacity + non-Arrow temporaries.
+- Все 14 формул §9.2.6–9.2.19 derived из **RSS**, не из `pa_delta`.
+
+**Fix (v0.8.9):**
+- §3.11 — принцип Arrow call memory discipline (AST guard).
+- §9.2.6–9.2.19 — канонические RSS-based формулы.
+- 6 fixes в коде (P-A1/P-A3/P-D1/P-G3/P-G5/P-SH2).
+- AST guard `test_arrow_call_memory_guard.py` — 14 high-risk attrs,
+  каждый требует preceding guard.
+
+**Урок:** любой «Arrow-оптимизирован» в комментарии — сигнал пересчитать
+через bench. Формула из документации библиотеки ≠ реальный RSS. Правило:
+**для любого call'а, аллоцирующего > O(batch), явный `check_state` +
+формула в §9.2.N**. Тот же rigor, что для своих ops (§9.2.1–9.2.5).
+
+**Связанные:** §13.4/25, §13.4/26 (тот же класс «trust в библиотеку»);
+§13.4/133–135 (тот же класс «hidden by green tests», но для type matrix);
+§3.10 (check before materialize — расширение на library calls).
+
+**v0.8.9-fix2 addendum (§13.4/139).** Три последовательных раунда правок
+(v0.8.9 → v0.8.9-fix → v0.8.9-fix2) — каждый содержал свежий баг,
+внесённый самим же фиксом:
+
+- **v0.8.9**: AST guard путал `Table.from_batches` (материализует) с
+  `Dataset.from_batches` (стримингует); широкий `ListComp` guard ловил
+  `[f for f in schema]` (безопасно, K-bounded).
+- **v0.8.9-fix**: `pc.cast(XOR(arr, 2^63) → int64)` — `safe=True` raises
+  `ArrowInvalid` на всех значениях (XOR с sign bit переносит **всё**
+  в `[2^63, 2^64)`); `pa.field(...)` по умолчанию `nullable=True` —
+  test expected values захардкожены как non-nullable.
+- **v0.8.9-fix2**: `pc.cast(arr, int64, safe=False)` = bitcast
+  (two's-complement reinterpretation), bijection, nulls propagate;
+  заменил XOR-вариант. Добавил REPL-сниппет в docstring `_hash_column`.
+
+**Класс ошибки — тот же, что §13.4/128** («test expectations authored, not
+derived») и §13.4/138 (audit formulas assumed, not measured). Здесь
+«**fix semantics assumed, not verified**». Правило: **если fix добавляет
+или меняет вызов библиотечной функции — REPL-сниппет в docstring
+обязателен**, показывающий edge case: `safe=True` vs `safe=False`,
+null propagation, boundary values (≥ `INT64_MAX`, empty, all-null).
+Это защищает от ровно того класса, что случился трижды подряд.
 
 ### 13.5. Открытые вопросы
 

@@ -83,10 +83,21 @@ def _local_dedup(
     if n_batches == 0:
         return pa.Table.from_batches([], schema=out_schema)
 
-    batches = [reader.get_batch(i).select([f.name for f in out_fields] + ["row_id"])
-               for i in range(n_batches)]
-    table = pa.Table.from_batches(batches)
+    # v0.8.9 (P-A1 for dedup): generator form, schema-correct.
+    table = pa.Table.from_batches(
+        (reader.get_batch(i).select([f.name for f in out_fields] + ["row_id"])
+         for i in range(n_batches)),
+        schema=reader.schema,
+    )
     memory_guard.check_state(table.nbytes, name=f"dedup({partition_path.name})")
+    # v0.8.9 (P-D1): pandas chain (to_pandas + sort_values + drop_duplicates
+    # + drop + from_pandas) — measured 3.95-8.29× table.nbytes (Pingis v0.8.8).
+    # 5× is a conservative bound covering int and pandas-3-StringDtype paths.
+    # Effective partition limit shrinks to avail × 0.5 / 5 = avail × 0.1.
+    memory_guard.check_state(
+        5 * table.nbytes,
+        name=f"dedup.pandas_chain({partition_path.name})",
+    )
 
     df = table.to_pandas()
     # Сорт по row_id (stable) — keep='first'/'last' по исходному порядку.

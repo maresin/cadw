@@ -1,3 +1,95 @@
+## [0.8.9] — 2026-10-20
+
+По результатам Pingis library-memory audit (TASK2, run 2026-10-20):
+6 accept, 0 reject, 2 needs-research, 5 confirmed live violations.
+
+### Исправлено (safety — Arrow memory discipline)
+
+- **P-A1 (S2, live)** — `join._safe_materialize_partition` и
+  `dedup._local_dedup` теперь используют generator form
+  `Table.from_batches(gen, schema=...)`. Measured v0.8.8: list = 0.93–1.03×
+  file (retained batches), gen = 0.0× (zero-copy from Arrow buffers).
+- **P-A3 (S2, live)** — `Table.join` pre-check: `check_state(5 × row_bytes_out
+  × actual_matches)` **до** join'а. `row_bytes_out` = сумма bit_width//8 по
+  `_empty_result_schema` + null bitmap (не 256 B/row heuristic). Measured
+  v0.8.8: RSS delta = 6.85× output on narrow int64 @ 1M; 5× conservative.
+- **P-D1 (S2, live)** — `dedup._local_dedup` pandas chain (to_pandas +
+  sort_values + drop_duplicates + drop + from_pandas) проверяется
+  `check_state(5 × table.nbytes)` **до** `to_pandas`. Measured v0.8.8:
+  3.95–8.29× table.nbytes. Effective partition limit shrinks to `avail × 0.1`.
+- **P-G3 (S2, live)** — `_groupby_with_skew` вызывает
+  `check_partition_buffers(num_partitions, min(buf, 64KB))` перед
+  открытием P writers (mirror `shuffle.py:273`).
+- **P-G5 (S2, blind spot)** — sample cache bounded by `min(10k rows,
+  0.3×avail)` bytes. Wide schemas (>=10 KB/row) hit byte cap before row cap.
+- **P-SH2 (S2)** — `_hash_column` uint64 → `pc.cast(arr, int64, safe=False)`
+  bitcast → pandas C-hash (19× faster than Python fallback). Bitcast =
+  two's-complement reinterpretation, bijection over uint64 ↔ int64 →
+  same value → same hash (partition-disjoint preserved). Nulls propagate
+  through `pc.cast` unchanged. (v0.8.9-fix2: prior XOR-2^63-then-cast
+  variant raised `ArrowInvalid` because values ≥ 2^63 overflow
+  `pc.cast(safe=True)` — every uint64 value, since XOR with sign bit
+  pushes all into [2^63, 2^64). Fix: skip XOR, cast directly with
+  `safe=False`. REPL snippet documented in `_hash_column` docstring.)
+- **P-A4 (S4)** — удалён dead `if False` block в `_exact_actual_matches_arrow`.
+
+### Добавлено
+
+- **§9.2.6–9.2.19 в DECISIONS.md** — канонические формулы пика для 14
+  Arrow/pandas calls, derived из **RSS bench** (не из `pa_delta`).
+  Каждая формула сопровождается guard recommendation и residual от
+  fitted regression. Пример: `f_join = 5 × output_nbytes` (RSS-based,
+  было бы 3.5× из pa_delta).
+- **§3.11** — новый обязательный принцип: **Arrow call memory discipline.**
+  Любой Arrow/pandas call, аллоцирующий > O(batch), требует:
+  (1) формула пика в §9.2.N; (2) явный check_state до вызова;
+  (3) AST guard `test_arrow_call_memory_guard.py`.
+- **§13.4/138** — «Доверие Arrow = доверие LightGBM». Same class as
+  §13.4/25 (LightGBM adapter) и §13.4/26 (partial_fit whitelist).
+  MemoryGuard проверяет RSS, но не видит allocation **внутри** Arrow-функции.
+  Отсюда и `pa_delta` vs RSS разница в 2× на больших joins.
+- **`tests/test_arrow_call_memory_guard.py`** — AST guard: 14 high-risk
+  attributes (`join`, `group_by`, `sort_by`, `to_pandas`, `from_pandas`,
+  `from_batches` list-form, `sort_indices`, `quantile`, `rank`,
+  `value_counts`, `tdigest`, `index_in`, `is_in`, `dictionary_encode`).
+  Каждый должен иметь preceding guard (check_state/check_batch/stat)
+  в том же function scope. Whitelist для helpers (`_safe_materialize_partition`,
+  `_local_dedup`, `_groupby_with_skew`, `hash_shuffle`).
+- **`tests/test_pingis_safety.py`** — 14 behavior tests:
+  `_estimate_row_bytes` (4), uint64 hash (3), groupby skew+budget (1),
+  groupby sample byte-cap (1), dedup pandas chain raise (1),
+  AST guards (2), round-trip sanity (3).
+
+### Изменено
+
+- `cadw/ops/join.py` — новая module-level `_estimate_row_bytes(schema)`.
+- `cadw/ops/shuffle.py` — uint64 в `_hash_column` не идёт через Python loop.
+- `dedup._local_dedup` — effective partition size ~5× меньше на тех же
+  бюджетах (honest memory bound).
+- AST guard при проверке `Table.from_batches` различает `ListComp` (bad)
+  vs `GeneratorExp` (good).
+
+### Ограничения (v0.8.9, §11.5)
+
+- **P-Q2 `pc.quantile` whole column** — sort-based, ~1× column working
+  copy. **NEEDS-BATCHED**, не используется в `cadw/`. Backlog §11.6.
+- **P-R1 `pc.rank` whole column** — ~2× output + sort buffer.
+  **NEEDS-BATCHED**. Per-batch use в `rank.py:94` already safe.
+- **P-G2/P-G5 `pc.value_counts` при K≈N** — O(N) hash. **NEEDS-BATCHED**.
+- **P-SH1 string shuffle** — needs research (dictionary growth не
+  детерминирован, partition-disjoint invariant at risk).
+- **P-A3 wide-schema benchmark** — measured on int64 only; wide string
+  schemas deferred to v0.8.10 (proposed: N=500k, 5 string cols).
+- **P-G3 skew workload benchmark** — confirmed by code review, not
+  benchmarked. Deferred to v0.8.10 (N=1M, one key at 60%, P=16).
+
+### Тесты
+
+- fast: **~1124 passed, 1 skipped**. slow: **8 passed**.
+- +14 в `tests/test_pingis_safety.py`, +2 AST в
+  `tests/test_arrow_call_memory_guard.py` (guard + sanity on generator
+  vs list-comp).
+
 ## [0.8.8] — 2026-10-19
 
 ### Добавлено (housekeeping, не функциональность)
