@@ -847,6 +847,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
 | `fit_lasso`/`fit_elasticnet` (v0.7.7: coord descent) | ✅ | 22 |
 | `fit_gbdt_multiclass` (v0.7.8: softmax, per-class) | ✅ | 22 |
+| `compute_feature_importance` (v0.7.9: gain/split) | ✅ | 13 |
 | `expanding` + `ewm` (v0.8.0: cumulative/EWMA) | ✅ | 26 |
 | P-hash: pandas C-hash (v0.8.1) | ✅ | 17 |
 | `CovarianceMeanOp` — PCA single-pass (v0.8.0) | ✅ | 3 |
@@ -940,6 +941,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | Index не сохраняется в Parquet (write_parquet → reload = RangeIndex) | `write_parquet` | Parquet не имеет index-метаданных; документировано. §13.4/55. |
 | `fit_lasso` — warm-start / path | `cadw/ml/linear.py` (v0.7.7) | alpha-путь переобучается с нуля; v0.7.8+ |
 | `fit_lasso` — `alpha` raw (не sklearn-style /n) | `cadw/ml/linear.py` (v0.7.7) | Совместимо с v0.7.0a Ridge alpha; документировано |
+| `feature_importance` default = 'gain' (v0.7.9) | viz adapters | Breaking change: было 'split'. Downstream relying on integer counts — `importance_type='split'` explicit |
+| permutation importance / SHAP — не реализовано | `cadw.ml.gbdt` | v0.7.10+ / вне scope |
 | `shift`/`diff` с `on=col` — не поддержано | `CadwDataFrame` | сортировка + shift + ре-сортировка — v0.8.1 |
 | `resample(freq)` — не поддержано | `CadwDataFrame` | timestamp parsing + bucket — v0.8.2 |
 | `ewm(ignore_na=False)` — не поддержано (только ignore_na=True semantics) | `ewm` (v0.8.0) | pandas default `ignore_na=False`; наша семантика: nulls skip state, output null для null row |
@@ -2157,6 +2160,46 @@ debugging 3-level trees с неправильным base prediction.
 **Следующее:** v0.8.2 (`shift/diff on=col`), v0.8.3 (`resample(freq)`),
 v0.7.9 (`feature_importance(gain)`). ML-слой закрыт (GBDT reg+bin+multi,
 Linear/Ridge/Lasso/ENet, Logistic, KMeans, PCA, NB×3).
+
+**Эпизод 116 (feature importance: split count vs gain; backward
+compat через tuple slicing).** v0.7.4a `feature_importance` считал split
+count — сколько раз feature использован в split'ах. Стандарт XGBoost/
+LightGBM — **total gain** (Σ gain_i). Разница:
+- 10 слабых splits на feature A (gain=0.01 each) → split=10, gain=0.1.
+- 1 сильный split на feature B (gain=1.0) → split=1, gain=1.0.
+- Split-count: A > B (WRONG). Gain: B > A (CORRECT).
+
+Fix v0.7.9:
+1. **5-tuple spec** — `(feat, thr, left, right, gain)`. Store gain at
+   build time (`_fit_boosting`, `_fit_boosting_multiclass`).
+2. **Backward compat:** `_assign_leaf_from_array` использует `spec[:4]`
+   — толерантно к 4-tuple (pre-v0.7.9 pickled models) и 5-tuple.
+3. **`compute_feature_importance`** — helper в `cadw.ml.gbdt`, handles
+   binary (`list[tree]`) и multiclass (`list[list[tree]]`) через `_iter_trees`.
+4. **Adapters** — `feature_importance(model, importance_type='gain'|'split')`.
+   Default='gain' (breaking, но семантически правильно).
+
+**Урок (backward compat для pickled models):** tuple slicing `spec[:4]` —
+это **forward-compatible unlock** tuple'ов. Добавление N полей — не
+breaking, если читать через slice. То же для dict (`spec.get("gain", 0)`),
+но tuple быстрее. Правило: **если структура эволюционирует, читай через
+`s[:N]` (или dict.get with default), не через `a, b, c, d, e = spec`
+(exact unpack падает на missing field).**
+
+**Семантика:** `gain` — raw sum (не normalized). 1 tree × 100 gain vs
+1 tree × 10 gain — magnitudes не comparable, но ranking comparable
+(что нам и нужно для importance). Для normalized — `gain / gain.sum()`
+в user code. Не делаем normalized default (пользователь может хотеть
+и raw, и normalized).
+
+**Ограничение:** 4-tuple legacy → gain=0 для старых trees. Split works.
+Документировано. Не auto-convert (это pickled models, которые пользователь
+уже загрузил — его responsibility).
+
+**Future (v0.7.10):** permutation importance — out-of-core eval на holdout.
+Не реализуем сейчас: требует `sort_values` + `Reduce` на каждой
+перестановке feature, K×N passes. Для 100 features × 10^6 rows — дорого.
+В backlog, приоритет — ниже `resample`.
 
 ### 13.5. Открытые вопросы
 

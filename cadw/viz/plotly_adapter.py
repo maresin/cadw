@@ -168,37 +168,29 @@ def scatter(
 def feature_importance(
     model,
     *,
+    importance_type: str = "gain",
     top_k: int | None = None,
     **kwargs,
 ):
-    """Horizontal bar of split counts per feature."""
+    """Horizontal bar of gain (default) or split count per feature.
+
+    - importance_type='gain' (default): Σ gain per feature.
+    - importance_type='split': split count (v0.7.4a behavior).
+    """
     go = _go()
-    trees = getattr(model, "trees_", None)
-    names = getattr(model, "feature_names_", None)
-    if trees is None or names is None:
-        raise TypeError(
-            "feature_importance: model must be a GBDT (trees_, "
-            "feature_names_)"
-        )
-    imp = {n: 0 for n in names}
-    for tree in trees:
-        for _nid, spec in tree["structure"].items():
-            if spec is None:
-                continue
-            j = spec[0]
-            imp[names[j]] += 1
-    items = sorted(imp.items(), key=lambda kv: kv[1])
-    if top_k is not None:
-        items = items[-top_k:]
-    names_list = [n for n, _ in items]
-    values = [v for _, v in items]
+    from cadw.ml.gbdt import compute_feature_importance
+    importance = compute_feature_importance(
+        model, importance_type=importance_type, top_k=top_k,
+    )
+    names_list = list(importance.keys())
+    values = list(importance.values())
     fig = go.Figure(go.Bar(
         x=values, y=names_list, orientation="h",
         marker_color=kwargs.pop("color", "steelblue"),
     ))
     fig.update_layout(
-        title="feature importance (split count)",
-        xaxis_title="split count", yaxis_title="feature",
+        title=f"feature importance ({importance_type})",
+        xaxis_title=importance_type, yaxis_title="feature",
         **kwargs,
     )
     return fig

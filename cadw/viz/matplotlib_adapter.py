@@ -200,47 +200,43 @@ def scatter(
 def feature_importance(
     model,
     *,
+    importance_type: str = "gain",
     top_k: int | None = None,
     ax=None,
     **kwargs,
 ):
-    """GBDT feature importance (split count, not gain).
+    """GBDT feature importance (gain or split count).
 
-    Accumulates per-feature split counts across all trees. Returns
-    (fig, ax) or (None, None) if model has no trees.
+    - importance_type='gain' (default): sum of split gains per feature
+      (XGBoost-style). Values are raw gain sums (varies by tree scale).
+    - importance_type='split': number of times feature used in a split
+      (v0.7.4a behavior).
+
+    Returns (fig, ax) or (fig, ax) with title indicating constant model.
     """
     plt = _plt()
-    trees = getattr(model, "trees_", None)
-    feature_names = getattr(model, "feature_names_", None)
-    if trees is None or feature_names is None:
-        raise TypeError(
-            "feature_importance: model must be a GBDT (trees_, "
-            "feature_names_)"
-        )
-    importance = {name: 0 for name in feature_names}
-    for tree in trees:
-        for nid, spec in tree["structure"].items():
-            if spec is None:
-                continue
-            j, _thr, _l, _r = spec
-            importance[feature_names[j]] += 1
+    from cadw.ml.gbdt import compute_feature_importance
+    importance = compute_feature_importance(
+        model, importance_type=importance_type, top_k=top_k,
+    )
     if sum(importance.values()) == 0:
         if ax is not None:
-            ax.set_title("feature_importance (no splits — constant model)")
+            ax.set_title(
+                f"feature_importance ({importance_type}) — no splits"
+            )
             return ax.figure, ax
         fig, ax = plt.subplots(figsize=(5, 3))
-        ax.set_title("feature_importance (no splits — constant model)")
+        ax.set_title(
+            f"feature_importance ({importance_type}) — no splits"
+        )
         return fig, ax
-    items = sorted(importance.items(), key=lambda kv: kv[1])
-    if top_k is not None:
-        items = items[-top_k:]
-    names = [n for n, _ in items]
-    values = [v for _, v in items]
+    names = [n for n, _ in importance.items()]
+    values = [v for _, v in importance.items()]
     if ax is None:
-        fig, ax = plt.subplots(figsize=(5, max(3, 0.3 * len(items))))
+        fig, ax = plt.subplots(figsize=(5, max(3, 0.3 * len(importance))))
     else:
         fig = ax.figure
     ax.barh(names, values, **kwargs)
-    ax.set_xlabel("split count")
-    ax.set_title("feature importance (split count)")
+    ax.set_xlabel(importance_type)
+    ax.set_title(f"feature importance ({importance_type})")
     return fig, ax

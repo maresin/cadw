@@ -240,7 +240,7 @@ class _AssignLeavesOp(ReduceOp):
                 for nid, spec in self.tree.items():
                     if spec is None:
                         continue
-                    j, thr, left, right = spec
+                    j, thr, left, right = spec[:4]
                     m = (leaf == nid) & ~nan_rows
                     if not m.any():
                         continue
@@ -358,7 +358,9 @@ def _assign_leaf_from_array(
     for nid, spec in tree_struct.items():
         if spec is None:
             continue
-        j, thr, left, right = spec
+        # v0.7.9: tolerate 4-tuple (pre-v0.7.9 pickled models) or
+        # 5-tuple (gain appended at index 4).
+        j, thr, left, right = spec[:4]
         m = (leaf == nid) & ~nan_rows
         if not m.any():
             continue
@@ -842,7 +844,8 @@ def _fit_boosting(
                 left_id = next_node_id
                 right_id = next_node_id + 1
                 next_node_id += 2
-                tree[nid] = (j, thr, left_id, right_id)
+                # v0.7.9: 5-tuple with gain for feature_importance.
+                tree[nid] = (j, thr, left_id, right_id, float(gain))
                 tree[left_id] = None
                 tree[right_id] = None
 
@@ -1340,7 +1343,7 @@ def _fit_boosting_multiclass(
                     left_id = next_node_id
                     right_id = next_node_id + 1
                     next_node_id += 2
-                    tree[nid] = (j, thr, left_id, right_id)
+                    tree[nid] = (j, thr, left_id, right_id, float(gain))
                     tree[left_id] = None
                     tree[right_id] = None
 
@@ -1414,4 +1417,76 @@ def fit_gbdt_multiclass(
     )
     return GBDTMulticlassClassifier(**out)
 
+def compute_feature_importance(
+    model,
+    *,
+    importance_type: str = "gain",
+    top_k: "int | None" = None,
+) -> dict:
+    """Compute feature importance from GBDT model (v0.7.9).
+
+    - model: GBDTRegressor | GBDTClassifier | GBDTMulticlassClassifier
+    - importance_type:
+        'gain'  — sum of split gain per feature (default, XGBoost-style).
+                  Larger gain = more useful split.
+        'split' — count of splits per feature (v0.7.4a semantics).
+                  Simpler, но не учитывает качество split.
+    - top_k: keep only top-k features (by importance). None = all.
+
+    Returns dict {feature_name: importance} sorted by importance
+    ascending (для horizontal barh — biggest наверху).
+
+    Multiclear GBDT: gain summed across all (tree, class).
+    Binary + regression: standard, all trees.
+    """
+    if importance_type not in ("gain", "split"):
+        raise ValueError(
+            f"compute_feature_importance: importance_type must be "
+            f"'gain' or 'split'; got {importance_type!r}"
+        )
+    trees = getattr(model, "trees_", None)
+    names = getattr(model, "feature_names_", None)
+    if trees is None or names is None:
+        raise TypeError(
+            "compute_feature_importance: model must be a GBDT "
+            "(trees_, feature_names_)"
+        )
+
+    imp: dict[str, float] = {n: 0.0 for n in names}
+
+    def _iter_trees():
+        """Yield tree dicts. Handles binary (list[tree]) and multiclass
+        (list[list[tree]])."""
+        if not trees:
+            return
+        first = trees[0]
+        if isinstance(first, list):
+            # Multiclass: trees_ = list[list[tree]]
+            for round_trees in trees:
+                for tree in round_trees:
+                    yield tree
+        else:
+            # Binary / regression: trees_ = list[tree]
+            for tree in trees:
+                yield tree
+
+    for tree in _iter_trees():
+        structure = tree["structure"]
+        for _nid, spec in structure.items():
+            if spec is None:
+                continue
+            j = spec[0]
+            if importance_type == "split":
+                imp[names[j]] += 1.0
+            else:  # gain
+                # 5-tuple: (j, thr, left, right, gain)
+                if len(spec) >= 5:
+                    imp[names[j]] += float(spec[4])
+                # else: 4-tuple (legacy) — gain not available; split only
+                # count it as a split, not gain. Better than fail.
+
+    items = sorted(imp.items(), key=lambda kv: kv[1])
+    if top_k is not None:
+        items = items[-top_k:]
+    return dict(items)
 

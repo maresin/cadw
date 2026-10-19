@@ -12,6 +12,53 @@
   инвариант.
 -->
 
+## [0.7.9] — 2026-10-19
+
+### Исправлено в v0.7.9-fix
+- **`_AssignLeavesOp.update` 4-unpack** — после введения 5-tuple spec (`..., gain`) старый `j, thr, left, right = spec` падал `ValueError: too many values to unpack`. Fix: `spec[:4]` (forward-compatible slice). Тот же fix применён к `_assign_leaf_from_array` в изначальном v0.7.9.
+- **Multiclass `_fit_boosting_multiclass` 4-tuple** — `s.replace(old, new, 1)` дважды не сработало (второй replace не нашёл pattern из-за отличий в форматировании). Fix: replace **all occurrences** без count → multiclass тоже 5-tuple.
+- **+AST guard** `test_all_spec_unpack_uses_slice` — все `= spec` должны быть `= spec[:4]` / `= spec[:5]`. Ловит класс «4-unpack + 5-tuple» багов.
+
+### Добавлено
+- **`compute_feature_importance(model, importance_type='gain'|'split',
+  top_k=None)`** — extraction helper in `cadw.ml.gbdt`.
+  - `'gain'` (default): sum of split gains per feature — XGBoost-style,
+    better reflects feature usefulness (big gain на 1 split > 10 малых).
+  - `'split'`: split count (v0.7.4a semantics, backward compat).
+  - Multiclass: gain summed across all (tree, class).
+  - Returns dict sorted by importance ascending (for horizontal barh).
+  - Handles both binary (list[tree]) and multiclass (list[list[tree]]).
+
+- **Tree structure extended:** `spec = (feat, thr, left, right, gain)`
+  (5-tuple) instead of 4-tuple. `gain` stored at index 4.
+  `_assign_leaf_from_array` tolerates both 4- and 5-tuple (`spec[:4]`)
+  — backward compat for pre-v0.7.9 pickled models.
+
+- **`feature_importance(..., importance_type='gain')`** in matplotlib and
+  plotly adapters — use the new helper. Split-count still available via
+  `importance_type='split'`.
+
+### Изменено
+- **`feature_importance` default** — был `split count`, стал `gain`.
+  Breaking change для downstream code, который relied on integer counts
+  — но семантически правильнее; документировано.
+
+### Ограничения (v0.7.9, §11.5)
+- **Permutation importance** — не реализована (требует out-of-core eval
+  на holdout; v0.7.10+).
+- **SHAP** — не реализован (слишком тяжёлый для out-of-core; вне scope).
+- Legacy 4-tuple spec (pre-v0.7.9 pickled): `gain` returns 0 for those
+  trees (silently, gain not available). `split` works.
+- `gain` — raw sum (not normalized); разные tree scale → разные magnitudes.
+  Для normalized importance — `gain / gain.sum()` в user code.
+
+### Тесты
+- +13 в `test_feature_importance_gain.py`: helper (invalid type, non-GBDT,
+  sorted), gain semantics (important feature, split differs), top_k,
+  zero model, multiclass aggregation, adapters (matplotlib/plotly, both
+  importance_type), legacy 4-tuple fallback, spec is 5-tuple.
+- fast: **~995 passed**. slow: **8 passed**.
+
 ## [0.7.8] — 2026-10-19
 
 ### Исправлено в v0.7.8-fix3
