@@ -1224,6 +1224,202 @@ class CadwDataFrame:
         )
         return new_df, reverse_maps
 
+    # ---------------- shift / diff ----------------
+
+    def shift(
+        self,
+        k: int = 1,
+        fill_value=None,
+        *,
+        columns: "str | Sequence[str] | None" = None,
+    ) -> "CadwDataFrame":
+        """Shift values by `k` positions (v0.6.2b, lag).
+
+        - k >= 0: `out[i] = x[i-k]` for i>=k, else `fill_value`.
+        - k == 0: returns self (no-op).
+        - k < 0 (lead): NotImplementedError (v0.6.3).
+        - columns=None: all columns; else subset (others pass-through).
+        - fill_value=None: null for first k rows. Non-None: that value.
+
+        Streamable: O(k) memory (deque per column). Position-based,
+        iterates filtered batches in row order.
+
+        Shifted columns become **nullable** (fill = null).
+        """
+        from collections import deque
+
+        if not isinstance(k, int):
+            raise TypeError(f"shift: k must be int; got {type(k).__name__}")
+        if k < 0:
+            raise NotImplementedError(
+                "shift: negative k (lead) not supported in v0.6.2b; "
+                "use reverse + shift + reverse, or v0.6.3"
+            )
+        if k == 0:
+            return self
+
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"shift: column {c!r} not in {self._columns}"
+                )
+        shift_cols = set(cols)
+
+        out_fields = []
+        for c in self._columns:
+            f = self._dataset.schema.field(c)
+            if c in shift_cols:
+                f = pa.field(c, f.type, nullable=True)
+            out_fields.append(f)
+        out_schema = pa.schema(out_fields)
+
+        def _fill(size: int, type_) -> pa.Array:
+            if fill_value is None:
+                return pa.nulls(size, type=type_)
+            return pa.array([fill_value] * size, type=type_)
+
+        def _iter_shifted():
+            bufs: dict[str, deque] = {
+                c: deque(maxlen=k) for c in shift_cols
+            }
+            for b in self._iter_filtered_batches():
+                n = b.num_rows
+                arrays = []
+                for c in self._columns:
+                    col_vals = b.column(c)
+                    if c not in shift_cols:
+                        arrays.append(col_vals)
+                        continue
+                    prev = list(bufs[c])
+                    fill_n = max(0, k - len(prev))
+                    parts = []
+                    if fill_n > 0:
+                        parts.append(_fill(fill_n, col_vals.type))
+                    if prev:
+                        parts.append(pa.array(prev, type=col_vals.type))
+                    if n > k:
+                        parts.append(col_vals.slice(0, n - k))
+                    out = (
+                        pa.concat_arrays(parts) if parts
+                        else pa.array([], type=col_vals.type)
+                    )
+                    if len(out) > n:
+                        out = out.slice(0, n)
+                    elif len(out) < n:
+                        out = pa.concat_arrays([
+                            out, pa.nulls(n - len(out), type=col_vals.type),
+                        ])
+                    arrays.append(out)
+                    for v in col_vals.to_pylist():
+                        bufs[c].append(v)
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_shifted(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def diff(
+        self,
+        k: int = 1,
+        *,
+        columns: "str | Sequence[str] | None" = None,
+    ) -> "CadwDataFrame":
+        """First difference: `out[i] = x[i] - x[i-k]` (v0.6.2b).
+
+        - k >= 1. First k rows -> null.
+        - columns=None: all; else subset (others pass-through).
+        - Output columns nullable (first k = null).
+
+        Streamable: O(k) memory.
+        """
+        from collections import deque
+
+        if not isinstance(k, int):
+            raise TypeError(f"diff: k must be int; got {type(k).__name__}")
+        if k < 1:
+            raise ValueError(f"diff: k must be >= 1; got {k}")
+
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"diff: column {c!r} not in {self._columns}"
+                )
+        diff_cols = set(cols)
+
+        out_fields = []
+        for c in self._columns:
+            f = self._dataset.schema.field(c)
+            if c in diff_cols:
+                f = pa.field(c, f.type, nullable=True)
+            out_fields.append(f)
+        out_schema = pa.schema(out_fields)
+
+        import pyarrow.compute as _pc
+
+        def _iter_diffed():
+            bufs: dict[str, deque] = {
+                c: deque(maxlen=k) for c in diff_cols
+            }
+            for b in self._iter_filtered_batches():
+                n = b.num_rows
+                arrays = []
+                for c in self._columns:
+                    col_vals = b.column(c)
+                    if c not in diff_cols:
+                        arrays.append(col_vals)
+                        continue
+                    prev = list(bufs[c])
+                    fill_n = max(0, k - len(prev))
+                    parts = []
+                    if fill_n > 0:
+                        parts.append(pa.nulls(fill_n, type=col_vals.type))
+                    if prev:
+                        parts.append(pa.array(prev, type=col_vals.type))
+                    if n > k:
+                        parts.append(col_vals.slice(0, n - k))
+                    shifted = (
+                        pa.concat_arrays(parts) if parts
+                        else pa.array([], type=col_vals.type)
+                    )
+                    if len(shifted) > n:
+                        shifted = shifted.slice(0, n)
+                    elif len(shifted) < n:
+                        shifted = pa.concat_arrays([
+                            shifted,
+                            pa.nulls(n - len(shifted), type=col_vals.type),
+                        ])
+                    diff_arr = _pc.subtract(col_vals, shifted)
+                    arrays.append(diff_arr)
+                    for v in col_vals.to_pylist():
+                        bufs[c].append(v)
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_diffed(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
     # ---------------- merge ----------------
 
     def merge(
