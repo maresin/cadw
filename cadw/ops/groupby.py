@@ -36,9 +36,155 @@ logger = get_logger("ops.groupby")
 
 
 _AGG_FUNCS = {"mean", "sum", "count", "min", "max"}
+# Функции, для которых работает partial aggregation (combiner):
+# - mean: sum + count partial
+# - sum/count/min/max: прямой partial
+# std/var требуют Welford state — v0.3.5.
+_COMBINER_SUPPORTED = {"sum", "count", "min", "max", "mean"}
+_COMB_PREFIX = "__comb_"
+
 
 
 _MAX_DEPTH = 5
+
+
+def _combine_batches(
+    batch_iter,
+    by_columns: Sequence[str],
+    agg_columns: Sequence[str],
+    agg_funcs: Sequence[str],
+    memory_guard: "MemoryGuard | None" = None,
+):
+    """Partial aggregation батча: pandas.groupby(by).agg(partial).
+
+    Yields compact batches: `by + __comb_{col}_{base_func}`.
+      - mean(col) → __comb_{col}_sum + __comb_{col}_count.
+      - sum/count/min/max(col) → __comb_{col}_{func}.
+
+    State: O(batch_size) per batch, O(1) между батчами.
+    Корректность: partial-агрегаты ассоциативны → merge_partials = global agg.
+    """
+    # Уникальные (col, base_func) пары для эмита.
+    base_specs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for col, f in zip(agg_columns, agg_funcs):
+        if f == "mean":
+            for bf in ("sum", "count"):
+                if (col, bf) not in seen:
+                    seen.add((col, bf))
+                    base_specs.append((col, bf))
+        else:
+            if (col, f) not in seen:
+                seen.add((col, f))
+                base_specs.append((col, f))
+
+    select_cols = list(dict.fromkeys(list(by_columns) + list(agg_columns)))
+
+    for batch in batch_iter:
+        if memory_guard is not None:
+            memory_guard.check_batch(batch, name="combiner.input")
+        table = pa.Table.from_batches([batch.select(select_cols)])
+        grouped = table.group_by(list(by_columns)).aggregate(base_specs)
+
+        # Переименовываем {col}_{base_func} → __comb_{col}_{base_func}.
+        # group_by().aggregate() формирует имена `{col}_{func}` — добавим префикс.
+        # group_by().aggregate() returns pa.Table; .column() -> ChunkedArray.
+        # pa.RecordBatch.from_arrays requires Array, not ChunkedArray.
+        # Collect via pa.Table, then yield its (single, combined) batch.
+        orig_names = list(by_columns) + [
+            f"{col}_{bf}" for col, bf in base_specs
+        ]
+        new_names = list(by_columns) + [
+            f"{_COMB_PREFIX}{col}_{bf}" for col, bf in base_specs
+        ]
+        out_table = grouped.select(orig_names).rename_columns(new_names)
+        for b in out_table.to_batches():
+            yield b
+
+
+def _merge_partials(
+    table: pa.Table,
+    by_columns: Sequence[str],
+    output_specs: Sequence[tuple[str, str]],  # [(col, func), ...] как в _local_groupby
+) -> pa.Table:
+    """Merge partial aggregates → final aggregated table.
+
+    `table` содержит `by + __comb_{col}_{base_func}` (из _combine_batches).
+    `output_specs` — желаемый output: [(col, func)].
+
+    Для mean — суммируем partial sums и counts, потом делим.
+    Для остальных — merge по базовой функции (sum→sum, count→sum, min→min, max→max).
+    """
+    # Собираем merge-спеки: __comb_{col}_{base_func} с merge_func.
+    merge_specs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for col, f in output_specs:
+        if f == "mean":
+            for bf in ("sum", "count"):
+                src = f"{_COMB_PREFIX}{col}_{bf}"
+                mf = "sum"
+                if (src, mf) not in seen:
+                    seen.add((src, mf))
+                    merge_specs.append((src, mf))
+        else:
+            src = f"{_COMB_PREFIX}{col}_{f}"
+            mf = "sum" if f == "count" else f
+            if (src, mf) not in seen:
+                seen.add((src, mf))
+                merge_specs.append((src, mf))
+
+    # Проверка: все нужные колонки есть в партиции.
+    for src, _mf in merge_specs:
+        if src not in table.schema.names:
+            raise KeyError(
+                f"_merge_partials: expected column {src!r} in partition "
+                f"schema {table.schema.names}. Combiner output mismatch?"
+            )
+
+    merged = table.group_by(list(by_columns)).aggregate(merge_specs)
+
+    # Финальный output: by + {col}_{func} с правильным dtype.
+    fields: list[pa.Field] = []
+    arrays: list[pa.Array] = []
+    by_set = set(by_columns)
+    for c in by_columns:
+        fld = merged.schema.field(c)
+        fields.append(fld)
+        arrays.append(merged.column(c))
+    for col, f in output_specs:
+        if f == "mean":
+            sum_src = f"{_COMB_PREFIX}{col}_sum_sum"
+            count_src = f"{_COMB_PREFIX}{col}_count_sum"
+            if sum_src not in merged.schema.names or count_src not in merged.schema.names:
+                raise KeyError(
+                    f"_merge_partials: missing {sum_src!r}/{count_src!r} "
+                    f"for mean; got {merged.schema.names}"
+                )
+            s_arr = merged.column(sum_src).cast(pa.float64())
+            c_arr = merged.column(count_src).cast(pa.float64())
+            # mean = sum / count; count=0 → NaN (не должно случаться для non-empty групп).
+            import pyarrow.compute as pc
+            div = pc.divide(s_arr, c_arr)
+            arrays.append(div)
+            fields.append(pa.field(f"{col}_{f}", pa.float64()))
+        else:
+            src = f"{_COMB_PREFIX}{col}_{f}_sum" if f == "count" else (
+                f"{_COMB_PREFIX}{col}_{f}_{'sum' if f == 'sum' else f}"
+            )
+            # Проще: имя после merge_partials.aggregate = {src}_{mf}.
+            mf = "sum" if f == "count" else f
+            final_src = f"{_COMB_PREFIX}{col}_{f}_{mf}"
+            if final_src not in merged.schema.names:
+                raise KeyError(
+                    f"_merge_partials: missing {final_src!r}; "
+                    f"got {merged.schema.names}"
+                )
+            arr = merged.column(final_src)
+            out_type = pa.int64() if f == "count" else pa.float64()
+            arrays.append(arr.cast(out_type))
+            fields.append(pa.field(f"{col}_{f}", out_type))
+
+    return pa.Table.from_arrays(arrays, schema=pa.schema(fields))
 
 
 def _empty_result_schema(by_columns, agg_columns, agg_funcs) -> pa.Schema:
@@ -123,6 +269,7 @@ def _local_groupby(
     max_depth: int = _MAX_DEPTH,
     *,
     size_of_key_entry_bytes: int | None = None,
+    partial_merge: bool = False,
 ) -> pa.Table:
     """Локальная агрегация одной партиции. Векторизованно через pa.Table.group_by."""
     if isinstance(agg_funcs, str):
@@ -169,6 +316,11 @@ def _local_groupby(
             dict_fits = estimated_dict_bytes <= dict_limit
 
         if dict_fits:
+            if partial_merge:
+                return _merge_partials(
+                    table, by_columns,
+                    [(col, f) for col, f in zip(agg_columns, agg_funcs)],
+                )
             agg_specs = [(col, f) for col, f in zip(agg_columns, agg_funcs)]
             return table.group_by(list(by_columns)).aggregate(agg_specs)
         # fall through: file fits, dict overflow -> split
@@ -264,6 +416,11 @@ def _estimate_k_sample(
 
 
 _HEAVY_RATIO = 0.05
+# Skew isolation is worth the overhead only when the key is BOTH
+# large in absolute terms and dominant in ratio. Without absolute
+# min, tiny test data (5 rows, 3 keys, 40/40/20%) incorrectly
+# triggers skew path — combiner never activates. §13.4/52b.
+_HEAVY_ABSOLUTE_MIN = 100
 
 
 def _detect_heavy_keys(sample_batches, by_columns, threshold_ratio: float = _HEAVY_RATIO) -> set:
@@ -279,7 +436,10 @@ def _detect_heavy_keys(sample_batches, by_columns, threshold_ratio: float = _HEA
     total = sum(counter.values())
     if total == 0:
         return set()
-    return {k for k, cnt in counter.items() if cnt / total > threshold_ratio}
+    return {
+        k for k, cnt in counter.items()
+        if cnt >= _HEAVY_ABSOLUTE_MIN and cnt / total > threshold_ratio
+    }
 
 
 def _compute_heavy_mask(batch: pa.RecordBatch, by_columns, heavy_keys: set) -> pa.Array:
@@ -365,7 +525,15 @@ def _shuffle_write(writers, batch: pa.RecordBatch, key_columns, value_columns,
     hashes = compute_hashes(batch, key_columns, hash_seed)
     parts = _mod_p(hashes, num_partitions)
     order = pc.sort_indices(parts)
-    sorted_batch = batch.select(list(key_columns) + list(value_columns)).take(order)
+    # Dedup key ∩ value (§13.4/54): batch.select() на дубликатах имён
+    # создаёт "cat, cat" → group_by("cat") падает с "Multiple matches".
+    _seen: set[str] = set()
+    _cols: list[str] = []
+    for _c in list(key_columns) + list(value_columns):
+        if _c not in _seen:
+            _seen.add(_c)
+            _cols.append(_c)
+    sorted_batch = batch.select(_cols).take(order)
     sorted_parts = parts.take(order)
     parts_np = sorted_parts.to_numpy(zero_copy_only=False)
     order_np = order.to_numpy(zero_copy_only=False)
@@ -471,6 +639,7 @@ def groupby_aggregate(
     *,
     num_partitions: int | None = None,
     hash_seed: int = 0,
+    combiner: bool = False,
     log: bool = True,
 ) -> pa.Table:
     """
@@ -519,9 +688,52 @@ def groupby_aggregate(
         # Такой groupby бессмысленен, но не должен падать.
         value_columns = list(by_columns)
 
+    # --- Combiner (partial aggregation before shuffle) ---
+    combiner_active = False
+    if combiner:
+        unsupported = [f for f in agg_funcs if f not in _COMBINER_SUPPORTED]
+        if unsupported:
+            import warnings
+            warnings.warn(
+                f"groupby_aggregate: combiner не поддерживает "
+                f"agg_funcs={unsupported}; combiner отключён (fallback "
+                f"на обычный путь). §13.4/52.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        else:
+            combiner_active = True
+            # После combiner value_columns заменяются на __comb_*.
+            # Список будет пересчитан: unique (col, base_func) пары.
+            comb_value_cols: list[str] = []
+            seen_bc: set[str] = set()
+            for col, f in zip(agg_columns, agg_funcs):
+                bfs = ("sum", "count") if f == "mean" else (f,)
+                for bf in bfs:
+                    name = f"{_COMB_PREFIX}{col}_{bf}"
+                    if name not in seen_bc:
+                        seen_bc.add(name)
+                        comb_value_cols.append(name)
+            if log:
+                logger.info(
+                    "groupby_aggregate: combiner=on, %d value cols (was %d)",
+                    len(comb_value_cols), len(value_columns),
+                )
+
+
     # Sample строится ВСЕГДА: он нужен и для auto-P, и для skew detection.
     # Важно: break-and-chain, не tee. С tee chain(sample, rest) дублирует
     # sample (count/sum удваиваются, mean маскирует).
+    # Если combiner_active — оборачиваем входной поток в partial-agg.
+    # Это меняет схему: by + __comb_*.
+    if combiner_active:
+        # Sample (skew detection) идёт по СЫРЫМ батчам — но нам нужны
+        # unique keys by_columns, которые не меняются от combiner.
+        # Однако sample сохраняется как список сырых батчей; combiner
+        # применится только к hash_shuffle. Порядок: sample → skew →
+        # combine (если no skew) → shuffle.
+        pass  # no-op; комбинирование применим после skew check
+
     sample_cap = 10_000
     batch_iter = iter(batch_iter)
     sample_batches: list[pa.RecordBatch] = []
@@ -568,6 +780,18 @@ def groupby_aggregate(
     # --- Skew detection & isolation (§11.4 п.3) ---
     heavy_keys = set() if skip_skew else _detect_heavy_keys(sample_batches, by_columns)
     if heavy_keys:
+        if combiner_active:
+            import warnings
+            warnings.warn(
+                "groupby_aggregate: combiner отключён в skew-пути "
+                "(heavy keys streaming + light без combiner). "
+                "v0.3.5: combiner для light. §13.4/52.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            combiner_active = False
+            shuffled_cols = value_columns
+            batches_for_shuffle = batch_iter
         if log:
             logger.info(
                 "groupby_aggregate: skew detected, %d heavy key(s) -> streaming",
@@ -578,10 +802,21 @@ def groupby_aggregate(
             num_partitions, memory_guard, spill_dir, log,
         )
 
+    if combiner_active:
+        # Wrap in partial-agg generator (state O(batch_size)).
+        shuffled_cols = comb_value_cols
+        batches_for_shuffle = _combine_batches(
+            batch_iter, by_columns, agg_columns, agg_funcs,
+            memory_guard=memory_guard,
+        )
+    else:
+        shuffled_cols = value_columns
+        batches_for_shuffle = batch_iter
+
     partitions = hash_shuffle(
-        batch_iter,
+        batches_for_shuffle,
         key_columns=by_columns,
-        value_columns=value_columns,
+        value_columns=shuffled_cols,
         num_partitions=num_partitions,
         memory_guard=memory_guard,
         spill_dir=spill_dir / "shuffle",
@@ -594,11 +829,20 @@ def groupby_aggregate(
     # --- Фаза 2: LocalGroupBy по каждой партиции ---
     partial_tables: list[pa.Table] = []
     for i, p in enumerate(partitions):
-        t = _local_groupby(
-            p, by_columns, agg_columns, agg_funcs,
-            memory_guard=memory_guard,
-            spill_dir=spill_dir,
-        )
+        if combiner_active:
+            # Частичные агрегаты → merge, а не group_by.
+            t = _local_groupby(
+                p, by_columns, agg_columns, agg_funcs,
+                memory_guard=memory_guard,
+                spill_dir=spill_dir,
+                partial_merge=True,
+            )
+        else:
+            t = _local_groupby(
+                p, by_columns, agg_columns, agg_funcs,
+                memory_guard=memory_guard,
+                spill_dir=spill_dir,
+            )
         # Пустая таблица без данных не мешает конкатенации
         if t.num_rows > 0:
             partial_tables.append(t)

@@ -28,6 +28,20 @@ from cadw.io.batch_writer import ArrowIPCBatchWriter
 logger = get_logger("ops.shuffle")
 
 
+def _dedup_columns(cols: Sequence[str]) -> list[str]:
+    """Dedupe columns preserving order. FIX §13.4/54: hash_shuffle used to
+    write duplicate columns when key ∩ value ≠ ∅ (e.g. groupby(same_col)).
+    Caller contract unchanged: we still write key+value semantics; duplicates
+    are just collapsed to one Arrow field."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in cols:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 def _stable_bytes(v) -> bytes:
     """Стабильная сериализация значения в bytes (без зависимости от PYTHONHASHSEED).
 
@@ -153,9 +167,10 @@ def hash_shuffle(
 
     memory_guard.check_batch(first_batch, name="hash_shuffle.first_batch")
 
-    # Схема: key + value + row_id
+    # Схема: key + value + row_id (dedup key ∩ value — §13.4/54)
+    all_columns = _dedup_columns(list(key_columns) + list(value_columns))
     fields: list[pa.Field] = []
-    for col in list(key_columns) + list(value_columns):
+    for col in all_columns:
         fields.append(first_batch.schema.field(col))
     fields.append(pa.field("row_id", pa.uint64()))
     schema = pa.schema(fields)
@@ -180,7 +195,7 @@ def hash_shuffle(
         hashes = compute_hashes(batch, key_columns, hash_seed)
         parts = _mod_p(hashes, num_partitions)
         order = pc.sort_indices(parts)
-        sorted_batch = batch.select(list(key_columns) + list(value_columns)).take(order)
+        sorted_batch = batch.select(all_columns).take(order)
         sorted_parts = parts.take(order)
 
         parts_np = sorted_parts.to_numpy(zero_copy_only=False)

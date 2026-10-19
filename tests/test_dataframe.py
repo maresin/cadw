@@ -248,3 +248,14 @@ def test_facade_does_not_define_sampling_helpers():
             f"not in facade"
         )
 
+def test_groupby_same_col_as_by(tmp_path):
+    """df.groupby('cat').agg('cat', 'count') — agg == by (§13.4/54)."""
+    df = make_df(tmp_path)
+    result = df.groupby("cat").agg("cat", "count")
+    out = tmp_path / "same_col.parquet"
+    result.write_parquet(out)
+    rows = {r["cat"]: r["cat_count"] for r in pq.read_table(out).to_pylist()}
+    # 20 rows, 5 groups → 4 each
+    assert all(v == 4 for v in rows.values())
+    assert len(rows) == 5
+

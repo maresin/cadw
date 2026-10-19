@@ -288,7 +288,9 @@ class CadwDataFrame:
         by_cols = [by] if isinstance(by, str) else list(by)
         return _GroupBy(self, by_cols)
 
-    def _groupby_impl(self, by_cols, agg_columns, agg_funcs) -> "CadwDataFrame":
+    def _groupby_impl(
+        self, by_cols, agg_columns, agg_funcs, *, combiner: bool = False
+    ) -> "CadwDataFrame":
         for c in list(by_cols) + list(agg_columns):
             if c not in self._columns:
                 raise KeyError(
@@ -301,6 +303,7 @@ class CadwDataFrame:
             agg_funcs,
             self._memory_guard,
             self._spill_dir / "groupby",
+            combiner=combiner,
             log=False,
         )
         return self._wrap_result_table(result)
@@ -749,10 +752,18 @@ class _GroupBy:
         self._parent = parent
         self._by = list(by_cols)
 
-    def agg(self, agg_columns, agg_funcs) -> CadwDataFrame:
+    def agg(self, agg_columns, agg_funcs, *, combiner: bool = False) -> CadwDataFrame:
+        """Aggregate группами.
+
+        - combiner=True: partial aggregation до shuffle для
+          sum/count/min/max/mean (экономия I/O в N/K раз для низкой
+          кардинальности). std → warning + fallback. §13.4/52.
+        """
         agg_cols = [agg_columns] if isinstance(agg_columns, str) else list(agg_columns)
         funcs = [agg_funcs] if isinstance(agg_funcs, str) else list(agg_funcs)
-        return self._parent._groupby_impl(self._by, agg_cols, funcs)
+        return self._parent._groupby_impl(
+            self._by, agg_cols, funcs, combiner=combiner
+        )
 
 
 def _concat_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:

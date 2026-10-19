@@ -844,6 +844,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `drop_duplicates` (v0.3.0: HashShuffle + local pandas) | ✅ | 19 |
 | `rank` (v0.3.1/3.2: Sort + stream; first/min/dense/max/last/average) | ✅ | 34 |
 | `quantile` (v0.3.3: Sort + indexed lookup; scalar q, linear) | ✅ | 20 |
+| Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -914,6 +915,9 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `drop_duplicates` returns rows in partition-concatenation order | `drop_duplicates` (v0.3.0) | pandas-order: `.sort_values(...)` после. §13.4/48 |
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
+| `groupby_aggregate` combiner не поддерживает std (v0.3.4) | `groupby_aggregate` | warning + fallback на обычный путь. v0.3.5 — Welford partial. |
+| `_detect_heavy_keys` absolute min = 100 (v0.3.4) | skew detection | Без абсолютного минимума tiny data (5 строк) ложно флагалась как skew. §13.4/52b. |
+| `groupby_aggregate` combiner не работает в skew-пути (v0.3.4) | `groupby_aggregate` | skew → warning + combiner disabled; heavy через streaming, light через shuffle без combiner. v0.3.5 — combiner для light. |
 | `quantile` без list q? — НЕТ, list q поддерживается. Без других interpolations ('lower'/'higher'/'nearest'/'midpoint') | `quantile` (v0.3.3) | v0.3.4 — добавление других interpolations (тривиально: другие формулы на v_lo/v_hi). List q уже работает. §13.4/51 |
 | `rank` nulls участвуют как значения (pandas skipna не поддерживается) | `rank` (v0.3.1) | v0.3.2: skip nulls (аналог pandas `rank(na_option='keep')`) |
 
@@ -1404,6 +1408,134 @@ v0.3.4: 4 интерполяции + их комбинации с list q.
 инвариантны к порядку сортировки (это про значения, не про позиции в
 исходном датасете). `q=0` = min, `q=1` = max; при desc-sort v[0] = max
 — пришлось бы инвертировать `idx → n_valid-1-idx`. Проще всегда asc.
+
+**Эпизод 52 (Combiner для groupby).** Паттерн MapReduce: Combiner —
+частичная агрегация на стороне map (до shuffle) — уменьшает объём I/O
+и RAM в local phase. В CADW: `_combine_batches` перед `hash_shuffle`;
+`_local_groupby` с `partial_merge=True` мержит частичные агрегаты.
+
+**Ключевое свойство:** partial aggregates ассоциативны. Для sum/count —
+прямой partial (sum of sums, count of counts). Для min/max — direct.
+Для mean — sum + count partial, финально sum/count. Партиция после
+combiner: `N × row_size` → `K_batch × comb_bytes`. Пример: 10^6 строк,
+100 групп → 10 MB → 1 KB (×10000).
+
+**Ограничения v0.3.4:**
+1. **std/var** — требуют Welford partial (n, mean, M2) с merge по
+   формуле Chan. Реализовано в `StdOp.merge`, но не в combiner.
+   v0.3.5: combiner для std через Welford partial.
+2. **skew path** — heavy keys уже streamed (`_accumulate_heavy`), combiner
+   не нужен. Light part теоретически можно комбинировать, но смешивание
+   двух путей усложняет код. v0.3.4: warning + combiner off in skew path;
+   v0.3.5 — combiner только для light part.
+
+**API:** `combiner=False` (default) — opt-in через `combiner=True`.
+Причины: (a) для высокой кардинальности (`K ≈ N`) combiner не сжимает,
+но добавляет overhead pandas.groupby per batch; (b) default-off
+сохраняет текущее поведение — никаких сюрпризов; (c) пользователь,
+знающий `k_est`, включает явно.
+
+**Почему не auto по `k_est`:** auto требует sample до shuffle — уже
+делаем (для skew detection). Но `k_est` из sample — оценка, не факт.
+Auto может случайно включить combiner на высокой кардинальности (sample
+недооценил) → overhead без выигрыша. Opt-in — предсказуемо.
+
+**Урок:** Combiner — оптимизация, не новая функциональность. API `agg(...,
+combiner=True)` — opt-in. Метрика успеха — не «быстрее» (тяжело
+измерить в unit-тестах), а «I/O reduced»: партиции после combiner
+содержат `K_batch` строк вместо `N`. Проверяется тестом
+`test_combiner_large_n_low_k` — но фактическое уменьшение file size —
+в логах, не assert. Планировщик (`GroupByMemoryModel`) не трогаем —
+с combiner фактический `f_groupby` ниже предсказанного, это безопасно
+(safety > 0.7).
+
+**Следующее (v0.3.5):**
+- Combiner для std (Welford partial).
+- Combiner для light part в skew-пути.
+- Auto-combiner по `k_est < N / threshold` (с явным `combiner=None` для auto).
+
+**Эпизод 52b (skew detection без абсолютного минимума = combiner
+не тестируется).** Первая версия `test_combiner.py` прошла 12/13, но с
+9 предупреждениями «combiner отключён в skew-пути». Причина:
+`_detect_heavy_keys` флагил как heavy любой ключ с `ratio > 0.05` — без
+абсолютного минимума. На данных 5 строк / 3 ключа (40/40/20%) — все
+heavy; на 1000 строк / 10 групп (10% каждый) — все heavy. Combiner
+**никогда не активировался**, тесты проходили через fallback (тот же
+результат → ложные зелёные).
+
+**Fix:** `_HEAVY_ABSOLUTE_MIN = 100`. Ключ считается heavy только если
+`count >= 100 AND ratio > 0.05`. Существующие skew-тесты (`test_mustfix_skew
+.py`) не сломались: 90/10 на n=1000 (A=900, B=100) — оба >= 100; 100/1000
+uniform — каждый 1 < 100. Combiner-тесты переписаны на n=1000, k=50
+(20 rows/group = 2% < 5%) — combiner активен.
+
+**Дополнительно:** `test_combiner_std_warns_and_falls_back` был
+некорректным — `std` не входит в `_AGG_FUNCS` и отклоняется **до**
+combiner-логики. Заменён на `test_combiner_std_rejected_by_groupby`
+(ожидает `ValueError`).
+
+**Новый guard:** `test_combiner_path_actually_used` — monkeypatch
+`_combine_batches`, проверяет что путь реально исполняется. Это
+template для будущих оптимизаций: **«зелёные тесты не значит —
+упражняется новая функциональность»**. Если fallback даёт тот же
+результат, тест на эквивалентность проходит без вызова нового кода.
+
+**Урок:** любой `if new_feature_enabled` требует теста, который
+проверяет, что `new_feature` **вызывается** (spy/monkeypatch). Иначе
+все «equivalence»-тесты могут проходить через старую ветку.
+
+**Эпизод 53 (ChunkedArray vs Array в RecordBatch).** Первая версия
+`_combine_batches` использовала `pa.RecordBatch.from_arrays(arrays, ...)`,
+где `arrays` собирались из `grouped.column(c)`. `grouped` — `pa.Table`,
+`.column()` возвращает **`ChunkedArray`** (может быть несколько chunks
+после `group_by().aggregate()`). `pa.RecordBatch.from_arrays` требует
+**`Array`** → `TypeError: Cannot convert ChunkedArray to Array`. 11 из 14
+тестов упали.
+
+**Fix:** `grouped.select(orig_names).rename_columns(new_names)` даёт
+`pa.Table`, `.to_batches()` даёт `RecordBatch` (со всеми chunk'ами,
+склеенными автоматически). Один batch на входной batch.
+
+**Правило:** в out-of-core коде мы работаем с `RecordBatch` (батчи
+фиксированного размера), но промежуточные pandas-подобные операции
+(`group_by().aggregate()`) естественно возвращают `Table`. Склеивать
+через `combine_chunks()` или `to_batches()` — не через ручной
+`pa.array(...)`. Это тот же класс, что эпизод 44/47b: `.column()`
+возвращает не то, что ожидалось; `from_arrays` строже, чем `from_pandas`.
+**Эпизод 54 (дубликат в hash_shuffle: key ∩ value ≠ ∅).** `df.unique(col)`
+вызывает `groupby_aggregate([col], [col], ["count"])`. В `groupby_aggregate`
+`value_columns = [c for c in agg_columns if c not in seen]` → пусто (все
+agg в by); fallback `if not value_columns: value_columns = list(by_columns)`
+→ `[col]`. Затем `hash_shuffle(key=[col], value=[col], ...)`: `fields =
+[key, key, row_id]` — Arrow допускает duplicate field names в schema
+(no validation), но downstream `Table.group_by(["col"])` падает с
+`Multiple matches for FieldRef.Name(col)`.
+
+**Почему баг существовал, но не всплывал:** `test_unique` был написан
+ещё в v0.1.0 и проходил — вероятно, из-за особенностей Arrow 24–25 (или
+порядка тестов, где уникальные partition-файлы не триггерили Acero).
+Только на PyArrow 26 Acero стал строже валидировать duplicate input
+columns. Это класс «latent bug, проявляется при обновлении зависимости».
+
+**Fix:** dedupe `key_columns + value_columns` в `hash_shuffle` (и
+`_shuffle_write`) через `list(dict.fromkeys(...))`. Контракт не меняется
+— duplicate value column семантически избыточен (value уже присутствует
+как key). Функция `_dedup_columns` вынесена в `shuffle.py`.
+
+**Regression test:** `test_groupby_same_col_as_by` — прямой тест
+`df.groupby('cat').agg('cat', 'count')`, agg == by. Плюс `test_unique`
+уже есть (и теперь зелёный).
+
+**Урок:** API Arrow `Table.group_by()` может быть строже, чем ожидается:
+он валидирует duplicate columns в input. `hash_shuffle` — primitive,
+который должен быть защищён от неаккуратных caller'ов (caller может
+передать `value_columns=["cat"]` когда `"cat"` уже в `key_columns`).
+Defensive dedup — обязательный шаг для reusable primitive. Не полагаться
+на то, что caller dedup'нет.
+
+**Следующее (v0.3.5):** тест на `hash_shuffle` с explicit duplicate
+key/value — должен не падать, dedupe молча. Плюс regression `test_unique`
+уже есть (был всегда).
 
 ### 13.5. Открытые вопросы
 

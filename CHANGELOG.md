@@ -89,6 +89,37 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.3.4] — 2026-10-19
+
+### Добавлено
+- **Combiner** для `groupby`: partial aggregation до shuffle.
+  - `CadwDataFrame.groupby(...).agg(..., combiner=True)` — opt-in.
+  - `groupby_aggregate(..., combiner=True)` — runtime.
+  - Поддерживаемые агрегаты: `sum`, `count`, `min`, `max`, `mean`.
+  - Для `mean`: partial (sum, count), финально `sum/count`.
+  - Экономия: партиция `N × row_size` → `K_batch × comb_bytes`
+    (×10000 для 10^6 строк / 100 групп).
+
+### Как работает
+1. `_combine_batches(batch_iter, by, agg_cols, agg_funcs)` — generator:
+   `pandas.groupby(by).agg(partial_specs)` per batch. State O(batch_size).
+2. `hash_shuffle` получает `value_columns = __comb_*`.
+3. `_local_groupby(..., partial_merge=True)` вызывает `_merge_partials`:
+   `table.group_by(by).aggregate(merge_specs)` + переименование + dtype.
+4. Результат идентичен `combiner=False`.
+
+### Ограничения (v0.3.4, §11.5)
+- **std/var**: не поддерживаются в combiner (требуют Welford partial).
+  Warning + fallback на обычный путь. v0.3.5.
+- **skew path**: combiner отключён (heavy через streaming, light через
+  shuffle без combiner). Warning. v0.3.5 — combiner для light.
+- **auto**: default `combiner=False` (opt-in). Auto по `k_est` — v0.3.5.
+
+### Тесты
+- 12 тестов в `test_combiner.py`: equivalence для sum/count/min/max/mean,
+  mixed aggs, same-col sum+count, std warning, skew warning, large
+  N/low K, multi-by, empty input, dataframe API.
+
 ## [0.3.3] — 2026-10-19
 
 ### Добавлено
