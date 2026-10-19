@@ -133,6 +133,40 @@ class MaterializedIndex(CadwIndex):
             return False
         return self._values.equals(other._values)
 
+    def get_indexer(self, labels) -> list[int]:
+        """Map labels -> positions. O(N) scan, dict lookup.
+
+        - labels: scalar -> [position] (или [] если not found).
+        - labels: list -> list[int] (по одному position на label; -1 для
+          not found).
+        - duplicate labels in index: first occurrence wins (v0.4.0c MVP);
+          v0.4.1 — all occurrences.
+        """
+        single = not isinstance(labels, (list, tuple))
+        targets = [labels] if single else list(labels)
+
+        # Build label -> first position map. O(N) scan, O(distinct) memory.
+        # Naive dict lookup must be hashable; for non-hashable fallback —
+        # O(N × K) linear scan (documented; rare).
+        try:
+            m: dict = {}
+            for i, v in enumerate(self._values.to_pylist()):
+                if v not in m:
+                    m[v] = i
+            positions = [m.get(t, -1) for t in targets]
+        except TypeError:
+            # Unhashable labels — fallback linear scan.
+            pos_list = self._values.to_pylist()
+            positions = []
+            for t in targets:
+                found = -1
+                for i, v in enumerate(pos_list):
+                    if v == t:
+                        found = i
+                        break
+                positions.append(found)
+        return positions
+
     def __repr__(self) -> str:
         n = len(self)
         preview = self._values.slice(0, min(5, n)).to_pylist()

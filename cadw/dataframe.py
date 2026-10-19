@@ -37,7 +37,12 @@ from cadw.dataset import (
 )
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ParquetBatchWriter
-from cadw.indexers import _ILocIndexer
+from cadw.indexers import (
+    _ILocIndexer,
+    _LocIndexer,
+    _AtIndexer,
+    _IAtIndexer,
+)
 from cadw.ops.groupby import groupby_aggregate
 from cadw.ops.join import hash_join
 from cadw.ops.sort import external_sort
@@ -164,6 +169,32 @@ class CadwDataFrame:
         `iloc[bool_array]` — raise (use df[mask]).
         """
         return _ILocIndexer(self)
+
+    @property
+    def loc(self) -> "_LocIndexer":
+        """Pandas-style label-based indexer (v0.4.0c).
+
+        - `df.loc[label]` → dict — строка с индексом `label` (KeyError если нет).
+        - `df.loc[lo:hi]` → CadwDataFrame — inclusive labels (как pandas).
+        - `df.loc[[l1, l2, ...]]` → CadwDataFrame — несколько строк.
+
+        Требует `MaterializedIndex` (после `set_index`). `RangeIndex` →
+        `TypeError`; используйте `iloc`.
+
+        `loc[bool_array]` → `NotImplementedError` (use `df[mask]`).
+        Дубликаты в индексе → первое вхождение (v0.4.0c); v0.4.1 — все.
+        """
+        return _LocIndexer(self)
+
+    @property
+    def at(self) -> "_AtIndexer":
+        """`df.at[label, col]` — scalar (v0.4.0c). Read-only."""
+        return _AtIndexer(self)
+
+    @property
+    def iat(self) -> "_IAtIndexer":
+        """`df.iat[pos, col]` — scalar по позиции (v0.4.0c). Read-only."""
+        return _IAtIndexer(self)
 
     def set_index(
         self,

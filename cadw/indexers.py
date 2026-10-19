@@ -180,3 +180,129 @@ def _table_to_cadwdf(table: pa.Table, parent: "CadwDataFrame", new_index):
         new._index_start = 0
         new._index_stop = len(new_index)
     return new
+
+class _LocIndexer:
+    """Label-based indexer (pandas-style). Требует MaterializedIndex.
+
+    - loc[label] -> dict (одна строка, KeyError если not found).
+    - loc[lo:hi] -> CadwDataFrame (inclusive labels, как pandas).
+    - loc[[l1, l2, ...]] -> CadwDataFrame (materialize K rows; KeyError
+      если хоть один not found).
+
+    RangeIndex (default) -> TypeError (use iloc).
+    `loc[bool_array]` -> NotImplementedError (use df[mask]).
+    Duplicate labels in index -> первое вхождение (v0.4.0c); v0.4.1 — all.
+    """
+
+    def __init__(self, parent: "CadwDataFrame") -> None:
+        self._parent = parent
+
+    def _materialized(self):
+        from cadw.dataset.index import MaterializedIndex
+        p = self._parent
+        if p._index_kind == "range":
+            raise TypeError(
+                "loc: requires MaterializedIndex (after set_index). "
+                "RangeIndex — use iloc."
+            )
+        if p._row_filters:
+            raise NotImplementedError(
+                "loc: не поддерживается с активными фильтрами в v0.4.0c. "
+                "§13.4/58."
+            )
+        return MaterializedIndex(p._index_values)
+
+    def __getitem__(self, key):
+        idx = self._materialized()
+        if isinstance(key, slice):
+            return self._slice(key, idx)
+        if isinstance(key, list):
+            return self._many(key, idx)
+        if isinstance(key, pa.Array) and pa.types.is_boolean(key.type):
+            raise NotImplementedError(
+                "loc[bool_array]: not supported in v0.4.0c. Use df[mask]."
+            )
+        # scalar label
+        pos = idx.get_indexer(key)[0]
+        if pos < 0:
+            raise KeyError(f"loc: label {key!r} not in index")
+        return self._parent.iloc[pos]
+
+    def _slice(self, key, idx):
+        if key.start is None or key.stop is None:
+            raise NotImplementedError(
+                "loc[slice]: only [lo:hi] with both endpoints supported in "
+                "v0.4.0c (inclusive). Use iloc for full-open slices."
+            )
+        if key.step is not None and key.step != 1:
+            raise NotImplementedError(
+                "loc[slice]: step not supported in v0.4.0c."
+            )
+        lo_pos = idx.get_indexer(key.start)[0]
+        hi_pos = idx.get_indexer(key.stop)[0]
+        if lo_pos < 0:
+            raise KeyError(f"loc: label {key.start!r} not in index")
+        if hi_pos < 0:
+            raise KeyError(f"loc: label {key.stop!r} not in index")
+        if lo_pos > hi_pos:
+            # pandas: empty (не ошибка).
+            return self._parent.iloc[[]]
+        # Inclusive: [lo_pos, hi_pos]
+        return self._parent.iloc[list(range(lo_pos, hi_pos + 1))]
+
+    def _many(self, labels: list, idx):
+        positions = idx.get_indexer(labels)
+        missing = [lab for lab, pos in zip(labels, positions) if pos < 0]
+        if missing:
+            raise KeyError(
+                f"loc: labels not in index: {missing[:5]}"
+            )
+        return self._parent.iloc[positions]
+
+
+class _AtIndexer:
+    """`.at[label, col]` — scalar access by label + column."""
+
+    def __init__(self, parent: "CadwDataFrame") -> None:
+        self._parent = parent
+
+    def __getitem__(self, key):
+        if not (isinstance(key, tuple) and len(key) == 2):
+            raise TypeError(
+                f".at: key must be (label, col); got {type(key).__name__}"
+            )
+        label, col = key
+        row = self._parent.loc[label]
+        if col not in row:
+            raise KeyError(f".at: column {col!r} not in df.columns")
+        return row[col]
+
+    def __setitem__(self, key, value):
+        raise NotImplementedError(
+            ".at.__setitem__: CadwDataFrame immutable in v0.4.0c. "
+            "Use df.write_parquet + reload to mutate."
+        )
+
+
+class _IAtIndexer:
+    """`.iat[pos, col]` — scalar access by position + column."""
+
+    def __init__(self, parent: "CadwDataFrame") -> None:
+        self._parent = parent
+
+    def __getitem__(self, key):
+        if not (isinstance(key, tuple) and len(key) == 2):
+            raise TypeError(
+                f".iat: key must be (pos, col); got {type(key).__name__}"
+            )
+        pos, col = key
+        row = self._parent.iloc[pos]
+        if col not in row:
+            raise KeyError(f".iat: column {col!r} not in df.columns")
+        return row[col]
+
+    def __setitem__(self, key, value):
+        raise NotImplementedError(
+            ".iat.__setitem__: CadwDataFrame immutable in v0.4.0c."
+        )
+

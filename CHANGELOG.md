@@ -89,6 +89,37 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.4.0c] — 2026-10-19
+
+### Добавлено
+- `CadwDataFrame.loc` — label-based indexer (pandas-style).
+  - `loc[label]` → `dict` (KeyError если label нет).
+  - `loc[lo:hi]` → `CadwDataFrame` — inclusive labels, reverse → empty.
+  - `loc[[l1, l2, ...]]` → `CadwDataFrame`.
+  - Требует `MaterializedIndex`; `RangeIndex` → `TypeError`.
+- `CadwDataFrame.at[label, col]` — scalar access by label + column.
+- `CadwDataFrame.iat[pos, col]` — scalar access by position + column.
+- `MaterializedIndex.get_indexer(labels)` → `list[int]` (O(N) scan, dict;
+  unhashable fallback linear).
+- `.at`/`.iat` — **read-only** (`__setitem__` → `NotImplementedError`).
+
+### Ограничения (v0.4.0c, §11.5)
+- **`loc` требует `MaterializedIndex`** (после `set_index`).
+  `RangeIndex` → `TypeError`; используйте `iloc`.
+- **`loc[lo:hi]`** — только оба endpoint обязательны; `loc[:hi]` /
+  `loc[lo:]` / `loc[::step]` → `NotImplementedError`. v0.4.1.
+- **`loc[bool_array]`** — `NotImplementedError` (use `df[mask]`).
+- **`loc` на filtered view** — `NotImplementedError`. v0.4.0d.
+- **duplicate labels** — первое вхождение; v0.4.1 — все.
+- **`.at`/`.iat` set** — `NotImplementedError` (immutable).
+
+### Тесты
+- 30 тестов в `test_loc.py`: get_indexer (scalar/list/dup/first-wins/str),
+  loc on RangeIndex raises, loc scalar/slice(inclusive/reverse/missing),
+  loc list (basic/missing/dup/empty), loc bool_array raise, .at
+  scalar/missing/set-raise, .iat scalar/out-of-range/set-raise,
+  filter limit, loc preserves index.
+
 ## [0.4.0b] — 2026-10-19
 
 ### Добавлено

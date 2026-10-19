@@ -846,7 +846,8 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `quantile` (v0.3.3: Sort + indexed lookup; scalar q, linear) | ✅ | 20 |
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
 | `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 26 |
-| `iloc` (v0.4.0b: positional indexer) | ✅ | 21 |
+| `iloc` (v0.4.0b: positional indexer) | ✅ | 22 |
+| `loc`/`.at`/`.iat` (v0.4.0c: label-based) | ✅ | 30 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -918,6 +919,9 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
 | `groupby_aggregate` combiner не поддерживает std (v0.3.4) | `groupby_aggregate` | warning + fallback на обычный путь. v0.3.5 — Welford partial. |
+| `loc` требует `MaterializedIndex` (после `set_index`) | `_LocIndexer` | `RangeIndex` → `TypeError`; используйте `iloc`. |
+| `loc[lo:hi]` — только оба endpoint обязательны (v0.4.0c) | `_LocIndexer` | `loc[:hi]` / `loc[lo:]` — `NotImplementedError`. Step — тоже. v0.4.1. |
+| `loc` duplicates → first occurrence (v0.4.0c) | `_LocIndexer` | v0.4.1 — все вхождения (pandas semantics). |
 | `iloc[bool_array]` не поддерживается (v0.4.0b) | `_ILocIndexer` | raise `NotImplementedError`; используйте `df[mask]` (RowFilter). |
 | `iloc[list]` на filtered view не сохраняет parent index (v0.4.0b) | `_ILocIndexer` | default `RangeIndex(0, K)`; preserve — v0.4.0c (filter-compat, нужна `_iter_filtered_batches_with_positions`). |
 | `df.index`/`set_index`/`reset_index` с активными фильтрами (v0.4.0a) | `CadwDataFrame` | raise NotImplementedError; синхронизация index↔filter — v0.4.0b (iloc, через row_id). §13.4/55. |
@@ -1640,6 +1644,62 @@ O(N) scan; total_rows без — O(1)). «Работает всегда, цен�
   `_iter_filtered_batches_with_positions` (для `filtered.index` тоже).
 - `.at[label, col]` / `.iat[pos, col]` — scalar access.
 - Duplicate labels — v0.4.1.
+
+**Эпизод 58 (loc — label-based, требует MaterializedIndex).** `_LocIndexer`
+— pandas-совместимый label indexer. Работает только на `MaterializedIndex`
+(после `set_index`). `RangeIndex` → `TypeError` с подсказкой «use iloc».
+Это намеренное ограничение: `RangeIndex.get_indexer(label)` — это
+`label - start` при `label` int; для произвольных labels нужна
+материализация, что делает range бессмысленным.
+
+**Реализация через `MaterializedIndex.get_indexer(labels)`.** O(N) scan
+`values.to_pylist()`, dict `label → first_pos`. Возвращает `list[int]`,
+где `-1` = not found. Используется в `loc[label]`, `loc[[...]]`,
+`loc[lo:hi]`. Для hashable labels — dict (быстро); для unhashable —
+fallback linear scan (O(N×K), редко).
+
+**`loc[lo:hi]` inclusive.** Pandas semantics: `['b':'d']` включает
+и `'b'`, и `'d'`. Позиции: `get_indexer(lo), get_indexer(hi)`;
+`range(lo_pos, hi_pos+1)`. Если `lo_pos > hi_pos` (например, `'d':'b'`)
+— пустой результат, не ошибка. Если `lo`/`hi` not found — `KeyError`
+(pandas: `KeyError` для missing endpoint).
+
+**Open endpoints:** `loc[:hi]` / `loc[lo:]` — `NotImplementedError` в
+v0.4.0c (требует направления сортировки — при asc индексе это
+`[first : hi_pos]`, при desc — `[hi_pos : last]`; нужно проверять
+is_monotonic). v0.4.1.
+
+**`.at`/`.iat` — read-only.** `__setitem__` — `NotImplementedError`
+(CadwDataFrame immutable; mutation через `write_parquet + reload`).
+Это консистентно с общей immutable-моделью (кроме `set_index(inplace=True)`
+и `reset_index(inplace=True)` — единственные inplace-операции).
+
+**`loc` на filtered view** — `NotImplementedError` (как `df.index`).
+v0.4.0d: filter-compat для `loc` через `_iter_filtered_batches_with_positions`.
+
+**Дубликаты в индексе.** `get_indexer` возвращает первое вхождение
+(MVP). v0.4.1: `get_indexer_all` — все вхождения, `loc[label]` вернёт
+`CadwDataFrame` (несколько строк) вместо `dict`. Это отдельный API
+контракт; в MVP — единственное вхождение.
+
+**Урок:** indexers (`iloc`, `loc`, `.at`, `.iat`) — 4 разных API с
+разной семантикой:
+- positional vs label;
+- array-like vs scalar;
+- preserved vs reset index.
+
+Все живут в `cadw/indexers.py`; facade `dataframe.py` — только property
+возвращающие indexer. Это позволяет AST guard `test_facade_has_no_as_py`
+проходить (`.as_py()` в indexers), и не «раздувать» `dataframe.py`.
+
+**Следующее (v0.4.0d — filter-compat):**
+- `_iter_filtered_batches_with_positions()` → `(batch, positions)`.
+- `filtered.index` — RangeIndex subset или MaterializedIndex subset.
+- `filtered.loc[label]` — работает.
+- `filtered.set_index` / `reset_index` — работают.
+
+**v0.4.1:** loc open-endpoints, loc with duplicate labels (все вхождения),
+MultiIndex.
 
 ### 13.5. Открытые вопросы
 
