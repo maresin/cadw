@@ -77,11 +77,48 @@ def _compute_streamable(
     global_pos = 0
     dense_counter = 0
 
+    import pyarrow.compute as _pc
+
     try:
         for batch in sorted_batches:
             memory_guard.check_batch(batch, name="rank.streamable.input")
-            vals = batch.column(by).to_pylist()
-            row_ids = batch.column("row_id").to_pylist()
+            vals_arr = batch.column(by)
+            row_ids_arr = batch.column("row_id")
+            n = len(vals_arr)
+
+            # v0.5.2b (P11): 'first' fast path — Arrow-native, no to_pylist.
+            # Input sorted (external_sort); rank(i) = i+1 + global_pos —
+            # ordinal position. np.arange — C-level, no per-row Python.
+            if method == "first":
+                # 'first' = ordinal position in sorted order. Input is
+                # already sorted (external_sort), so rank(i) = i+1 within
+                # batch, offset by global_pos. np.arange — Arrow-native,
+                # no Python loop (P11).
+                import numpy as _np
+                local_rank = pa.array(
+                    _np.arange(1, n + 1, dtype=_np.int64),
+                    type=pa.int64(),
+                )
+                global_rank = _pc.add(
+                    local_rank, pa.scalar(global_pos, type=pa.int64()),
+                )
+                global_pos += n
+                if pct:
+                    global_rank = _pc.divide(
+                        _pc.cast(global_rank, pa.float64()),
+                        pa.scalar(float(total_n), type=pa.float64()),
+                    )
+                global_rank = _pc.cast(global_rank, dtype)
+
+                rb = pa.RecordBatch.from_arrays(
+                    [row_ids_arr, global_rank], schema=schema,
+                )
+                writer.write_batch(rb)
+                continue
+
+            # 'min' / 'dense' — Python-loop per batch (мелкий batch).
+            vals = vals_arr.to_pylist()
+            row_ids = row_ids_arr.to_pylist()
 
             ranks: list = []
             for v in vals:
@@ -93,9 +130,7 @@ def _compute_streamable(
                     group_start = global_pos
                     dense_counter += 1
 
-                if method == "first":
-                    r = global_pos
-                elif method == "min":
+                if method == "min":
                     r = group_start
                 else:  # dense
                     r = dense_counter

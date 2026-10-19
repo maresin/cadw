@@ -253,17 +253,67 @@ class MemoryGuard:
         sample_batch: pa.RecordBatch,
         total_rows: int,
     ) -> int:
+        """Estimate cardinality via Arrow-native ops (v0.5.2b, P9).
+
+        - single column: `dictionary_encode().dictionary.length`.
+        - multi-column: binary_join_element_wise → dictionary_encode.
+        - Fallback: pc.count_distinct per column (product bound).
+
+        No `to_pylist()` in fast path — no Python-object overhead on strings.
+        """
         if sample_batch.num_rows == 0 or total_rows <= 0:
             return 0
-        columns = [col.to_pylist() for col in sample_batch.columns]
-        seen = set()
-        for i in range(sample_batch.num_rows):
-            key = tuple(col[i] for col in columns)
-            seen.add(key)
-        k_sample = len(seen)
+
+        import pyarrow.compute as pc
+
+        ncols = sample_batch.num_columns
+        k_sample = None
+
+        if ncols == 1:
+            col = sample_batch.column(0)
+            try:
+                enc = col.dictionary_encode()
+                if enc.dictionary is not None:
+                    k_sample = len(enc.dictionary)
+            except Exception:
+                pass
+            if k_sample is None:
+                try:
+                    k_sample = int(pc.count_distinct(col).as_py())
+                except Exception:
+                    k_sample = len(set(col.to_pylist()))
+
+        if k_sample is None:
+            # multi-column: binary_join → dict_encode, else product fallback
+            try:
+                if hasattr(pc, "binary_join_element_wise"):
+                    cols = [sample_batch.column(i) for i in range(ncols)]
+                    str_cols = [
+                        c if pa.types.is_string(c.type) else pc.cast(c, pa.string())
+                        for c in cols
+                    ]
+                    joined = str_cols[0]
+                    for c in str_cols[1:]:
+                        joined = pc.binary_join_element_wise(joined, c, "|")
+                    enc = joined.dictionary_encode()
+                    if enc.dictionary is not None:
+                        k_sample = len(enc.dictionary)
+            except Exception:
+                pass
+            if k_sample is None:
+                product = 1
+                for i in range(ncols):
+                    col = sample_batch.column(i)
+                    try:
+                        product *= int(pc.count_distinct(col).as_py())
+                    except Exception:
+                        product = sample_batch.num_rows
+                        break
+                k_sample = min(product, sample_batch.num_rows)
+
         k_est = int(math.ceil(k_sample * (total_rows / sample_batch.num_rows)))
         logger.debug(
-            "estimate_unique_keys: sample_rows=%d unique_in_sample=%d total_rows=%d -> K_est=%d",
+            "estimate_unique_keys: sample_rows=%d unique=%d total_rows=%d -> K_est=%d",
             sample_batch.num_rows, k_sample, total_rows, k_est,
         )
         return k_est
