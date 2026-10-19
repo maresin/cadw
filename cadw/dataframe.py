@@ -1548,6 +1548,29 @@ class CadwDataFrame:
             spill_dir=self._spill_dir,
         )
 
+    # ---------------- ML: fit_linear ----------------
+
+    def fit_linear(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        alpha: float = 0.0,
+    ):
+        """Fit Linear (alpha=0) or Ridge (alpha>0) (v0.7.0a).
+
+        One Reduce over filtered batches → solve (X^T X + αI_nonintercept) β.
+
+        Returns: LinearModel (coef_, intercept_, predict(X)).
+
+        See cadw.ml.linear.fit_linear for full docs.
+        """
+        from cadw.ml.linear import fit_linear
+        return fit_linear(
+            self, X_cols, y_col, alpha=alpha,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(

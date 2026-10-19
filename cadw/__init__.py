@@ -21,7 +21,10 @@ from .ops.dedup import drop_duplicates
 from .ops.rank import compute_ranks_to_disk, VALID_METHODS
 from .ops.quantile import quantile
 
+from .ml import XTXOp, LinearModel, fit_linear
+
 __all__ = [
+    "XTXOp", "LinearModel", "fit_linear",
     "CadwIndex",
     "RangeIndex",
     "MaterializedIndex",
