@@ -347,6 +347,26 @@ class CovarianceOp(ReduceOp):
         return 8 + 8 * self.d + 8 * self.d * self.d
 
 
+class CovarianceMeanOp(CovarianceOp):
+    """Covariance + mean + count in one pass (v0.8.0).
+
+    Same state as CovarianceOp; different finalize output.
+    Used by `fit_pca` to avoid a 2nd pass for mean.
+    """
+
+    def finalize(self, state: State) -> dict:
+        n, sum_x, sum_xx = state
+        if n < 2:
+            return {
+                "cov": np.full((self.d, self.d), np.nan),
+                "mean": np.full(self.d, np.nan),
+                "n": int(n),
+            }
+        mean = sum_x / n
+        cov = (sum_xx - n * np.outer(mean, mean)) / (n - 1)
+        return {"cov": cov, "mean": mean, "n": int(n)}
+
+
 # ---------------------------------------------------------------------------
 # histogram (binning для LightGBM)
 # ---------------------------------------------------------------------------

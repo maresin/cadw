@@ -1820,6 +1820,222 @@ class CadwDataFrame:
             memory_guard=self._memory_guard,
         )
 
+    # ---------------- expanding ----------------
+
+    def expanding(
+        self,
+        agg: str,
+        *,
+        min_periods: int = 1,
+        columns: "str | Sequence[str] | None" = None,
+    ) -> "CadwDataFrame":
+        """Cumulative (growing) window aggregation (v0.8.0).
+
+        Equivalent to `rolling(window=n_so_far, agg)` but O(1) state
+        without deque. For min/max, cumulative min/max is monotone —
+        no monotonic deque needed (unlike rolling).
+
+        - agg ∈ {'sum', 'mean', 'min', 'max', 'count'}.
+        - min_periods=1: first non-null row → non-null output.
+        - columns=None: all numeric columns (count works on any type).
+        - Nulls: skip; null row → null output.
+
+        Output: original columns + `{col}_expanding_{agg}` per column.
+
+        Not supported: `center`, `on=col` (sort-first via `.sort_values`).
+        """
+        if agg not in {"sum", "mean", "min", "max", "count"}:
+            raise ValueError(
+                f"expanding: agg must be one of sum/mean/min/max/count; "
+                f"got {agg!r}"
+            )
+        if min_periods < 1:
+            raise ValueError(
+                f"expanding: min_periods must be >= 1; got {min_periods}"
+            )
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"expanding: column {c!r} not in {self._columns}"
+                )
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            if agg != "count" and not (
+                pa.types.is_integer(t) or pa.types.is_floating(t)
+            ):
+                raise TypeError(
+                    f"expanding: column {c!r} has type {t}; "
+                    f"agg={agg!r} requires numeric"
+                )
+
+        out_fields = [
+            self._dataset.schema.field(c) for c in self._columns
+        ]
+        out_type_by_col: dict[str, pa.DataType] = {}
+        for c in cols:
+            in_type = self._dataset.schema.field(c).type
+            if agg in ("sum", "mean"):
+                ot = pa.float64()
+            elif agg == "count":
+                ot = pa.int64()
+            else:  # min/max
+                ot = in_type
+            out_name = f"{c}_expanding_{agg}"
+            out_type_by_col[c] = ot
+            out_fields.append(pa.field(out_name, ot, nullable=True))
+        out_schema = pa.schema(out_fields)
+
+        def _iter_expanding():
+            states = {c: _ExpandingState(agg, min_periods) for c in cols}
+            for b in self._iter_filtered_batches():
+                out_arrays = [b.column(c) for c in self._columns]
+                for c in cols:
+                    state = states[c]
+                    src_vals = b.column(c).to_pylist()
+                    vals = [state.push(v) for v in src_vals]
+                    out_arrays.append(
+                        pa.array(vals, type=out_type_by_col[c])
+                    )
+                yield pa.RecordBatch.from_arrays(
+                    out_arrays, schema=out_schema
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_expanding(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    # ---------------- ewm ----------------
+
+    def ewm(
+        self,
+        *,
+        alpha: "float | None" = None,
+        span: "float | None" = None,
+        halflife: "float | None" = None,
+        com: "float | None" = None,
+        adjust: bool = True,
+        min_periods: int = 0,
+        columns: "str | Sequence[str] | None" = None,
+    ) -> "CadwDataFrame":
+        """Exponentially weighted mean (v0.8.0).
+
+        Exactly one of `alpha`, `span`, `halflife`, `com` must be given.
+
+        - alpha ∈ (0, 1]: direct smoothing factor.
+        - span >= 1: alpha = 2 / (span + 1).
+        - halflife > 0: alpha = 1 - exp(-ln2 / halflife).
+        - com >= 0: alpha = 1 / (1 + com).
+
+        - adjust=True (pandas default): y_t = s_num/s_den where
+            s_num = (1-α)·s_num + x_t,  s_den = (1-α)·s_den + 1.
+        - adjust=False: y_t = (1-α)·y_{t-1} + α·x_t,  y_0 = x_0.
+        - min_periods: minimum non-null rows before non-null output.
+        - columns=None: all numeric columns.
+
+        Null semantics: null row → null output; state preserved (skip).
+        This matches `ignore_na=True` in pandas. `ignore_na=False` is NOT
+        implemented.
+
+        Output: original columns + `{col}_ewm` per column.
+
+        **Not supported**: `bias=True` correction for `adjust=False`
+        (rarely used); `ignore_na=False`.
+        """
+        # Exactly one parameter
+        given = sum(p is not None for p in (alpha, span, halflife, com))
+        if given != 1:
+            raise ValueError(
+                f"ewm: exactly one of alpha/span/halflife/com required; "
+                f"got {given}"
+            )
+        if alpha is not None:
+            if not (0.0 < alpha <= 1.0):
+                raise ValueError(
+                    f"ewm: alpha must be in (0, 1]; got {alpha}"
+                )
+            a = float(alpha)
+        elif span is not None:
+            if span < 1:
+                raise ValueError(f"ewm: span must be >= 1; got {span}")
+            a = 2.0 / (float(span) + 1.0)
+        elif halflife is not None:
+            if halflife <= 0:
+                raise ValueError(
+                    f"ewm: halflife must be > 0; got {halflife}"
+                )
+            import math
+            a = 1.0 - math.exp(-math.log(2.0) / float(halflife))
+        else:  # com
+            if com < 0:
+                raise ValueError(f"ewm: com must be >= 0; got {com}")
+            a = 1.0 / (1.0 + float(com))
+
+        if min_periods < 0:
+            raise ValueError(
+                f"ewm: min_periods must be >= 0; got {min_periods}"
+            )
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"ewm: column {c!r} not in {self._columns}"
+                )
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            if not (pa.types.is_integer(t) or pa.types.is_floating(t)):
+                raise TypeError(
+                    f"ewm: column {c!r} has type {t}; numeric required"
+                )
+
+        out_fields = [
+            self._dataset.schema.field(c) for c in self._columns
+        ]
+        for c in cols:
+            out_fields.append(
+                pa.field(f"{c}_ewm", pa.float64(), nullable=True)
+            )
+        out_schema = pa.schema(out_fields)
+
+        def _iter_ewm():
+            states = {c: _EwmState(a, adjust, min_periods) for c in cols}
+            for b in self._iter_filtered_batches():
+                out_arrays = [b.column(c) for c in self._columns]
+                for c in cols:
+                    state = states[c]
+                    src_vals = b.column(c).to_pylist()
+                    vals = [state.push(v) for v in src_vals]
+                    out_arrays.append(
+                        pa.array(vals, type=pa.float64())
+                    )
+                yield pa.RecordBatch.from_arrays(
+                    out_arrays, schema=out_schema
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_ewm(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
     # ---------------- merge ----------------
 
     def merge(
@@ -2038,6 +2254,105 @@ class _RollState:
         if self._agg in ("min", "max"):
             return self._dq[0][1] if self._dq else None
         raise RuntimeError(f"_RollState: unknown agg {self._agg!r}")
+
+
+class _ExpandingState:
+    """Cumulative (growing) window aggregation state (v0.8.0).
+
+    O(1) per row. Unlike rolling, no deque needed:
+    - sum/mean/count: scalar accumulators.
+    - min/max: current min/max (monotone by construction).
+
+    Nulls: skip (count/sum/min/max not updated). Output for a null row is
+    null — the input row stays null-visible (unlike rolling, where a null
+    row with min_periods=1 may inherit prior output).
+    """
+
+    __slots__ = ("_agg", "_min_periods", "_count", "_sum",
+                 "_min", "_max")
+
+    def __init__(self, agg: str, min_periods: int) -> None:
+        self._agg = agg
+        self._min_periods = min_periods
+        self._count = 0
+        self._sum = 0.0
+        self._min = None
+        self._max = None
+
+    def push(self, v):
+        if v is None:
+            return None
+        self._count += 1
+        x = float(v)
+        if self._agg == "count":
+            result = self._count
+        elif self._agg == "sum":
+            self._sum += x
+            result = self._sum
+        elif self._agg == "mean":
+            self._sum += x
+            result = self._sum / self._count
+        elif self._agg == "min":
+            self._min = x if self._min is None else min(self._min, x)
+            result = self._min
+        elif self._agg == "max":
+            self._max = x if self._max is None else max(self._max, x)
+            result = self._max
+        else:
+            raise RuntimeError(f"_ExpandingState: unknown agg {self._agg!r}")
+        if self._count < self._min_periods:
+            return None
+        return result
+
+
+class _EwmState:
+    """Exponentially weighted mean state (v0.8.0). O(1) per row.
+
+    adjust=True:  s_num = (1-α)·s_num + x_t,  s_den = (1-α)·s_den + 1
+                  y_t = s_num / s_den. Init s_num=x_0, s_den=1.
+    adjust=False: y_t = (1-α)·y_{t-1} + α·x_t. Init y_0 = x_0.
+
+    Nulls: skip (state frozen). Output for null row is null.
+    min_periods counts non-null rows.
+    """
+
+    __slots__ = ("_alpha", "_adjust", "_min_periods", "_count",
+                 "_s_num", "_s_den", "_ewm")
+
+    def __init__(self, alpha: float, adjust: bool, min_periods: int) -> None:
+        self._alpha = alpha
+        self._adjust = adjust
+        self._min_periods = min_periods
+        self._count = 0
+        self._s_num = 0.0
+        self._s_den = 0.0
+        self._ewm = None
+
+    def push(self, v):
+        if v is None:
+            return None
+        self._count += 1
+        x = float(v)
+        if self._adjust:
+            if self._count == 1:
+                self._s_num = x
+                self._s_den = 1.0
+            else:
+                self._s_num = (1.0 - self._alpha) * self._s_num + x
+                self._s_den = (1.0 - self._alpha) * self._s_den + 1.0
+            result = self._s_num / self._s_den
+        else:
+            if self._count == 1:
+                self._ewm = x
+            else:
+                self._ewm = (
+                    (1.0 - self._alpha) * self._ewm
+                    + self._alpha * x
+                )
+            result = self._ewm
+        if self._count < self._min_periods:
+            return None
+        return result
 
 
 class _GroupBy:

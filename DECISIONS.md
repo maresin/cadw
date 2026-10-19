@@ -845,7 +845,9 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `rank` (v0.3.1/3.2: Sort + stream; first/min/dense/max/last/average) | ✅ | 34 |
 | `quantile` (v0.3.3: Sort + indexed lookup; scalar q, linear) | ✅ | 20 |
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
-| `fit_lasso`/`fit_elasticnet` (v0.7.7: coord descent) | ✅ | 18 |
+| `fit_lasso`/`fit_elasticnet` (v0.7.7: coord descent) | ✅ | 22 |
+| `expanding` + `ewm` (v0.8.0: cumulative/EWMA) | ✅ | 26 |
+| `CovarianceMeanOp` — PCA single-pass (v0.8.0) | ✅ | 3 |
 | `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 26 |
 | `iloc` (v0.4.0b: positional indexer) | ✅ | 22 |
 | `loc`/`.at`/`.iat` (v0.4.0c: label-based) | ✅ | 31 |
@@ -936,6 +938,9 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | Index не сохраняется в Parquet (write_parquet → reload = RangeIndex) | `write_parquet` | Parquet не имеет index-метаданных; документировано. §13.4/55. |
 | `fit_lasso` — warm-start / path | `cadw/ml/linear.py` (v0.7.7) | alpha-путь переобучается с нуля; v0.7.8+ |
 | `fit_lasso` — `alpha` raw (не sklearn-style /n) | `cadw/ml/linear.py` (v0.7.7) | Совместимо с v0.7.0a Ridge alpha; документировано |
+| `shift`/`diff` с `on=col` — не поддержано | `CadwDataFrame` | сортировка + shift + ре-сортировка — v0.8.1 |
+| `resample(freq)` — не поддержано | `CadwDataFrame` | timestamp parsing + bucket — v0.8.2 |
+| `ewm(ignore_na=False)` — не поддержано (только ignore_na=True semantics) | `ewm` (v0.8.0) | pandas default `ignore_na=False`; наша семантика: nulls skip state, output null для null row |
 | `_detect_heavy_keys` absolute min = 100 (v0.3.4) | skew detection | Без абсолютного минимума tiny data (5 строк) ложно флагалась как skew. §13.4/52b. |
 | `groupby_aggregate` combiner не работает в skew-пути (v0.3.4) | `groupby_aggregate` | skew → warning + combiner disabled; heavy через streaming, light через shuffle без combiner. v0.3.5 — combiner для light. |
 | `quantile` без list q? — НЕТ, list q поддерживается. Без других interpolations ('lower'/'higher'/'nearest'/'midpoint') | `quantile` (v0.3.3) | v0.3.4 — добавление других interpolations (тривиально: другие формулы на v_lo/v_hi). List q уже работает. §13.4/51 |
@@ -1977,6 +1982,42 @@ fallback'а, если native API доступен для типа. Правил�
 — direct test; pipeline test — отдельно». Также: `_NumpyBackedBuilder` для
 `date64`/`timestamp` — сейчас latent; после мутации PyArrow может стать
 real. Фикс превентивный.
+
+**Эпизод 100 (time-series: expanding проще, чем rolling; ewm через
+формулу pandas).** `expanding` — тривиальная композиция: `_RollState` с
+deque заменяется scalar `_ExpandingState`: `sum`/`mean`/`count` — running
+accumulator; `min`/`max` — monotone scalar. Причина: cumulative min is
+monotone increasing by construction (каждая новая строка может только
+уменьшить min), поэтому monotone deque из rolling не нужен. O(1) state,
+O(1) per row.
+
+**ewm — две формулы, легко запоминаются:**
+- `adjust=True` (pandas default): `s_num = (1-α)·s_num + x`, `s_den =
+  (1-α)·s_den + 1`, `y = s_num/s_den`. Init `s_num = x_0, s_den = 1`.
+  Это `Σ (1-α)^i·x_{t-i} / Σ (1-α)^i`, реализованное рекурсивно за O(1).
+- `adjust=False`: `y = (1-α)·y_prev + α·x`, `y_0 = x_0`. Один аккумулятор.
+
+**Параметризация α:** `alpha ∈ (0,1]`; `span ≥ 1 → α=2/(span+1)`;
+`halflife > 0 → α = 1-exp(-ln2/halflife)`; `com ≥ 0 → α = 1/(1+com)`. Всё
+из pandas, 4 lines.
+
+**Nulls:** наша семантика = `ignore_na=True` в pandas: null-строка не
+обновляет state; output для неё null. `ignore_na=False` (pandas default)
+учитывает null в decay — сложнее, не реализовано (документировано §11.5).
+
+**PCA single-pass — почему подкласс, а не модификация `CovarianceOp`.**
+`CovarianceOp.finalize` возвращает `d×d` matrix (bare `pa.Array`); это
+публичный контракт (`test_reduce.py::test_covariance_2d`). Ломать его ради
+`mean` + `n` — over-head. Вместо этого — `CovarianceMeanOp(CovarianceOp)`
+с override `finalize` → `{cov, mean, n}`. Полиморфизм без API-break.
+`fit_pca` переключился на новый op — 2× I/O reduction без изменения
+`CovarianceOp` поведения.
+
+**Урок (для v0.8.1/v0.8.2):** для time-series «cumulative» проще, чем
+«sliding»; для windowed — можно комбинировать: `expanding = rolling(window=∞)`.
+Для `resample` — не строить «новую примитивную операцию»; это `Sort` по
+timestamp + `Reduce` по bucket'ам + halo-буфер на границе bucket'а.
+**Композиция > новый примитив**, пока не доказано обратное.
 
 ### 13.5. Открытые вопросы
 

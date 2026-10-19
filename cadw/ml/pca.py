@@ -24,7 +24,7 @@ import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
 from cadw.ops.reduce import reduce
-from cadw.ops.reduce import CovarianceOp
+from cadw.ops.reduce import CovarianceMeanOp
 
 
 def _stack_numeric(
@@ -277,33 +277,19 @@ def fit_pca(
 
     mg = memory_guard or df._memory_guard
 
-    op = CovarianceOp(X_cols)
+    # v0.8.0: CovarianceMeanOp returns cov + mean + n in one pass.
+    # 2× I/O reduction vs v0.7.2 (which re-scanned for mean).
+    op = CovarianceMeanOp(X_cols)
     res = reduce(df._iter_filtered_batches(), op, mg, log=False)
 
-    # CovarianceOp.finalize returns cov matrix (d×d)
-    # But we need n and mean too — need to access state. Our CovarianceOp
-    # doesn't expose sum_x. Fallback: recompute n + mean in a second pass.
-    # This is a compromise: avoids modifying CovarianceOp API in v0.7.2.
-    cov = res  # d×d covariance matrix
-
-    # Second pass: accumulate sum_X and count (skipping nulls)
-    n_valid = 0
-    sum_x = np.zeros(d, dtype=np.float64)
-    for b in df._iter_filtered_batches():
-        Xm = _stack_numeric(b, X_cols)
-        mask = ~np.isnan(Xm).any(axis=1)
-        Xv = Xm[mask]
-        if Xv.shape[0] == 0:
-            continue
-        n_valid += Xv.shape[0]
-        sum_x += Xv.sum(axis=0)
+    cov = res["cov"]
+    mean = res["mean"]
+    n_valid = res["n"]
 
     if n_valid < 2:
         raise ValueError(
             f"fit_pca: need at least 2 valid rows; got {n_valid}"
         )
-
-    mean = sum_x / n_valid
 
     # eigendecomposition: eigh returns ascending eigenvalues
     eigvals, eigvecs = np.linalg.eigh(cov)
