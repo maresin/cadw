@@ -906,18 +906,512 @@ def fit_gbdt_classifier(
     learning_rate: float = 0.1, bins: int = 32,
     min_child_weight: float = 1.0, reg_lambda: float = 1.0,
     min_gain: float = 0.0,
+    n_classes: Optional[int] = None,
     memory_guard: Optional[MemoryGuard] = None,
-) -> GBDTClassifier:
-    """GBDT binary classification (logloss) — v0.7.5.
+):
+    """GBDT classification: binary (logloss) or multiclass (softmax) — v0.7.8.
 
-    y must be {0, 1}, both classes present. predict_proba → P(y=1|x);
-    predict → {0,1} by threshold (default 0.5).
+    - y in {0, 1}: binary classifier (GBDTClassifier).
+        predict_proba → (n,) P(y=1|x); predict → {0,1}.
+    - y in {0, 1, ..., K-1}, K >= 3: multiclass (GBDTMulticlassClassifier).
+        predict_proba → (n, K); predict → (n,) int64.
+    - 1-indexed y ({1, ..., K}) — ValueError (сдвиньте на -1).
+
+    n_classes: override auto-detection. None → infer from y.
     """
-    out = _fit_boosting(
-        df, X_cols, y_col, loss="logloss_binary",
+    # Infer n_classes if not given
+    if n_classes is None:
+        # v0.7.8-fix3: count distinct BEFORE full validation.
+        # Backward compat: single-class / 2-non-0-indexed cases route to
+        # binary path, which raises the historical "both classes" /
+        # "binary (0/1)" error. Multiclass path (with stricter "0-indexed"
+        # error) only for intended-K>=3 cases.
+        distinct: set[int] = set()
+        has_non_int = False
+        for b in df._iter_filtered_batches():
+            y = _column_to_f64(b.column(y_col))
+            for v in y[~np.isnan(y)]:
+                fv = float(v)
+                if fv != int(fv):
+                    has_non_int = True
+                    break
+                distinct.add(int(fv))
+            if has_non_int:
+                break
+        if has_non_int or len(distinct) <= 2:
+            K = 2  # route to binary; _validate_binary_y raises proper error
+        else:
+            K = len(distinct)  # route to multiclass; _validate_multiclass_y
+    else:
+        K = int(n_classes)
+
+    if K < 2:
+        raise ValueError(
+            f"fit_gbdt_classifier: need >= 2 classes; got {K}"
+        )
+
+    if K == 2:
+        # Binary path (unchanged)
+        out = _fit_boosting(
+            df, X_cols, y_col, loss="logloss_binary",
+            n_estimators=n_estimators, max_depth=max_depth,
+            learning_rate=learning_rate, bins=bins,
+            min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+            min_gain=min_gain, memory_guard=memory_guard,
+        )
+        return GBDTClassifier(**out)
+    else:
+        # Multiclass path
+        return fit_gbdt_multiclass(
+            df, X_cols, y_col,
+            n_estimators=n_estimators, max_depth=max_depth,
+            learning_rate=learning_rate, bins=bins,
+            min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+            min_gain=min_gain, memory_guard=memory_guard,
+        )
+
+# ============================================================================
+# v0.7.8: Multiclass GBDT (softmax, per-class loop)
+# ============================================================================
+
+def _softmax(z: np.ndarray) -> np.ndarray:
+    """Numerically stable row-wise softmax. z: (n, K) -> (n, K)."""
+    if z.ndim != 2:
+        raise ValueError(f"_softmax: expected 2D array, got {z.ndim}D")
+    m = np.max(z, axis=1, keepdims=True)
+    exp_d = np.exp(z - m)
+    return exp_d / np.sum(exp_d, axis=1, keepdims=True)
+
+
+def _grad_hess_multiclass(
+    pred: np.ndarray, y_idx: np.ndarray, n_classes: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Softmax CE loss: grad (n,K), hess (n,K) diagonal approximation.
+
+    grad[i,c] = p[i,c] - onehot(y[i], c)
+    hess[i,c] = p[i,c] * (1 - p[i,c])   # XGBoost diagonal approx
+    """
+    p = _softmax(pred)
+    y_onehot = np.zeros((len(y_idx), n_classes), dtype=np.float64)
+    y_onehot[np.arange(len(y_idx)), y_idx] = 1.0
+    grad = p - y_onehot
+    hess = np.maximum(p * (1.0 - p), 1e-16)
+    return grad, hess
+
+
+def _validate_multiclass_y(df, y_col: str) -> tuple[int, int]:
+    """Ensure y in {0, 1, ..., K-1} (0-indexed).
+
+    Returns (n_classes, n_valid_non_null). Raises ValueError otherwise.
+    Explicitly rejects 1-indexed {1..K} (сообщение объясняет).
+    """
+    seen: set[int] = set()
+    n_valid = 0
+    for b in df._iter_filtered_batches():
+        y = _column_to_f64(b.column(y_col))
+        for v in y[~np.isnan(y)]:
+            fv = float(v)
+            if fv != int(fv):
+                raise ValueError(
+                    f"fit_gbdt_multiclass: y must be integer classes; "
+                    f"got non-integer {fv}"
+                )
+            seen.add(int(fv))
+            n_valid += 1
+    if not seen:
+        raise ValueError("fit_gbdt_multiclass: no valid (non-null) y")
+    K = len(seen)
+    expected = set(range(K))
+    if seen != expected:
+        raise ValueError(
+            f"fit_gbdt_multiclass: y must be {{0, 1, ..., K-1}} "
+            f"(0-indexed); got classes {sorted(seen)}. "
+            f"1-indexed (e.g. {{1, 2, 3}}) не поддерживается — "
+            f"сдвиньте y на -1 перед вызовом."
+        )
+    return K, n_valid
+
+
+def _iter_class_enriched(
+    df, X_cols, grad_all: np.ndarray, hess_all: np.ndarray,
+    cur_leaf_c: np.ndarray, c: int,
+):
+    """Per-class batch iterator with __g, __h, __leaf for _AllNodeHistOp."""
+    off = 0
+    for b in df._iter_filtered_batches():
+        n = b.num_rows
+        X = _stack_numeric(b, X_cols)
+        valid = ~np.isnan(X).any(axis=1)
+        g = np.where(valid, grad_all[off:off + n, c], 0.0)
+        h = np.where(valid, hess_all[off:off + n, c], 0.0)
+        lf = cur_leaf_c[off:off + n]
+        cols = [b.column(cc) for cc in X_cols]
+        cols.append(pa.array(g, type=pa.float64()))
+        cols.append(pa.array(h, type=pa.float64()))
+        cols.append(pa.array(lf, type=pa.int64()))
+        names = list(X_cols) + ["__g", "__h", "__leaf"]
+        yield pa.RecordBatch.from_arrays(cols, names=names)
+        off += n
+
+
+def _iter_class_for_leaves(
+    df, X_cols, grad_all: np.ndarray, hess_all: np.ndarray,
+    cur_leaf_c: np.ndarray, c: int,
+):
+    """Per-class: __g, __h, __leaf only (no X) — for _LeafValuesOp."""
+    off = 0
+    for b in df._iter_filtered_batches():
+        n = b.num_rows
+        X = _stack_numeric(b, X_cols)
+        valid = ~np.isnan(X).any(axis=1)
+        g = np.where(valid, grad_all[off:off + n, c], 0.0)
+        h = np.where(valid, hess_all[off:off + n, c], 0.0)
+        lf = cur_leaf_c[off:off + n]
+        yield pa.RecordBatch.from_arrays(
+            [pa.array(g, type=pa.float64()),
+             pa.array(h, type=pa.float64()),
+             pa.array(lf, type=pa.int64())],
+            names=["__g", "__h", "__leaf"],
+        )
+        off += n
+
+
+@dataclass
+class GBDTMulticlassClassifier:
+    """GBDT multiclass classifier (softmax loss).
+
+    y must be {0, 1, ..., K-1} (0-indexed, K = n_classes).
+    predict_proba → (n, K); predict → (n,) int64 in {0..K-1}.
+
+    Fitted via per-class loop (K trees per round). Binary case
+    (K == 2) should use fit_gbdt_classifier (existing) — this class
+    requires K >= 3.
+    """
+
+    trees_: list  # list[n_estimators] of list[K] tree dicts
+    base_prediction_: np.ndarray  # (K,), zeros
+    feature_names_: list
+    target_col_: str
+    mn_: np.ndarray
+    mx_: np.ndarray
+    bins_: int
+    learning_rate_: float
+    n_estimators_: int
+    max_depth_: int
+    n_features_in_: int
+    n_classes_: int
+    fitted_: bool = True
+
+    def _raw_score_np(self, X: np.ndarray) -> np.ndarray:
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"predict: X has {X.shape[1]} features, "
+                f"expected {self.n_features_in_}"
+            )
+        n = X.shape[0]
+        pred = np.tile(self.base_prediction_, (n, 1))
+        for trees_round in self.trees_:
+            for c in range(self.n_classes_):
+                tree = trees_round[c]
+                leaf = _assign_leaf_from_array(
+                    X, tree["structure"], self.mn_, self.mx_, self.bins_,
+                )
+                pred[:, c] += self.learning_rate_ * _leaf_vector(
+                    tree["leaf_values"], leaf,
+                )
+        return pred
+
+    def predict_proba(self, X):
+        if isinstance(X, np.ndarray):
+            return _softmax(self._raw_score_np(X))
+        return self._predict_df(X, proba_only=True)
+
+    def predict(self, X):
+        if isinstance(X, np.ndarray):
+            return _softmax(
+                self._raw_score_np(X)
+            ).argmax(axis=1).astype(np.int64)
+        return self._predict_df(X, proba_only=False)
+
+    def _predict_df(self, X, *, proba_only: bool):
+        from cadw.dataframe import CadwDataFrame
+        from cadw.dataset import Dataset
+        if not isinstance(X, CadwDataFrame):
+            raise TypeError(
+                f"predict: X must be np.ndarray or CadwDataFrame; "
+                f"got {type(X).__name__}"
+            )
+        for c in self.feature_names_:
+            if c not in X.columns:
+                raise KeyError(f"predict: column {c!r} not in df")
+
+        K = self.n_classes_
+        target = self.target_col_
+        pred_col = f"{target}_pred"
+        prob_cols = [f"{target}_prob_{c}" for c in range(K)]
+        orig_schema = X._dataset.schema
+        out_fields = [orig_schema.field(c) for c in X._columns]
+        out_fields.append(pa.field(pred_col, pa.int64(), nullable=True))
+        if proba_only:
+            for pc in prob_cols:
+                out_fields.append(pa.field(pc, pa.float64(), nullable=True))
+        out_schema = pa.schema(out_fields)
+        model = self
+
+        def _iter_pred():
+            for b in X._iter_filtered_batches():
+                Xm = _stack_numeric(b, model.feature_names_)
+                n = Xm.shape[0]
+                nan_rows = np.isnan(Xm).any(axis=1)
+                labels = np.full(n, -1, dtype=np.int64)
+                probs_full = np.full((n, K), np.nan, dtype=np.float64)
+                if (~nan_rows).any():
+                    raw = model._raw_score_np(Xm[~nan_rows])
+                    probs = _softmax(raw)
+                    labels[~nan_rows] = probs.argmax(axis=1).astype(np.int64)
+                    probs_full[~nan_rows] = probs
+                arrays = [b.column(c) for c in X._columns]
+                arrays.append(pa.array(
+                    labels, type=pa.int64(),
+                    mask=nan_rows if nan_rows.any() else None,
+                ))
+                if proba_only:
+                    for c in range(K):
+                        col = probs_full[:, c]
+                        mask = np.isnan(col)
+                        arrays.append(pa.array(
+                            col, type=pa.float64(),
+                            mask=mask if mask.any() else None,
+                        ))
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_pred(), X._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=X._memory_guard,
+            spill_dir=X._spill_dir,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "loss": "multiclass_softmax",
+            "n_classes": int(self.n_classes_),
+            "n_estimators": int(self.n_estimators_),
+            "n_trees_per_round": self.n_classes_,
+            "max_depth": int(self.max_depth_),
+            "learning_rate": float(self.learning_rate_),
+            "bins": int(self.bins_),
+            "feature_names": self.feature_names_,
+            "target_col": self.target_col_,
+        }
+
+
+def _fit_boosting_multiclass(
+    df, X_cols, y_col, *,
+    n_estimators: int,
+    max_depth: int,
+    learning_rate: float,
+    bins: int,
+    min_child_weight: float,
+    reg_lambda: float,
+    min_gain: float,
+    memory_guard: Optional[MemoryGuard],
+) -> dict:
+    """Multiclass softmax boosting, per-class loop. Reuses _AllNodeHistOp,
+    _AssignLeavesOp, _LeafValuesOp (no new ops). K× cost vs binary.
+    """
+    X_cols = _validate_fit_args(
+        df, X_cols, y_col,
+        n_estimators=n_estimators, max_depth=max_depth,
+        learning_rate=learning_rate, bins=bins,
+        min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+    )
+    K, n_valid = _validate_multiclass_y(df, y_col)
+    if K < 3:
+        raise ValueError(
+            f"fit_gbdt_multiclass: need >= 3 classes; got {K}. "
+            f"Use fit_gbdt_classifier for binary."
+        )
+
+    mg = memory_guard or df._memory_guard
+    n_total = df.count()
+    if n_total == 0:
+        raise ValueError("fit_gbdt_multiclass: no rows")
+
+    # State: pred (n,K) + grad_all (n,K) + hess_all (n,K) + cur_leaf (n)
+    #        = n * K * 8 * 3 (minimal, cur_leaf reused per class)
+    est_n_state = n_total * K * 8 * 3
+    try:
+        mg.check_state(est_n_state, name="gbdt.multiclass_state")
+    except MemoryLimitExceeded:
+        raise MemoryLimitExceeded(
+            f"fit_gbdt_multiclass: state O(n·K) = {est_n_state} B "
+            f"(n={n_total}, K={K}) > state_limit. Multiclass GBDT "
+            f"requires pred, grad, hess per row per class. "
+            f"See §13.4/92."
+        )
+
+    # 1. Global min/max
+    mm_res = reduce(
+        df._iter_filtered_batches(), _MinMaxOp(X_cols), mg, log=False,
+    )
+    mn = mm_res["min"]
+    mx = mm_res["max"]
+    if np.any(np.isinf(mn)) or np.any(np.isinf(mx)):
+        raise ValueError("fit_gbdt_multiclass: no valid rows")
+
+    # 2. y as int64 (with -1 for null)
+    y_all = np.full(n_total, -1, dtype=np.int64)
+    offset = 0
+    for b in df._iter_filtered_batches():
+        y = _column_to_f64(b.column(y_col))
+        valid = ~np.isnan(y)
+        y_all[offset:offset + b.num_rows] = np.where(valid, y, -1).astype(np.int64)
+        offset += b.num_rows
+
+    # 3. Init pred — zeros (base_prediction = zeros, trees find shift)
+    base_pred = np.zeros(K, dtype=np.float64)
+    pred = np.tile(base_pred, (n_total, 1))  # (n, K)
+
+    trees: list = []  # list[n_estimators], each = list[K]
+
+    for round_i in range(n_estimators):
+        # 4. Compute grad_all, hess_all ONCE per round (softmax)
+        grad_all = np.zeros((n_total, K), dtype=np.float64)
+        hess_all = np.zeros((n_total, K), dtype=np.float64)
+        offset = 0
+        for b in df._iter_filtered_batches():
+            n = b.num_rows
+            X = _stack_numeric(b, X_cols)
+            p = pred[offset:offset + n]
+            y_idx = y_all[offset:offset + n]
+            valid = (~np.isnan(X).any(axis=1)) & (y_idx >= 0)
+            if valid.any():
+                # Use only valid rows for grad/hess; fill others with 0
+                g_valid, h_valid = _grad_hess_multiclass(
+                    p[valid], y_idx[valid], K,
+                )
+                grad_all[offset:offset + n][valid] = g_valid
+                hess_all[offset:offset + n][valid] = h_valid
+            offset += n
+
+        # 5. Fit K trees per class
+        round_trees = []
+        round_leaf_maps = []
+        round_cur_leaves = []
+        for c in range(K):
+            tree = {0: None}
+            cur_leaf_c = np.zeros(n_total, dtype=np.int64)
+            next_node_id = 1
+
+            for level in range(max_depth):
+                internal = [nid for nid, t in tree.items() if t is None]
+                if not internal:
+                    break
+
+                hist_op = _AllNodeHistOp(X_cols, internal, mn, mx, bins)
+                hist_res = reduce(
+                    _iter_class_enriched(
+                        df, X_cols, grad_all, hess_all, cur_leaf_c, c,
+                    ),
+                    hist_op, mg, log=False,
+                )
+                gh = hist_res["g_hist"]
+                hh = hist_res["h_hist"]
+                gt = hist_res["g_tot"]
+                ht = hist_res["h_tot"]
+                nt = hist_res["n_tot"]
+
+                for slot, nid in enumerate(internal):
+                    if ht[slot] < min_child_weight * 2:
+                        continue
+                    best = _find_best_split(
+                        slot, gh[slot], hh[slot],
+                        float(gt[slot]), float(ht[slot]), int(nt[slot]),
+                        bins, min_child_weight, min_gain, reg_lambda,
+                    )
+                    if best is None:
+                        continue
+                    j, thr, gain = best
+                    left_id = next_node_id
+                    right_id = next_node_id + 1
+                    next_node_id += 2
+                    tree[nid] = (j, thr, left_id, right_id)
+                    tree[left_id] = None
+                    tree[right_id] = None
+
+                assign_op = _AssignLeavesOp(X_cols, mn, mx, bins, tree)
+                cur_leaf_c = reduce(
+                    df._iter_filtered_batches(), assign_op, mg, log=False,
+                )
+
+            # 6. Leaf values for this class
+            lv_op = _LeafValuesOp(reg_lambda=reg_lambda)
+            leaf_values_c = reduce(
+                _iter_class_for_leaves(
+                    df, X_cols, grad_all, hess_all, cur_leaf_c, c,
+                ),
+                lv_op, mg, log=False,
+            )
+
+            round_trees.append({
+                "structure": dict(tree),
+                "leaf_values": dict(leaf_values_c),
+            })
+            round_leaf_maps.append(dict(leaf_values_c))
+            round_cur_leaves.append(cur_leaf_c)
+
+        # 7. Update pred[:, c] (after all K trees of this round)
+        for c in range(K):
+            lv = round_leaf_maps[c]
+            if lv:
+                max_lid = max(lv.keys())
+                arr = np.zeros(max_lid + 1, dtype=np.float64)
+                for lid, v in lv.items():
+                    arr[lid] = v
+                pred[:, c] += learning_rate * arr[round_cur_leaves[c]]
+
+        trees.append(round_trees)
+
+    return {
+        "trees_": trees,
+        "base_prediction_": base_pred,
+        "feature_names_": list(X_cols),
+        "target_col_": y_col,
+        "mn_": mn,
+        "mx_": mx,
+        "bins_": int(bins),
+        "learning_rate_": float(learning_rate),
+        "n_estimators_": int(n_estimators),
+        "max_depth_": int(max_depth),
+        "n_features_in_": len(X_cols),
+        "n_classes_": int(K),
+    }
+
+
+def fit_gbdt_multiclass(
+    df, X_cols, y_col: str,
+    *, n_estimators: int = 100, max_depth: int = 3,
+    learning_rate: float = 0.1, bins: int = 32,
+    min_child_weight: float = 1.0, reg_lambda: float = 1.0,
+    min_gain: float = 0.0,
+    memory_guard: Optional[MemoryGuard] = None,
+) -> GBDTMulticlassClassifier:
+    """GBDT multiclass classification (softmax) — v0.7.8.
+
+    y must be {0, 1, ..., K-1}, K >= 3. For binary — fit_gbdt_classifier.
+    """
+    out = _fit_boosting_multiclass(
+        df, X_cols, y_col,
         n_estimators=n_estimators, max_depth=max_depth,
         learning_rate=learning_rate, bins=bins,
         min_child_weight=min_child_weight, reg_lambda=reg_lambda,
         min_gain=min_gain, memory_guard=memory_guard,
     )
-    return GBDTClassifier(**out)
+    return GBDTMulticlassClassifier(**out)
+
+

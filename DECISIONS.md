@@ -846,6 +846,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `quantile` (v0.3.3: Sort + indexed lookup; scalar q, linear) | ✅ | 20 |
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
 | `fit_lasso`/`fit_elasticnet` (v0.7.7: coord descent) | ✅ | 22 |
+| `fit_gbdt_multiclass` (v0.7.8: softmax, per-class) | ✅ | 22 |
 | `expanding` + `ewm` (v0.8.0: cumulative/EWMA) | ✅ | 26 |
 | P-hash: pandas C-hash (v0.8.1) | ✅ | 17 |
 | `CovarianceMeanOp` — PCA single-pass (v0.8.0) | ✅ | 3 |
@@ -2101,6 +2102,61 @@ P ∈ {2,4,8,16} — каждая ~N/P. **Третий случай за сес�
 
 **Правило hash-tests: минимум 3** — determinism, distinct-values,
 **low-bit distribution**.
+
+**Эпизод 113 (Multiclass GBDT: reuse ops через per-class loop).**
+После v0.7.5 (binary logloss) следующий логичный шаг — multiclass
+softmax. Два подхода:
+
+**(A) `_MulticlassAllNodeHistOp`** — один Reduce для всех K классов:
+    State: `g_hist (S, K, F, B)`, batch columns `__g_0..__g_{K-1}`,
+    `__h_0..`, `__leaf_0..`. K× меньше pass'ов, но ~600 строк
+    специализированного кода. Плюс: `_AssignLeavesOp` нужен V2 (K
+    деревьев одновременно); `_LeafValuesOp` — V2 (K× nodes);
+    `cur_leaf` — матрица (n, K). Итого: 5 новых ops + дубли.
+
+**(B) Per-class loop** — K итераций, каждая с существующими
+    `_AllNodeHistOp`, `_AssignLeavesOp`, `_LeafValuesOp`:
+    - Pred (n, K) — обновляется per-column.
+    - Grad/hess (n, K) — считаются ОДИН раз per round (softmax),
+      потом per-class slices подаются как `__g`, `__h`.
+    - K× медленнее binary, но **0 новых ops**, 0 новых багов в hist/
+      leaf/assign.
+
+**Выбор — B.** Причины:
+1. **Correctness > speed** для MVP: existing ops уже покрыты 33+ тестами
+   (`test_reduce.py`, `test_gbdt_regression.py`, `test_gbdt_classification.
+   py`). Новые ops потребуют полного параллельного test-set.
+2. **Bug surface:** мой первый черновик (A) содержал 2 бага в
+   pattern-matching (`__leaf_0` vs `__leaf`, V1/V2 дубли). При B —
+   просто нет места для таких ошибок: pipeline идентичен binary, только
+   K раз.
+3. **Cost:** K=3 → 3× медленнее. Для CI (n=1000, depth=3, 30 rounds):
+   ~15s. Для production (n=10^6, K=5, 100 rounds): ~15-30 min — но
+   это **уже out-of-core**, GBDT всё равно bottleneck, v0.7.8a
+   оптимизирует.
+
+**Урок:** для новых фич — **сначала работающая простота (reuse), потом
+оптимизация (specialize)**. Специализированный `_MulticlassAllNodeHistOp`
+имеет смысл **после** того, как per-class версия прошла все тесты
+и доказала корректность. Иначе — debugging multiclass hist + debugging
+specialized op + debugging multiple-model dispatch = три бага
+одновременно.
+
+**v0.7.8a backlog:** `_MulticlassAllNodeHistOp` — один pass на hist,
+один на assign (K trees per row), один на leaf-values. Ожидаемый
+speedup ~K×. Нужны V2 ops (или универсализация через `class_idx` axis).
+Отдельная сессия.
+
+**Семантическое решение:** `y` **строго** `{0, 1, ..., K-1}`.
+1-indexed (`{1..K}`) — ValueError с указанием «сдвиньте y на -1».
+Pandas/scikit-learn принимают любой набор labels, но у нас — целочисленный
+target (не string), и 1-indexed — самый частый источник багов
+(misclass label 1..K vs 0..K-1). Строгая валидация дешевле, чем
+debugging 3-level trees с неправильным base prediction.
+
+**Следующее:** v0.8.2 (`shift/diff on=col`), v0.8.3 (`resample(freq)`),
+v0.7.9 (`feature_importance(gain)`). ML-слой закрыт (GBDT reg+bin+multi,
+Linear/Ridge/Lasso/ENet, Logistic, KMeans, PCA, NB×3).
 
 ### 13.5. Открытые вопросы
 

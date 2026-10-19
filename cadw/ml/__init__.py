@@ -9,6 +9,7 @@ from .pca import PCA, fit_pca
 from .gbdt import (
     GBDTRegressor, fit_gbdt_regressor,
     GBDTClassifier, fit_gbdt_classifier,
+    GBDTMulticlassClassifier, fit_gbdt_multiclass,
 )
 from .naive_bayes import (
     GaussianNB, fit_gaussian_nb,
@@ -24,6 +25,7 @@ __all__ = [
     "PCA", "fit_pca",
     "GBDTRegressor", "fit_gbdt_regressor",
     "GBDTClassifier", "fit_gbdt_classifier",
+    "GBDTMulticlassClassifier", "fit_gbdt_multiclass",
     "GaussianNB", "fit_gaussian_nb",
     "MultinomialNB", "fit_multinomial_nb",
     "BernoulliNB", "fit_bernoulli_nb",

@@ -85,3 +85,90 @@ def test_xxhash_accepts_bytes():
     assert isinstance(h, int)
     with pytest.raises(TypeError):
         xxhash.xxh64("abc", seed=0)
+
+# ---------- v0.7.8-fix3: every name in __all__ actually imports ----------
+#
+# Catches silent no-op patch bugs (§13.4/44, 111, 114, 115): a patched
+# __init__.py could add a name to `__all__` but fail to add the import
+# line, leaving ImportError for downstream users while test collection
+# passes (until someone does `from cadw import X`).
+#
+# Three levels of verify:
+#   1. AST: is the name in an ImportFrom / Assign?
+#   2. __all__: is every name present in module?
+#   3. Runtime: can we actually `from pkg import name`?
+
+import ast as _ast
+import inspect as _inspect
+import importlib as _importlib
+
+
+def test_cadw_all_exports_importable():
+    """Every name in cadw.__all__ must be importable from cadw."""
+    import cadw
+    missing = []
+    for name in cadw.__all__:
+        if not hasattr(cadw, name):
+            missing.append(name)
+    assert not missing, (
+        f"cadw.__all__ references names not importable from cadw: "
+        f"{missing}. Likely __all__ updated without import line (§13.4/115)."
+    )
+
+
+def test_cadw_ml_all_exports_importable():
+    """Every name in cadw.ml.__all__ must be importable from cadw.ml."""
+    import cadw.ml
+    missing = []
+    for name in cadw.ml.__all__:
+        if not hasattr(cadw.ml, name):
+            missing.append(name)
+    assert not missing, (
+        f"cadw.ml.__all__ references names not importable from cadw.ml: "
+        f"{missing}"
+    )
+
+
+def test_cadw_ast_all_matches_imports():
+    """AST: every name in `cadw.__all__` is either imported or assigned
+    at module level. Catches the specific bug where __all__ line was
+    added but import line was missed.
+    """
+    import cadw
+    src = _inspect.getsource(cadw)
+    tree = _ast.parse(src)
+
+    imported: set[str] = set()
+    assigned: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, _ast.ImportFrom):
+            for alias in node.names:
+                imported.add(alias.asname or alias.name)
+        elif isinstance(node, _ast.Import):
+            for alias in node.names:
+                imported.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, _ast.Assign):
+            for target in node.targets:
+                if isinstance(target, _ast.Name):
+                    assigned.add(target.id)
+
+    all_names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, _ast.Assign):
+            for target in node.targets:
+                if (isinstance(target, _ast.Name)
+                        and target.id == "__all__"
+                        and isinstance(node.value, _ast.List)):
+                    for elt in node.value.elts:
+                        if isinstance(elt, _ast.Constant):
+                            all_names.add(elt.value)
+
+    missing = all_names - imported - assigned - {"__all__"}
+    # Allow names re-exported from other modules (they appear in ImportFrom
+    # and thus would be in `imported` already). If anything is missing —
+    # the __all__ line was added without the import.
+    assert not missing, (
+        f"cadw/__init__.py: names in __all__ but not imported/assigned: "
+        f"{missing}. Add `from ... import name` line (§13.4/115)."
+    )
+

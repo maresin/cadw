@@ -12,6 +12,63 @@
   инвариант.
 -->
 
+## [0.7.8] — 2026-10-19
+
+### Исправлено в v0.7.8-fix3
+- **Dispatch preserves backward-compat error messages.**
+  `fit_gbdt_classifier(n_classes=None)` считает distinct **перед**
+  `_validate_multiclass_y`. 2 distinct (или non-integer) → binary
+  path (`_validate_binary_y` даёт исторический `"binary (0/1)"` /
+  `"both classes"`); >2 distinct → multiclass path (`"0-indexed"`).
+  Без этого `{2, 3}` и `{1}` давали `"0-indexed"` вместо ожидаемых
+  сообщений — ломалось `test_gbdt_classification.py`.
+- **+AST export guard** (`tests/test_api_availability.py`):
+  `test_cadw_all_exports_importable`,
+  `test_cadw_ml_all_exports_importable`,
+  `test_cadw_ast_all_matches_imports`. Ловит класс багов
+  «__all__ обновлён, import забыт» (§13.4/115).
+
+### Добавлено
+- **`fit_gbdt_multiclass`** — multiclass GBDT (softmax loss), per-class
+  loop, reuse существующих ops (`_AllNodeHistOp`, `_AssignLeavesOp`,
+  `_LeafValuesOp` — 0 новых ops).
+  - K деревьев на round (по одному на класс); `trees_` = `list[n_estimators]`
+    of `list[K]`.
+  - Grad: `p[i,c] - onehot(y[i], c)`; Hess: `p[i,c]*(1-p[i,c])`
+    (XGBoost diagonal approximation).
+  - `base_prediction_ = zeros(K)` (деревья находят сдвиг).
+  - `predict_proba → (n, K)`, `predict → (n,) int64`.
+- **`GBDTMulticlassClassifier`** — model class; sklearn-подобные поля:
+  `trees_`, `n_classes_`, `feature_names_`, `n_features_in_`,
+  `predict_proba`, `predict`, `to_dict`.
+- **`fit_gbdt_classifier(..., n_classes=None)`** — auto-dispatch:
+  - `n_classes` inferred из `y` (`{0..K-1}`).
+  - `K == 2` → `GBDTClassifier` (binary, unchanged).
+  - `K > 2` → `GBDTMulticlassClassifier`.
+  - `K < 2` → ValueError.
+- **`CadwDataFrame.fit_gbdt_multiclass`** — фасад.
+
+### Ограничения (v0.7.8, §11.5)
+- y должен быть `{0, 1, ..., K-1}` (0-indexed). 1-indexed `{1..K}` —
+  ValueError (сдвиньте y на -1).
+- `K × binary` fit cost (per-class loop). K=3 → ~3× медленнее binary.
+  Для K > 5, n > 1M — v0.7.8a добавит `_MulticlassAllNodeHistOp`
+  (1 pass для всех K, ~K× speedup).
+- One-vs-rest не поддерживается (только softmax).
+- Multiclass quantile/huber — не реализованы.
+
+### Тесты
+- +22 в `test_gbdt_multiclass.py`: `_softmax` (sum, stability, dim),
+  fit (basic, accuracy, n_estimators improves, deterministic), predict
+  (proba shape, int labels, df columns, prob_df columns, nulls),
+  dispatch (binary, multiclass, single-class error), y validation
+  (1-indexed, missing class, K=2 rejected by fit_multiclass),
+  memory guard, convenience, to_dict, binary regression.
+- fast: **~979 passed**, slow: **8 passed**.
+
+### Время
+- K=3, n=1000, depth=3, 30 rounds: ~15-20s (CI). Локально — быстрее.
+
 ## [0.8.1] — 2026-10-19
 
 ### Изменено — performance

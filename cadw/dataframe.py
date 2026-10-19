@@ -2036,6 +2036,35 @@ class CadwDataFrame:
             spill_dir=self._spill_dir,
         )
 
+    # ---------------- ML: fit_gbdt_multiclass ----------------
+
+    def fit_gbdt_multiclass(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        n_estimators: int = 100,
+        max_depth: int = 3,
+        learning_rate: float = 0.1,
+        bins: int = 32,
+        min_child_weight: float = 1.0,
+        reg_lambda: float = 1.0,
+        min_gain: float = 0.0,
+    ):
+        """Fit GBDT multiclass classification (softmax) — v0.7.8.
+
+        y must be {0, 1, ..., K-1}, K >= 3. For binary — fit_gbdt_classifier.
+        """
+        from cadw.ml.gbdt import fit_gbdt_multiclass
+        return fit_gbdt_multiclass(
+            self, X_cols, y_col,
+            n_estimators=n_estimators, max_depth=max_depth,
+            learning_rate=learning_rate, bins=bins,
+            min_child_weight=min_child_weight, reg_lambda=reg_lambda,
+            min_gain=min_gain,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(
