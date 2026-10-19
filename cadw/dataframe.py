@@ -1571,6 +1571,32 @@ class CadwDataFrame:
             memory_guard=self._memory_guard,
         )
 
+    # ---------------- ML: fit_logistic ----------------
+
+    def fit_logistic(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        alpha: float = 1.0,
+        max_iter: int = 100,
+        tol: float = 1e-6,
+    ):
+        """Fit binary logistic via Newton IRLS (v0.7.0b).
+
+        Each Newton iteration = one Reduce pass. Typically 5-15 iterations.
+
+        Returns LogisticModel (coef_, intercept_, predict, predict_proba).
+
+        See cadw.ml.logistic.fit_logistic for full docs.
+        """
+        from cadw.ml.logistic import fit_logistic
+        return fit_logistic(
+            self, X_cols, y_col,
+            alpha=alpha, max_iter=max_iter, tol=tol,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(
