@@ -1708,6 +1708,80 @@ class CadwDataFrame:
             memory_guard=self._memory_guard,
         )
 
+    # ---------------- ML: fit_naive_bayes ----------------
+
+    def fit_naive_bayes(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        variant: str = "gaussian",
+        alpha: float = 1.0,
+        var_smoothing: float = 1e-9,
+    ):
+        """Fit Naive Bayes (v0.7.6).
+
+        - variant='gaussian'    : continuous X; params: var_smoothing.
+        - variant='multinomial' : X >= 0 counts; params: alpha.
+        - variant='bernoulli'   : X in {0,1}; params: alpha.
+
+        y must be numeric (int/float). For categorical target — encode.
+        Returns GaussianNB | MultinomialNB | BernoulliNB.
+        """
+        from cadw.ml.naive_bayes import (
+            _VARIANTS,
+            fit_gaussian_nb, fit_multinomial_nb, fit_bernoulli_nb,
+        )
+        if variant not in _VARIANTS:
+            raise ValueError(
+                f"fit_naive_bayes: variant must be one of {_VARIANTS}; "
+                f"got {variant!r}"
+            )
+        if variant == "gaussian":
+            return fit_gaussian_nb(
+                self, X_cols, y_col, var_smoothing=var_smoothing,
+                memory_guard=self._memory_guard,
+            )
+        if variant == "multinomial":
+            return fit_multinomial_nb(
+                self, X_cols, y_col, alpha=alpha,
+                memory_guard=self._memory_guard,
+            )
+        return fit_bernoulli_nb(
+            self, X_cols, y_col, alpha=alpha,
+            memory_guard=self._memory_guard,
+        )
+
+    def fit_gaussian_nb(
+        self, X_cols: "str | Sequence[str]", y_col: str,
+        *, var_smoothing: float = 1e-9,
+    ):
+        from cadw.ml.naive_bayes import fit_gaussian_nb
+        return fit_gaussian_nb(
+            self, X_cols, y_col, var_smoothing=var_smoothing,
+            memory_guard=self._memory_guard,
+        )
+
+    def fit_multinomial_nb(
+        self, X_cols: "str | Sequence[str]", y_col: str,
+        *, alpha: float = 1.0,
+    ):
+        from cadw.ml.naive_bayes import fit_multinomial_nb
+        return fit_multinomial_nb(
+            self, X_cols, y_col, alpha=alpha,
+            memory_guard=self._memory_guard,
+        )
+
+    def fit_bernoulli_nb(
+        self, X_cols: "str | Sequence[str]", y_col: str,
+        *, alpha: float = 1.0,
+    ):
+        from cadw.ml.naive_bayes import fit_bernoulli_nb
+        return fit_bernoulli_nb(
+            self, X_cols, y_col, alpha=alpha,
+            memory_guard=self._memory_guard,
+        )
+
     # ---------------- merge ----------------
 
     def merge(

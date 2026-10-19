@@ -28,6 +28,9 @@ from .ml import (
     PCA, fit_pca,
     GBDTRegressor, fit_gbdt_regressor,
     GBDTClassifier, fit_gbdt_classifier,
+    GaussianNB, fit_gaussian_nb,
+    MultinomialNB, fit_multinomial_nb,
+    BernoulliNB, fit_bernoulli_nb,
 )
 
 from .viz import (
@@ -47,6 +50,9 @@ __all__ = [
     "PCA", "fit_pca",
     "GBDTRegressor", "fit_gbdt_regressor",
     "GBDTClassifier", "fit_gbdt_classifier",
+    "GaussianNB", "fit_gaussian_nb",
+    "MultinomialNB", "fit_multinomial_nb",
+    "BernoulliNB", "fit_bernoulli_nb",
     "CadwIndex",
     "RangeIndex",
     "MaterializedIndex",
