@@ -39,6 +39,17 @@ from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ArrowIPCBatchWriter
 from cadw.ops.shuffle import hash_shuffle
 
+# v0.8.10-pre (P-A3 audit addendum): measured RSS floor for Table.join
+# beyond logical output. Source: 3 runs of pk join @ N=1M (int64 keys,
+# 24 MB output) gave 114.7 / 142.8 / 156.8 MB RSS delta across identical
+# binary. 5×output alone (120 MB) under-predicts the worst run by ~37 MB.
+# Offset covers Arrow pool init (~16 MB) + hash-table build + non-Arrow
+# temporaries (~24 MB) — measured as a floor, invariant of output size.
+# Used by `CadwDataFrame.merge` for a whole-operation WARNING. Enforcement
+# (raise) is deferred to v0.8.11 with test-budget review; see §9.2.6,
+# §11.5.
+_JOIN_FIXED_OVERHEAD_BYTES = 40 * 1024 * 1024
+
 
 def _drop_null_keys(df: pd.DataFrame, on: list[str]) -> pd.DataFrame:
     """SQL-семантика: строки с NULL в любом on-ключе не участвуют."""

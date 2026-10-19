@@ -88,6 +88,11 @@ WHITELISTED_FUNCS = {
     "ewm": "Dataset.from_batches (streaming)",
     "merge": "Dataset.from_batches (streaming)",
     "_wrap_result_table": "Dataset.from_batches (streaming, small result)",
+    # v0.8.10 per-group methods — bounded accum list in _iter_zipped,
+    # same pattern as _shift_on/_rolling_on.
+    "_per_group_shift": "2× external_sort + bounded accum zip",
+    "_per_group_diff": "delegates to _per_group_shift + streaming subtract",
+    "_per_group_rolling": "2× external_sort + _RollState + bounded accum",
 }
 
 GUARD_ATTRS = {

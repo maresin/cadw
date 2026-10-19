@@ -22,6 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.logging import get_logger
 from cadw.core.sampling import (
     data_chars_for_join,
     peek_first_batch,
@@ -55,6 +56,8 @@ from cadw.ops.resample import (
     parse_freq as _parse_freq,
     resample_to_disk as _resample_to_disk,
 )
+
+logger = get_logger("dataframe")
 
 
 class _ColumnProxy:
@@ -2061,6 +2064,509 @@ class CadwDataFrame:
             spill_dir=self._spill_dir,
         )
 
+    # ---------------- per-group shift/diff/rolling (v0.8.10) ----------------
+
+    def _per_group_shift(
+        self,
+        group_cols: list[str],
+        on_cols: list[str],
+        k: int,
+        fill_value,
+        columns: "str | Sequence[str] | None",
+    ) -> "CadwDataFrame":
+        """Composite-sort per-group shift (validated by proto_per_group.py).
+
+        Algorithm (11 cases, A==B):
+          1. external_sort by [*group_cols, *on_cols] — contiguous groups.
+          2. Stream sorted; single deque per value col; clear on group change.
+          3. external_sort by __orig_rid.
+          4. Zip: replace shifted cols, keep originals.
+
+        Peak RAM = batch + O(k × #cols). Independent of N and G.
+        """
+        from collections import deque
+
+        if not group_cols:
+            raise ValueError("_per_group_shift: group_cols must be non-empty")
+        if not isinstance(k, int) or k < 1:
+            raise ValueError(f"_per_group_shift: k must be int >= 1; got {k!r}")
+        for gc in group_cols:
+            if gc not in self._columns:
+                raise KeyError(
+                    f"_per_group_shift: group column {gc!r} not in {self._columns}"
+                )
+        for oc in on_cols:
+            if oc not in self._columns:
+                raise KeyError(
+                    f"_per_group_shift: on column {oc!r} not in {self._columns}"
+                )
+
+        if columns is None:
+            cols = [c for c in self._columns if c not in group_cols]
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c in group_cols:
+                raise ValueError(
+                    f"_per_group_shift: group column {c!r} cannot be shifted"
+                )
+            if c not in self._columns:
+                raise KeyError(
+                    f"_per_group_shift: column {c!r} not in {self._columns}"
+                )
+        if not cols:
+            raise ValueError("_per_group_shift: no value columns to shift")
+        shift_cols = set(cols)
+
+        out_fields = []
+        for c in self._columns:
+            f = self._dataset.schema.field(c)
+            if c in shift_cols:
+                f = pa.field(c, f.type, nullable=True)
+            out_fields.append(f)
+        out_schema = pa.schema(out_fields)
+
+        if self.count() == 0:
+            empty_ds = Dataset.from_batches(
+                out_schema, iter([]), self._new_dataset_dir()
+            )
+            return CadwDataFrame(
+                empty_ds,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
+
+        sort_keys = list(group_cols) + list(on_cols)
+        sorted_path = external_sort(
+            self._iter_filtered_batches(),
+            key_columns=sort_keys,
+            value_columns=self._columns,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "per_group_shift" / "sort_by_keys",
+            ascending=True,
+            log=False,
+        )
+
+        applied_schema = pa.schema(
+            [pa.field("row_id", pa.uint64())]
+            + [
+                pa.field(c, self._dataset.schema.field(c).type, nullable=True)
+                for c in cols
+            ]
+        )
+        applied_path = self._spill_dir / "per_group_shift" / "applied.arrow"
+        applied_path.parent.mkdir(parents=True, exist_ok=True)
+
+        writer = ArrowIPCBatchWriter(str(applied_path), applied_schema)
+        bufs = {c: deque(maxlen=k) for c in cols}
+        _SENTINEL = object()
+        prev_group = _SENTINEL
+        try:
+            for b in ArrowIPCBatchReader(str(sorted_path), None):
+                self._memory_guard.check_batch(b, name="per_group_shift.sorted")
+                n = b.num_rows
+                if n == 0:
+                    continue
+                group_arrs = {gc: b.column(gc).to_pylist() for gc in group_cols}
+                col_vals = {c: b.column(c).to_pylist() for c in cols}
+                shifted_vals = {c: [None] * n for c in cols}
+                for i in range(n):
+                    gk = tuple(group_arrs[gc][i] for gc in group_cols)
+                    if gk != prev_group:
+                        for dq in bufs.values():
+                            dq.clear()
+                        prev_group = gk
+                    for c in cols:
+                        if len(bufs[c]) < k:
+                            shifted_vals[c][i] = fill_value
+                        else:
+                            shifted_vals[c][i] = bufs[c][0]
+                        bufs[c].append(col_vals[c][i])
+                arrays = [b.column("row_id")]
+                for c in cols:
+                    arrays.append(
+                        pa.array(
+                            shifted_vals[c],
+                            type=b.schema.field(c).type,
+                        )
+                    )
+                writer.write_batch(
+                    pa.RecordBatch.from_arrays(arrays, schema=applied_schema)
+                )
+        finally:
+            writer.close()
+
+        def _iter_applied():
+            for b in ArrowIPCBatchReader(str(applied_path), None):
+                names = b.schema.names
+                rid_idx = names.index("row_id")
+                new_names = (
+                    ["__orig_rid"]
+                    + [n for i, n in enumerate(names) if i != rid_idx]
+                )
+                yield b.rename_columns(new_names)
+
+        resorted_path = external_sort(
+            _iter_applied(),
+            key_columns=["__orig_rid"],
+            value_columns=cols,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "per_group_shift" / "sort_by_rowid",
+            ascending=True,
+            log=False,
+        )
+
+        batch_size = 10_000
+
+        def _iter_zipped():
+            orig_iter = self._iter_arrow_batches(batch_size=batch_size)
+            sorted_reader = ArrowIPCBatchReader(str(resorted_path), cols)
+            accum: list = []
+            accum_n = 0
+            gen = iter(sorted_reader)
+            for ob in orig_iter:
+                target_n = ob.num_rows
+                while accum_n < target_n:
+                    try:
+                        nb = next(gen)
+                    except StopIteration:
+                        raise RuntimeError(
+                            "per_group_shift: sorted stream exhausted before "
+                            "original"
+                        )
+                    accum.append(nb)
+                    accum_n += nb.num_rows
+                combined = pa.Table.from_batches(accum)
+                take = combined.slice(0, target_n)
+                rest = combined.slice(
+                    target_n, combined.num_rows - target_n,
+                )
+                accum = list(rest.to_batches()) if rest.num_rows else []
+                accum_n = combined.num_rows - target_n
+                take_batch = take.combine_chunks().to_batches()[0]
+                arrays = []
+                for c in self._columns:
+                    if c in shift_cols:
+                        arrays.append(take_batch.column(c))
+                    else:
+                        arrays.append(ob.column(c))
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_zipped(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def _per_group_diff(
+        self,
+        group_cols: list[str],
+        on_cols: list[str],
+        k: int,
+        columns: "str | Sequence[str] | None",
+    ) -> "CadwDataFrame":
+        """Per-group diff — delegate to shift then subtract."""
+        import pyarrow.compute as _pc
+
+        if not isinstance(k, int) or k < 1:
+            raise ValueError(f"_per_group_diff: k must be int >= 1; got {k!r}")
+
+        if columns is None:
+            cols = [c for c in self._columns if c not in group_cols]
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c in group_cols:
+                raise ValueError(
+                    f"_per_group_diff: group column {c!r} cannot be diffed"
+                )
+            if c not in self._columns:
+                raise KeyError(
+                    f"_per_group_diff: column {c!r} not in {self._columns}"
+                )
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            if not (pa.types.is_integer(t) or pa.types.is_floating(t)):
+                raise TypeError(
+                    f"_per_group_diff: column {c!r} has type {t}; "
+                    f"numeric required"
+                )
+        if not cols:
+            raise ValueError("_per_group_diff: no value columns")
+
+        diff_cols = set(cols)
+
+        shifted_df = self._per_group_shift(
+            group_cols, on_cols, k, None, cols,
+        )
+
+        out_fields = []
+        for c in self._columns:
+            f = self._dataset.schema.field(c)
+            if c in diff_cols:
+                f = pa.field(c, f.type, nullable=True)
+            out_fields.append(f)
+        out_schema = pa.schema(out_fields)
+
+        batch_size = 10_000
+
+        def _iter_diffed():
+            orig_iter = self._iter_arrow_batches(batch_size=batch_size)
+            shifted_iter = shifted_df._iter_arrow_batches(batch_size=batch_size)
+            for ob, sb in zip(orig_iter, shifted_iter):
+                if ob.num_rows != sb.num_rows:
+                    raise RuntimeError(
+                        f"_per_group_diff: batch size mismatch "
+                        f"(orig={ob.num_rows}, shifted={sb.num_rows})"
+                    )
+                arrays = []
+                for c in self._columns:
+                    if c in diff_cols:
+                        arrays.append(_pc.subtract(ob.column(c), sb.column(c)))
+                    else:
+                        arrays.append(ob.column(c))
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_diffed(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def _per_group_rolling(
+        self,
+        group_cols: list[str],
+        on_cols: list[str],
+        window: int,
+        agg: str,
+        min_periods: "int | None",
+        columns: "str | Sequence[str] | None",
+    ) -> "CadwDataFrame":
+        """Composite-sort per-group rolling — APPEND semantics."""
+        if not group_cols:
+            raise ValueError("_per_group_rolling: group_cols must be non-empty")
+        if not isinstance(window, int) or window < 1:
+            raise ValueError(
+                f"_per_group_rolling: window must be int >= 1; got {window!r}"
+            )
+        if agg not in {"sum", "mean", "min", "max", "count"}:
+            raise ValueError(
+                f"_per_group_rolling: agg must be one of sum/mean/min/max/"
+                f"count; got {agg!r}"
+            )
+        if min_periods is None:
+            mp = window
+        elif not isinstance(min_periods, int):
+            raise TypeError(
+                f"_per_group_rolling: min_periods must be int; "
+                f"got {type(min_periods).__name__}"
+            )
+        elif not (1 <= min_periods <= window):
+            raise ValueError(
+                f"_per_group_rolling: min_periods must be in [1, window="
+                f"{window}]; got {min_periods}"
+            )
+        else:
+            mp = min_periods
+
+        for gc in group_cols:
+            if gc not in self._columns:
+                raise KeyError(
+                    f"_per_group_rolling: group column {gc!r} not in "
+                    f"{self._columns}"
+                )
+        for oc in on_cols:
+            if oc not in self._columns:
+                raise KeyError(
+                    f"_per_group_rolling: on column {oc!r} not in "
+                    f"{self._columns}"
+                )
+
+        if columns is None:
+            cols = [c for c in self._columns if c not in group_cols]
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c in group_cols:
+                raise ValueError(
+                    f"_per_group_rolling: group column {c!r} cannot be rolled"
+                )
+            if c not in self._columns:
+                raise KeyError(
+                    f"_per_group_rolling: column {c!r} not in {self._columns}"
+                )
+        if not cols:
+            raise ValueError("_per_group_rolling: no value columns")
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            if agg != "count" and not (
+                pa.types.is_integer(t) or pa.types.is_floating(t)
+            ):
+                raise TypeError(
+                    f"_per_group_rolling: column {c!r} has type {t}; "
+                    f"agg={agg!r} requires numeric"
+                )
+
+        out_fields = [self._dataset.schema.field(c) for c in self._columns]
+        out_type_by_col: dict[str, tuple[str, pa.DataType]] = {}
+        for c in cols:
+            in_type = self._dataset.schema.field(c).type
+            if agg in ("sum", "mean"):
+                ot = pa.float64()
+            elif agg == "count":
+                ot = pa.int64()
+            else:
+                ot = in_type
+            out_name = f"{c}_rolling_{agg}"
+            out_type_by_col[c] = (out_name, ot)
+            out_fields.append(pa.field(out_name, ot, nullable=True))
+        out_schema = pa.schema(out_fields)
+        rolling_out_cols = [out_type_by_col[c][0] for c in cols]
+
+        if self.count() == 0:
+            empty_ds = Dataset.from_batches(
+                out_schema, iter([]), self._new_dataset_dir()
+            )
+            return CadwDataFrame(
+                empty_ds,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
+
+        sort_keys = list(group_cols) + list(on_cols)
+        sorted_path = external_sort(
+            self._iter_filtered_batches(),
+            key_columns=sort_keys,
+            value_columns=self._columns,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "per_group_rolling" / "sort_by_keys",
+            ascending=True,
+            log=False,
+        )
+
+        applied_schema = pa.schema(
+            [pa.field("row_id", pa.uint64())]
+            + [
+                pa.field(
+                    out_type_by_col[c][0],
+                    out_type_by_col[c][1],
+                    nullable=True,
+                )
+                for c in cols
+            ]
+        )
+        applied_path = self._spill_dir / "per_group_rolling" / "applied.arrow"
+        applied_path.parent.mkdir(parents=True, exist_ok=True)
+
+        writer = ArrowIPCBatchWriter(str(applied_path), applied_schema)
+        states = {c: _RollState(window, mp, agg) for c in cols}
+        _SENTINEL = object()
+        prev_group = _SENTINEL
+        try:
+            for b in ArrowIPCBatchReader(str(sorted_path), None):
+                self._memory_guard.check_batch(
+                    b, name="per_group_rolling.sorted"
+                )
+                n = b.num_rows
+                if n == 0:
+                    continue
+                group_arrs = {gc: b.column(gc).to_pylist() for gc in group_cols}
+                col_vals = {c: b.column(c).to_pylist() for c in cols}
+                rolled_vals = {c: [None] * n for c in cols}
+                for i in range(n):
+                    gk = tuple(group_arrs[gc][i] for gc in group_cols)
+                    if gk != prev_group:
+                        for st in states.values():
+                            st.reset()
+                        prev_group = gk
+                    for c in cols:
+                        rolled_vals[c][i] = states[c].push(col_vals[c][i])
+                arrays = [b.column("row_id")]
+                for c in cols:
+                    out_name, ot = out_type_by_col[c]
+                    arrays.append(pa.array(rolled_vals[c], type=ot))
+                writer.write_batch(
+                    pa.RecordBatch.from_arrays(arrays, schema=applied_schema)
+                )
+        finally:
+            writer.close()
+
+        def _iter_rolled():
+            for b in ArrowIPCBatchReader(str(applied_path), None):
+                names = b.schema.names
+                rid_idx = names.index("row_id")
+                new_names = (
+                    ["__orig_rid"]
+                    + [n for i, n in enumerate(names) if i != rid_idx]
+                )
+                yield b.rename_columns(new_names)
+
+        resorted_path = external_sort(
+            _iter_rolled(),
+            key_columns=["__orig_rid"],
+            value_columns=rolling_out_cols,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "per_group_rolling" / "sort_by_rowid",
+            ascending=True,
+            log=False,
+        )
+
+        batch_size = 10_000
+
+        def _iter_zipped():
+            orig_iter = self._iter_arrow_batches(batch_size=batch_size)
+            sorted_reader = ArrowIPCBatchReader(
+                str(resorted_path), rolling_out_cols,
+            )
+            accum: list = []
+            accum_n = 0
+            gen = iter(sorted_reader)
+            for ob in orig_iter:
+                target_n = ob.num_rows
+                while accum_n < target_n:
+                    try:
+                        nb = next(gen)
+                    except StopIteration:
+                        raise RuntimeError(
+                            "per_group_rolling: sorted stream exhausted "
+                            "before original"
+                        )
+                    accum.append(nb)
+                    accum_n += nb.num_rows
+                combined = pa.Table.from_batches(accum)
+                take = combined.slice(0, target_n)
+                rest = combined.slice(
+                    target_n, combined.num_rows - target_n,
+                )
+                accum = list(rest.to_batches()) if rest.num_rows else []
+                accum_n = combined.num_rows - target_n
+                take_batch = take.combine_chunks().to_batches()[0]
+                arrays = [ob.column(c) for c in self._columns]
+                for out_name in rolling_out_cols:
+                    arrays.append(take_batch.column(out_name))
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_zipped(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
     # ---------------- resample ----------------
 
     def resample(
@@ -2768,6 +3274,41 @@ class CadwDataFrame:
                 if num_partitions is None:
                     num_partitions = params.num_partitions
                 max_output_rows = params.max_output_rows
+
+                # v0.8.10-pre (P-A3 addendum): whole-operation RSS WARNING.
+                # Per-batch check in _process_partition_pair enforces
+                # per-batch memory, but does NOT see Arrow pool init +
+                # hash-table build (~40 MB floor, measured across 3 runs
+                # @ N=1M: 114.7 / 142.8 / 156.8 MB). Warn if worst-case
+                # whole-operation RSS may exceed state_limit. Do not raise
+                # (would break existing tests with 20 MB budget — bumping
+                # budgets to 100 MB is v0.8.11 work).
+                try:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    from cadw.ops.join import _JOIN_FIXED_OVERHEAD_BYTES
+                    predicted_output = (
+                        left_chars.n_rows
+                        * params.avg_matches
+                        * params.output_row_size
+                    )
+                    total_rss_estimate = (
+                        _JOIN_FIXED_OVERHEAD_BYTES + 5 * predicted_output
+                    )
+                    self._memory_guard.check_state(
+                        total_rss_estimate,
+                        name="join.whole_operation_rss",
+                    )
+                except MemoryLimitExceeded:
+                    logger.warning(
+                        "merge: predicted whole-operation RSS delta "
+                        "~%.0f MiB (output %.1f MiB + %.0f MiB Arrow pool) "
+                        "exceeds state_limit. Per-batch guards will still "
+                        "enforce; actual peak may exceed budget. Bump "
+                        "MemoryGuard budget if possible. See §9.2.6.",
+                        total_rss_estimate / (1024 * 1024),
+                        predicted_output / (1024 * 1024),
+                        _JOIN_FIXED_OVERHEAD_BYTES / (1024 * 1024),
+                    )
             else:
                 # Одна из сторон пуста — planner не нужен; hash_join
                 # короткозамкнёт. num_partitions не важен.
@@ -2920,6 +3461,18 @@ class _RollState:
             return self._dq[0][1] if self._dq else None
         raise RuntimeError(f"_RollState: unknown agg {self._agg!r}")
 
+    def reset(self) -> None:
+        """Reset state for per-group rolling (v0.8.10).
+
+        Called on group change. Clears deque/history/accumulators; next
+        push starts fresh (min_periods applies from group start).
+        """
+        self._buf.clear()
+        self._idx = 0
+        self._sum = 0.0
+        self._count = 0
+        self._dq.clear()
+
 
 class _ExpandingState:
     """Cumulative (growing) window aggregation state (v0.8.0).
@@ -3036,6 +3589,75 @@ class _GroupBy:
         funcs = [agg_funcs] if isinstance(agg_funcs, str) else list(agg_funcs)
         return self._parent._groupby_impl(
             self._by, agg_cols, funcs, combiner=combiner
+        )
+
+    def _normalize_on(self, on) -> list:
+        if on is None:
+            return []
+        if isinstance(on, str):
+            return [on]
+        return list(on)
+
+    def shift(
+        self,
+        k: int = 1,
+        fill_value=None,
+        *,
+        columns: "str | Sequence[str] | None" = None,
+        on: "str | Sequence[str] | None" = None,
+    ) -> CadwDataFrame:
+        """Per-group shift (v0.8.10).
+
+        Shift by `k` within each group, optionally order-aware (`on=col`).
+        `on=None` → within-group order = original row_id order.
+
+        - k: >= 1. First k rows of EACH GROUP → `fill_value`.
+        - columns: value columns to shift (default: all except group keys).
+        - on: sort key within group (timestamp/integer), or None.
+
+        Group columns are NOT shifted by default (they're the key).
+        See `_per_group_shift` docstring for full semantics.
+        """
+        on_cols = self._normalize_on(on)
+        return self._parent._per_group_shift(
+            self._by, on_cols, k, fill_value, columns
+        )
+
+    def diff(
+        self,
+        k: int = 1,
+        *,
+        columns: "str | Sequence[str] | None" = None,
+        on: "str | Sequence[str] | None" = None,
+    ) -> CadwDataFrame:
+        """Per-group first difference (v0.8.10).
+
+        `out[i] = x[i] - x[i-k]` within each group. First k rows of each
+        group → null (per-group, not global).
+        """
+        on_cols = self._normalize_on(on)
+        return self._parent._per_group_diff(
+            self._by, on_cols, k, columns
+        )
+
+    def rolling(
+        self,
+        window: int,
+        agg: str,
+        *,
+        min_periods: "int | None" = None,
+        columns: "str | Sequence[str] | None" = None,
+        on: "str | Sequence[str] | None" = None,
+    ) -> CadwDataFrame:
+        """Per-group rolling (v0.8.10). APPENDS `{col}_rolling_{agg}`.
+
+        Rolling computed within each group independently (min_periods
+        applies from group start). Output preserves original row order;
+        rolling columns are appended.
+        """
+        on_cols = self._normalize_on(on)
+        return self._parent._per_group_rolling(
+            self._by, on_cols, window, agg, min_periods, columns
         )
 
 

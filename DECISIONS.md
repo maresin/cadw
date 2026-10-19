@@ -611,6 +611,23 @@ relatively smaller).
 **Verdict**: SAFE with guard. Currently guarded — this formula is the
 canonical reference for future code.
 
+**v0.8.10-pre (variance analysis).** Измерено в 3 раздельных прогонах
+`pk join @ N=1M` (int64 key + int64 payload, 24 MB output):
+- 114.7 MB (audit first run)
+- 142.8 MB (rerun, same binary)
+- 156.8 MB (P-A3 live-violation bench, same binary)
+
+Разброс 42 MB на идентичном коде. Источник: Arrow memory pool retention
+policy + jemalloc page release timing. Формула `5 × output + 40 MB`
+target'ит upper end; при бюджетировании на медиану (`5 × output + 25 MB`)
+— на свой риск.
+
+**Enforcement note (§11.5 addendum).** v0.8.9 per-batch pre-check —
+**per-batch enforcement only**. Whole-operation warning добавлен в
+v0.8.10-pre (log WARNING при `40 MB + 5 × predicted_output > state_limit`);
+strict enforcement (raise) отложен в v0.8.11 с ревизией тестовых
+бюджетов (20 → 100 MB в ~10 файлах).
+
 ### 9.2.7. `Table.sort_by`
 
 peak_delta @ 100k/1M/3M = 8 / 28 / 74 MB (input 1.6/16/48 MB).
@@ -1098,11 +1115,11 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `resample` uint64 on → reject (v0.8.7) | `resample` | overflow risk; cast to int64 |
 | `resample` date64 through parquet → date32 (v0.8.7) | `resample` | Parquet has no ms-date type; date64 read back as date32. Same day-granularity semantics; use `freq >= '1D'`. §13.4/135 |
 | `resample` freq — int seconds / '5s'|'1min'|'1h'|'1D' only (v0.8.7) | `parse_freq` | compound/sub-second/calendar — нет |
-| `on` multi-column — composite sort, not per-group (v0.8.6) | `_shift_on` / `_rolling_on` | `on=["ts","sensor"]` = lexicographic; per-group — `groupby(...)` (v0.8.5a+) |
+| ~~`on` multi-column — composite sort, not per-group~~ | ~~`_shift_on` / `_rolling_on`~~ | **закрыто v0.8.10**: `groupby(...).shift/rolling(on=[...])` |
 | `rolling` on=col — single column (v0.8.4) | `_rolling_on` | Multi-column on — v0.8.4a |
-| `groupby(...).rolling(...)` — не поддержано | `CadwDataFrame` | Per-group rolling — v0.8.5+ |
+| ~~`groupby(...).rolling(...)` — не поддержано~~ | ~~`CadwDataFrame`~~ | **закрыто v0.8.10**: composite-sort, single deque reset-on-group-change |
 | `shift`/`diff` on=col — single column (v0.8.2) | `_shift_on` | Multi-column on — v0.8.2a |
-| `groupby(...).shift(1, on='ts')` — не поддержано | `CadwDataFrame` | Per-group shift — v0.8.3+ |
+| ~~`groupby(...).shift(1, on='ts')` — не поддержано~~ | ~~`CadwDataFrame`~~ | **закрыто v0.8.10** |
 | `resample(freq)` — не поддержано | `CadwDataFrame` | timestamp parsing + bucket — v0.8.2 |
 | `ewm(ignore_na=False)` — не поддержано (только ignore_na=True semantics) | `ewm` (v0.8.0) | pandas default `ignore_na=False`; наша семантика: nulls skip state, output null для null row |
 | `_detect_heavy_keys` absolute min = 100 (v0.3.4) | skew detection | Без абсолютного минимума tiny data (5 строк) ложно флагалась как skew. §13.4/52b. |
@@ -2951,6 +2968,54 @@ derived») и §13.4/138 (audit formulas assumed, not measured). Здесь
 обязателен**, показывающий edge case: `safe=True` vs `safe=False`,
 null propagation, boundary values (≥ `INT64_MAX`, empty, all-null).
 Это защищает от ровно того класса, что случился трижды подряд.
+
+**§13.4/140 (pre-release versioning vs guard).** Продолжение кластера
+139. `patch_v0810_pre_join_offset.py` вставил `## [0.8.10-pre] —
+2026-10-20` в CHANGELOG. Уронил `test_changelog_is_descending::_key`
+(regex `^(\d+)\.(\d+)\.(\d+)([a-z]?)$` не матчит `-pre`) и
+`test_changelog_has_latest_tag` (top `[0.8.10-pre]` != tag `v0.8.9`,
+потому что fast упал до `git commit` — HEAD остался на теге).
+
+**Fix (v0.8.10-pre-fix):** `[Unreleased]` (Keep a Changelog convention).
+`^## \[(\d[^\]]*)\]` требует цифру → `[Unreleased]` невидим для
+обоих guard'ов. At tag-time: `[Unreleased]` → `[0.8.10]` в одном
+коммите, оба guard'а снова активны.
+
+**Правило:** pre-release/rolling entries — **только под `[Unreleased]`**,
+никогда `[X.Y.Z-pre]` / `[X.Y.Z-rcN]`. Patch-скрипт, трогающий
+CHANGELOG, в собственном `main()` **обязан** прогнать `test_changelog_*`
+до `git commit`. Класс ошибки — тот же, что §13.4/139
+(«assumed semantics, not verified»); здесь — «assumed guard
+compatibility».
+
+**Эпизод 141 (per-group shift/diff/rolling — prototype-first).**
+v0.8.10 добавляет `df.groupby('g').shift/diff/rolling(on='ts')`.
+Алгоритм: composite sort `[*group_cols, *on_cols]`, single deque per
+column, reset on group change, sort back by `__orig_rid`. 2 sort passes,
+0 shuffle. Peak RAM = batch + O(window × #cols), independent of N и G.
+
+**Prototype-first (§13.4/123):** `scripts/proto_per_group.py` — 11
+кейсов, A (pandas) vs B (composite-sort deque). Все PASS **до** того,
+как был написан патч-код. Сравнение с историей: v0.8.2 (shift on=col)
+— 5 итераций без prototype; v0.8.4 (rolling on=col) — 1 итерация с
+prototype; v0.8.10 (per-group) — 0 fix-итераций.
+
+**Semantics:** null in group → own group (SQL, not pandas dropna=True).
+Group columns NOT shifted by default (unlike pandas). Documented в
+`_per_group_shift` docstring + §11.5.
+
+**Reference:** `tests/_helpers/per_group_reference.py` — pandas ground
+truth, same pattern as `rolling_reference.py` (§13.4/129). Test
+expectations **derived**, not authored — §13.4/128, /129, /139.
+
+**Closes §11.5 entries:** `groupby().shift(on=)` (was "not supported"),
+`groupby().rolling(on=)` (was "v0.8.5+"), multi-column `on` per-group
+(was "composite sort only, not per-group").
+
+**Backlog:** per-group vectorization (§11.6) — current per-row Python
+loop (for group-change detection), O(N) but constant factor higher than
+vectorized. Optimize via segment detection (pc.not_equal between adjacent
+group values) — future release.
 
 ### 13.5. Открытые вопросы
 

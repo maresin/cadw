@@ -1,3 +1,67 @@
+## [0.8.10] — 2026-10-20
+
+### Добавлено (safety follow-up, P-A3 addendum)
+
+- **Whole-operation RSS warning on `merge()`.** `CadwDataFrame.merge`
+  вычисляет `predicted_output = n_left × avg_matches × row_bytes_out`
+  из planner'а и логирует WARNING, если
+  `40 MB + 5 × predicted_output > state_limit`.
+  `MemoryLimitExceeded` не бросается — enforcement остаётся per-batch в
+  `_process_partition_pair`, warning — диагностический сигнал.
+
+  **Почему warning, а не raise:** per-batch проверка выполняется 8–16
+  раз (по числу пар partition'ов), поэтому добавление 40 MB offset
+  per-batch over-predicts в 8–16×. Добавление offset на уровне
+  `merge()` требует поднятия `mem_mb=20` → `100` в ~10 тестовых файлах
+  (~30 тестов падают без этого). Это отдельная работа v0.8.11, не
+  «5 минут». Warning даёт сигнал сегодня без test churn.
+
+- **`cadw/ops/join.py::_JOIN_FIXED_OVERHEAD_BYTES = 40 * 1024 * 1024`**
+  — module const, измеренный floor для `Table.join` RSS beyond logical
+  output. Across 3 runs of pk join @ N=1M: 114.7 / 142.8 / 156.8 MB
+  RSS delta для 24 MB output. Offset покрывает Arrow pool init (~16 MB)
+  + hash-table build + non-Arrow temporaries (~24 MB). Invariant of
+  output size — added once, not per-batch.
+
+### Ограничения (v0.8.10-pre, §11.5 addendum)
+
+- Join guarantee остаётся **best-effort на RSS**, не strict. Для
+  бюджетирования: `estimated_rss = 40 MB + 5 × predicted_output`; если
+  превышает `state_limit = budget × 0.5`, actual peak может превысить
+  budget независимо от per-batch guards. Strict enforcement — v0.8.11
+  с ревизией тестовых бюджетов.
+- Run-to-run variance 30–40% для одинаковой нагрузки (pool retention,
+  jemalloc page release timing). Формулы target'ят worst-case.
+
+### Добавлено (per-group feature)
+
+- **`df.groupby('sensor').shift(k, on='ts', columns=[...])`** — per-group
+  shift. `on=None` → within-group order = row_id. Group cols excluded
+  from default `columns` set.
+- **`df.groupby('sensor').diff(k, on='ts', columns=[...])`** — per-group
+  first difference.
+- **`df.groupby('sensor').rolling(window, agg, on='ts', columns=[...])`** —
+  per-group rolling. APPENDS `{col}_rolling_{agg}`; min_periods applies
+  from group start.
+
+  **Algorithm (prototype-validated, 11 cases A==B):**
+  composite sort `[*group_cols, *on_cols]` → single deque per col,
+  reset on group change → sort back by `__orig_rid`. **2 sort passes,
+  0 shuffle.** Peak RAM = batch + O(window × #cols), independent of N
+  and G (group count).
+
+  **Semantics:** null in group col → own group (SQL, not pandas
+  `dropna=True`). Group columns are NOT shifted by default (they're
+  the key). This differs from pandas `groupby().shift(1)` which shifts
+  everything including group key.
+
+  **Reference:** `tests/_helpers/per_group_reference.py` — pandas
+  ground truth (§13.4/128, /129, /139).
+
+### Тесты
+
+- fast: **~1130 passed** (+3 behavior warnings: tight/loose budget). slow: **8**.
+
 ## [0.8.9] — 2026-10-20
 
 По результатам Pingis library-memory audit (TASK2, run 2026-10-20):
