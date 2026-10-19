@@ -89,6 +89,40 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.3.1] — 2026-10-19
+
+### Добавлено
+- `CadwDataFrame.rank(by, method='first'|'min'|'dense', ascending=True,
+  pct=False, output_col=None, batch_size=10_000)`:
+  - external_sort по `by` → потоковое вычисление rank → external_sort
+    rank-пар по `row_id` → zip с исходным в original order.
+  - `first`: 1-based позиция в sorted order (ties по row_id asc).
+  - `min`:   минимум ранга в tie-группе.
+  - `dense`: 1, 2, 3, ... для уникальных значений.
+  - `pct=True`: rank / total_n.
+- `cadw.ops.rank.compute_ranks_to_disk` — primitive: sorted stream → file
+  (row_id, rank).
+- Экспорт: `cadw.compute_ranks_to_disk`, `cadw.VALID_METHODS`.
+
+### Принцип
+- Streamable методы — O(1) state. Bufferable (`max`/`average`/`last`) —
+  O(max tie group size) = O(N) для pathological данных → **не в MVP**,
+  требуют двухпроходного streaming.
+- Результат в original order (две сортировки: по `by` + по `row_id`).
+
+### Ограничения (v0.3.1, §11.5)
+- **method**: `first`/`min`/`dense` только. `max`/`average`/`last` — v0.3.2.
+- **null values**: участвуют как значения (null == null); pandas
+  `rank(skipna=True)` не поддерживается.
+- **cost**: 2× external_sort + 1× count-scan. Для 10^9 строк — ~3 полных
+  прохода I/O.
+
+### Тесты
+- 19 тестов в `test_rank.py`: все три метода на asc/desc, pct, edge
+  cases (all-unique / all-same / ties), after filter, custom output_col,
+  errors (invalid method / missing column / collision), 4 × pandas-
+  equivalence, chained с groupby.
+
 ## [0.3.0] — 2026-10-19
 
 ### Добавлено (первая операция v0.3)

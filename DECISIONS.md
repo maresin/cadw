@@ -841,7 +841,8 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `propagate_chars("join")` (v0.2.3: planner chain с join) | ✅ | 9 |
 | `CadwDataFrame.merge` + `JoinMemoryModel` (v0.2.4) | ✅ | 8 |
 | E2E join (v0.2.5: 100k×10k, skew, left) | ✅ | 3 slow |
-| `drop_duplicates` (v0.3.0: HashShuffle + local pandas) | ✅ | 15 |
+| `drop_duplicates` (v0.3.0: HashShuffle + local pandas) | ✅ | 19 |
+| `rank` (v0.3.1: Sort + local stream; first/min/dense) | ✅ | 19 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -911,6 +912,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `df[-5:]` (отрицательный slice) — не поддержано | `SliceFilter` | `step > 0`, `start >= 0`; для отрицательных — `count()` + пересчёт |
 | `drop_duplicates` returns rows in partition-concatenation order | `drop_duplicates` (v0.3.0) | pandas-order: `.sort_values(...)` после. §13.4/48 |
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
+| `rank` без max/average/last | `rank` (v0.3.1) | требуют буферизации tie-группы (O(N) при all-equal); v0.3.2 — двухпроходный streaming или bounded-buffer. §13.4/49 |
+| `rank` nulls участвуют как значения (pandas skipna не поддерживается) | `rank` (v0.3.1) | v0.3.2: skip nulls (аналог pandas `rank(na_option='keep')`) |
 
 **Политика ML (после патча 09).** CADW **не является ML-фреймворком**.
 Он предоставляет примитивы (Reduce, HashShuffle, Sort) и фасад
@@ -1316,6 +1319,37 @@ streaming dedup (dict `key → (min_row_id, payload)` в RAM). Для MVP — ra
 корректности деталей: (a) порядок row_id при keep='first'/'last';
 (b) reassignment row_id при recursion; (c) манифест output-order в
 документации.
+
+**Эпизод 49 (rank: streamable vs bufferable).** `rank` требует
+глобального порядка (sort) и tie-breaking. Разделены методы по
+streamability:
+- `first`/`min`/`dense` — O(1) state, стримятся в один проход;
+- `max`/`average`/`last` — требуют знать конец tie-группы → буферизация
+  группы, O(N) при all-equal (патология: 10^9 одинаковых значений →
+  10^9 рангов в RAM). Пандас не парится (in-memory), но для out-of-core
+  это OOM.
+
+MVP v0.3.1 = streamable trio. v0.3.2: `max`/`average`/`last` через
+двухпроходный streaming (первый проход: group_end_rank per group → на
+диск; второй: join с sorted stream) или bounded-buffer с spill при
+группе > budget.
+
+**Порядок результата:** rank — свойство исходной строки, поэтому
+возвращаем в original order. Реализуется двумя сортировками:
+1. sort by `by` (нужно для streamable rank);
+2. sort ranks by `row_id` (нужно для original order).
+Второй sort — маленький (row_id + rank = 16 B/строка), дешевле первого.
+Zip с original — позиционный, batch-by-batch с одним `batch_size`.
+
+**Null values:** участвуют как значения (`null == null` → same group).
+Pandas `rank(skipna=True)` → NaN ranks для null строк. Наш MVP этого не
+делает — документировано в §11.5. v0.3.2: null-детект per row + emit NaN.
+
+**Урок:** «работает для типичных случаев» — не то же, что «звуковая
+верхняя граница». Streamable методы — гарантированно O(1) state.
+Bufferable методы — O(max tie group size), где max — параметр данных,
+не бюджета; для pathological данных = O(N). Разделение по методам
+делает ограничение явным.
 
 ### 13.5. Открытые вопросы
 

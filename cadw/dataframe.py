@@ -38,6 +38,7 @@ from cadw.ops.groupby import groupby_aggregate
 from cadw.ops.join import hash_join
 from cadw.ops.sort import external_sort
 from cadw.ops.dedup import drop_duplicates as _ops_drop_duplicates
+from cadw.ops.rank import compute_ranks_to_disk, VALID_METHODS
 
 
 class _ColumnProxy:
@@ -409,6 +410,167 @@ class CadwDataFrame:
             log=False,
         )
         return self._wrap_result_table(result)
+
+    # ---------------- rank ----------------
+
+    def rank(
+        self,
+        by: str,
+        method: str = "first",
+        ascending: bool = True,
+        pct: bool = False,
+        *,
+        output_col: str | None = None,
+        batch_size: int = 10_000,
+    ) -> "CadwDataFrame":
+        """Ранг по колонке `by` (v0.3.1).
+
+        - method ∈ {'first', 'min', 'dense'}:
+            - 'first': 1-based позиция в sorted order (ties по row_id asc).
+            - 'min':   минимум из рангов в tie-группе.
+            - 'dense': 1, 2, 3, ... для уникальных значений.
+        - ascending: True — меньшие значения получают меньший ранг.
+        - pct: делить rank на total_n.
+        - output_col: имя новой колонки (default `{by}_rank`).
+
+        Возвращает новый CadwDataFrame со всеми исходными колонками +
+        rank в **исходном порядке** строк.
+
+        Null values участвуют как значения (null == null). pandas skipna
+        не поддерживается в v0.3.1.
+
+        Методы 'max'/'average'/'last' — v0.3.2 (требуют буферизации
+        tie-группы, O(N) при all-equal).
+        """
+        if method not in VALID_METHODS:
+            raise NotImplementedError(
+                f"rank: method={method!r} not supported in v0.3.1. "
+                f"Supported: {VALID_METHODS}. "
+                f"'max'/'average'/'last' — v0.3.2."
+            )
+        if by not in self._columns:
+            raise KeyError(f"rank: by={by!r} not in columns {self._columns}")
+        if output_col is None:
+            output_col = f"{by}_rank"
+        if output_col in self._columns:
+            raise KeyError(
+                f"rank: output_col={output_col!r} already in columns"
+            )
+
+        # Count filtered rows (needed for pct, and sanity).
+        total_n = self.count()
+        if total_n == 0:
+            # Empty: append an empty rank column of proper dtype.
+            rank_dtype = pa.float64() if pct else pa.int64()
+            out_fields = [
+                self._dataset.schema.field(c) for c in self._columns
+            ]
+            out_fields.append(pa.field(output_col, rank_dtype))
+            out_schema = pa.schema(out_fields)
+
+            def _iter_empty():
+                for b in self._iter_arrow_batches(batch_size=batch_size):
+                    n = b.num_rows
+                    if pct:
+                        col = pa.array([], type=pa.float64())
+                    else:
+                        col = pa.array([], type=pa.int64())
+                    yield b.append_column(output_col, col)
+
+            new_ds = Dataset.from_batches(
+                out_schema, _iter_empty(), self._new_dataset_dir()
+            )
+            return CadwDataFrame(
+                new_ds,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
+
+        spill = self._spill_dir / "rank" / f"r_{uuid.uuid4().hex[:8]}"
+        spill.mkdir(parents=True, exist_ok=True)
+
+        # Step 1: sort by `by`.
+        sorted_by_val = external_sort(
+            self._iter_filtered_batches(),
+            key_columns=[by],
+            value_columns=[by],
+            memory_guard=self._memory_guard,
+            spill_dir=spill / "sort_by_val",
+            ascending=ascending,
+            log=False,
+        )
+
+        # Step 2: rank per row → (row_id, rank) on disk.
+        from cadw.io.batch_reader import ArrowIPCBatchReader as _IPCReader
+        rank_pairs_path = compute_ranks_to_disk(
+            _IPCReader(str(sorted_by_val), [by, "row_id"]),
+            by=by,
+            output_col=output_col,
+            method=method,
+            pct=pct,
+            total_n=total_n,
+            rank_path=spill / "ranks.arrow",
+            memory_guard=self._memory_guard,
+            log=False,
+        )
+
+        # Step 3: sort rank pairs by original row_id.
+        def _iter_rank_pairs():
+            for b in _IPCReader(str(rank_pairs_path), None):
+                # columns: row_id, output_col → rename row_id to __orig_rid
+                yield b.rename_columns(["__orig_rid", output_col])
+
+        sorted_by_rowid = external_sort(
+            _iter_rank_pairs(),
+            key_columns=["__orig_rid"],
+            value_columns=[output_col],
+            memory_guard=self._memory_guard,
+            spill_dir=spill / "sort_by_rowid",
+            ascending=True,
+            log=False,
+        )
+
+        # Step 4: build rank Dataset (in original order via __orig_rid).
+        rank_dtype = pa.float64() if pct else pa.int64()
+        rank_schema = pa.schema([
+            ("__orig_rid", pa.uint64()),
+            (output_col, rank_dtype),
+        ])
+
+        def _iter_rank_after_sort():
+            for b in _IPCReader(str(sorted_by_rowid), ["__orig_rid", output_col]):
+                yield b
+
+        rank_ds = Dataset.from_batches(
+            rank_schema, _iter_rank_after_sort(), spill / "rank_ds"
+        )
+
+        # Step 5: zip with original (both in original order; same batch_size).
+        out_fields = [self._dataset.schema.field(c) for c in self._columns]
+        out_fields.append(pa.field(output_col, rank_dtype))
+        out_schema = pa.schema(out_fields)
+
+        def _iter_zipped():
+            orig_iter = self._iter_arrow_batches(batch_size=batch_size)
+            rank_iter = rank_ds.iter_batches(
+                batch_size=batch_size, columns=[output_col]
+            )
+            for ob, rb in zip(orig_iter, rank_iter):
+                if ob.num_rows != rb.num_rows:
+                    raise RuntimeError(
+                        f"rank: batch-size mismatch: orig={ob.num_rows} "
+                        f"rank={rb.num_rows}"
+                    )
+                yield ob.append_column(output_col, rb.column(output_col))
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_zipped(), self._new_dataset_dir()
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
 
     # ---------------- merge ----------------
 
