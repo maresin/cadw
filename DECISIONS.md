@@ -841,6 +841,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | `propagate_chars("join")` (v0.2.3: planner chain с join) | ✅ | 9 |
 | `CadwDataFrame.merge` + `JoinMemoryModel` (v0.2.4) | ✅ | 8 |
 | E2E join (v0.2.5: 100k×10k, skew, left) | ✅ | 3 slow |
+| `drop_duplicates` (v0.3.0: HashShuffle + local pandas) | ✅ | 15 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -908,6 +909,8 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `shape` на отфильтрованном `CadwDataFrame` — upper bound | `CadwDataFrame` | точное — `.count()` (сканирует) |
 | `df['a'] in [...]` через `==` возвращает `PredicateFilter`, не bool | `_ColumnProxy` | `df['a'].isin([...])` — кандидат v0.2; как в pandas |
 | `df[-5:]` (отрицательный slice) — не поддержано | `SliceFilter` | `step > 0`, `start >= 0`; для отрицательных — `count()` + пересчёт |
+| `drop_duplicates` returns rows in partition-concatenation order | `drop_duplicates` (v0.3.0) | pandas-order: `.sort_values(...)` после. §13.4/48 |
+| `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 
 **Политика ML (после патча 09).** CADW **не является ML-фреймворком**.
 Он предоставляет примитивы (Reduce, HashShuffle, Sort) и фасад
@@ -1280,6 +1283,39 @@ cartesian over-reject'ит, exact match — нет.
 raise **после** write). **Урок:** патч-скрипт с `try/finally` вокруг
 всех замен + `write_text` в `finally`. Или простая дисциплина:
 сохраняем, потом проверяем. Потеря прогресса хуже, чем неполный warning.
+
+**Эпизод 48 (drop_duplicates через HashShuffle).** Первая операция v0.3 —
+`drop_duplicates` — реализована как композиция `HashShuffle` + локальный
+`pandas.drop_duplicates`. Ключевое наблюдение: **invariant HashShuffle**
+(«все строки с одинаковым subset key — в одной партиции») делает
+локальный dedup эквивалентным глобальному. Не нужен merge, не нужен
+финальный `drop_duplicates` — concat даёт корректный результат.
+
+Три режима `keep` реализуются через сортировку partition по `row_id`
+(сохраняется в shuffle) и стандартный `df.drop_duplicates`:
+- `'first'`: sort row_id asc + keep='first' = min row_id per key;
+- `'last'`: sort row_id asc + keep='last' = max row_id per key;
+- `False`: pandas drops all rows with duplicate keys — локально = глобально.
+
+**Ordering (документированное ограничение):** результат в порядке
+partition-concatenation, **не** в pandas-original order. Для keep='first'
+SURVIVING rows правильные (min row_id), но их позиции в выводе — по
+партициям. §11.5. Fix в v0.3.1: финальный `external_sort` по row_id, если
+нужен pandas-order.
+
+**Skew (документированное ограничение):** при oversized partition (одна
+partition > available*0.5) — `MemoryLimitExceeded` **до** materialize.
+Recursion требует сохранения ГЛОБАЛЬНОГО row_id при resplit —
+`hash_shuffle` сейчас **переприсваивает** row_id (позиция в новом
+потоке). Для dedup это ломает keep='first'/'last'. v0.3.1: либо сохранять
+row_id в resplit (через `value_columns=["row_id"]` + rename), либо
+streaming dedup (dict `key → (min_row_id, payload)` в RAM). Для MVP — raise.
+
+**Урок:** композиция из готового примитива (`HashShuffle`) для новой
+операции — дешёвая. Сложность — не в алгоритме (он тривиален), а в
+корректности деталей: (a) порядок row_id при keep='first'/'last';
+(b) reassignment row_id при recursion; (c) манифест output-order в
+документации.
 
 ### 13.5. Открытые вопросы
 

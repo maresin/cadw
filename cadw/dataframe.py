@@ -37,6 +37,7 @@ from cadw.io.batch_writer import ParquetBatchWriter
 from cadw.ops.groupby import groupby_aggregate
 from cadw.ops.join import hash_join
 from cadw.ops.sort import external_sort
+from cadw.ops.dedup import drop_duplicates as _ops_drop_duplicates
 
 
 class _ColumnProxy:
@@ -349,6 +350,65 @@ class CadwDataFrame:
         return CadwDataFrame(
             new_ds, memory_guard=self._memory_guard, spill_dir=self._spill_dir
         )
+
+    # ---------------- drop_duplicates ----------------
+
+    def drop_duplicates(
+        self,
+        subset: str | Sequence[str] | None = None,
+        keep: str | bool = "first",
+        *,
+        num_partitions: int | None = None,
+    ) -> "CadwDataFrame":
+        """Удалить дубликаты строк (v0.3.0).
+
+        - subset=None: все колонки — как pandas.
+        - subset=str | Sequence[str]: ключ(и) для определения дубликата.
+        - keep: 'first' | 'last' | False (drop all duplicates).
+        - num_partitions: None — auto из sample (по k_est на subset).
+
+        **Порядок результата**: partition-concatenation, **не** pandas-order.
+        Если нужен стабильный порядок — `.sort_values(...)` после. §11.5.
+
+        **Skew**: при oversized partition — `MemoryLimitExceeded`;
+        recursion не поддерживается в v0.3.0. Увеличьте `num_partitions`.
+        """
+        if keep not in ("first", "last", False):
+            raise ValueError(
+                f"drop_duplicates: keep must be 'first', 'last', or False; "
+                f"got {keep!r}"
+            )
+        if subset is None:
+            subset_cols = list(self._columns)
+        elif isinstance(subset, str):
+            subset_cols = [subset]
+        else:
+            subset_cols = list(subset)
+        if not subset_cols:
+            raise ValueError("drop_duplicates: subset must be non-empty")
+        for c in subset_cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"drop_duplicates: subset column {c!r} not in "
+                    f"columns {self._columns}"
+                )
+        # subset=None означает dedup по всем; subset явный — dedup по списку,
+        # но output сохраняет все колонки. Проверим совпадение с columns
+        # для случая subset=None.
+        if subset is None:
+            subset_cols = list(self._columns)
+
+        result = _ops_drop_duplicates(
+            self._iter_filtered_batches(),
+            subset=subset_cols,
+            keep=keep,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "dedup",
+            total_rows=self._dataset.total_rows,
+            num_partitions=num_partitions,
+            log=False,
+        )
+        return self._wrap_result_table(result)
 
     # ---------------- merge ----------------
 

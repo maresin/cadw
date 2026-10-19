@@ -89,6 +89,35 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.3.0] — 2026-10-19
+
+### Добавлено (первая операция v0.3)
+- `CadwDataFrame.drop_duplicates(subset=None, keep='first', num_partitions=None)`:
+  HashShuffle по subset + локальный `pandas.drop_duplicates` per partition.
+  - `subset=None` → dedup по всем колонкам.
+  - `keep ∈ {'first', 'last', False}` — все три pandas-режима.
+  - `num_partitions=None` → авто из sample (k_est на subset).
+- `cadw.ops.dedup.drop_duplicates(...)` — runtime, возвращает `pa.Table`.
+- Экспорт через `cadw.drop_duplicates` и `cadw.ops.drop_duplicates`.
+
+### Принцип
+- Корректность: партиции `HashShuffle` не пересекаются по subset keys →
+  локальный dedup = глобальный, concat без merge.
+- `row_id` сохраняется в shuffle; сортировка по row_id перед dedup даёт
+  корректный keep='first'/'last' (min/max row_id per key).
+- `keep=False` (pandas semantics) локально = глобально.
+
+### Ограничения (v0.3.0, §11.5)
+- **Output order**: partition-concatenation, не pandas-original order.
+  Для стабильного порядка — `.sort_values(...)` после.
+- **Skew**: при oversized partition → `MemoryLimitExceeded` без recursion.
+  Recursion в v0.3.1 требует save-row_id-at-resplit или streaming dedup.
+
+### Тесты
+- 15 тестов в `test_drop_duplicates.py`: все keep-режимы, subset=None,
+  multi-column, edge cases (empty, missing, invalid), skew reject,
+  pandas-equivalence, after filter, chained with sort.
+
 ## [0.2.5] — 2026-10-19
 ### Исправлено (§13.4 эпизод 47)
 - `hash_join`: cartesian check заменён на **точную** оценку совпадений
