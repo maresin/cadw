@@ -836,7 +836,7 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | API availability guard (07, 18 assertions) | ✅ | 18 |
 | Materialize-before-check fix (10) | ✅ | (см. test_materialize_guard) |
 | dict check в `_local_groupby` (11-A-4a, must-fix §11.4) | ✅ | 5 |
-| `inner_join` (v0.2.1: HashShuffle обеих сторон + pd.merge) | ✅ | 9 |
+| `hash_join` inner/left (v0.2.2: HashShuffle обеих сторон + pd.merge) | ✅ | 15 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -1131,6 +1131,19 @@ NaN×NaN — скрытый OOM. **Урок:** `pd.merge` — не «SQL join»;
 **до** `pd.merge` — защита от cartesian-skew, который pyarrow/pandas
 молча материализуют. max_output_rows = 0.3 * available / 256 B
 (консервативно); в v0.2.2 — из `JoinMemoryModel.solve`.
+
+**Эпизод 37 (left join и nullable-типы).** Для `how='left'` build = right
+всегда (left — preserved), probe (left) не проходит `_drop_null_keys`:
+NULL-ключ в left сохраняется с NULL в right-колонках (SQL: NULL не
+совпадает, но left preserved). При этом `pd.merge(how='left')` даёт NaN
+в right-колонках для unmatched, и `pa.Table.from_pandas` без schema
+конвертирует int64 NaN -> float64 — несовместимо с `empty_schema`.
+**Fix:** `_empty_result_schema` — `nullable=True` для всех полей;
+`out_table.cast(empty_schema, safe=False)` (NaN в nullable-int
+конвертируется в null). Fallback — `pa.Table.from_pandas(merged,
+schema=empty_schema)`. **Урок:** для left/outer join **все** output
+колонки должны быть nullable, иначе materialize unmatched падает на
+типах. Right/outer (v0.3) — та же проблема, тот же фикс.
 
 ### 13.5. Открытые вопросы
 

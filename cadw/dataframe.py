@@ -31,7 +31,7 @@ from cadw.dataset import (
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ParquetBatchWriter
 from cadw.ops.groupby import groupby_aggregate
-from cadw.ops.join import inner_join
+from cadw.ops.join import hash_join
 from cadw.ops.sort import external_sort
 
 
@@ -357,16 +357,19 @@ class CadwDataFrame:
         suffixes: tuple[str, str] = ("_x", "_y"),
         num_partitions: int = 8,
     ) -> "CadwDataFrame":
-        """Inner join (v0.2.1). how ∈ {'inner'} только.
+        """Hash join (v0.2.2). how ∈ {'inner', 'left'}.
 
+        - how='inner': только совпадающие ключи.
+        - how='left':  все строки self сохраняются; right-колонки -> NULL
+          при отсутствии совпадения.
         - on: имена общих колонок в обеих сторонах.
         - suffixes: для пересекающихся не-on колонок.
         - num_partitions: число партиций HashShuffle (обе стороны).
         """
-        if how != "inner":
+        if how not in ("inner", "left"):
             raise NotImplementedError(
-                f"merge: how={how!r}; only 'inner' supported in v0.2.1. "
-                f"'left'/'right'/'outer' — v0.2.2."
+                f"merge: how={how!r}; only 'inner', 'left' supported in "
+                f"v0.2.x. 'right'/'outer' — v0.3."
             )
         if not isinstance(right, CadwDataFrame):
             raise TypeError("merge: right must be CadwDataFrame")
@@ -384,7 +387,7 @@ class CadwDataFrame:
             [right._dataset.schema.field(c) for c in right.columns]
         )
 
-        result_table = inner_join(
+        result_table = hash_join(
             self._iter_filtered_batches(),
             right._iter_filtered_batches(),
             left_schema,
@@ -392,6 +395,7 @@ class CadwDataFrame:
             on=on_list,
             memory_guard=self._memory_guard,
             spill_dir=self._spill_dir / "join",
+            how=how,
             suffixes=suffixes,
             num_partitions=num_partitions,
         )

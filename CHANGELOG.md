@@ -89,6 +89,24 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.2.1] — 2026-10-19
+
+### Добавлено
+- `CadwDataFrame.merge(..., how='left')`: left join, все строки self
+  сохраняются; right-колонки -> NULL при отсутствии совпадения.
+- `cadw.ops.join.hash_join(how='inner'|'left')` — общий runtime;
+  `inner_join`, `left_join` — обёртки.
+- SQL-семантика NULL:
+  - inner: `_drop_null_keys` на обе стороны;
+  - left: `_drop_null_keys` только на build (right); probe (left)
+    сохраняется (NULL в left key -> NULL right cols).
+- `_empty_result_schema` — nullable=True для всех полей (left join с
+  unmatched: NaN в int/string -> null, cast safe=False).
+
+### Ограничения v0.2.2
+- `how='right'`, `how='outer'`, `left_on`/`right_on`, `on=index` — v0.3.
+- `JoinMemoryModel` + `propagate_chars("join")` + E2E — 11-B-2b/2c.
+
 ## [0.2.0] — 2026-10-19
 
 ### Добавлено
