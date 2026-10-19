@@ -32,6 +32,7 @@ from cadw.dataset import (
     RangeIndex,
     MaterializedIndex,
     RowFilter,
+    MaskFilter,
     PredicateFilter,
     SliceFilter,
 )
@@ -135,25 +136,38 @@ class CadwDataFrame:
 
     @property
     def index(self) -> CadwIndex:
-        """Индекс строк (v0.4.0a).
+        """Индекс строк (v0.4.0d — filter-compat).
 
-        - Без фильтров: RangeIndex(0, N) или MaterializedIndex (после
-          set_index).
-        - С активными фильтрами: raise NotImplementedError — синхронизация
-          RangeIndex с filter требует O(N) scan. v0.4.0b (iloc).
+        - Без фильтров: RangeIndex(0, N) или MaterializedIndex.
+        - С фильтрами: MaterializedIndex — subset `_index_values[positions]`
+          (O(filtered_n) scan, positions из _iter_filtered_batches_with_positions).
+
+        Pandas-совместимо: df[df.v > 10].index = subset исходного index
+        для отфильтрованных строк. §13.4/59.
         """
-        if self._row_filters:
-            raise NotImplementedError(
-                "df.index: с активными фильтрами не поддерживается в "
-                "v0.4.0a (RangeIndex+filter = O(N) scan). "
-                "Сбросьте фильтры через reset_index() перед filter, "
-                "или используйте set_index(col) — но и он требует "
-                "отсутствия фильтров. См. §13.4/55."
-            )
+        if not self._row_filters:
+            if self._index_kind == "range":
+                return RangeIndex(self._index_start, self._index_stop)
+            assert self._index_values is not None
+            return MaterializedIndex(self._index_values)
+
+        # Filtered: collect positions and take from _index_values
+        pos_chunks: list[np.ndarray] = []
+        for _b, pos in self._iter_filtered_batches_with_positions():
+            pos_chunks.append(pos)
+        if pos_chunks:
+            positions = np.concatenate(pos_chunks)
+        else:
+            positions = np.array([], dtype=np.int64)
+
         if self._index_kind == "range":
-            return RangeIndex(self._index_start, self._index_stop)
+            values = positions + self._index_start
+            return MaterializedIndex(pa.array(values, type=pa.int64()))
         assert self._index_values is not None
-        return MaterializedIndex(self._index_values)
+        values = self._index_values.take(
+            pa.array(positions, type=pa.int64())
+        )
+        return MaterializedIndex(values)
 
     @property
     def iloc(self) -> "_ILocIndexer":
@@ -219,17 +233,14 @@ class CadwDataFrame:
             raise KeyError(
                 f"set_index: column {col!r} not in {self._columns}"
             )
-        if self._row_filters:
-            raise NotImplementedError(
-                "set_index: не поддерживается с активными фильтрами в "
-                "v0.4.0a. Сбросьте фильтры или материализуйте через "
-                "df.write_parquet(...) и пересоздайте. §13.4/55."
-            )
         if not isinstance(drop, bool):
             raise TypeError("set_index: drop must be bool")
 
+        # v0.4.0d: материализуем col для **всего** dataset (не filtered).
+        # Это O(N) scan, но `_index_values` всегда full → filtered.index =
+        # subset через positions. §13.4/59.
         chunks: list[pa.Array] = []
-        for b in self._iter_filtered_batches():
+        for b in self._dataset.iter_batches(columns=[col]):
             chunks.append(b.column(col))
         if not chunks:
             values: pa.Array | pa.ChunkedArray = pa.array(
@@ -287,11 +298,6 @@ class CadwDataFrame:
         Если index уже RangeIndex: drop=True — no-op; drop=False — raise
         ValueError (pandas: "cannot insert index, already have default").
         """
-        if self._row_filters:
-            raise NotImplementedError(
-                "reset_index: не поддерживается с активными фильтрами в "
-                "v0.4.0a. §13.4/55."
-            )
         if not isinstance(drop, bool):
             raise TypeError("reset_index: drop must be bool")
 
@@ -322,6 +328,43 @@ class CadwDataFrame:
         values = self._index_values
 
         if drop:
+            if self._row_filters:
+                # v0.4.0d: filtered + drop=True → materialize filtered view
+                # as new Dataset with RangeIndex(0, filtered_n).
+                filtered_n = self.count()
+                if inplace:
+                    new_ds = Dataset.from_batches(
+                        pa.schema(
+                            [self._dataset.schema.field(c) for c in self._columns]
+                        ),
+                        self._iter_filtered_batches(),
+                        self._new_dataset_dir(),
+                    )
+                    self._dataset = new_ds
+                    self._row_filters = []
+                    self._index_kind = "range"
+                    self._index_start = 0
+                    self._index_stop = filtered_n
+                    self._index_values = None
+                    return self
+                new_ds = Dataset.from_batches(
+                    pa.schema(
+                        [self._dataset.schema.field(c) for c in self._columns]
+                    ),
+                    self._iter_filtered_batches(),
+                    self._new_dataset_dir(),
+                )
+                new = CadwDataFrame.__new__(CadwDataFrame)
+                new._dataset = new_ds
+                new._memory_guard = self._memory_guard
+                new._spill_dir = self._spill_dir
+                new._columns = list(self._columns)
+                new._row_filters = []
+                new._index_kind = "range"
+                new._index_start = 0
+                new._index_stop = filtered_n
+                new._index_values = None
+                return new
             if inplace:
                 self._index_kind = "range"
                 self._index_start = 0
@@ -355,18 +398,30 @@ class CadwDataFrame:
             + [pa.field(name, values.type)]
         )
 
-        offset = 0
+        if self._row_filters:
+            # v0.4.0d: filtered — index column = _index_values[positions],
+            # позиции из _iter_filtered_batches_with_positions.
+            def _iter_with_index_filtered():
+                for b, positions in self._iter_filtered_batches_with_positions():
+                    idx_slice = values.take(
+                        pa.array(positions, type=pa.int64())
+                    )
+                    yield b.append_column(name, idx_slice)
+            _iter_with_index_impl = _iter_with_index_filtered
+        else:
+            offset = 0
 
-        def _iter_with_index():
-            nonlocal offset
-            for b in self._iter_filtered_batches():
-                n = b.num_rows
-                idx_slice = values.slice(offset, n)
-                yield b.append_column(name, idx_slice)
-                offset += n
+            def _iter_with_index_unfiltered():
+                nonlocal offset
+                for b in self._iter_filtered_batches():
+                    n = b.num_rows
+                    idx_slice = values.slice(offset, n)
+                    yield b.append_column(name, idx_slice)
+                    offset += n
+            _iter_with_index_impl = _iter_with_index_unfiltered
 
         new_ds = Dataset.from_batches(
-            new_schema, _iter_with_index(), self._new_dataset_dir()
+            new_schema, _iter_with_index_impl(), self._new_dataset_dir()
         )
 
         if inplace:
@@ -487,6 +542,50 @@ class CadwDataFrame:
             it = f.iter_filtered(it, self._dataset.schema)
         for b in it:
             yield b.select(self._columns)
+
+    def _iter_filtered_batches_with_positions(self):
+        """Yield (filtered_batch, positions_in_raw_dataset).
+
+        positions — numpy int64 array of 0-based позиций в **unfiltered**
+        dataset (после последнего set_index/reset_index). Используется для
+        восстановления parent index при filter (v0.4.0d).
+        """
+        if not self._row_filters:
+            offset = 0
+            for b in self._dataset.iter_batches(columns=self._columns):
+                positions = np.arange(offset, offset + b.num_rows, dtype=np.int64)
+                yield b, positions
+                offset += b.num_rows
+            return
+
+        needed = list(self._columns)
+        extra: set[str] = set()
+        for f in self._row_filters:
+            extra |= f.columns_required()
+        for c in extra:
+            if c not in needed:
+                needed.append(c)
+
+        raw_it = self._dataset.iter_batches(columns=needed)
+
+        offset_box = [0]
+
+        def _init():
+            for b in raw_it:
+                positions = np.arange(
+                    offset_box[0],
+                    offset_box[0] + b.num_rows,
+                    dtype=np.int64,
+                )
+                yield b, positions
+                offset_box[0] += b.num_rows
+
+        it = _init()
+        for f in self._row_filters:
+            it = _apply_filter_with_positions(f, it)
+
+        for b, positions in it:
+            yield b.select(self._columns), positions
 
     # ---------------- reading ----------------
 
@@ -1075,3 +1174,44 @@ def _convert_batch(batch: pa.RecordBatch, format: str):
             for i, name in enumerate(batch.schema.names)
         }
     raise ValueError(f"unsupported format {format!r}")
+
+def _apply_filter_with_positions(f: RowFilter, it):
+    """Apply a RowFilter to (batch, positions) stream (v0.4.0d).
+
+    - MaskFilter: positions[mask] — raw positions of rows that passed.
+    - SliceFilter: slice по **локальному** counter (filtered-view position);
+      raw positions — из накопленного массива.
+    """
+    if isinstance(f, MaskFilter):
+        for b, positions in it:
+            mask = f.mask_for_batch(b)
+            mask_np = mask.to_numpy(zero_copy_only=False)
+            new_positions = positions[mask_np]
+            if len(new_positions) > 0:
+                yield b.filter(mask), new_positions
+        return
+    if isinstance(f, SliceFilter):
+        local_pos = 0
+        for b, positions in it:
+            n = b.num_rows
+            batch_local = np.arange(local_pos, local_pos + n, dtype=np.int64)
+            mask_np = batch_local >= f.start
+            if f.stop is not None:
+                mask_np &= batch_local < f.stop
+            if f.step > 1:
+                mask_np &= ((batch_local - f.start) % f.step == 0)
+            new_positions = positions[mask_np]
+            if len(new_positions) > 0:
+                yield (
+                    b.filter(pa.array(mask_np, type=pa.bool_())),
+                    new_positions,
+                )
+            local_pos += n
+            if f.stop is not None and local_pos >= f.stop:
+                return
+        return
+    raise TypeError(
+        f"_apply_filter_with_positions: unsupported filter "
+        f"{type(f).__name__}"
+    )
+

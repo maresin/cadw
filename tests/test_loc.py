@@ -237,11 +237,14 @@ def test_iat_setitem_raises(tmp_path):
 
 # ---------- filter limitation ----------
 
-def test_loc_on_filtered_raises(tmp_path):
+def test_loc_on_filtered_works(tmp_path):
+    """v0.4.0d: loc на filtered view работает (через filtered.index)."""
     df = make_df(tmp_path).set_index("k", drop=False)
-    filtered = df[df["v"] > 15]
-    with pytest.raises(NotImplementedError, match="фильтр"):
-        filtered.loc["b"]
+    filtered = df[df["v"] > 15]  # b, c, d, e
+    assert filtered.loc["c"] == {"k": "c", "v": 30}
+    assert filtered.loc["e"] == {"k": "e", "v": 50}
+    with pytest.raises(KeyError):
+        filtered.loc["a"]  # a не в filtered
 
 
 # ---------- loc preserves index ----------

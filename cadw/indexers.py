@@ -95,9 +95,12 @@ class _ILocIndexer:
         targets = sorted(set(resolved))
         target_set = set(targets)
 
+        # v0.4.0d: use _iter_filtered_batches_with_positions to also
+        # capture raw-dataset positions (for index preservation).
         collected: dict[int, dict[str, Any]] = {}
+        raw_pos_collected: dict[int, int] = {}
         running = 0
-        for b in self._parent._iter_filtered_batches():
+        for b, raw_positions in self._parent._iter_filtered_batches_with_positions():
             n = b.num_rows
             batch_start = running
             batch_end = running + n
@@ -108,6 +111,7 @@ class _ILocIndexer:
                         name: b.column(name)[local].as_py()
                         for name in b.schema.names
                     }
+                    raw_pos_collected[p] = int(raw_positions[local])
             running = batch_end
             if len(collected) == len(targets):
                 break
@@ -120,7 +124,8 @@ class _ILocIndexer:
             )
 
         rows = [collected[p] for p in resolved]  # keep order + duplicates
-        return self._rows_to_cadwdf(rows, resolved)
+        raw_pos = [raw_pos_collected[p] for p in resolved]
+        return self._rows_to_cadwdf(rows, raw_pos)
 
     def _empty_view(self):
         parent = self._parent
@@ -140,24 +145,23 @@ class _ILocIndexer:
         return _table_to_cadwdf(table, parent, new_index)
 
 
-def _rebuild_index(parent: "CadwDataFrame", positions: list[int]):
-    """Rebuild index for iloc[list] result.
+def _rebuild_index(parent: "CadwDataFrame", raw_positions: list[int]):
+    """Rebuild index for iloc[list] result (v0.4.0d — filter-compat).
 
-    Returns None → use default RangeIndex (filtered view or unfilterable).
-    Returns MaterializedIndex → preserve parent index at positions.
+    `raw_positions` — позиции в **unfiltered** dataset (из
+    _iter_filtered_batches_with_positions).
+
+    - parent RangeIndex → MaterializedIndex([start + p, ...]).
+    - parent MaterializedIndex → subset `_index_values[p]`.
     """
     from cadw.dataset.index import MaterializedIndex
 
-    if parent._row_filters:
-        return None  # filtered view → default RangeIndex (v0.4.0c: fix)
-
     if parent._index_kind == "range":
-        vals = [parent._index_start + p for p in positions]
+        vals = [parent._index_start + p for p in raw_positions]
         return MaterializedIndex(pa.array(vals, type=pa.int64()))
 
-    # materialized
     src = parent._index_values
-    vals = [src[p] for p in positions]
+    vals = [src[p] for p in raw_positions]
     return MaterializedIndex(pa.array(vals, type=src.type))
 
 
@@ -205,11 +209,17 @@ class _LocIndexer:
                 "loc: requires MaterializedIndex (after set_index). "
                 "RangeIndex — use iloc."
             )
+        # v0.4.0d: с фильтрами тоже работаем — filtered.index даёт
+        # MaterializedIndex-subset, поверх него get_indexer работает.
         if p._row_filters:
-            raise NotImplementedError(
-                "loc: не поддерживается с активными фильтрами в v0.4.0c. "
-                "§13.4/58."
-            )
+            idx = p.index
+            if not isinstance(idx, MaterializedIndex):
+                raise TypeError(
+                    f"loc: filtered index is {type(idx).__name__}, "
+                    f"expected MaterializedIndex"
+                )
+            return idx
+        assert p._index_values is not None
         return MaterializedIndex(p._index_values)
 
     def __getitem__(self, key):

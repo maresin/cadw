@@ -847,7 +847,8 @@ Per-column Arrow IPC в `base_dir/columns/<col>.arrow`; `dataset_meta.json`
 | Combiner для `groupby` (v0.3.4: partial agg до shuffle) | ✅ | 12 |
 | `CadwIndex`/`set_index`/`reset_index` (v0.4.0a) | ✅ | 26 |
 | `iloc` (v0.4.0b: positional indexer) | ✅ | 22 |
-| `loc`/`.at`/`.iat` (v0.4.0c: label-based) | ✅ | 30 |
+| `loc`/`.at`/`.iat` (v0.4.0c: label-based) | ✅ | 31 |
+| filter-compat index/set/reset (v0.4.0d) | ✅ | 15 |
 | **Итого** | | **213 fast + 5 slow, 1 skipped** |
 
 **Ключевые результаты:**
@@ -923,8 +924,6 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `loc[lo:hi]` — только оба endpoint обязательны (v0.4.0c) | `_LocIndexer` | `loc[:hi]` / `loc[lo:]` — `NotImplementedError`. Step — тоже. v0.4.1. |
 | `loc` duplicates → first occurrence (v0.4.0c) | `_LocIndexer` | v0.4.1 — все вхождения (pandas semantics). |
 | `iloc[bool_array]` не поддерживается (v0.4.0b) | `_ILocIndexer` | raise `NotImplementedError`; используйте `df[mask]` (RowFilter). |
-| `iloc[list]` на filtered view не сохраняет parent index (v0.4.0b) | `_ILocIndexer` | default `RangeIndex(0, K)`; preserve — v0.4.0c (filter-compat, нужна `_iter_filtered_batches_with_positions`). |
-| `df.index`/`set_index`/`reset_index` с активными фильтрами (v0.4.0a) | `CadwDataFrame` | raise NotImplementedError; синхронизация index↔filter — v0.4.0b (iloc, через row_id). §13.4/55. |
 | `set_index` материализует колонку (O(N) RAM) | `CadwDataFrame` | Для больших N — future: `RangeIndex` fast path + streaming loc. v0.4.1. |
 | Index не сохраняется в Parquet (write_parquet → reload = RangeIndex) | `write_parquet` | Parquet не имеет index-метаданных; документировано. §13.4/55. |
 | `_detect_heavy_keys` absolute min = 100 (v0.3.4) | skew detection | Без абсолютного минимума tiny data (5 строк) ложно флагалась как skew. §13.4/52b. |
@@ -1700,6 +1699,101 @@ v0.4.0d: filter-compat для `loc` через `_iter_filtered_batches_with_posi
 
 **v0.4.1:** loc open-endpoints, loc with duplicate labels (все вхождения),
 MultiIndex.
+
+**Эпизод 59 (filter-compat — positions-механизм).** v0.4.0a-c
+бросали `NotImplementedError` для `filtered.index` / `set_index` /
+`reset_index` / `loc` при активных фильтрах. v0.4.0d закрывает это.
+
+**Ключевая идея — `_iter_filtered_batches_with_positions`.** Yield
+`(filtered_batch, positions_in_raw_dataset)`, где positions — numpy
+int64 массив, 0-based позиции в **unfiltered** dataset (после последнего
+set_index/reset_index). Реализация — композиция фильтров:
+
+  Init: (raw_batch, arange(offset, offset+n)).
+  Для каждого filter f в chain:
+    - MaskFilter: mask = f.mask_for_batch(b); yield b.filter(mask),
+      positions[mask];
+    - SliceFilter: local_pos counter (filtered view);
+      mask = (local_pos..local_pos+n satisfies slice); yield
+      b.filter(mask), positions[mask].
+  Затем b.select(_columns).
+
+**Position semantics:**
+- `MaskFilter` сохраняет raw positions (прошли маску → их raw pos).
+- `SliceFilter` берёт позиции по **локальному counter** (позиция в
+  filtered view), но raw pos — из накопленного positions.
+
+**`_index_values` — always full dataset (unfiltered).** Filter не трогает
+`_index_values`; `_with_filter` копирует его без изменений (уже так).
+`filtered.index` = `_index_values[positions]` для MaterializedIndex, или
+`positions + _index_start` для RangeIndex.
+
+**Pandas-совместимо:** `df[df.v>10].index` — subset исходного; не
+reset_index. `df[df.v>10].set_index("k")` — index = filtered k values
+(через `_index_values[positions]` — потому что `_index_values` = полный
+k, positions = filtered).
+
+**`set_index(col)` при фильтрах** — материализует col **всего** dataset
+(O(N) scan, не только filtered). Плата за корректность: `_index_values`
+всегда full → любая комбинация filter/set_index/filter работает через
+positions. Для больших N это цена; в v0.4.1 — streaming set_index с
+RangeIndex fast path для уникальных col.
+
+**`reset_index` при фильтрах:**
+- `drop=True`: materialize filtered view как новый Dataset
+  + RangeIndex(0, filtered_n). O(filtered_n) I/O — стандартный
+  materialize.
+- `drop=False`: добавляет колонку `index` = `_index_values[positions]`
+  (для materialized) или `positions + start` (для range).
+
+**`loc` на filtered view** — работает, потому что `_LocIndexer._materialized`
+теперь возвращает `filtered.index` (MaterializedIndex). `get_indexer`
+поверх filtered index.
+
+**`iloc[list]` на filtered view** — preserves parent index через raw
+positions, а не reset. Изменение с v0.4.0b.
+
+**Урок:** позиции — универсальный механизм совместимости filter/index.
+Один scan строит `(batch, positions)`; всё остальное — subset через
+positions. Pandas делает то же (BlockManager + index → take), но
+in-memory; мы делаем streaming с O(1) state.
+
+**Следующее (v0.4.1):**
+- loc open-endpoints (`loc[:hi]`, `loc[lo:]`) — требуют is_monotonic.
+- Duplicate labels in index — `loc[label]` возвращает все вхождения.
+- MultiIndex (`MultiIndex([col1, col2])`).
+- Streaming set_index (RangeIndex fast path).
+
+**Эпизод 60 (substring check маскирует отсутствие def).** Патч v0.4.0d
+добавлял helper `_apply_filter_with_positions` условно:
+`if "_apply_filter_with_positions" not in s: s = s + helper`. К моменту
+проверки **call site** helper'а уже был в `s` (из шага 2 — метода
+`_iter_filtered_batches_with_positions`). Проверка по подстроке увидела
+call, решила «уже есть» — def не добавлен. 12 из 15 тестов упали на
+`NameError: name '_apply_filter_with_positions' is not defined`.
+
+**Fix:** проверка по `"def _apply_filter_with_positions("` (не просто имя).
+Плюс AST guard `test_helper_is_defined_not_just_called`.
+
+**Урок (усиливает эпизод 44/47b):** `if name not in src` — плохая
+проверка существования функции. Различайте **call site** и **definition**:
+- `f"def {name}(" in src` — определение;
+- `f"{name}(" in src` — может быть call.
+
+Тот же класс, что `str.replace` silent no-op (эпизод 44), но через
+**false negative** — не «не заметили ошибку замены», а «не заметили
+отсутствия».
+
+**Правило:** для условной вставки **функции** — проверять по `def `.
+Для условной вставки **константы** — по `NAME = `. Для условной вставки
+**метода класса** — AST walk по `FunctionDef` внутри `ClassDef`. Grep
+по имени — только для «вызов присутствует / отсутствует», не для
+«определение присутствует».
+
+**Более широкое правило:** любой `if X not in src` в патч-скрипте
+нужно сопроводить комментарием, **что именно** `X` означает —
+call, definition, import. Если X встречается в нескольких формах —
+проверка должна быть по форме, не по имени.
 
 ### 13.5. Открытые вопросы
 

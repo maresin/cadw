@@ -223,28 +223,40 @@ def test_set_index_then_select_then_reset(tmp_path):
 
 # ---------- filter limitation (MVP) ----------
 
-def test_index_with_filter_raises(tmp_path):
+def test_index_with_filter_preserves(tmp_path):
+    """v0.4.0d: filtered.index = MaterializedIndex subset."""
+    from cadw.dataset.index import MaterializedIndex
     df = make_df(tmp_path)
-    filtered = df[df["v"] > 2]
-    with pytest.raises(NotImplementedError, match="фильтр"):
-        _ = filtered.index
+    filtered = df[df["v"] > 2]  # rows c, d, e → positions 2, 3, 4
+    idx = filtered.index
+    assert isinstance(idx, MaterializedIndex)
+    assert list(idx) == [2, 3, 4]
 
 
-def test_set_index_with_filter_raises(tmp_path):
+def test_set_index_with_filter_works(tmp_path):
+    """v0.4.0d: set_index при фильтрах — материализует full col."""
+    from cadw.dataset.index import MaterializedIndex
     df = make_df(tmp_path)
-    filtered = df[df["v"] > 2]
-    with pytest.raises(NotImplementedError, match="фильтр"):
-        filtered.set_index("k")
+    filtered = df[df["v"] > 2]  # c, d, e
+    result = filtered.set_index("k", drop=False)
+    # index values = filtered view k values (через positions)
+    assert isinstance(result.index, MaterializedIndex)
+    assert list(result.index) == ["c", "d", "e"]
+    # columns содержат k, v
+    assert set(result.columns) == {"k", "v"}
 
 
-def test_reset_index_with_filter_raises(tmp_path):
+def test_reset_index_with_filter_works(tmp_path):
+    """v0.4.0d: reset_index при фильтрах → RangeIndex(0, filtered_n)."""
+    from cadw.dataset.index import RangeIndex
     df = make_df(tmp_path)
     with_idx = df.set_index("k", drop=True)
-    # select without filter works
     sub = with_idx[["v"]]
-    filtered = sub[sub["v"] > 2]
-    with pytest.raises(NotImplementedError, match="фильтр"):
-        filtered.reset_index(drop=True)
+    filtered = sub[sub["v"] > 2]  # rows v=30, 40, 50 → filtered_n = 3
+    restored = filtered.reset_index(drop=True)
+    assert isinstance(restored.index, RangeIndex)
+    assert restored.index.start == 0
+    assert restored.index.stop == 3
 
 
 # ---------- after operations: index reset ----------

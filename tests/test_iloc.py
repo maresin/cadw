@@ -178,14 +178,14 @@ def test_iloc_list_preserves_materialized_index(tmp_path):
     assert list(sub.index) == ["a", "c", "e"]
 
 
-def test_iloc_list_on_filtered_resets_to_range(tmp_path):
-    """На filtered view — default RangeIndex (index parent не сохраняется)."""
-    df = make_df(tmp_path)
-    filtered = df[df["v"] > 15]
-    sub = filtered.iloc[[0, 2]]
-    assert isinstance(sub.index, RangeIndex)
-    assert sub.index.start == 0
-    assert sub.index.stop == 2
+def test_iloc_list_on_filtered_preserves_parent(tmp_path):
+    """v0.4.0d: filtered view + iloc[list] → preserves parent index via raw positions."""
+    from cadw.dataset.index import MaterializedIndex
+    df = make_df(tmp_path)  # v: 10,20,30,40,50
+    filtered = df[df["v"] > 15]  # rows b(20),c(30),d(40),e(50) → raw positions 1,2,3,4
+    sub = filtered.iloc[[0, 2]]  # filtered positions 0, 2 → raw 1, 3
+    assert isinstance(sub.index, MaterializedIndex)
+    assert list(sub.index) == [1, 3]
 
 
 # ---------- errors ----------

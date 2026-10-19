@@ -89,6 +89,44 @@
   примитивах: `HistogramOp` (binning) + `HashShuffle` (узел,фича,бин) +
   `Reduce` (sum_grad/sum_hess/count).
 
+## [0.4.0d] — 2026-10-19
+
+### Добавлено
+- `_iter_filtered_batches_with_positions()` — yield `(batch, positions)`,
+  positions = numpy int64 в unfiltered dataset. Композиция фильтров:
+  MaskFilter → `positions[mask]`; SliceFilter → slice по local counter
+  с сохранением raw positions.
+- `_apply_filter_with_positions(filter, it)` — helper для filter chain.
+
+### Изменено (filter-compat)
+- `df.index` при фильтрах → `MaterializedIndex(_index_values[positions])`
+  (pandas-совместимо). Раньше — `NotImplementedError`.
+- `set_index(col)` при фильтрах → работает; материализует **полный**
+  col (O(N) scan), `_index_values` = full → любой комбинации filter/set
+  через positions.
+- `reset_index(drop=True)` при фильтрах → materialize filtered view +
+  RangeIndex(0, filtered_n).
+- `reset_index(drop=False)` при фильтрах → колонка `index` =
+  `_index_values[positions]`.
+- `iloc[list]` на filtered view — **сохраняет** parent index через
+  raw positions (раньше reset). Более pandas-совместимо.
+- `loc` на filtered view — работает (через filtered.index).
+
+### Закрыто (из v0.4.0a-c, §11.5)
+- ~~`df.index`/`set_index`/`reset_index` с активными фильтрами — raise~~
+- ~~`iloc[list]` на filtered view не сохраняет parent index~~
+- ~~`loc` на filtered view — NotImplementedError~~
+
+### Тесты
+- 15 новых в `test_filter_compat.py`: filtered.index (range/mat/
+  slice/mask_then_slice/empty), set_index+filter, filter+set_index,
+  reset_index drop=True/False при фильтрах, iloc[list] preserves
+  parent (range/materialized), loc на filtered, no-filter unchanged.
+- Обновлены 4 теста: `test_index_with_filter_*`, `test_set_index_with_
+  filter_*`, `test_reset_index_with_filter_*`, `test_iloc_list_on_
+  filtered_*`, `test_loc_on_filtered_*` — теперь проверяют
+  сохранение/работу, не raise.
+
 ## [0.4.0c] — 2026-10-19
 
 ### Добавлено
