@@ -1,5 +1,69 @@
 ## [Unreleased]
 
+### Исправлено (v0.9.3a - KFold keyed PRNG, S1 fix)
+
+**P-CV1 (S1, из v0.9.2 audit):** `KFold.split` материализовал
+O(N) fold-id массив (shuffle=False: ~12*N; shuffle=True: ~20*N)
+**без** `MemoryGuard.check_state`. Для N >> RAM - guaranteed OOM,
+не `MemoryLimitExceeded`. Нарушение ядра гарантии CADW.
+
+- **`KFold.shuffle=False`** (default): `fold_id = row_id % k`,
+  computed per batch. O(batch) state. 1:1 с прежним поведением.
+- **`KFold.shuffle=True`** (default, O(batch) state): keyed
+  splitmix64 PRNG. `fold_id = splitmix64(row_id*GOLDEN + seed) % k`.
+  Детерминистичен per row_id. Split-quality: fold sizes ~binomial
+  (mean n/k, per-fold sigma ~= sqrt(n/k)).
+- **`KFold(materialize=True)`** (opt-in backward compat):
+  exact-balanced shuffle, O(N) RAM, `check_state(20*N)` guarded.
+- **`random_state=None`** -> seed=42 (deterministic reproducibility).
+- **`_attach_column_with_fn(fn)`**: streaming helper
+  (`fn(offset, n) -> pa.Array`). O(batch) state, no O(N) array.
+
+### 13.4/173 - docstring memory claim vs actual allocation
+
+Pre-v0.9.3a docstring: "O(N) int8 fold_id array". Actual code:
+int32 fold_id + int64 arange/permutation temporaries = 12-20*N bytes.
+3-4x understatement + zero MemoryGuard check.
+
+**Правило:** docstring memory claim must match actual code. Test
+with N >> RAM (core scenario) обязателен для каждого публичного op
+с O(N) state - small-N тесты скрывают O(N) bugs.
+
+### 13.4/174 - patch-script embedded escape trap (3 rounds)
+
+v0.9.3a: 6 fix iterations, все - patch-script syntax bugs, не CADW:
+
+- `\n` внутри triple-quote template -> real newline in file.
+- `'''` inside `'''...'''` -> terminated early.
+- `"""` inside `"""..."""` -> terminated early.
+- Pattern wrote `->` (ASCII), file had `->` (U+2192).
+- 2 stale tests after behavior change (13.4/160).
+
+**Rules:** no triple-quote in patch scripts; content as
+`"\n".join(list)`. Pattern matches signatures + structural lines
+only, no docstrings/unicode. If not found - print context. Split
+code/docs patches. Self-compile-check before run.
+
+### Тесты (v0.9.3a)
+
++11 fast (`test_cv_keyed_prng.py`): default folds, keyed PRNG
+deterministic, different seeds differ, default seed=42, binomial
+balance, no-shuffle unchanged, materialize exact-balanced, OOM
+guard, small-N OK, AST guard (no np.arange(N)/permutation(N) в
+default path), streaming helper present, large-N tight-budget.
+
+2 existing tests updated (`test_cv.py`): `shuffle=True` now binomial
+(use `materialize=True` for exact).
+
+- fast: **~1560** (+11). slow: **20** (unchanged).
+
+### Ограничения (v0.9.3a, 11.5)
+
+- `shuffle=True` (default): fold sizes ~binomial, not exact-balanced.
+- `KFold.split()`: one `df.count()` scan (O(N) time, O(1) memory).
+- Iterating all folds: `n_splits * N` row touches, O(1) memory per
+  iteration.
+
 ## [0.9.2] — 2026-10-20
 
 ### Исправлено (v0.9.2f-fix2 — registry 4→8)

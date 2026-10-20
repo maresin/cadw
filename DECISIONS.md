@@ -1203,6 +1203,18 @@ estimate.
   values treated as positive (pos_label) / negative (rest). String
   binary → use multiclass form.
 
+**v0.9.3a (KFold keyed PRNG):**
+- `KFold(shuffle=True)` default = keyed splitmix64 on row_id. Fold
+  sizes ~binomial (mean n/k, per-fold sigma ~= sqrt(n/k)); not
+  exact-balanced. For exact-balanced use `materialize=True`
+  (opt-in, O(N) RAM, guarded via `check_state(20*N)`).
+- `random_state=None` -> seed=42 (deterministic reproducibility).
+- `KFold.split()` calls `df.count()` - one full scan, O(N) time,
+  bounded memory.
+- Each `split(df)` yields `n_splits` pairs; iterating all folds
+  does `n_splits * N` row touches (once per fold per side). O(1)
+  memory per iteration.
+
 ### 11.5. Осознанные ограничения (документированы)
 
 **v0.8.11b:** join strict enforcement requires `budget >= 160 MB`
@@ -4644,6 +4656,115 @@ Test* leaked"). Different scales, different patterns.
 
 **Связанные:** §13.4/152 (stale behavior), /161 (AST substring),
 /167 (partial migration — stale check), /171 (test-authoring).
+
+**Эпизод 173 (KFold O(N) fold_id без MemoryGuard; docstring lie).**
+v0.9.3a: P-CV1 S1 из v0.9.2 audit.
+
+**Bug.** `KFold.split` в v0.9.2e материализовал O(N) fold-id массив:
+
+- `shuffle=False`: `np.arange(n) % k` + `astype(int32)` - 12·N байт
+  (int32 fold_id + int64 arange temp).
+- `shuffle=True`:  + `rng.permutation(n)` - 20·N байт.
+
+**Ноль MemoryGuard involvement.** Для N >> RAM - guaranteed OOM,
+не `MemoryLimitExceeded`. Нарушение ядра гарантии CADW.
+
+**Docstring claim.** Pre-v0.9.3a: "O(N) int8 fold_id array".
+Actual code: int32 + int64 temporaries. 3-4x understatement.
+
+**Почему не поймали в v0.9.2e.** Тесты KFold: n=100-1000 (12 KB
+array - незаметно). Slow E2E: n=100k (1.2 MB на 50 MB budget -
+тоже OK). Никто не проверил N=1e8 с budget=16 MB - core user
+scenario. **Small-N hides O(N) bugs.**
+
+**Fix (v0.9.3a):**
+
+- `shuffle=False` (default): `fold_id = row_id % k` per batch.
+  O(batch) state. 1:1 с прежним поведением.
+- `shuffle=True` (default new): keyed splitmix64(row_id, seed) % k.
+  Deterministic per row_id. O(batch) state. Fold sizes ~binomial
+  (mean n/k, per-fold sigma ~= sqrt(n/k)). Split-quality.
+- `materialize=True` (opt-in): exact-balanced, O(N) RAM,
+  `check_state(20*N)` guarded.
+- `_attach_column_with_fn(fn: (offset, n) -> pa.Array)`: streaming
+  helper, O(batch) state.
+
+**Правило (13.4/173, расширение 158, 166, 172):**
+
+- **Docstring memory claims must match actual code.** Pre-commit
+  audit: grep все "O(N)"/"O(K)" утверждения в docstrings, сверить
+  с фактическими alloc.
+- **Small-N тесты скрывают O(N) bugs.** Каждый публичный op с O(N)
+  state должен иметь:
+  (a) AST guard "no np.arange(N)/permutation(N) в default path";
+  (b) functional test с tight budget + большим N;
+  (c) либо задокументированное O(N) state в 11.5 + fail-fast.
+
+**Связанные:** 13.4/158, 166, 172, **13.4/174**.
+
+**Эпизод 174 (patch-script embedded escape trap - 3 rounds).**
+v0.9.3a: 6 fix iterations before tests green - all from patch-script
+syntax bugs, not CADW code bugs.
+
+**Round 1 (v0.9.3a original).** CV_KEYED_TESTS triple-quoted
+template contained `"_attach_column(\n"` - Python parsed `\n` as
+escape -> 1 newline char -> written file had unterminated string
+literal -> SyntaxError on py_compile.
+
+**Round 2 (v0.9.3a-fix1).** Same class, different char: CHANGELOG
+entry had `r'''...'''` inside `'''...'''` outer -> `'''` terminated
+outer early -> parser error "Statements must be separated by
+newlines or semicolons".
+
+**Round 3 (v0.9.3a-fix2).** Docstring itself:
+  "Fix2 uses `"""` for ALL outer triple-quoted strings"
+The `"""` inside `"""..."""` terminated the docstring.
+
+**Round 4 (v0.9.3a-fix4).** Pattern match failure: fix4 looked for
+"ASCII `->`" but file had unicode `->` (U+2192) in docstring. `old
+not in s` -> abort. Classic test-authoring (13.4/166): pattern
+written from memory, not from file.
+
+**Round 5 (v0.9.3a-fix6).** 2 stale tests in test_cv.py still
+expected exact sizes [20,20,20,20,20] under shuffle=True -> failed
+[21,16,20,19,24] because v0.9.3a made default binomial. **13.4/160
+repeat:** behavior change should grep ALL tests before commit.
+
+**Rules (13.4/174):**
+
+1. **Patch scripts embedding Python code in template strings:**
+   - NEVER triple-quote for content. Build from `list[str]` +
+     `"\n".join()`.
+   - If any content line has backslashes, keep it single-line
+     `'...'` or `"..."` (no `\n`, `\t`, `\x..` in template).
+   - If content has `'''` or `"""` - escape or reword.
+   - **Best: `pathlib.Path.write_text()` from separate template
+     file** (v0.9.4 backlog: `patch_utils.write_content()`).
+
+2. **Pattern matching in `.replace()`:**
+   - NEVER include docstrings, comments, or unicode in the pattern.
+   - Match only signatures (def, class) + structural lines.
+   - If block contains docstring - line-based: `startswith` +
+     `endswith`, edit `lines[i] = new`.
+   - If not found: print actual context (nearby `def`s), не голый
+     "not found".
+
+3. **Self-compile check before run:**
+   - `uv run python -c "import py_compile; py_compile.compile(
+     'scripts/patch_X.py', doraise=True)"`
+   - Tooling fix (13.4/174 backlog): `patch_utils.assert_compiles(
+     path)` invoked by scaffold.
+
+4. **Split code and docs patches:**
+   - code+test commit: `v0.9.3a`.
+   - docs commit: `v0.9.3a-docs` (this).
+   - Reason: abort in docs template does NOT lose code commit.
+     Sister to 13.4/140 (CHANGELOG discipline).
+
+**Мета.** Tooling exists (`patch_utils.assert_no_stale_behavior`),
+но я его не вызвал в v0.9.3a. **Use it.**
+
+**Связанные:** 13.4/140, 144, 149, 152, 156, 160, 161, 166, 173.
 
 ### 13.5. Открытые вопросы
 
