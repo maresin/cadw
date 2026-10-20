@@ -31,9 +31,10 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import numpy as np
-import pandas as pd
 import pyarrow as pa
 
+# v0.8.11a: no pandas in hot path (dead helpers removed; only
+# `_pandas_hash_column` in cadw/ops/shuffle.py remains, documented).
 from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ArrowIPCBatchWriter
@@ -50,15 +51,14 @@ from cadw.ops.shuffle import hash_shuffle
 # §11.5.
 _JOIN_FIXED_OVERHEAD_BYTES = 40 * 1024 * 1024
 
-
-def _drop_null_keys(df: pd.DataFrame, on: list[str]) -> pd.DataFrame:
-    """SQL-семантика: строки с NULL в любом on-ключе не участвуют."""
-    if len(df) == 0:
-        return df
-    mask = np.ones(len(df), dtype=bool)
-    for c in on:
-        mask &= df[c].notna().to_numpy()
-    return df.loc[mask]
+# v0.8.11b: strict-mode threshold for merge() whole-operation RSS check.
+# Below threshold: warn only (fixed 40 MB overhead dominates small
+# budgets; strict check would trivially fire for tiny joins).
+# At/above: raise MemoryLimitExceeded (real guarantee).
+# Secondary condition in merge(): state_limit must also be >=
+# _JOIN_FIXED_OVERHEAD_BYTES (protects against reservation drop).
+# See §9.2.6.
+_JOIN_STRICT_BUDGET_THRESHOLD_BYTES = 4 * _JOIN_FIXED_OVERHEAD_BYTES
 
 
 def _empty_result_schema(

@@ -3283,31 +3283,51 @@ class CadwDataFrame:
                 # whole-operation RSS may exceed state_limit. Do not raise
                 # (would break existing tests with 20 MB budget — bumping
                 # budgets to 100 MB is v0.8.11 work).
-                try:
-                    from cadw.core.memory_guard import MemoryLimitExceeded
-                    from cadw.ops.join import _JOIN_FIXED_OVERHEAD_BYTES
-                    predicted_output = (
-                        left_chars.n_rows
-                        * params.avg_matches
-                        * params.output_row_size
-                    )
-                    total_rss_estimate = (
-                        _JOIN_FIXED_OVERHEAD_BYTES + 5 * predicted_output
-                    )
+                from cadw.ops.join import (
+                    _JOIN_FIXED_OVERHEAD_BYTES,
+                    _JOIN_STRICT_BUDGET_THRESHOLD_BYTES,
+                )
+                predicted_output = (
+                    left_chars.n_rows
+                    * params.avg_matches
+                    * params.output_row_size
+                )
+                total_rss_estimate = (
+                    _JOIN_FIXED_OVERHEAD_BYTES + 5 * predicted_output
+                )
+                # v0.8.11b: strict when budget is large enough that the
+                # fixed 40 MB overhead is meaningful. Threshold:
+                # budget >= 4×overhead (160 MB) AND
+                # state_limit >= overhead (available >= 2×overhead).
+                # Below: warn only — raise would fire trivially for
+                # tiny joins (40 MB overhead >> state_limit at small
+                # budgets). See §9.2.6.
+                state_limit = self._memory_guard.state_limit_bytes
+                budget = self._memory_guard.budget_bytes
+                strict_mode = (
+                    budget >= _JOIN_STRICT_BUDGET_THRESHOLD_BYTES
+                    and state_limit >= _JOIN_FIXED_OVERHEAD_BYTES
+                )
+                if strict_mode:
                     self._memory_guard.check_state(
                         total_rss_estimate,
                         name="join.whole_operation_rss",
                     )
-                except MemoryLimitExceeded:
+                elif total_rss_estimate > state_limit:
                     logger.warning(
                         "merge: predicted whole-operation RSS delta "
-                        "~%.0f MiB (output %.1f MiB + %.0f MiB Arrow pool) "
-                        "exceeds state_limit. Per-batch guards will still "
-                        "enforce; actual peak may exceed budget. Bump "
-                        "MemoryGuard budget if possible. See §9.2.6.",
+                        "~%.0f MiB (output %.1f MiB + %.0f MiB Arrow "
+                        "pool) exceeds state_limit (%.0f MiB) but "
+                        "budget %.0f MiB < %.0f MiB strict threshold. "
+                        "Per-batch guards still enforce; actual peak "
+                        "may exceed budget. Bump MemoryGuard budget "
+                        "to enable strict enforcement. See §9.2.6.",
                         total_rss_estimate / (1024 * 1024),
                         predicted_output / (1024 * 1024),
                         _JOIN_FIXED_OVERHEAD_BYTES / (1024 * 1024),
+                        state_limit / (1024 * 1024),
+                        budget / (1024 * 1024),
+                        _JOIN_STRICT_BUDGET_THRESHOLD_BYTES / (1024 * 1024),
                     )
             else:
                 # Одна из сторон пуста — planner не нужен; hash_join

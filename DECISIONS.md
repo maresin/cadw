@@ -622,6 +622,28 @@ policy + jemalloc page release timing. Формула `5 × output + 40 MB`
 target'ит upper end; при бюджетировании на медиану (`5 × output + 25 MB`)
 — на свой риск.
 
+**v0.8.11b (strict enforcement policy).** `merge()` now enforces
+`40 MB + 5 × predicted_output <= state_limit` **strictly** (raise) when
+budget is large enough. Threshold:
+
+    strict_mode = (budget >= 4 × _JOIN_FIXED_OVERHEAD_BYTES = 160 MB)
+                  AND (state_limit >= _JOIN_FIXED_OVERHEAD_BYTES = 40 MB)
+
+Rationale:
+- **Budget < 160 MB:** 40 MB fixed overhead is > 25% of budget (> 50%
+  of state_limit). Strict check would fire trivially for tiny joins,
+  breaking backward compat with `mem_mb=20` tests and making CADW
+  unusable on constrained machines. **Warn only**; per-batch guards
+  in `_process_partition_pair` still enforce per-batch memory.
+  Honest limitation documented (§11.5).
+- **Budget >= 160 MB:** overhead ≤ 25% of budget (≤ 50% of state_limit),
+  leaving room for meaningful output estimate. **Strict: raise.** Real
+  guarantee.
+- **Secondary check `state_limit >= overhead`:** protects against
+  reservation drop. If `available_bytes` shrinks such that
+  `state_limit < 40 MB`, warn (not raise) — raise would fire trivially
+  regardless of output size.
+
 **Enforcement note (§11.5 addendum).** v0.8.9 per-batch pre-check —
 **per-batch enforcement only**. Whole-operation warning добавлен в
 v0.8.10-pre (log WARNING при `40 MB + 5 × predicted_output > state_limit`);
@@ -1077,6 +1099,11 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 
 ### 11.5. Осознанные ограничения (документированы)
 
+**v0.8.11b:** join strict enforcement requires `budget >= 160 MB`
+(§9.2.6). Below threshold — warn only, per-batch guards still enforce
+per-batch memory. For guaranteed strict enforcement, set
+`MemoryGuard(max_memory_mb=200)` or higher.
+
 Принцип памяти не нарушается, но поведение отличается от «идеального»
 или ограничено API внешней библиотеки.
 
@@ -1095,7 +1122,7 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | `df[-5:]` (отрицательный slice) — не поддержано | `SliceFilter` | `step > 0`, `start >= 0`; для отрицательных — `count()` + пересчёт |
 | ~~P2: out_batches accumulation (join)~~ | ~~`_process_partition_pair`~~ | **закрыто v0.5.1**: streaming via `hash_join_streaming` |
 | ~~P8: 1 MiB hardcode в `estimate_state_size`~~ | ~~`reduce()`~~ | **закрыто v0.5.1**: `ReduceOp.estimate_state_nbytes()` |
-| `drop_duplicates` returns rows in partition-concatenation order | `drop_duplicates` (v0.3.0) | pandas-order: `.sort_values(...)` после. §13.4/48 |
+| `drop_duplicates` returns rows in partition-concatenation order (v0.8.11a: no intra-partition sort by row_id) | `drop_duplicates` | set-equivalence preserved; `.sort_values(...)` после для детерминированного порядка. §11.5, §13.4/48 |
 | ~~P5: Python-list buffer в sort merge~~ | ~~`_merge_keys`~~ | **закрыто v0.5.2a**: `pa.Array.Builder`. Dictionary/list/struct — `NotImplementedError` (honest). |
 | `drop_duplicates` без recursion при skew | `drop_duplicates` (v0.3.0) | oversize partition → `MemoryLimitExceeded`; v0.3.1 — recursion + streaming dedup |
 | `rank(method='last')` — CADW extension (pandas не имеет 'last') | `rank` (v0.3.2) | Семантика: reverse of 'first' в tie-группе; identity `last(i) = group_first + group_last - first(i)`. Тестируется без pandas-эталона. |
@@ -1173,10 +1200,9 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 - ~~P-A3: `Table.join` internal peak = 3.4–6.85× output~~ —
   **closed v0.8.9**: pre-check `5 × row_bytes_out × actual_matches`
   before call, real schema-based row size.
-- ~~P-D1: dedup pandas chain unchecked~~ — **closed v0.8.9**:
-  `check_state(5 × table.nbytes)` before `to_pandas`. Effective partition
-  limit shrinks to `avail × 0.1` (honest RSS bound; Arrow-native rewrite
-  deferred to v0.8.10).
+- ~~P-D1: dedup pandas chain unchecked~~ — **closed v0.8.11a**:
+  Arrow-native rewrite (Path C: dictionary_encode + group_by + is_in),
+  pandas removed. Peak 0.29× of prior pandas chain (proto-validated).
 - ~~P-G3: `_groupby_with_skew` opens writers without
   check_partition_buffers~~ — **closed v0.8.9**.
 - ~~P-G5: sample cache byte-cap~~ — **closed v0.8.9**.
@@ -3016,6 +3042,180 @@ expectations **derived**, not authored — §13.4/128, /129, /139.
 loop (for group-change detection), O(N) but constant factor higher than
 vectorized. Optimize via segment detection (pc.not_equal between adjacent
 group values) — future release.
+
+**Эпизод 142 (P-D1: prototype-first vs stopgap).** v0.8.9 закрыл
+P-D1 «stopgap»-ом: `check_state(5 × table.nbytes)` **до** `to_pandas`.
+Это honest bound (5× покрывает pandas object/StringDtype overhead), но
+**не rewrite** — pandas оставался в hot path, effective partition limit
+падал в 5× (`avail × 0.1`).
+
+v0.8.11a — prototype-first по §13.4/123: `scripts/proto_dedup_arrow.py`
+сравнил 3 пути (pandas / arrow group_by / arrow dictionary_encode) на
+correctness × selectivity × 3 размера. Path C (dictionary_encode +
+group_by + is_in) выиграл с 0.29× peak vs pandas; **8× reduction на 1M
+rows** (10.9 MB vs 87.7 MB). Correctness A==B==C на всех keep × selectivity.
+
+**Adoption без fix-iterations.** Сравнить: v0.8.9 stopgap → 1 round
+(warn-only); v0.8.11a rewrite → 1 round (prototype → patch → green).
+Prototype стоит ~30 минут; он **экономит** fix-итерации и **даёт
+honest numbers** для §9.2.N формул.
+
+**Урок (расширение §13.4/141):** stopgap — не permanent fix. Каждый
+stopgap должен иметь «revisit criteria» (в §11.6: «Arrow-native rewrite
+when budget allows»). v0.8.9 → v0.8.11a gap = одна major-версия,
+приемлемо. Если бы gap был >2 версий — stopgap становится долгом.
+
+**Связанные:** §13.4/141 (prototype-first), §13.4/138 (audit формулы
+из RSS), §11.6 (backlog discipline).
+
+**Эпизод 143 (test substring ≠ token; CHANGELOG skip false positive).**
+Пятый подряд раунд кластера §13.4/139-142: fix (или его тест) вносит
+свежий баг.
+
+**Баг 1 (test):** `test_dedup_removes_stopgap_5x` проверял
+`assert "5 * table.nbytes" not in src`. Правильный новый код содержит
+`check_state(1.5 * table.nbytes, ...)` — и `"1.5 * table.nbytes"`
+содержит `"5 * table.nbytes"` как **подстроку**. Python `in` не уважает
+границы токенов, тест падает на правильном коде.
+
+**Баг 2 (CHANGELOG):** skip-условие
+`if "Arrow-native dedup" in s or "P-D1" in s and "closed" in s: skip`
+матчит v0.8.9 entry (там есть `P-D1` и `closed` в разных контекстах).
+Результат: v0.8.11a CHANGELOG entry молча пропущен. Плюс: после v0.8.10
+tag `[Unreleased]` header не существует (squash переименовал в
+`[0.8.10]`) — anchor-path не сработал бы в любом случае.
+
+**Fix (v0.8.11a-fix1):** (a) test проверяет **уникальный маркер** —
+`"dedup.pandas_chain"` (имя старого guard'а) вместо `5 * table.nbytes`;
+(b) CHANGELOG — проверить специфичный маркер
+`### Исправлено (safety — P-D1 close)`, создать `[Unreleased]` header
+если отсутствует, затем append.
+
+**Правило (расширение 139+140):** любой `assert "X" in/not in src`
+должен пройти проверку:
+1. **X — уникальный маркер** (имя функции/guard'а, тег комментария),
+   не code fragment, который может быть подстрокой правильного кода.
+2. **Guard-тесты прогоняются в том же patch-скрипте до `git commit`**
+   (см. §13.4/140). Не после.
+
+Если X — code fragment (арифметика, вызов), использовать
+**word-boundary regex** `r'\b' + re.escape(X) + r'\b'` или специфичное
+имя. `1.5 * table.nbytes` vs `5 * table.nbytes` — учебный пример: 1
+символ (`.`), и подстрока ломает тест.
+
+**Кластер (5 раундов):**
+| раунд | источник | фикс |
+|---|---|---|
+| v0.8.9 | AST guard broad (Table vs Dataset) | whitelist + `_is_table_from_batches` |
+| v0.8.9-fix | pc.cast overflow / pa.field nullable | `safe=False` + expected +1 byte |
+| v0.8.9-fix2 | stale test (uint64) | rename + assertion update |
+| v0.8.10-pre | `[0.8.10-pre]` vs `[Unreleased]` | rename to `[Unreleased]` |
+| **v0.8.11a** | **test substring / CHANGELOG skip** | **specific markers** |
+
+**Связанные:** §13.4/128 (expectations authored), /129 (reference helpers),
+/139 (fix semantics = REPL), /140 (pre-release), /141 (prototype-first),
+/142 (stopgap→rewrite). Класс «assumed compatibility, not verified».
+
+**Эпизод 144 (cross-file test staleness on guard rename).** Шестой
+раунд кластера §13.4/139-143.
+
+**Что случилось:** v0.8.9 добавил
+`tests/test_pingis_safety.py::test_dedup_pandas_chain_precheck_raises`,
+проверяющий `match="pandas_chain"` (guard 5×T stopgap). v0.8.11a
+(P-D1 close) заменил guard на `arrow_native` (1.5×T), но test
+в **другом файле** не был обновлён — patch-скрипт v0.8.11a правил
+`test_dedup_arrow_native.py` и `test_no_pandas_in_ops.py`, а
+`test_pingis_safety.py` (историческая куча) был вне его поля зрения.
+
+**Как поймали:** fast run в `patch_v0811a_fix1.py` (§13.4/140
+дисциплина: guard-tests до commit). Один wasted round.
+
+**Fix (v0.8.11a-fix2):** переписать test напрямую на `_local_dedup`
+с `budget = 2.5 × table.nbytes` (детерминированно: file ≈ T,
+size passes, 1.5×T fires). Не через `drop_duplicates` — там
+неконтролируемый hash_shuffle, размер партиции зависит от key-size
+estimate.
+
+**Правило (расширение 143):** patch, который renaming/removing guard
+name, **обязан** `grep <old_name> tests/` и обновить **все** ссылки —
+не только в своих новых файлах. Grep — часть pre-check, не после.
+
+**Long-term (v0.9.0 backlog):** guard names → module constants
+(`DEDUP_GUARD_NAME = "dedup.arrow_native"`, `JOIN_RSS_WARNING_NAME =
+"join.whole_operation_rss"`), tests import from module. Renaming = одна
+строка в source; tests follow automatically. Заодно — единый источник
+правды для документации (§9.2.N ссылается на те же имена).
+
+**Кластер (6 раундов):**
+| раунд | источник | фикс |
+|---|---|---|
+| v0.8.9 | AST guard broad (Table vs Dataset) | whitelist + `_is_table_from_batches` |
+| v0.8.9-fix | pc.cast overflow / pa.field nullable | `safe=False` + expected +1 byte |
+| v0.8.9-fix2 | stale test (uint64) | rename + assertion update |
+| v0.8.10-pre | `[0.8.10-pre]` vs `[Unreleased]` | rename to `[Unreleased]` |
+| v0.8.11a | test substring (5* in 1.5*) / CHANGELOG skip | specific markers |
+| **v0.8.11a-fix1** | **stale test in другой файл** (pandas_chain) | **grep before rename** |
+
+**Связанные:** §13.4/128, /129, /139, /140, /141, /142, /143.
+
+**Эпизод 145 (discovery, not creation — test found latent bug).**
+Кластер §13.4/139-144 = 6 раундов «fix вносит новый баг». Round 7
+(v0.8.11a-fix2) — **другой класс**: fix-тест **обнаружил** старую
+latent проблему.
+
+**Что нашлось:** `_local_dedup` (v0.8.11a, и v0.8.9 до неё) делал:
+`Table.from_batches((batch.select([out_fields..., row_id]) for ...),
+schema=reader.schema)`. `.select()` переупорядочивает в
+`[out_fields..., row_id]`. `reader.schema` — file order. В production
+`hash_shuffle` всегда кладёт row_id последним → порядки совпадают →
+баг невидим. fix2-тест написал partition с `row_id` ПЕРВЫМ →
+`ArrowInvalid: Schema at index 0 was different`.
+
+**Различие классов:**
+
+| раунд | что | кто нашёл |
+|---|---|---|
+| 1-6 (§13.4/139-144) | fix-код внёс баг | reviewer / CI |
+| **7 (§13.4/145)** | **pre-existing latent bug** | **fix2-тест** |
+
+**Fix (v0.8.11a-fix3):** explicit `select_schema = pa.schema(out_fields
++ [reader.schema.field("row_id")])`. Robust в любом file column order.
+Новый `test_dedup_schema_order_agnostic` пишет row_id first — coverage
+robustness, не workaround.
+
+**Урок (positive):** тест-дисциплина (§13.4/140 — guard-tests before
+commit) работает как задумано. fix2-тест, написанный со смещённым
+допущением, **нашёл реальную хрупкость**, которая в production
+никогда не проявлялась. 1 wasted round — приемлемая цена.
+
+**Правило:** production код не должен зависеть от **неявных инвариантов
+layout входных данных**. Если инвариант нужен — сделать explicit
+(`select_schema`, schema cast) или документировать + assert.
+
+**Backlog §11.6 (v0.9.0+):** audit всех `Table.from_batches(gen, schema=...)`
+в ops на аналогичные неявные предположения о column order. Кандидаты:
+`join._safe_materialize_partition` (явный `out_schema` — OK),
+`sort._write_run` (schema после take — OK), `groupby._read_partition_safe`
+— проверить в v0.8.11b.
+
+
+**Update v0.8.11b (audit completed).** Verified 4 additional call sites
+of `Table.from_batches(gen, schema=...)` in `cadw/ops/`:
+- `join._safe_materialize_partition`: explicit `schema=out_schema`,
+  order matches `.select(keep_cols)`. OK.
+- `sort._write_run`: `ArrowIPCBatchWriter(table.schema)` — `table.schema`
+  preserved through `pc.take(order)`. OK.
+- `sort._merge_keys`: explicit `schema=schema` in `RecordBatch.from_arrays`.
+  OK.
+- `groupby._read_partition_safe`: `_iter_batches` yields reader batches
+  as-is (no `.select(...)`), `schema=_schema` matches reader order
+  exactly. OK.
+- `dedup._local_dedup`: fixed v0.8.11a-fix3.
+
+**No additional schema-order bugs found.** 4 AST guards in
+`tests/test_schema_order_audit.py` lock the invariants.
+
+**Связанные:** §13.4/128, /129, /139-144.
 
 ### 13.5. Открытые вопросы
 

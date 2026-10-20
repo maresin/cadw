@@ -24,7 +24,6 @@ from itertools import chain
 from pathlib import Path
 from typing import Iterable
 
-import pandas as pd
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
@@ -62,8 +61,29 @@ def _local_dedup(
     keep,
     memory_guard: MemoryGuard,
 ) -> pa.Table:
-    """Local dedup of one partition. Returns table with original columns
-    (row_id dropped). Raises MemoryLimitExceeded if partition > available*0.5."""
+    """Local dedup via Arrow-native dictionary_encode + group_by + is_in.
+
+    v0.8.11a (P-D1 close): replaces the v0.8.9 pandas chain. Validated by
+    scripts/proto_dedup_arrow.py:
+      - Correctness: A==B==C across keep ∈ {first, last, False} ×
+        selectivity ∈ {10%, 50%, 90% dupes}.
+      - Peak RSS: 0.29× pandas on average; 0.38× table on 1M rows
+        (10.9 MB vs 87.7 MB pandas).
+
+    Algorithm:
+      1. dictionary_encode each subset column (string → int32 id).
+      2. group_by(subset).aggregate(min/max row_id) — keep='first'/'last'.
+         For keep=False: aggregate count + min; keep only count==1.
+      3. is_in(row_id, keep_rids) → filter original (unencoded) table.
+
+    Order: partition order (same as v0.3.0 pandas path, which sorted by
+    row_id inside the partition). See §11.5 note on order.
+
+    Raises MemoryLimitExceeded if partition > available×0.5, or if
+    Arrow-native bound (1.5× table.nbytes) exceeds state_limit.
+    """
+    import pyarrow.compute as pc
+
     size = partition_path.stat().st_size
     limit = int(memory_guard.available_bytes() * 0.5)
     if size > limit:
@@ -76,36 +96,61 @@ def _local_dedup(
 
     reader = ipc.open_file(str(partition_path))
     n_batches = reader.num_record_batches
-    # Schema from file with row_id stripped (hash_shuffle always appends).
     out_fields = [f for f in reader.schema if f.name != "row_id"]
     out_schema = pa.schema(out_fields)
 
     if n_batches == 0:
         return pa.Table.from_batches([], schema=out_schema)
 
-    # v0.8.9 (P-A1 for dedup): generator form, schema-correct.
+    # v0.8.11a-fix3: explicit select_schema. `reader.schema` is file
+    # column order; `.select(out_fields + ["row_id"])` reorders. In
+    # production hash_shuffle always puts row_id last so they coincide,
+    # but relying on that is brittle (any other IPC writer breaks).
+    # Explicit schema makes _local_dedup agnostic to file column order.
+    select_schema = pa.schema(
+        list(out_fields) + [reader.schema.field("row_id")]
+    )
     table = pa.Table.from_batches(
         (reader.get_batch(i).select([f.name for f in out_fields] + ["row_id"])
          for i in range(n_batches)),
-        schema=reader.schema,
+        schema=select_schema,
     )
-    memory_guard.check_state(table.nbytes, name=f"dedup({partition_path.name})")
-    # v0.8.9 (P-D1): pandas chain (to_pandas + sort_values + drop_duplicates
-    # + drop + from_pandas) — measured 3.95-8.29× table.nbytes (Pingis v0.8.8).
-    # 5× is a conservative bound covering int and pandas-3-StringDtype paths.
-    # Effective partition limit shrinks to avail × 0.5 / 5 = avail × 0.1.
     memory_guard.check_state(
-        5 * table.nbytes,
-        name=f"dedup.pandas_chain({partition_path.name})",
+        table.nbytes, name=f"dedup({partition_path.name})",
+    )
+    # v0.8.11a: Arrow-native peak ~0.4× table (proto: 10.9/28.6 MB at 1M).
+    # 1.5× conservative for all dtypes incl. K≈N (dictionary ≈ table size
+    # for all-unique, but no pandas object overhead). No 5× stopgap.
+    memory_guard.check_state(
+        1.5 * table.nbytes,
+        name=f"dedup.arrow_native({partition_path.name})",
     )
 
-    df = table.to_pandas()
-    # Сорт по row_id (stable) — keep='first'/'last' по исходному порядку.
-    df = df.sort_values("row_id", kind="mergesort").reset_index(drop=True)
-    df = df.drop_duplicates(subset=subset_cols, keep=keep)
-    df = df.drop(columns=["row_id"])
+    # Dictionary-encode subset for compact hash.
+    encoded_cols = {
+        c: pc.dictionary_encode(table.column(c)) for c in subset_cols
+    }
+    working = pa.table({
+        **{c: encoded_cols[c] for c in subset_cols},
+        "row_id": table.column("row_id"),
+    })
 
-    return pa.Table.from_pandas(df, schema=out_schema, preserve_index=False)
+    if keep in ("first", "last"):
+        agg_fn = "min" if keep == "first" else "max"
+        agg = working.group_by(subset_cols).aggregate([("row_id", agg_fn)])
+        keep_rids = agg.column(f"row_id_{agg_fn}")
+    elif keep is False:
+        agg = working.group_by(subset_cols).aggregate([
+            ("row_id", "count"), ("row_id", "min"),
+        ])
+        single = agg.filter(pc.equal(agg.column("row_id_count"), 1))
+        keep_rids = single.column("row_id_min")
+    else:
+        raise ValueError(f"dedup: unsupported keep={keep!r}")
+
+    mask = pc.is_in(table.column("row_id"), value_set=keep_rids)
+    result = table.filter(mask)
+    return result.select([f.name for f in out_fields])
 
 
 def drop_duplicates(

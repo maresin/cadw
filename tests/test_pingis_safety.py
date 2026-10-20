@@ -169,31 +169,42 @@ def test_groupby_sample_capped_by_bytes(tmp_path, monkeypatch):
 
 # ---------- P-D1: dedup pandas chain pre-check ----------
 
-def test_dedup_pandas_chain_precheck_raises(tmp_path):
-    """Oversize partition → MemoryLimitExceeded before pandas materialize."""
-    from cadw.ops.dedup import drop_duplicates
+def test_dedup_arrow_native_precheck_raises(tmp_path):
+    """Oversize partition → MemoryLimitExceeded from arrow_native guard.
+
+    v0.8.11a-fix2 (§13.4/144): renamed from
+    `test_dedup_pandas_chain_precheck_raises`. v0.8.11a (P-D1 close)
+    replaced the v0.8.9 5×T `pandas_chain` stopgap with 1.5×T
+    `arrow_native` guard. The old test in this file was stale — checked
+    for a guard name that no longer exists.
+
+    Direct test of `_local_dedup` (not the full `drop_duplicates`) so we
+    control the budget from `table.nbytes`: budget = 2.5 × T means
+      - file_size ≈ T < 0.5 × budget = 1.25 × T  → size check passes
+      - 1.5 × T > 0.5 × budget = 1.25 × T        → arrow_native fires
+    Deterministic — no reliance on string-key size estimate or P.
+    """
+    from cadw.io.batch_writer import ArrowIPCBatchWriter
+    from cadw.ops.dedup import _local_dedup
 
     n = 2000
     table = pa.table({
+        "row_id": pa.array(range(n), type=pa.uint64()),
         "k": [f"k{i % 100}" for i in range(n)],
         "v": list(range(n)),
     })
+    p = tmp_path / "partition.arrow"
+    writer = ArrowIPCBatchWriter(str(p), table.schema)
+    try:
+        for b in table.to_batches(max_chunksize=500):
+            writer.write_batch(b)
+    finally:
+        writer.close()
 
-    def it():
-        for i in range(0, n, 100):
-            yield table.slice(i, 100).to_batches()[0]
-
-    # Budget 80 KB: partition ~19.5 KB, size_limit=40 KB (passes old check),
-    # but new 5×T = 5×19.5 = 97.5 KB > 40 KB → MemoryLimitExceeded from
-    # pandas_chain check (not the older size check). Tests new semantics.
-    guard = MemoryGuard(max_memory_bytes=80000)
-    with pytest.raises(MemoryLimitExceeded, match="pandas_chain"):
-        drop_duplicates(
-            it(), subset=["k"], keep="first",
-            memory_guard=guard,
-            spill_dir=tmp_path,
-            num_partitions=4,
-        )
+    budget = int(2.5 * table.nbytes)
+    guard = MemoryGuard(max_memory_bytes=budget)
+    with pytest.raises(MemoryLimitExceeded, match="arrow_native"):
+        _local_dedup(p, ["k"], "first", guard)
 
 
 # ---------- P-A1: generator form sanity (AST-level; runtime equivalence) ----------

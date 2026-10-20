@@ -83,54 +83,34 @@ def test_merge_warning_does_not_raise(tmp_path, caplog):
     assert result.shape[0] == 2
 
 
-def test_merge_ast_guard_warning_present():
-    """AST: merge() contains a try/except around whole_operation_rss check."""
-    import ast
+def test_merge_ast_uses_strict_mode():
+    """AST: merge() references strict-mode threshold (v0.8.11b).
+
+    Replaces v0.8.10-pre `test_merge_ast_guard_warning_present`
+    (try/except pattern) — v0.8.11b uses explicit if/elif branch on
+    `strict_mode` instead of try/except.
+    """
     import inspect
     from cadw import dataframe as df_mod
     src = inspect.getsource(df_mod.CadwDataFrame.merge)
-    tree = ast.parse(inspect.cleandoc(src))
-
-    found_try = False
-    found_check = False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Try):
-            unparsed = ast.unparse(node)
-            if "join.whole_operation_rss" in unparsed:
-                found_try = True
-                found_check = True
-                break
-    assert found_try, (
-        "merge() must have try/except around whole_operation_rss "
-        "check_state (v0.8.10-pre warning pattern)"
+    assert "_JOIN_STRICT_BUDGET_THRESHOLD_BYTES" in src, (
+        "v0.8.11b: merge() must reference _JOIN_STRICT_BUDGET_THRESHOLD_BYTES"
+    )
+    assert "strict_mode" in src, (
+        "v0.8.11b: merge() must have strict_mode branch"
     )
 
 
-def test_merge_ast_does_not_raise_whole_op():
-    """AST: whole_operation_rss must be inside try (warning), not bare."""
-    import ast
+def test_merge_ast_check_state_guard_name():
+    """AST: check_state uses name='join.whole_operation_rss'.
+
+    Replaces v0.8.10-pre `test_merge_ast_does_not_raise_whole_op` —
+    v0.8.11b DOES raise (in strict mode), so the guard name is the
+    stable marker across both warn/strict modes.
+    """
     import inspect
     from cadw import dataframe as df_mod
     src = inspect.getsource(df_mod.CadwDataFrame.merge)
-    tree = ast.parse(inspect.cleandoc(src))
-
-    # Every `check_state(..., name="join.whole_operation_rss")` must have
-    # a parent Try node.
-    def _find_parent_try(target: ast.AST) -> bool:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Try):
-                for child in ast.walk(node):
-                    if child is target:
-                        return True
-        return False
-
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "check_state"):
-            unparsed = ast.unparse(node)
-            if "join.whole_operation_rss" in unparsed:
-                assert _find_parent_try(node), (
-                    "check_state(name='join.whole_operation_rss') must be "
-                    "inside try (warn, not raise)"
-                )
+    assert 'name="join.whole_operation_rss"' in src, (
+        "v0.8.11b: check_state must use guard name 'join.whole_operation_rss'"
+    )

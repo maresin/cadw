@@ -80,6 +80,16 @@ class MemoryGuard:
     def budget_bytes(self) -> int:
         return self._budget
 
+    @property
+    def state_limit_bytes(self) -> int:
+        """Current state_size limit: `available_bytes() × state_safety`.
+
+        Public since v0.8.11b — callers (e.g., `merge()` strict-mode
+        decision) need to compare against state_limit without going
+        through `check_state` (which raises).
+        """
+        return self._state_limit()
+
     def available_bytes(self) -> int:
         return max(0, self._budget - self._reserved)
 

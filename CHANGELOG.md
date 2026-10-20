@@ -1,3 +1,102 @@
+## [0.8.11] — 2026-10-20
+
+### Исправлено (safety — P-D1 close)
+
+- **P-D1 (S2, live): Arrow-native `drop_duplicates` rewrite.** pandas
+  chain (`to_pandas → sort_values → drop_duplicates → drop → from_pandas`)
+  в `_local_dedup` заменён на Path C: `dictionary_encode(subset)` +
+  `group_by(subset).aggregate(min/max row_id)` + `is_in` filter.
+  Удалён `import pandas` из `cadw/ops/dedup.py`.
+
+  **Bench (prototype `scripts/proto_dedup_arrow.py`):**
+  | n | pandas | Path B (arrow) | **Path C (dict)** |
+  |---|---|---|---|
+  | 100k | 9.3 MB | 10.2 MB | **5.9 MB** |
+  | 300k | 29.3 MB | 39.0 MB | **3.6 MB** |
+  | 1M   | 87.7 MB | 47.2 MB | **10.9 MB** |
+
+  avg peak(C)/peak(A) = **0.29**. Correctness A==B==C across keep ∈
+  {first, last, False} × selectivity ∈ {10%, 50%, 90% dupes}.
+
+  **Stopgap removed:** `check_state(5 × table.nbytes)` → `check_state(1.5 ×
+  table.nbytes)` (honest Arrow-native bound, proto-backed). Effective
+  partition limit back from `avail × 0.1` to `avail × 0.33`.
+
+- **Dead pandas helpers removed из `cadw/ops/join.py`.** `import pandas
+  as pd`, `_drop_null_keys` (superseded by `_drop_null_keys_arrow` в
+  v0.8.5.3) — удалены. Zero pandas in ops except `shuffle.py::_pandas_hash_column`
+  (documented perf exception, §9.2.20).
+
+### Добавлено
+
+- **`tests/test_no_pandas_in_ops.py`** — AST guard: `import pandas` в
+  `cadw/ops/*` разрешён только в `shuffle.py` (whitelist + rationale).
+  Также `test_dedup_uses_arrow_native` (Path C marker).
+- **`tests/test_dedup_arrow_native.py`** — 16 behavior tests: first/last/
+  False, nulls в subset/value, multi-subset, int key, empty, K=N, K=1,
+  pandas-equivalence, oversize → raise, dedup→sort chain, filtered dedup.
+
+### Ограничения (v0.8.11a, §11.5)
+
+- `drop_duplicates` порядок вывода: partition order, без
+  `sort_values("row_id")` внутри partition (был в pandas-версии).
+  Set-equivalence сохранена; для детерминированного порядка — `.sort_values(...)` после.
+- `drop_duplicates` recursion при skew — не реализован (как в v0.3.0).
+  Oversize partition → MemoryLimitExceeded. Backlog.
+
+### Тесты
+
+- fast: **~1190** (+16 behavior, +5 AST guard). slow: **8**.
+
+### v0.8.11b — strict join conditional + schema-order audit
+
+#### Изменено
+
+- **`merge()` strict join enforcement.** `budget >= 160 MB` →
+  `MemoryLimitExceeded` on whole-operation RSS over-budget (was: warn).
+  Threshold: `4 × _JOIN_FIXED_OVERHEAD_BYTES = 160 MB`, plus secondary
+  `state_limit >= 40 MB` (protects against reservation drop).
+  Below threshold → warn only (backward compat with `mem_mb=20` tests;
+  fixed 40 MB overhead dominates small budgets — strict check would fire
+  trivially even for tiny joins). See §9.2.6.
+
+- **`MemoryGuard.state_limit_bytes`** — public property. Callers need
+  `state_limit` without raising `MemoryLimitExceeded` (used by merge's
+  strict-mode decision).
+
+- **`cadw/ops/join.py::_JOIN_STRICT_BUDGET_THRESHOLD_BYTES`** = `4 ×
+  _JOIN_FIXED_OVERHEAD_BYTES` = 160 MB. Module constant, documented.
+
+#### Добавлено (schema-order audit — §13.4/145 backlog)
+
+- **`tests/test_schema_order_audit.py`** — 4 AST guards for the audit
+  findings:
+  - `join._safe_materialize_partition`: explicit `schema=out_schema`.
+  - `sort._write_run`: `ArrowIPCBatchWriter(table.schema)`.
+  - `groupby._read_partition_safe`: no `.select()` on batches.
+  - `dedup._local_dedup`: `select_schema` (v0.8.11a-fix3).
+  No additional bugs found across 4 audited call sites.
+
+- **`tests/test_join_strict.py`** — 4 tests: threshold constant, public
+  property, strict raise at budget 200 MB, strict pass small join.
+
+#### Ограничения (v0.8.11b, §11.5)
+
+- **Join strict enforcement requires `budget >= 160 MB`.** Below — warn
+  only, per-batch guards still enforce per-batch memory. For guaranteed
+  strict enforcement, set `MemoryGuard(max_memory_mb=200)` or higher.
+  Rationale: 40 MB fixed overhead is non-trivial below 160 MB budget;
+  raise would fire trivially for tiny joins.
+
+#### Тесты (v0.8.11b)
+
+- fast: **~1198** (+8), slow: **8**.
+
+### Тесты (итого v0.8.11)
+
+- fast: **~1198**, slow: **8**.
+
+
 ## [0.8.10] — 2026-10-20
 
 ### Добавлено (safety follow-up, P-A3 addendum)
