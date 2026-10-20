@@ -230,8 +230,16 @@ def test_dedup_removes_stopgap_5x():
     assert "dedup.arrow_native" in src, (
         "v0.8.11a: expect `dedup.arrow_native` guard name"
     )
-    assert "1.5 * table.nbytes" in src, (
-        "v0.8.11a: expect `1.5 * table.nbytes` Arrow-native bound"
+    # v0.9.3c (P-D2): 1.5x -> 12x (string) / 2.5x (numeric)
+    # based on measured peak (11.26x strings at K=N, 1.97x int).
+    assert "_dedup_peak_mult = 12 if" in src, (
+        "v0.9.3c: 12x for string subset (measured 11.26x)"
+    )
+    assert "else 2.5" in src, (
+        "v0.9.3c: 2.5x for numeric subset (measured 1.97x)"
+    )
+    assert "_dedup_peak_mult * table.nbytes" in src, (
+        "v0.9.3c: multiplier applied to check_state"
     )
 
 

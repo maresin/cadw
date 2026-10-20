@@ -1,5 +1,48 @@
 ## [Unreleased]
 
+### Исправлено (v0.9.3c - P-D2 dedup string keys, S2 fix)
+
+**P-D2 (S2, из v0.9.2 audit):** `_local_dedup` guard
+`check_state(1.5 * table.nbytes)` extrapolated from int-key
+prototype v0.8.11a (K<<N, measured 0.23x). Bench v0.9.2 audit
+(bench_dedup_phases.py, 400k rows, K=N strings, table 9.20 MB):
+
+- dictionary_encode +56.95 MB
+- group_by +86.14 MB
+- is_in +103.38 MB
+- filter +103.58 MB (peak)
+
+Peak / table = **11.26x** (strings at K=N). Int64 K=N = 1.97x.
+Prior 1.5x bound was **7.5x underestimate** for string K=N --
+OOM instead of MemoryLimitExceeded.
+
+**Fix:** type-based multiplier (conservative bench-backed):
+
+- **String subset:** 12 * table.nbytes (11.26x measured + 7% safety).
+- **Numeric subset:** 2.5 * table.nbytes (1.97x measured + 27%).
+
+`_has_string_subset` checked via `pa.types.is_string` /
+`is_large_string` on `subset_cols`. `_dedup_peak_mult` drives
+`check_state`.
+
+**Почему dictionary_encode даёт 11x peak:**
+- Копирует **каждое** string value (не только dictionary).
+- Arrow StringArray: data buffer + offset buffer (int32).
+- BufferBuilder geometric growth (~2x peak of final).
+- + int32 indices buffer (4 B / row).
+- + hash table for group_by (K entries).
+
+**Over-conservative:** K<<N strings (measured ~0x) still need 12x.
+Sample-based K_est tightening -> v0.9.4 backlog.
+
+**Тесты (v0.9.3c):** +7 fast (test_dedup_estimator_v093c.py):
+string K=N tight-budget raises, string K=N ample passes, int K=N
+ample passes, 3 AST guards (12x, 2.5x, type check), multiplier
+variable. Existing `test_dedup_removes_stopgap_5x` updated: 1.5x
+-> 12x/2.5x.
+
+- fast: **~1572** (+7). slow: **20** (unchanged).
+
 ### Исправлено (v0.9.3b - P-S1 sort merge fan-in, S2 fix)
 
 **P-S1 (S2, из v0.9.2 audit):** `external_sort` вызывал

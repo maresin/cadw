@@ -79,8 +79,13 @@ def _local_dedup(
     Order: partition order (same as v0.3.0 pandas path, which sorted by
     row_id inside the partition). See §11.5 note on order.
 
-    Raises MemoryLimitExceeded if partition > available×0.5, or if
-    Arrow-native bound (1.5× table.nbytes) exceeds state_limit.
+    Raises MemoryLimitExceeded if partition > available*0.5, or if
+    Arrow-native bound exceeds state_limit:
+      - 12x table.nbytes for string subset (11.26x measured at K=N,
+        +7% safety)
+      - 2.5x table.nbytes for numeric subset (1.97x measured at K=N,
+        +27% safety)
+    See v0.9.3c / P-D2 / 13.4/175.
     """
     import pyarrow.compute as pc
 
@@ -121,8 +126,23 @@ def _local_dedup(
     # v0.8.11a: Arrow-native peak ~0.4× table (proto: 10.9/28.6 MB at 1M).
     # 1.5× conservative for all dtypes incl. K≈N (dictionary ≈ table size
     # for all-unique, but no pandas object overhead). No 5× stopgap.
+    # v0.9.3c (P-D2, S2): type-based conservative estimate.
+    # Bench v0.9.2 audit:
+    #   - K=N strings, 400k rows: peak 11.26x table.nbytes
+    #     (dictionary_encode copies every string; Arrow StringArray
+    #     + int32 indices + BufferBuilder geometric growth).
+    #   - K=N int64: peak 1.97x table.nbytes.
+    #   - K<<N strings: ~0x (buffers reused).
+    # Prior 1.5x bound was extrapolated from int K<<N prototype ->
+    # 7.5x underestimate for strings at K=N.
+    _has_string_subset = any(
+        pa.types.is_string(table.schema.field(c).type)
+        or pa.types.is_large_string(table.schema.field(c).type)
+        for c in subset_cols
+    )
+    _dedup_peak_mult = 12 if _has_string_subset else 2.5
     memory_guard.check_state(
-        1.5 * table.nbytes,
+        _dedup_peak_mult * table.nbytes,
         name=f"dedup.arrow_native({partition_path.name})",
     )
 

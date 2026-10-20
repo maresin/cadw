@@ -1215,6 +1215,20 @@ estimate.
   does `n_splits * N` row touches (once per fold per side). O(1)
   memory per iteration.
 
+**v0.9.3c (dedup string keys):**
+- `_local_dedup` guard: type-based multiplier.
+  - String subset: `12 * table.nbytes` (11.26x measured at K=N,
+    +7% safety).
+  - Numeric subset: `2.5 * table.nbytes` (1.97x measured at K=N,
+    +27% safety).
+- **Over-conservative for K<<N strings** (measured ~0x, checked
+  against 12x). Budget may need bump for string dedup even when
+  K small. Workaround: `encode_categorical` before dedup, or
+  v0.9.4 sample-based K_est estimator.
+- `pc.dictionary_encode` on all-unique strings copies every value
+  (not just dictionary) + Arrow BufferBuilder geometric growth
+  (~2x) + int32 indices + hash table. Peak 11x table, not 0.4x.
+
 ### 11.5. Осознанные ограничения (документированы)
 
 **v0.8.11b:** join strict enforcement requires `budget >= 160 MB`
@@ -4765,6 +4779,45 @@ repeat:** behavior change should grep ALL tests before commit.
 но я его не вызвал в v0.9.3a. **Use it.**
 
 **Связанные:** 13.4/140, 144, 149, 152, 156, 160, 161, 166, 173.
+
+**Эпизод 175 (memory formula validity scope).** v0.9.3c: P-D2
+из v0.9.2 audit.
+
+**Bug.** `_local_dedup` guard `check_state(1.5 * table.nbytes)`
+был выведен из prototype v0.8.11a: int64 keys, K<<N, measured
+peak 0.23x table. Экстраполяция на **string keys, K=N** дала
+7.5x underestimate (real 11.26x). Consequence: partition passes
+1.5x check, but real peak 11x -> OOM вместо MemoryLimitExceeded.
+
+**Правило (13.4/175, расширение 128, 158, 173):**
+
+- **Memory formula scope must be measured, not extrapolated.**
+  Prototype on int K<<N не доказывает что formula holds для
+  string K=N. Kernel cost depends on: dtype (fixed-width vs
+  variable-length), cardinality (K vs N), and internal BufferBuilder
+  geometric growth (2x peak).
+- **Bench matrix for each guard:**
+  - dtype: int / float / string (at least)
+  - cardinality: K<<N / K=N/2 / K~N
+  - table size: small / medium / large
+  Формула должна быть conservative на **worst cell** матрицы,
+  не average.
+- **`pc.dictionary_encode` is not O(table.nbytes).** For variable-
+  length types it copies every value + builds offsets + indices +
+  hash table. Peak = table.nbytes + K*(avg_len+8)*2 + 
+  4*N (indices) + hash table + BufferBuilder 2x. Simplify: 12x
+  table.nbytes for string subset (measured, bench-backed).
+
+**Backlog (11.6):**
+- Audit all `check_state` formulas — grep `* table.nbytes`,
+  `* grouped_table.nbytes`, etc. Each should have bench matrix
+  source in docstring, not single-cell extrapolation.
+- Sample-based K_est tightening for dedup: for K<<N strings,
+  could use 2.5x instead of 12x via `count_distinct(sample)`
+  extrapolation. v0.9.4.
+
+**Связанные:** 13.4/128, 158, 173, **P-D1 v0.8.11a** (guarded
+int path only; strings edge case deferred to v0.9.2 audit).
 
 ### 13.5. Открытые вопросы
 
