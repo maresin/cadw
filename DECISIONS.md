@@ -1381,6 +1381,19 @@ end-of-file from v0.9.0b-fix1.)
   (feature, not optimization). Defer to Lasso-path feature.
 
 
+**§11.6 addendum (v0.9.2f observation):**
+
+- **`test_arrow_call_memory_guard.py` whitelist by function NAME,
+  not qualname.** `"fit"`, `"transform"`, `"predict"` whitelisted
+  globally → `RobustScaler.fit` (calls `df.quantile`) not caught by
+  AST guard. Fix: `_collect_violations` walk ClassDef for
+  `ClassName.method` qualname; whitelist with qualname keys.
+  ~30 min, v0.9.3.
+- **RobustScaler.fit — O(d) external_sorts.** For d=100 × n=1M,
+  ~17 min fit. For d > 100 prefer StandardScaler/MinMaxScaler.
+  Documented in class docstring + §11.5.
+
+
 ## 12. Дорожная карта
 
 ### 12.1–12.5. Закрыто в v0.1.0
@@ -4481,6 +4494,156 @@ x/y distributions align train vs test. r2 well above 0.3.
 **Связанные:** §13.4/128 (test expectations authored), /129 (rolling
 reference), /158 (E2E respects inherent complexity), /166 (prototype
 test-authoring).
+
+**Эпизод 170 (scalers — no new lessons; AST whitelist
+observation).** v0.9.2f added StandardScaler / MinMaxScaler /
+MaxAbsScaler / RobustScaler. **No new §13.4 lessons** — pattern
+identical to CastStep (v0.9.0b) + `_NumericStatsOp` (single-pass
+Welford+min/max, custom ReduceOp).
+
+**Why no prototype:** all building blocks already tested —
+`Reduce` (54 tests in `test_reduce.py`), `df.quantile` (20 tests in
+`test_quantile.py`), `Transformer` Protocol + Pipeline (v0.9.0–0.9.1),
+`_attach_column` nullability (§13.4/169). Scalers are **composition**,
+not new algorithm. §13.4/123 prototype-first applies to **new
+algorithms** (sort, roc_auc, CV fold math) — not to compositions of
+tested primitives.
+
+**Observation (§11.6 backlog):** AST guard whitelist in
+`test_arrow_call_memory_guard.py` is **by function name**
+(`node.name in WHITELISTED_FUNCS`), not by qualname.
+- `"fit"`, `"transform"`, `"predict"` in whitelist → **ALL** methods
+  named `fit`/`transform`/`predict` in `cadw/` are whitelisted
+  (Pipeline, GBDTStep, scalers, ...).
+- Rationale string per key is misleading (e.g., `"fit": "delegates
+  to step.fit"` — true for Pipeline, false for RobustScaler which
+  calls `df.quantile` directly).
+- Effect: `RobustScaler.fit` calls `df.quantile` (high-risk)
+  without preceding `check_state`/`check_batch` — not flagged.
+  Not a bug (quantile has its own guards), but the guard cannot
+  distinguish safe from unsafe calls in any future `*_fit` method.
+
+**Proper fix (v0.9.3):** `_collect_violations` walks ClassDef to
+build `ClassName.method_name` qualname; whitelist by qualname
+(`"Pipeline.fit": "..."`, `"RobustScaler.fit": "..."`). ~30 min.
+
+**Связанные:** §13.4/123 (prototype applies to new algorithms, not
+compositions), §13.4/164 (whitelist discipline), §13.4/169
+(nullability).
+
+**Эпизод 171 (test-authoring #7; deterministic-vs-statistical
+test pattern).** v0.9.2f-fix1: 1 failure
+`test_standard_scaler_unseen_data`. Two bugs in same test:
+
+**Bug A (manual arithmetic, §13.4/128-class):** comment said
+«Test mean close to train mean (10.0/2.0 = 5.0)», assertion
+`abs(mean - 5.0) < 0.5`. But standardization is
+`(x - mean_train) / std_train` → output mean = **0**, not `mean/std = 5`.
+Actual result `mean ≈ -0.036` (correct). Manual arithmetic wrong.
+
+**Bug B (test doesn't test what name claims):** `x_train` and
+`x_test` both `rng.normal(loc=10.0, scale=2.0)`. Frozen-stats transform
+and refit-on-test both give output mean ≈ 0 (trivially, since
+distribution matches). Test called `unseen_data` but couldn't
+distinguish frozen-vs-refit. Property under test ("which stats were
+used?") **requires different distributions** to distinguish.
+
+**Fix:**
+- `tests/_helpers/scaler_reference.py` — reference transforms for
+  all 4 scalers. Test bodies use reference (never manual arithmetic).
+- Deterministic data: `x_train = [8, 12]` → mean=10, std=2 exactly.
+  `x_test = [12]` → frozen: `(12-10)/2 = 1.0`, refit: `(12-12)/1 = 0.0`.
+  Frozen gives 1.0, refit gives 0.0. Distinguishable. Exact assertion.
+
+**Правило (§13.4/171, расширение 128, 163, 164, 166, 167):**
+
+1. **For EXACT-property tests, use deterministic data.** The property
+   «does transform use frozen stats?» is exact (which stats were used).
+   RNG washes out the signal. Deterministic data + reference helper
+   gives exact assertion. RNG + statistical tolerance only for
+   «does the model converge/learn?» — not «which stats were used?».
+
+2. **Test invariants, not derivable values.** «Output mean ≈ 0» is
+   derivable from StandardScaler invariant (`(x-mean)/std` of the
+   training set has mean 0). «Output mean ≈ 5.0 because mean/std = 5»
+   is not derivable — it's manual arithmetic that happened to be wrong.
+
+3. **Reference helper for every scaler transform.** Once one test
+   derives value manually, every test needs same reference. Codify
+   in `tests/_helpers/scaler_reference.py` (tested separately via
+   scalers self-tests).
+
+4. **7th test-authoring error in session** (128 → 163 → 164 → 166
+   → 167 → 169 → 171). Pattern: manual arithmetic + RNG where
+   exact-property test needed. The `tests/_helpers/*_reference.py`
+   discipline (started §13.4/164 with `metrics_reference.py`,
+   extended §13.4/169 with `rolling_reference.py`, now §13.4/171
+   with `scaler_reference.py`) is the systematic fix: every test
+   that can use a reference helper — must.
+
+**Backlog (§11.6):**
+- All scaler tests (once they exist) → import from `scaler_reference`.
+- When GBDT ranking/quantile-loss tests are written → reference helper
+  per loss.
+- When TimeSeriesFeatures (composite) tests are written →
+  `ts_features_reference.py`.
+
+**Связанные:** §13.4/128 (rolling nulls), /163 (log_loss semantic),
+/164 (precision FP; metrics_reference.py created), /166 (roc_auc
+prototype), /167 (dual proba field), /169 (TSS+GBDT test data).
+
+**Эпизод 172 (closed-list stale-bait on registry growth).**
+v0.9.2f-fix2: 1 failure — `test_list_step_types_default` asserted
+closed 4-item list, registry grew to 8 (added 4 scalers via
+`_register_scalers()` auto-called at `cadw/scalers.py` import).
+
+**Not a bug** — auto-registration intentional: `cadw/__init__.py`
+imports `from .scalers import ...` → `_register_scalers()` runs →
+`Pipeline.from_json("pipeline_with_scaler")` works without explicit
+`register_step_type` in user code.
+
+**Test intent** was "verify no test-scoped registry pollution" (guard
+against leaks from test_registry_* fixtures), not "only 4 forever".
+
+**Two competing fixes considered:**
+- (a) Update expected list to 8. Churn per built-in add; but churn is
+  VISIBLE — patch review of expected-vs-actual catches typos in step
+  name (e.g., `"StandartScaler"` → test fails, not silent).
+- (b) Assert superset-of-N + no-unknown-types:
+  `assert set(list_step_types()) >= {4 core}` +
+  `assert set(list_step_types()) <= KNOWN_TYPES`. Requires
+  KNOWN_TYPES set that also goes stale. Not simpler.
+
+**Chosen: (a)** — update expected list in each patch that adds a
+built-in. Convention: when adding a built-in step to `_STEP_REGISTRY`,
+update `test_list_step_types_default` in same commit.
+
+**Правило (§13.4/172, расширение 152, 161):** closed lists ARE
+stale-baits. Two valid patterns:
+- **(a) Explicit update per add** (chosen here): visible churn in
+  patch, review catches typos in new names.
+- **(b) Property-based test** (open-set assert): doesn't work well
+  for "exactly these N" because the assertion is the SPECIFICATION.
+- **(c) No test** — loses the "no pollution" guard.
+
+For small stable registries (built-in steps: 8), pattern (a) is
+simplest. For large expanding registries (ML models: 10+), pattern
+(b) would be better ("every registered type has from_dict", "no
+Test* leaked"). Different scales, different patterns.
+
+**Backlog (§11.6):** audit closed lists across tests:
+- `test_register_step_type.py::test_list_step_types_default` — fixed
+  (8 items).
+- `test_api_availability.py::test_pyarrow_version_and_imports` —
+  asserts `pc.X` exists (open set, safe).
+- `test_api_availability.py::test_cadw_all_exports_importable` —
+  iterates `__all__` (adaptive, safe).
+- `test_no_pandas_in_ops.py::ALLOWED_PANDAS_MODULES` — closed set,
+  1 item (shuffle.py). Adding new pandas exception → update needed.
+  Same pattern as this episode.
+
+**Связанные:** §13.4/152 (stale behavior), /161 (AST substring),
+/167 (partial migration — stale check), /171 (test-authoring).
 
 ### 13.5. Открытые вопросы
 

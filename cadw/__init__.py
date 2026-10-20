@@ -45,6 +45,13 @@ from .cv import (
     cv_score,
 )
 
+from .scalers import (
+    StandardScaler,
+    MinMaxScaler,
+    MaxAbsScaler,
+    RobustScaler,
+)
+
 from .ml import (
     XTXOp, LinearModel, fit_linear,
     fit_lasso, fit_elasticnet,
@@ -102,4 +109,6 @@ __all__ = [
     "register_step_type", "unregister_step_type", "list_step_types",
     # v0.9.2e cross-validation
     "KFold", "TimeSeriesSplit", "cv_score",
+    # v0.9.2f scalers
+    "StandardScaler", "MinMaxScaler", "MaxAbsScaler", "RobustScaler",
 ]

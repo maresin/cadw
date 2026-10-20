@@ -1,5 +1,135 @@
 ## [Unreleased]
 
+### Исправлено (v0.9.2f-fix2 — registry 4→8)
+
+- **`test_list_step_types_default`** — ожидаемый список 4 → 8 items
+  (v0.9.2f auto-registered 4 scalers via `_register_scalers()` at
+  `cadw/scalers.py` import). Closed-list assert is intentional guard
+  against test-registry pollution; grows with each new built-in.
+- Rationale comment: built-ins updated in same patch that adds new
+  step. Patch review catches typos in new step name (e.g.,
+  `"StandartScaler"` → test fails, not silent).
+
+### §13.4/172 — closed-list stale-bait on registry growth
+
+Built-in registry grew 4→8. Closed-list test was stale-bait; not a
+bug, auto-registration is intentional (`Pipeline.from_json` works for
+scalers without setup). Chosen fix: (a) update expected list per patch
+(visible churn, review catches typos). Alternative (b) property-based
+superset check — deferred, KNOWN_TYPES goes stale too.
+
+Convention: **when adding a built-in step, update
+`test_list_step_types_default` in same commit.**
+
+### Исправлено (v0.9.2f-fix1 — test-authoring #7)
+
+- **`test_standard_scaler_unseen_data`** — deterministic data +
+  reference helper. Prior test had 2 bugs:
+  (a) same-distribution train/test — frozen-vs-refit indistinguishable
+      (both output mean ≈ 0);
+  (b) manual arithmetic `abs(mean - 5.0) < 0.5` — wrong: standardized
+      mean = 0, not mean/std = 5.
+  New: `x_train = [8, 12]`, `x_test = [12]` — frozen gives exactly
+  1.0, refit gives 0.0. Exact assertion via reference.
+- **`tests/_helpers/scaler_reference.py`** (new) — reference transforms
+  for Standard/MinMax/MaxAbs/Robust. Codifies invariant
+  `(x - mean_train) / std_train` per scaler; test bodies import
+  reference, not manual arithmetic (§13.4/164 discipline extended
+  to scalers).
+
+### §13.4/171 — deterministic-vs-statistical test pattern
+
+**For EXACT-property tests** (e.g., «does transform use frozen stats?»):
+deterministic data + reference helper + exact assertion. RNG washes
+out the property.
+
+**For CONVERGENCE tests** («does the model learn?»): RNG + statistical
+tolerance is fine.
+
+7th test-authoring error in session (128 → 163 → 164 → 166 → 167 →
+169 → 171). Systematic fix: reference helper per domain
+(`metrics_reference.py`, `rolling_reference.py`, `scaler_reference.py`,
+future `ts_features_reference.py`).
+
+### Добавлено (v0.9.2f — scalers)
+
+Завершение ML flow v0.9.2: preprocessing (metrics + CV + scalers).
+
+- **`StandardScaler(columns=None, *, with_mean=True, with_std=True)`** —
+  `(x - mean) / std`. Population std (`ddof=0`, matches sklearn).
+  Degenerate column (std=0) → scale=1.0 (sklearn behavior).
+- **`MinMaxScaler(columns=None, *, feature_range=(0.0, 1.0))`** —
+  `(x - min) * (high-low)/(max-min) + low`. Constant column → output
+  `feature_range[0]` (sklearn).
+- **`MaxAbsScaler(columns=None)`** — `x / max(|min|, |max|)`. All-zero
+  column → scale=1 (avoid division by zero).
+- **`RobustScaler(columns=None)`** — `(x - median) / IQR`. IQR=0
+  (degenerate) → scale=1. Per-column `df.quantile([0.25, 0.5, 0.75])`
+  (external_sort per column, O(d) sorts per fit).
+- **`cadw/scalers.py`** — new module. `_NumericStatsOp` (per-column
+  Welford + min/max in one pass, state 5×d×8 bytes) shared by
+  StandardScaler/MinMaxScaler/MaxAbsScaler. RobustScaler uses
+  existing `df.quantile`.
+- Auto-registered as Pipeline steps (`register_step_type`) → usable in
+  `Pipeline.to_json/from_json`.
+- Exports: `from cadw import StandardScaler, MinMaxScaler,
+  MaxAbsScaler, RobustScaler`.
+
+### Design decisions (locked-in, v0.9.2f)
+
+- **No prototype** — scalers are **composition** of tested primitives
+  (`Reduce`, `df.quantile`, `Transformer` Protocol). §13.4/123
+  prototype-first applies to **new algorithms** (sort, roc_auc, CV
+  fold math), not compositions.
+- **Population std (ddof=0)** for StandardScaler — matches sklearn.
+- **Degenerate handling**: std=0 → scale=1; IQR=0 → scale=1;
+  min==max → output feature_range[0]; max_abs=0 → scale=1. All
+  match sklearn or are no-op (safer for downstream NaN propagation).
+- **Nullability (§13.4/169)**: all output fields nullable=True. Scaled
+  columns → dtype float64; pass-through keep original dtype.
+- **State embedded in `to_dict`** — O(d) bytes (dicts of floats). No
+  separate "state" file like GBDT (large trees) — small enough for
+  `pipeline.json`.
+- **`columns=None` auto-detect numeric** at fit time, stored in
+  `_columns` for transform.
+
+### Ограничения (v0.9.2f, §11.5)
+
+- **RobustScaler — O(d) external_sorts per fit.** For d=100 × n=1M,
+  ~17 min fit. For d > 100 prefer StandardScaler/MinMaxScaler.
+  Backlog: `pc.tdigest` based approximate (v0.9.4).
+- **`astype` to non-float dtype** — not supported (scalers always
+  produce float64 for scaled columns).
+- **`columns=None`** auto-detects only `pa.types.is_integer` or
+  `is_floating` — bool/string/timestamp excluded. Explicit `columns`
+  can force-cast any Arrow-numeric-castable type, but non-numeric
+  raises at `pc.cast`.
+- **AST guard whitelist** (`test_arrow_call_memory_guard.py`) is by
+  function NAME, not qualname. `"fit"`/`"transform"`/`"predict"`
+  whitelisted globally → `RobustScaler.fit` (calls `df.quantile`)
+  not flagged. Not a bug (quantile self-guards), but over-broad.
+  Fix: qualname-based whitelist (v0.9.3).
+
+### Тесты (v0.9.2f)
+
+- +22 fast (`test_scalers.py`): StandardScaler (mean_zero_std_one,
+  with_mean_false, with_std_false, nulls, roundtrip, unseen,
+  constant); MinMaxScaler (0_1, custom_range, constant, roundtrip,
+  bad_range); MaxAbsScaler (basic, positive_only, all_zero,
+  roundtrip); RobustScaler (median_zero_iqr_one, outlier_resistant,
+  roundtrip, constant); multi-column, auto-detect, missing raises;
+  Pipeline integration (2 tests).
+- +1 slow (`test_scalers_e2e.py`): 100K rows, StandardScaler →
+  GBDTStep, R² > 0.5.
+
+- fast: **~1512** (+22). slow: **20** (+1).
+
+### §13.4/170 — scalers no new lessons; AST whitelist observation
+
+See DECISIONS.md. Key: scalers are compositions (no prototype),
+but AST guard whitelist-by-name is over-broad (RobustScaler.fit not
+caught for `df.quantile` call). Fix: qualname-based (v0.9.3).
+
 ### Исправлено (v0.9.2e-fix1 — nullability + test data)
 
 - **`cadw/cv.py::_attach_column`** — все output fields nullable=True.

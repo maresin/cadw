@@ -48,13 +48,22 @@ class _CustomStep:
 
 
 def test_list_step_types_default():
-    """v0.9.1d-fix2 (§13.4/152): 4 built-in types.
+    """Built-in step types: 8, alphabetically sorted.
 
-    `ColumnTransformer` registered after class definition (v0.9.1d-fix1).
-    Sorted order: alphabetical.
+    v0.9.1d: CastStep, DropnaStep, GBDTStep, ColumnTransformer.
+    v0.9.2f: + 4 scalers (MaxAbsScaler, MinMaxScaler, RobustScaler,
+    StandardScaler) — auto-registered via _register_scalers() at
+    cadw/scalers.py import (called by cadw/__init__.py). Pipeline.from_json
+    works for scalers without extra setup.
+
+    §13.4/172: this list grows with each new built-in. Closed-list
+    assert is intentional — churn visible in patch, and review of
+    expected-vs-actual catches typos in new step names. When adding
+    a built-in, update this list in the same patch.
     """
     assert list_step_types() == [
         "CastStep", "ColumnTransformer", "DropnaStep", "GBDTStep",
+        "MaxAbsScaler", "MinMaxScaler", "RobustScaler", "StandardScaler",
     ]
 
 
