@@ -26,15 +26,11 @@ def _r2(y_true, y_pred):
 
 @pytest.mark.slow
 def test_e2e_pipeline_time_series(tmp_path):
-    """Realistic: timestamp + categorical + target; dt features → GBDT.
-
-    N=20K. Feature set: year/month/day/weekday (from ts). Model: GBDT
-    regression on those + sensor_id.
-    Target: y = 10 + 5 * month / 12 + 3 * weekday / 7 + noise.
-    R² > 0.3 expected.
-    """
+    # v0.9.4a-triage: N=20k->10k, GBDT(30)->GBDT(20). v0.9.3
+    # test time ~3s; now ~1.5s. R2>0.3 threshold unchanged
+    # (wide margin at both sizes on linear-signal target).
     rng = np.random.default_rng(42)
-    n = 20_000
+    n = 10_000
     ts = pd.date_range("2020-01-01", periods=n, freq="1h").to_numpy()
     sensor = np.tile(["A", "B", "C", "D"], n // 4 + 1)[:n]
     month = pd.DatetimeIndex(ts).month.to_numpy()
@@ -79,7 +75,7 @@ def test_e2e_pipeline_time_series(tmp_path):
     ).add_step(
         "model", GBDTStep(
             feature_cols, "y",
-            n_estimators=30, max_depth=3, learning_rate=0.1, bins=32,
+            n_estimators=20, max_depth=3, learning_rate=0.1, bins=32,
         ),
     )
     pipe.fit(df_enc, target="y")

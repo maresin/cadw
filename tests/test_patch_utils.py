@@ -250,3 +250,12 @@ def test_assert_compiles_missing(tmp_path):
     import pytest
     with pytest.raises(SystemExit):
         assert_compiles(tmp_path / 'nope.py')
+
+
+def test_run_pytest_iterate_callable():
+    # Only shape-check: callable and doesn't raise on import.
+    from cadw.patch_utils import run_pytest_iterate
+    assert callable(run_pytest_iterate)
+    import inspect
+    sig = inspect.signature(run_pytest_iterate)
+    assert 'paths' in sig.parameters

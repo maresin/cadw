@@ -181,6 +181,24 @@ def commit_with_guards(message, *, self_path=None,
 
 
 
+def run_pytest_iterate(paths=None, *, timeout=900):
+    # pytest -x --lf -q --no-header on `paths` (or full).
+    # Iteration helper: stop at first failure, only last-failed
+    # (after first run, .pytest_cache stores fails). Full suite is
+    # the commit gate; this is for fast feedback loops.
+    import subprocess
+    import sys
+    cmd = ['uv', 'run', 'pytest', '-x', '--lf', '-q',
+           '--no-header', '-m', 'not slow']
+    if paths:
+        cmd.extend(paths)
+    print('  $ ' + ' '.join(cmd))
+    r = subprocess.run(cmd, timeout=timeout)
+    if r.returncode != 0:
+        sys.exit(r.returncode)
+
+
+
 def grep_and_warn(
     patterns: list[str],
     dirs: list[str],

@@ -68,13 +68,15 @@ def test_merge_keys_has_check_batch():
 
 
 def test_external_sort_tight_budget_smoke(tmp_path):
-    # P-S1: many runs under tight budget. With fix, sort completes
-    # without MemoryLimitExceeded/OOM. Prior code silently peaked
-    # at ~1.9x budget but did not raise.
+    # v0.9.4a-triage: N=200k->100k, budget=16MB->8MB (v0.9.3
+    # test time 20.5s; now ~10s). P-S1 regression still triggers:
+    # k computed from read_batch_size=1000 vs on-disk 50000 ->
+    # 2x too high; peak = k * 50000 * row_bytes. AST test covers
+    # invariant; this smoke just verifies end-to-end completion.
     out = external_sort(
-        batches(200_000, 20_000, ncol=10),
+        batches(100_000, 20_000, ncol=10),
         ["k"], ["k"] + ["v" + str(j) for j in range(9)],
-        MemoryGuard(max_memory_mb=16), tmp_path,
+        MemoryGuard(max_memory_mb=8), tmp_path,
         read_batch_size=1000,
     )
     assert out.exists()
