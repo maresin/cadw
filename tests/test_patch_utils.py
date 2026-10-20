@@ -259,3 +259,138 @@ def test_run_pytest_iterate_callable():
     import inspect
     sig = inspect.signature(run_pytest_iterate)
     assert 'paths' in sig.parameters
+
+
+# ============ v0.9.5a: verify_whitelist ============
+
+
+def test_collect_all_qualnames_basic(tmp_path):
+    from cadw.patch_utils import _collect_all_qualnames
+    cadw = tmp_path / 'cadw'
+    cadw.mkdir()
+    (cadw / 'mod.py').write_text(
+        'def foo():\n    pass\n'
+        '\n'
+        'class C:\n'
+        '    def bar(self):\n'
+        '        pass\n'
+    )
+    names = _collect_all_qualnames(cadw)
+    assert 'cadw/mod.py:foo' in names
+    assert 'cadw/mod.py:C.bar' in names
+    assert len(names) == 2
+
+
+def test_collect_all_qualnames_multi_file(tmp_path):
+    from cadw.patch_utils import _collect_all_qualnames
+    cadw = tmp_path / 'cadw'
+    (cadw / 'sub').mkdir(parents=True)
+    (cadw / 'a.py').write_text('def one(): pass\n')
+    (cadw / 'sub' / 'b.py').write_text(
+        'def two(): pass\n'
+    )
+    names = _collect_all_qualnames(cadw)
+    assert 'cadw/a.py:one' in names
+    assert 'cadw/sub/b.py:two' in names
+
+
+def test_verify_whitelist_clean(tmp_path, capsys):
+    from cadw.patch_utils import verify_whitelist
+    cadw = tmp_path / 'cadw'
+    cadw.mkdir()
+    (cadw / 'm.py').write_text('def real(): pass\n')
+    wl = {'cadw/m.py:real': 'exists' }
+    res = verify_whitelist(whitelist=wl, cadw_root=cadw,
+                           raise_on_orphan=False)
+    assert res['orphans'] == []
+    assert res['malformed'] == []
+
+
+def test_verify_whitelist_orphan(tmp_path, capsys):
+    from cadw.patch_utils import verify_whitelist
+    cadw = tmp_path / 'cadw'
+    cadw.mkdir()
+    (cadw / 'm.py').write_text('def real(): pass\n')
+    wl = {
+        'cadw/m.py:real': 'exists',
+        'cadw/m.py:fake': 'orphan',
+    }
+    res = verify_whitelist(whitelist=wl, cadw_root=cadw,
+                           raise_on_orphan=False)
+    assert len(res['orphans']) == 1
+    assert res['orphans'][0][0] == 'cadw/m.py:fake'
+
+
+def test_verify_whitelist_malformed_bare(tmp_path):
+    from cadw.patch_utils import verify_whitelist
+    cadw = tmp_path / 'cadw'
+    cadw.mkdir()
+    wl = {'bare_key_no_path': 'malformed'}
+    res = verify_whitelist(whitelist=wl, cadw_root=cadw,
+                           raise_on_orphan=False)
+    assert len(res['malformed']) == 1
+
+
+def test_verify_whitelist_raises_on_orphan(tmp_path):
+    import pytest
+    from cadw.patch_utils import verify_whitelist
+    cadw = tmp_path / 'cadw'
+    cadw.mkdir()
+    (cadw / 'm.py').write_text('def real(): pass\n')
+    wl = {'cadw/m.py:fake': 'orphan'}
+    with pytest.raises(SystemExit):
+        verify_whitelist(whitelist=wl, cadw_root=cadw)
+
+
+def test_verify_whitelist_real_cadw():
+    # Real cadw/ against real WHITELISTED_FUNCS from test file.
+    from cadw.patch_utils import verify_whitelist
+    res = verify_whitelist(raise_on_orphan=False)
+    assert isinstance(res, dict)
+    assert 'orphans' in res and 'malformed' in res
+    # If this fails, orphan keys exist — see printed list.
+    assert not res['malformed'], (
+        'malformed whitelist keys: ' + str(res['malformed'])
+    )
+    assert not res['orphans'], (
+        'orphan whitelist keys: ' + str(res['orphans'])
+    )
+
+
+
+def test_collect_all_qualnames_nested(tmp_path):
+    # v0.9.5a-fix1: nested funcs (Class.method.nested)
+    # must be included (K1.1 whitelist uses them).
+    from cadw.patch_utils import _collect_all_qualnames
+    cadw = tmp_path / 'cadw'
+    cadw.mkdir()
+    src = (
+        'class C:\n'
+        '    def method(self):\n'
+        '        def nested():\n'
+        '            pass\n'
+        '        return nested\n'
+    )
+    (cadw / 'm.py').write_text(src)
+    names = _collect_all_qualnames(cadw)
+    assert 'cadw/m.py:C.method' in names
+    assert 'cadw/m.py:C.method.nested' in names
+
+
+def test_commit_with_guards_no_param_shadowing():
+    # v0.9.5a-fix3: param names must not shadow module-level
+    # function names (else `if param: param()` -> TypeError).
+    import inspect
+    import cadw.patch_utils as pu
+    sig = inspect.signature(pu.commit_with_guards)
+    module_funcs = {
+        n for n, obj in vars(pu).items()
+        if callable(obj) and not n.startswith('__')
+    }
+    for param_name in sig.parameters:
+        if param_name in ('self', 'cls'):
+            continue
+        assert param_name not in module_funcs, (
+            'commit_with_guards param ' + repr(param_name)
+            + ' shadows module-level function with same name'
+        )

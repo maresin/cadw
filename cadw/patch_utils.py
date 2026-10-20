@@ -164,10 +164,14 @@ def assert_compiles(path):
 
 def commit_with_guards(message, *, self_path=None,
                       stale_patterns=None, stale_dirs=None,
-                      allow=None):
+                      allow=None, check_whitelist=False):
     # git add -A + commit, ALWAYS running pre-commit guards.
     # self_path: py_compile check.
     # stale_patterns+stale_dirs: assert_no_stale_behavior.
+    # check_whitelist: AST-check WHITELISTED_FUNCS (v0.9.5a);
+    # parameter renamed from `verify_whitelist` (fix3): old name
+    # shadowed the module-level `verify_whitelist()` function ->
+    # TypeError: 'bool' object is not callable.
     # Use instead of sh(['git','commit','-m',msg]) in patches.
     import subprocess
     if self_path is not None:
@@ -176,6 +180,8 @@ def commit_with_guards(message, *, self_path=None,
         assert_no_stale_behavior(
             stale_patterns, stale_dirs, allow=allow,
         )
+    if check_whitelist:
+        verify_whitelist()
     subprocess.run(['git', 'add', '-A'], check=True)
     subprocess.run(['git', 'commit', '-m', message], check=True)
 
@@ -197,6 +203,106 @@ def run_pytest_iterate(paths=None, *, timeout=900):
     if r.returncode != 0:
         sys.exit(r.returncode)
 
+
+
+# ============ v0.9.5a: verify_whitelist (AST-orphan) ============
+
+
+def _collect_all_qualnames(cadw_root):
+    # Walk cadw_root/**/*.py; return set of {path}:{qualname}.
+    # qualname = func_name (module-level) or Class.method.
+    # Nested funcs inside methods: NOT included (whitelist is per-
+    # top-level callable).
+    import ast as _ast
+    from pathlib import Path as _P
+    root = _P(cadw_root)
+    parent = root.parent
+    result = set()
+    if not root.exists():
+        return result
+    for py in root.rglob('*.py'):
+        try:
+            src = py.read_text(encoding='utf-8')
+            tree = _ast.parse(src)
+        except (SyntaxError, OSError, UnicodeDecodeError):
+            continue
+        try:
+            rel = py.relative_to(parent).as_posix()
+        except ValueError:
+            rel = py.as_posix()
+        def _walk_defs(node, prefix):
+            # Recursively descend into FunctionDef/ClassDef bodies.
+            # Qualname = Class.method.nested (dot-separated levels).
+            # Matches test_arrow_call_memory_guard._qualname
+            # semantics (v0.9.5a-fix1): ast.walk sees nested
+            # FunctionDef nodes, so whitelist keys must include them.
+            body = getattr(node, 'body', None)
+            if body is None:
+                return
+            for child in body:
+                if isinstance(child, _ast.FunctionDef):
+                    qn = prefix + child.name
+                    result.add(rel + ':' + qn)
+                    _walk_defs(child, qn + '.')
+                elif isinstance(child, _ast.ClassDef):
+                    cp = prefix + child.name + '.'
+                    for item in child.body:
+                        if isinstance(item, _ast.FunctionDef):
+                            qn = cp + item.name
+                            result.add(rel + ':' + qn)
+                            _walk_defs(item, qn + '.')
+        _walk_defs(tree, '')
+    return result
+
+
+def _load_whitelist_from_test():
+    # Import WHITELISTED_FUNCS from test_arrow_call_memory_guard.
+    import importlib
+    mod = importlib.import_module(
+        'tests.test_arrow_call_memory_guard'
+    )
+    return getattr(mod, 'WHITELISTED_FUNCS', {})
+
+
+def verify_whitelist(*, whitelist=None, cadw_root='cadw',
+                     raise_on_orphan=True):
+    # AST-verify that every key in WHITELISTED_FUNCS matches a real
+    # function/method in cadw_root. Orphan (key without real def) is
+    # dead whitelist: silent — key never matched, so guard doesn't
+    # apply. Block commit (fail-fast).
+    #
+    # whitelist: dict override (None -> load from test file).
+    # cadw_root: cadw/ dir (default 'cadw').
+    # raise_on_orphan: sys.exit(1) on orphans (default True).
+    #
+    # Returns: {'orphans': [(key, reason)], 'malformed': [(key, r)]}.
+    import sys as _sys
+    if whitelist is None:
+        whitelist = _load_whitelist_from_test()
+    actual = _collect_all_qualnames(cadw_root)
+    orphans = []
+    malformed = []
+    for key, rationale in whitelist.items():
+        if not isinstance(key, str):
+            malformed.append((repr(key), 'non-str key'))
+            continue
+        if ':' not in key:
+            malformed.append((key, 'bare key (K1.1 requires path:qualname)'))
+            continue
+        if key not in actual:
+            orphans.append((key, 'not in cadw AST qualnames'))
+    if malformed or orphans:
+        print('verify_whitelist: FAIL')
+        for k, r in malformed:
+            print('  malformed: ' + str(k) + ' (' + r + ')')
+        for k, r in orphans:
+            print('  orphan: ' + str(k) + ' (' + r + ')')
+        if raise_on_orphan:
+            _sys.exit(1)
+    else:
+        print('verify_whitelist: OK ('
+              + str(len(whitelist)) + ' keys, all valid)')
+    return {'orphans': orphans, 'malformed': malformed}
 
 
 def grep_and_warn(
