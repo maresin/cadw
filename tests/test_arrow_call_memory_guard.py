@@ -365,3 +365,23 @@ class C:
     names = [q for q, _f, _c in _iter_functions(ast.parse(src))]
     assert "C.outer" in names
     assert "C.outer.inner" in names
+
+
+def test_robust_scaler_fit_is_detected_when_unwhitelisted(monkeypatch):
+    """Prove the whitelist is doing real work for RobustScaler.fit:
+    removing its entry makes the scan flag `df.quantile` in that method.
+    (Guards against a regression where the method is silently exempted
+    by a bare-name whitelist again — §13.4/170.)"""
+    key = "cadw/scalers.py:RobustScaler.fit"
+    assert key in WHITELISTED_FUNCS, key
+    monkeypatch.delitem(WHITELISTED_FUNCS, key)
+    scalers = CADW_ROOT / "scalers.py"
+    violations = _violations_for_source(
+        scalers.read_text(), "cadw/scalers.py",
+    )
+    hits = [v for v in violations if "RobustScaler.fit" in v]
+    assert hits, (
+        "RobustScaler.fit must be flagged when its qualname is not "
+        "whitelisted (it calls df.quantile)"
+    )
+    assert any("quantile" in v for v in hits), hits
