@@ -1229,6 +1229,15 @@ estimate.
   (not just dictionary) + Arrow BufferBuilder geometric growth
   (~2x) + int32 indices + hash table. Peak 11x table, not 0.4x.
 
+**v0.9.3d (StdOp int correctness):**
+- `StdOp` теперь корректно обрабатывает int колонки (cast to
+  float64 перед subtract). До v0.9.3d возвращал wrong std когда
+  batch mean был non-integral. Semantic change — downstream code,
+  relied on incorrect result, needs update.
+- Float колонки: без изменений (были корректны).
+- `groupby().agg("std")`: без изменений (Arrow native group_by,
+  не использует `StdOp`).
+
 ### 11.5. Осознанные ограничения (документированы)
 
 **v0.8.11b:** join strict enforcement requires `budget >= 160 MB`
@@ -4818,6 +4827,51 @@ peak 0.23x table. Экстраполяция на **string keys, K=N** дала
 
 **Связанные:** 13.4/128, 158, 173, **P-D1 v0.8.11a** (guarded
 int path only; strings edge case deferred to v0.9.2 audit).
+
+**Эпизод 176 (int arithmetic silent truncation).** v0.9.3d: C2
+из v0.9.2 audit.
+
+**Bug.** `StdOp.update`:
+```python
+mean_b = pc.mean(arr, skip_nulls=True).as_py()  # 2.5
+diff = pc.subtract(arr, pa.scalar(mean_b, type=arr.type))
+```
+Для int64 arr: `pa.scalar(2.5, type=int64)` = **2** (silent
+truncation, no warning). M2 computed from wrong deviations ->
+wrong std. `[1,2,3,4]`: buggy sqrt(2) ~= 1.414, correct
+sqrt(5/3) ~= 1.291.
+
+**Почему не поймали в v0.1.0 (исходный):** `test_reduce.py::
+test_std_invariant` использует `make_iter(data, bs)` с default
+`type=pa.float64()` — int-путь не тестировался. Float path всегда
+правильный (`pa.scalar(2.5, type=float64)` exact).
+
+**Правило (13.4/176, расширение 163, 175):**
+
+- **Int arithmetic truncates silently.** `pa.scalar(float, type=int)
+  обрезает. `np.array(int) / n` даёт float. `pc.divide(int, int)` —
+  float. Но `pa.scalar(x, type=int_type)` — truncate.
+- **Casting policy при arithmetic с derived values** (mean, median,
+  quantile): всегда cast array to float64 перед scalar op.
+  Derived values fractional by nature; using original int type for
+  scalar is always wrong.
+- **Test matrix для числовых ops:** int64 / float64 / int32
+  (at least). Float-only tests hide truncation bugs.
+
+**Backlog (11.6):**
+- Grep `pa.scalar(.*type=arr.type)` в cadw/ — каждое место
+  проверить: если scalar — derived value (mean/median/etc), нужен
+  explicit float64 cast. `PredicateFilter.mask_for_batch` — separate
+  case (C3, user value не derived; correct behavior — validate type
+  upfront).
+- Audit numeric ops (`SumOp`, `MinMaxOp`, `MeanOp`, `CovarianceOp`,
+  `HistogramOp`) — float64 cast присутствует везде кроме `StdOp`
+  (fixed здесь).
+
+**Связанные:** 13.4/163 (domain validation), 175 (memory formula
+scope), P-CV1 (small-N hides O(N) bugs) — same class
+«implementation mismatch с contract», не поймали small-numeric
+test'ом.
 
 ### 13.5. Открытые вопросы
 

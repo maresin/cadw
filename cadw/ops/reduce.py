@@ -282,8 +282,18 @@ class StdOp(ReduceOp):
         n_b = len(arr) - arr.null_count
         if n_b == 0:
             return state
-        mean_b = pc.mean(arr, skip_nulls=True).as_py()
-        diff = pc.subtract(arr, pa.scalar(mean_b, type=arr.type))
+        # v0.9.3d (C2, S2): cast to float64 before subtract.
+        # Prior code used pa.scalar(mean_b, type=arr.type) -- for
+        # int64 arr, pa.scalar(2.5, type=int64) silently truncates
+        # to 2 -> wrong std on non-integral batch mean. E.g.
+        # [1,2,3,4] -> buggy sqrt(2) ~= 1.414, correct sqrt(5/3)
+        # ~= 1.291 (ddof=1). Float columns unaffected (float64
+        # scalar is exact). See 13.4/176.
+        arr_f = pc.cast(arr, pa.float64())
+        mean_b = pc.mean(arr_f, skip_nulls=True).as_py()
+        diff = pc.subtract(
+            arr_f, pa.scalar(float(mean_b), type=pa.float64())
+        )
         M2_b = pc.sum(pc.multiply(diff, diff), skip_nulls=True).as_py() or 0.0
 
         n_a, mean_a, M2_a = state

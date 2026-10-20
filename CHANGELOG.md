@@ -1,5 +1,49 @@
 ## [Unreleased]
 
+### Исправлено (v0.9.3d - StdOp int-column truncation, S2 fix)
+
+**C2 (S2, из v0.9.2 audit):** `StdOp.update` использовал
+`pa.scalar(mean_b, type=arr.type)` для subtract. Для int64 arr:
+`pa.scalar(2.5, type=int64)` — silent truncation до 2. M2 computed
+from wrong deviations -> wrong std когда batch mean non-integral.
+
+**Примеры:**
+
+| Input (int64) | Buggy | Correct (numpy ddof=1) |
+|---|---|---|
+| [1,2,3,4] | 1.4142 | 1.2910 |
+| [1,2] | 1.0 | 0.7071 |
+| [0,0,0,10] | 5.0332 | 5.0 |
+| [1,2,3,4,5] | 1.5811 | 1.5811 (integral mean -> OK) |
+
+Float columns unaffected (`pa.scalar(float, type=float64)` exact).
+`groupby().agg("std")` — Arrow native `group_by().aggregate`, не
+задет. ML `fit_*` — не использует `StdOp`.
+
+**Fix:** cast to float64 before subtract.
+
+```python
+arr_f = pc.cast(arr, pa.float64())
+diff = pc.subtract(arr_f, pa.scalar(float(mean_b), type=pa.float64()))
+```
+
+**Semantic change (int columns):** correct value where previous was
+mathematically wrong. CHANGELOG flags as breaking for downstream
+code that relied on incorrect result. No existing test pinned the
+buggy value (both `test_std_invariant` and
+`test_std_precision_large_offset` use float data).
+
+**Правило (13.4/176):** при subtract/add со scalar из mean/median —
+**всегда** cast array to float64. Int arithmetic truncates silently.
+Same class as 13.4/163 (domain validation), 13.4/175 (memory formula
+scope) — hidden mismatch between formula и implementation.
+
+**Тесты (v0.9.3d):** +11 fast (`test_stdop_int_correctness.py`):
+known [1,2,3,4] test (+ sanity not buggy), int==float, 5 param cases
+vs numpy, float unchanged, nulls, int32, AST guard.
+
+- fast: **~1583** (+11). slow: **20** (unchanged).
+
 ### Исправлено (v0.9.3c - P-D2 dedup string keys, S2 fix)
 
 **P-D2 (S2, из v0.9.2 audit):** `_local_dedup` guard
