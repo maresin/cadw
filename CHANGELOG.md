@@ -1,5 +1,38 @@
 ## [Unreleased]
 
+### Исправлено (v0.9.3b - P-S1 sort merge fan-in, S2 fix)
+
+**P-S1 (S2, из v0.9.2 audit):** `external_sort` вызывал
+`compute_fan_in(read_batch_size=1000)` — это output flush
+frequency, не reader batch size. Реальные on-disk batches
+(от `_write_run`) — `_WRITE_RUN_CHUNK = 50_000` rows. Reader
+держит 50_000 × r на batch, не 1000 × r. 50x underestimate
+merge peak. Measured: 126.81 MB при 67.1 MB budget (1.9x).
+**MemoryLimitExceeded не поднимался.**
+
+**Fix:**
+
+- `_WRITE_RUN_CHUNK = 50_000` — module constant.
+- `_write_run` uses it instead of literal `chunk = 50_000`.
+- `compute_fan_in` in `external_sort` uses `_WRITE_RUN_CHUNK`
+  (on-disk batch size) instead of `read_batch_size`.
+- `_merge_keys` gets `memory_guard` param; `check_batch` on each
+  read batch (defense-in-depth).
+
+**Покрывает:** `sort_values`, `rank`, `quantile`, `resample`,
+`roc_auc`, `TimeSeriesSplit` — все через `external_sort`.
+
+**Trade-off:** k уменьшается ~50x (больше merge levels при tight
+budget). Peak теперь fits; merge slower для малого budget.
+Safety > speed.
+
+**Тесты (v0.9.3b):** +5 fast (`test_sort_merge_p_s1.py`):
+constant exists, AST compute_fan_in uses _WRITE_RUN_CHUNK, AST
+check_batch in _merge_keys, tight-budget smoke, regression
+sort correctness.
+
+- fast: **~1565** (+5). slow: **20** (unchanged).
+
 ### Исправлено (v0.9.3a - KFold keyed PRNG, S1 fix)
 
 **P-CV1 (S1, из v0.9.2 audit):** `KFold.split` материализовал

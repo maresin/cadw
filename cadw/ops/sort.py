@@ -29,6 +29,11 @@ from cadw.io.batch_writer import ArrowIPCBatchWriter
 
 logger = get_logger("ops.sort")
 
+# On-disk run batch size (rows per IPC batch written by
+# _write_run). compute_fan_in MUST use this for the reader side
+# of the merge, not read_batch_size (output flush frequency).
+_WRITE_RUN_CHUNK = 50_000
+
 
 def _unique_columns(value_columns: Sequence[str], key_columns: Sequence[str]) -> list[str]:
     """value + key без повторов, порядок: сначала value, затем недостающие key."""
@@ -113,7 +118,7 @@ def _write_run(
     writer = ArrowIPCBatchWriter(str(path), table.schema)
     try:
         # Batch-wise: take small chunk, write it, free. No full materialize.
-        chunk = 50_000
+        chunk = _WRITE_RUN_CHUNK
         for i in range(0, len(order), chunk):
             sub_order = order.slice(i, chunk)
             sub_table = table.take(sub_order)
@@ -326,6 +331,7 @@ def _merge_keys(
     nulls_first: bool,
     out_path: Path,
     read_batch_size: int,
+    memory_guard: "MemoryGuard | None" = None,
 ) -> Path:
     """k-way merge. Читаем каждый run батчами, сливаем через heap."""
     if not run_paths:
@@ -343,7 +349,12 @@ def _merge_keys(
                 cur_pos[idx] += 1
                 return b, pos
             try:
-                cur_batches[idx] = next(readers[idx])
+                nb = next(readers[idx])
+                if memory_guard is not None:
+                    memory_guard.check_batch(
+                        nb, name="sort.merge_read[%d]" % idx
+                    )
+                cur_batches[idx] = nb
                 cur_pos[idx] = 0
             except StopIteration:
                 return None
@@ -499,7 +510,7 @@ def external_sort(
     # --- Фаза 2: k-way merge (при необходимости — многоуровневый) ---
     row_bytes = max(1, memory_guard.row_size_bytes)
     k = merge_fan_in or compute_fan_in(
-        memory_guard.available_bytes(), read_batch_size, row_bytes
+        memory_guard.available_bytes(), _WRITE_RUN_CHUNK, row_bytes
     )
 
     merge_idx = 0
@@ -514,7 +525,7 @@ def external_sort(
             merge_idx += 1
             _merge_keys(
                 group, all_columns, key_columns, value_columns,
-                asc, nulls_first, out, read_batch_size,
+                asc, nulls_first, out, read_batch_size, memory_guard,
             )
             next_runs.append(out)
         runs = next_runs
