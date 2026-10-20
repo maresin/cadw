@@ -4373,6 +4373,83 @@ class CadwDataFrame:
 
         return result
 
+    # ---------------- concat / nlargest / info ----------------
+
+    def nlargest(self, n, column):
+        # Sort desc by `column`, return first n rows.
+        # O(N log N) sort + head(n). For n << N, an optimized
+        # top-k (bounded heap) can be added later (11.6 backlog).
+        if not isinstance(n, int) or n < 1:
+            raise ValueError(
+                f"nlargest: n must be int >= 1; got {n!r}"
+            )
+        if column not in self._columns:
+            raise KeyError(
+                f"nlargest: column {column!r} not in {self._columns}"
+            )
+        sorted_df = self.sort_values(column, ascending=False)
+        return self._wrap_result_table(sorted_df.head(n))
+
+    def nsmallest(self, n, column):
+        # Sort asc by `column`, return first n rows.
+        if not isinstance(n, int) or n < 1:
+            raise ValueError(
+                f"nsmallest: n must be int >= 1; got {n!r}"
+            )
+        if column not in self._columns:
+            raise KeyError(
+                f"nsmallest: column {column!r} not in {self._columns}"
+            )
+        sorted_df = self.sort_values(column, ascending=True)
+        return self._wrap_result_table(sorted_df.head(n))
+
+    def dtypes(self):
+        # Return {col: dtype_str}. pandas-compatible shape (dict).
+        return {
+            c: str(self._dataset.schema.field(c).type)
+            for c in self._columns
+        }
+
+    def info(self, *, compute_non_null=False):
+        # Summary: total_rows, filtered_rows, per-column dtype.
+        # compute_non_null=True adds per-column non-null count
+        # (O(d) Reduce passes: one pass per column).
+        n_total = self._dataset.total_rows
+        n_filtered = self.count() if self._row_filters else n_total
+        cols = {}
+        for c in self._columns:
+            entry = {"dtype": str(self._dataset.schema.field(c).type)}
+            if compute_non_null:
+                from cadw.ops.reduce import reduce, CountOp
+                entry["non_null"] = reduce(
+                    self._iter_filtered_batches(),
+                    CountOp(c),
+                    self._memory_guard,
+                    log=False,
+                )
+            cols[c] = entry
+        return {
+            "total_rows": n_total,
+            "filtered_rows": n_filtered,
+            "n_columns": len(self._columns),
+            "columns": cols,
+        }
+
+    def memory_usage(self):
+        # Upper-bound estimate: filtered_rows * per-column bit_width
+        # (+ 1 byte bitmap if nullable). Uses join._estimate_row_bytes
+        # (bit_width//8 + null bitmap for single-field schema).
+        from cadw.ops.join import _estimate_row_bytes
+        n = self.count()
+        per_col = {}
+        total = 0
+        for c in self._columns:
+            f = self._dataset.schema.field(c)
+            sz = _estimate_row_bytes(pa.schema([f]))
+            per_col[c] = n * sz
+            total += per_col[c]
+        return {"total": total, "per_column": per_col}
+
     # ---------------- write ----------------
 
     def write_parquet(self, path: str | Path, *, compression: str = "snappy") -> Path:
@@ -4785,6 +4862,125 @@ class _GroupBy:
             self._by, on_cols, window, agg, min_periods, columns
         )
 
+
+def concat(
+    dfs,
+    axis: int = 0,
+) -> "CadwDataFrame":
+    # Concatenate CadwDataFrames along rows (axis=0) or columns (axis=1).
+    #
+    # axis=0 (rows):
+    #   Schemas must match exactly (same column names/types, same order).
+    #   Streams via chain(iter_batches); total rows = sum(inputs).
+    #
+    # axis=1 (columns):
+    #   Row counts must match. Column names must be unique across inputs.
+    #   Per-batch zip: all inputs iterate at fixed batch_size=10000 to
+    #   align chunk boundaries (independent of stored chunk layout).
+    #
+    # Preconditions:
+    #   - Row-level filters are applied BEFORE concat (iter_filtered).
+    #   - axis=1 positional alignment is valid only when filters preserve
+    #     original row order (always true in CADW: filters don't reorder).
+    #
+    # Raises:
+    #   ValueError: empty dfs, invalid axis, schema/row-count mismatch,
+    #     duplicate column names (axis=1).
+    #   TypeError: non-CadwDataFrame input.
+    from cadw.dataframe import CadwDataFrame as _CDF
+    if not dfs:
+        raise ValueError("concat: at least one df required")
+    if axis not in (0, 1):
+        raise ValueError(
+            f"concat: axis must be 0 or 1; got {axis!r}"
+        )
+    dfs = list(dfs)
+    for d in dfs:
+        if not isinstance(d, _CDF):
+            raise TypeError(
+                f"concat: all dfs must be CadwDataFrame; "
+                f"got {type(d).__name__}"
+            )
+
+    first = dfs[0]
+
+    if axis == 0:
+        out_schema = pa.schema(
+            [first._dataset.schema.field(c) for c in first._columns]
+        )
+        for i, d in enumerate(dfs[1:], 1):
+            d_schema = pa.schema(
+                [d._dataset.schema.field(c) for c in d._columns]
+            )
+            if d_schema != out_schema:
+                raise ValueError(
+                    f"concat(axis=0): schema mismatch between df[0] "
+                    f"and df[{i}]; expected {out_schema.names}/"
+                    f"{out_schema.types}, got {d_schema.names}/"
+                    f"{d_schema.types}"
+                )
+
+        def _iter_rows():
+            for d in dfs:
+                yield from d._iter_arrow_batches()
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_rows(), first._new_dataset_dir(),
+        )
+        return _CDF(
+            new_ds,
+            memory_guard=first._memory_guard,
+            spill_dir=first._spill_dir,
+        )
+
+    # axis == 1
+    n_first = first.count()
+    for i, d in enumerate(dfs[1:], 1):
+        n_i = d.count()
+        if n_i != n_first:
+            raise ValueError(
+                f"concat(axis=1): row count mismatch: df[0]="
+                f"{n_first}, df[{i}]={n_i}"
+            )
+
+    seen = set()
+    out_fields = []
+    for d in dfs:
+        for c in d._columns:
+            if c in seen:
+                raise ValueError(
+                    f"concat(axis=1): duplicate column {c!r} "
+                    f"across inputs"
+                )
+            seen.add(c)
+            out_fields.append(d._dataset.schema.field(c))
+    out_schema = pa.schema(out_fields)
+    all_names = list(out_schema.names)
+
+    def _iter_cols():
+        iters = [d._iter_arrow_batches(batch_size=10000) for d in dfs]
+        for batches in zip(*iters):
+            n = batches[0].num_rows
+            for b in batches[1:]:
+                if b.num_rows != n:
+                    raise RuntimeError(
+                        f"concat(axis=1): batch size mismatch at "
+                        f"streaming: {n} vs {b.num_rows}"
+                    )
+            arrays = []
+            for b in batches:
+                for j in range(b.num_columns):
+                    arrays.append(b.column(j))
+            yield pa.RecordBatch.from_arrays(arrays, names=all_names)
+
+    new_ds = Dataset.from_batches(
+        out_schema, _iter_cols(), first._new_dataset_dir(),
+    )
+    return _CDF(
+        new_ds,
+        memory_guard=first._memory_guard,
+        spill_dir=first._spill_dir,
+    )
 
 def _concat_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
     if len(batches) == 1:

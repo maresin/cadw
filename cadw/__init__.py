@@ -5,7 +5,7 @@ from .dataset import (
     CadwIndex, RangeIndex, MaterializedIndex, MaterializedMultiIndex,
     RowFilter, PredicateFilter, AndFilter, OrFilter, NotFilter, SliceFilter,
 )
-from .dataframe import CadwDataFrame
+from .dataframe import CadwDataFrame, concat
 from .io.batch_reader import ParquetBatchReader, ArrowIPCBatchReader
 from .io.batch_writer import ParquetBatchWriter, ArrowIPCBatchWriter
 from .ops.reduce import (
@@ -92,7 +92,7 @@ __all__ = [
     "RangeIndex",
     "MaterializedIndex",
     "MaterializedMultiIndex",
-    "MemoryGuard", "MemoryLimitExceeded", "Dataset", "CadwDataFrame",
+    "MemoryGuard", "MemoryLimitExceeded", "Dataset", "CadwDataFrame", "concat",
     "RowFilter", "PredicateFilter", "AndFilter", "OrFilter", "NotFilter", "SliceFilter",
     "ParquetBatchReader", "ArrowIPCBatchReader",
     "ParquetBatchWriter", "ArrowIPCBatchWriter",
