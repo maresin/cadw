@@ -4199,7 +4199,7 @@ class CadwDataFrame:
         y_true: str,
         metrics: "Sequence[str] | str",
         y_pred: "str | None" = None,
-        y_proba: "str | None" = None,
+        y_proba: "str | Sequence[str] | None" = None,
         classes: "Sequence | None" = None,
         average: "str | None" = None,
         pos_label=None,
@@ -4237,7 +4237,7 @@ class CadwDataFrame:
         State: O(1) + O(K) (classification). Independent of N.
         """
         from cadw.ops.metrics import (
-            CLASSIFICATION_METRICS, REGRESSION_METRICS,
+            AUC_METRICS, CLASSIFICATION_METRICS, REGRESSION_METRICS,
             SUPPORTED_METRICS, MetricsOp,
         )
         from cadw.ops.reduce import reduce
@@ -4254,9 +4254,11 @@ class CadwDataFrame:
                 f"supported: {sorted(SUPPORTED_METRICS)}"
             )
 
-        for c, label in (
-            (y_true, "y_true"), (y_pred, "y_pred"), (y_proba, "y_proba")
-        ):
+        # v0.9.2c-fix1 (§13.4/167): y_proba is str | Sequence[str];
+        # generic loop can't handle list (would check `list not in
+        # columns` — always True). Specific per-column check below
+        # (after y_proba_cols normalization).
+        for c, label in ((y_true, "y_true"), (y_pred, "y_pred")):
             if c is not None and c not in self._columns:
                 raise KeyError(
                     f"metrics: {label} column {c!r} not in {self._columns}"
@@ -4265,27 +4267,111 @@ class CadwDataFrame:
         # §13.4/164: fail-fast for classification K too large — before
         # constructing MetricsOp (clear message, not "state limit").
         ms = set(metrics)
-        if ms & CLASSIFICATION_METRICS:
+        if (ms & CLASSIFICATION_METRICS) or (ms & AUC_METRICS):
             K = 2 if classes is None else len(classes)
             est = 64 + 24 * K
             state_limit = self._memory_guard.state_limit_bytes
             if est > state_limit:
                 from cadw.core.memory_guard import MemoryLimitExceeded
                 raise MemoryLimitExceeded(
-                    f"metrics: classification K={K} → state "
-                    f"{est} B > state_limit {state_limit} B. "
-                    f"Reduce class count or increase budget. §13.4/164."
+                    f"metrics: K={K} → state {est} B > state_limit "
+                    f"{state_limit} B. Reduce class count or increase "
+                    f"budget. §13.4/164."
                 )
 
-        op = MetricsOp(
-            y_true, y_pred_col=y_pred, y_proba_col=y_proba,
-            metrics=metrics, classes=classes,
-            average=average, pos_label=pos_label,
+        # v0.9.2c: y_proba normalization (str → [str], list → list).
+        if y_proba is None:
+            y_proba_cols = None
+        elif isinstance(y_proba, str):
+            y_proba_cols = [y_proba]
+        else:
+            y_proba_cols = list(y_proba)
+            if not y_proba_cols:
+                raise ValueError(
+                    "metrics: y_proba list is empty"
+                )
+
+        # Column existence for all y_proba cols
+        if y_proba_cols is not None:
+            for pc_ in y_proba_cols:
+                if pc_ not in self._columns:
+                    raise KeyError(
+                        f"metrics: y_proba column {pc_!r} not in "
+                        f"{self._columns}"
+                    )
+
+        is_multiclass_proba = (
+            y_proba_cols is not None and len(y_proba_cols) > 1
         )
-        return reduce(
-            self._iter_filtered_batches(), op,
-            self._memory_guard, log=False,
-        )
+        if is_multiclass_proba:
+            if classes is None:
+                raise ValueError(
+                    f"metrics: multiclass y_proba (len="
+                    f"{len(y_proba_cols)}) requires `classes`"
+                )
+            if len(y_proba_cols) != len(classes):
+                raise ValueError(
+                    f"metrics: len(y_proba)={len(y_proba_cols)} != "
+                    f"len(classes)={len(classes)}"
+                )
+
+        # roc_auc: separate handling (multipass Sort-based)
+        has_roc_auc = "roc_auc" in metrics
+        other_metrics = [m for m in metrics if m != "roc_auc"]
+
+        # Conflict: roc_auc + regression on same y_true (binary labels vs
+        # continuous target — mutually exclusive semantics).
+        if has_roc_auc and (set(other_metrics) & REGRESSION_METRICS):
+            raise ValueError(
+                f"metrics: roc_auc requires binary labels y_true, "
+                f"regression ({sorted(set(other_metrics) & REGRESSION_METRICS)}) "
+                f"requires continuous — cannot mix. Use separate calls."
+            )
+        if has_roc_auc and y_proba_cols is None:
+            raise ValueError("metrics: roc_auc requires y_proba")
+
+        result: dict = {}
+
+        if other_metrics:
+            op = MetricsOp(
+                y_true,
+                y_pred_col=y_pred,
+                y_proba_cols=y_proba_cols,
+                metrics=other_metrics,
+                classes=classes,
+                average=average,
+                pos_label=pos_label,
+            )
+            result.update(reduce(
+                self._iter_filtered_batches(), op,
+                self._memory_guard, log=False,
+            ))
+
+        if has_roc_auc:
+            from cadw.ops.metrics import (
+                _compute_roc_auc_binary, _compute_roc_auc_macro,
+            )
+            if is_multiclass_proba:
+                result["roc_auc"] = _compute_roc_auc_macro(
+                    stream_factory=lambda: self._iter_filtered_batches(),
+                    y_true_col=y_true,
+                    y_proba_cols=y_proba_cols,
+                    classes=list(classes),
+                    spill_dir=self._spill_dir / "metrics_roc_auc",
+                    memory_guard=self._memory_guard,
+                )
+            else:
+                pos_roc = pos_label if pos_label is not None else 1
+                result["roc_auc"] = _compute_roc_auc_binary(
+                    stream_factory=lambda: self._iter_filtered_batches(),
+                    y_true_col=y_true,
+                    y_proba_col=y_proba_cols[0],
+                    pos_label=pos_roc,
+                    spill_dir=self._spill_dir / "metrics_roc_auc",
+                    memory_guard=self._memory_guard,
+                )
+
+        return result
 
     # ---------------- write ----------------
 

@@ -546,3 +546,288 @@ def test_metrics_classification_pandas_equivalence(tmp_path):
     assert res["precision"] == pytest.approx(ref_prec, rel=1e-9)
     assert res["recall"] == pytest.approx(ref_rec, rel=1e-9)
     assert res["f1"] == pytest.approx(ref_f1, rel=1e-9)
+
+
+# ============ v0.9.2c: roc_auc + multiclass log_loss ============
+
+from tests._helpers.metrics_reference import (
+    expected_roc_auc, expected_log_loss_multiclass,
+    expected_log_loss_binary,
+)
+
+
+# --- multiclass log_loss ---
+
+def test_metrics_multiclass_log_loss(tmp_path):
+    """3 classes, perfect proba → log_loss ~ 0."""
+    df = make_df(tmp_path, {
+        "y": [0, 1, 2, 0, 1, 2],
+        "p0": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        "p1": [0.0, 1.0, 0.0, 0.0, 1.0, 0.0],
+        "p2": [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+    })
+    res = df.metrics(
+        y_true="y", y_proba=["p0", "p1", "p2"],
+        metrics=["log_loss"], classes=[0, 1, 2],
+    )
+    assert res["log_loss"] == pytest.approx(0.0, abs=1e-10)
+
+
+def test_metrics_multiclass_log_loss_known(tmp_path):
+    """y=[0,1,2], p*=[0.9,0.7,0.6] for true class → -mean(log)."""
+    df = make_df(tmp_path, {
+        "y": [0, 1, 2],
+        "p0": [0.9, 0.1, 0.2],
+        "p1": [0.05, 0.7, 0.2],
+        "p2": [0.05, 0.2, 0.6],
+    })
+    res = df.metrics(
+        y_true="y", y_proba=["p0", "p1", "p2"],
+        metrics=["log_loss"], classes=[0, 1, 2],
+    )
+    ref_y = [0, 1, 2]
+    ref_P = [[0.9, 0.05, 0.05], [0.1, 0.7, 0.2], [0.2, 0.2, 0.6]]
+    expected = expected_log_loss_multiclass(ref_y, ref_P)
+    assert res["log_loss"] == pytest.approx(expected, rel=1e-10)
+
+
+def test_metrics_multiclass_log_loss_requires_classes(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 1], "p0": [0.5, 0.5], "p1": [0.5, 0.5],
+    })
+    with pytest.raises(ValueError, match="requires .classes."):
+        df.metrics(
+            y_true="y", y_proba=["p0", "p1"], metrics=["log_loss"],
+        )
+
+
+def test_metrics_multiclass_log_loss_classes_mismatch(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 1], "p0": [0.5, 0.5], "p1": [0.5, 0.5],
+    })
+    with pytest.raises(ValueError, match=r"len\(y_proba\)"):
+        df.metrics(
+            y_true="y", y_proba=["p0", "p1"], metrics=["log_loss"],
+            classes=[0, 1, 2],
+        )
+
+
+# --- roc_auc binary ---
+
+def test_metrics_roc_auc_binary_perfect(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 0, 1, 1], "p": [0.1, 0.2, 0.8, 0.9],
+    })
+    res = df.metrics(y_true="y", y_proba="p", metrics=["roc_auc"])
+    assert res["roc_auc"] == pytest.approx(1.0)
+
+
+def test_metrics_roc_auc_binary_known(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 0, 1, 1], "p": [0.1, 0.4, 0.35, 0.8],
+    })
+    res = df.metrics(y_true="y", y_proba="p", metrics=["roc_auc"])
+    assert res["roc_auc"] == pytest.approx(0.75)
+
+
+def test_metrics_roc_auc_binary_ties(tmp_path):
+    """All same proba → 0.5."""
+    df = make_df(tmp_path, {
+        "y": [0, 1, 0, 1], "p": [0.5, 0.5, 0.5, 0.5],
+    })
+    res = df.metrics(y_true="y", y_proba="p", metrics=["roc_auc"])
+    assert res["roc_auc"] == pytest.approx(0.5)
+
+
+def test_metrics_roc_auc_binary_all_positive_nan(tmp_path):
+    df = make_df(tmp_path, {"y": [1, 1, 1], "p": [0.1, 0.5, 0.9]})
+    res = df.metrics(y_true="y", y_proba="p", metrics=["roc_auc"])
+    assert math.isnan(res["roc_auc"])
+
+
+def test_metrics_roc_auc_binary_all_negative_nan(tmp_path):
+    df = make_df(tmp_path, {"y": [0, 0, 0], "p": [0.1, 0.5, 0.9]})
+    res = df.metrics(y_true="y", y_proba="p", metrics=["roc_auc"])
+    assert math.isnan(res["roc_auc"])
+
+
+def test_metrics_roc_auc_binary_nulls_skipped(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, None, 1, 1], "p": [0.1, 0.9, None, 0.8],
+    })
+    res = df.metrics(y_true="y", y_proba="p", metrics=["roc_auc"])
+    # valid: (0,0.1), (1,0.8) → perfect → 1.0
+    assert res["roc_auc"] == pytest.approx(1.0)
+
+
+def test_metrics_roc_auc_binary_filtered(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 0, 1, 1, 0, 1],
+        "p": [0.1, 0.2, 0.8, 0.9, 0.5, 0.7],
+        "f": [1, 1, 1, 1, 0, 0],
+    })
+    filtered = df[df["f"] == 1]
+    res = filtered.metrics(y_true="y", y_proba="p", metrics=["roc_auc"])
+    # Only first 4 rows → perfect → 1.0
+    assert res["roc_auc"] == pytest.approx(1.0)
+
+
+def test_metrics_roc_auc_matches_reference(tmp_path):
+    rng = np.random.default_rng(7)
+    n = 200
+    y = rng.integers(0, 2, size=n).tolist()
+    p = rng.random(size=n).tolist()
+    df = make_df(tmp_path, {"y": y, "p": p}, chunk=20)
+    res = df.metrics(y_true="y", y_proba="p", metrics=["roc_auc"])
+    ref = expected_roc_auc(y, p)
+    assert res["roc_auc"] == pytest.approx(ref, rel=1e-9)
+
+
+# --- roc_auc multiclass (macro) ---
+
+def test_metrics_roc_auc_multiclass_macro(tmp_path):
+    """3-class, perfect separation via ovr → macro=1.0."""
+    df = make_df(tmp_path, {
+        "y": [0, 0, 1, 1, 2, 2],
+        "p0": [0.9, 0.8, 0.05, 0.1, 0.05, 0.1],
+        "p1": [0.05, 0.1, 0.9, 0.8, 0.1, 0.05],
+        "p2": [0.05, 0.1, 0.05, 0.1, 0.9, 0.85],
+    })
+    res = df.metrics(
+        y_true="y", y_proba=["p0", "p1", "p2"],
+        metrics=["roc_auc"], classes=[0, 1, 2],
+    )
+    assert res["roc_auc"] == pytest.approx(1.0)
+
+
+def test_metrics_roc_auc_multiclass_requires_classes(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 1], "p0": [0.5, 0.5], "p1": [0.5, 0.5],
+    })
+    with pytest.raises(ValueError, match="requires .classes."):
+        df.metrics(
+            y_true="y", y_proba=["p0", "p1"], metrics=["roc_auc"],
+        )
+
+
+# --- mixed ---
+
+def test_metrics_roc_auc_with_accuracy(tmp_path):
+    """roc_auc + accuracy, both binary — different columns.
+
+    §13.4/166: expected AUC from `expected_roc_auc` reference, not
+    manual arithmetic. y=[0,0,1,1], p=[0.1,0.2,0.8,0.4] → all 4
+    pos/neg pairs correctly ordered → AUC = 1.0. Prior manual 0.875
+    was wrong (5th test-authoring mistake in session — see §13.4/167).
+    """
+    from tests._helpers.metrics_reference import expected_roc_auc
+    df = make_df(tmp_path, {
+        "y": [0, 0, 1, 1], "yp": [0, 0, 1, 0], "p": [0.1, 0.2, 0.8, 0.4],
+    })
+    res = df.metrics(
+        y_true="y", y_pred="yp", y_proba="p",
+        metrics=["roc_auc", "accuracy"], classes=[0, 1],
+    )
+    assert res["accuracy"] == pytest.approx(0.75)
+    assert res["roc_auc"] == pytest.approx(
+        expected_roc_auc([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.4])
+    )
+
+
+def test_metrics_roc_auc_with_regression_conflict(tmp_path):
+    df = make_df(tmp_path, {"y": [0, 1], "yp": [0.1, 0.9], "p": [0.2, 0.8]})
+    with pytest.raises(ValueError, match="cannot mix"):
+        df.metrics(
+            y_true="y", y_pred="yp", y_proba="p",
+            metrics=["roc_auc", "r2"],
+        )
+
+
+def test_metrics_roc_auc_without_y_proba_raises(tmp_path):
+    df = make_df(tmp_path, {"y": [0, 1], "yp": [0.1, 0.9]})
+    with pytest.raises(ValueError, match="requires y_proba"):
+        df.metrics(y_true="y", y_pred="yp", metrics=["roc_auc"])
+
+
+# --- direct MetricsOp rejects roc_auc ---
+
+def test_metrics_op_rejects_roc_auc_directly():
+    from cadw.ops.metrics import MetricsOp
+    with pytest.raises(ValueError, match="roc_auc.*separately"):
+        MetricsOp(
+            "y", y_proba_col="p", metrics=["roc_auc"],
+        )
+
+
+# ============ v0.9.2c-fix2: contract tests (§13.4/168) ============
+
+def test_metrics_multiclass_log_loss_no_classification_metrics(tmp_path):
+    """Pure multiclass log_loss (no accuracy/etc.) populates _classes.
+
+    §13.4/168: prior gate `if self._needs_classification:` left
+    _cls_to_idx empty → all y_true labels treated as "unknown".
+    """
+    df = make_df(tmp_path, {
+        "y": [0, 1, 2],
+        "p0": [0.9, 0.1, 0.2],
+        "p1": [0.05, 0.7, 0.2],
+        "p2": [0.05, 0.2, 0.6],
+    })
+    res = df.metrics(
+        y_true="y", y_proba=["p0", "p1", "p2"],
+        metrics=["log_loss"], classes=[0, 1, 2],
+    )
+    assert res["log_loss"] > 0
+    assert not math.isnan(res["log_loss"])
+
+
+def test_metrics_multiclass_log_loss_with_regression_conflict(tmp_path):
+    """§13.4/168 defensive: regression + multiclass proba → ValueError.
+
+    r2 (continuous y_true) vs multiclass log_loss (y_true = class
+    index 0..K-1) — contradictory domain contracts.
+    """
+    df = make_df(tmp_path, {
+        "y": [0, 1, 2], "yp": [0.1, 0.5, 0.9],
+        "p0": [0.9, 0.1, 0.2],
+        "p1": [0.05, 0.7, 0.2],
+        "p2": [0.05, 0.2, 0.6],
+    })
+    with pytest.raises(ValueError, match="Contradictory domain contracts"):
+        df.metrics(
+            y_true="y", y_pred="yp",
+            y_proba=["p0", "p1", "p2"],
+            metrics=["r2", "log_loss"], classes=[0, 1, 2],
+        )
+
+
+def test_metrics_multiclass_log_loss_k2_classes(tmp_path):
+    """K=2 with explicit classes + multiclass proba list works.
+
+    Binary in multiclass representation (y_proba=[p0, p1]).
+    """
+    df = make_df(tmp_path, {
+        "y": [0, 1, 0, 1],
+        "p0": [0.9, 0.1, 0.8, 0.2],
+        "p1": [0.1, 0.9, 0.2, 0.8],
+    })
+    res = df.metrics(
+        y_true="y", y_proba=["p0", "p1"],
+        metrics=["log_loss"], classes=[0, 1],
+    )
+    assert res["log_loss"] > 0
+    assert not math.isnan(res["log_loss"])
+
+
+def test_metrics_batch_memory_factor_multiclass():
+    """§13.4/168: batch_memory_factor = 8.0 for multiclass proba.
+
+    .to_pylist() on K+1 columns × batch rows → Python-object overhead.
+    Prior 1.0 was dishonest for pure multiclass log_loss.
+    """
+    from cadw.ops.metrics import MetricsOp
+    op = MetricsOp(
+        "y", y_proba_cols=["p0", "p1", "p2"],
+        metrics=["log_loss"], classes=[0, 1, 2],
+    )
+    assert op.batch_memory_factor() == 8.0

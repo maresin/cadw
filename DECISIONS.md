@@ -1189,6 +1189,20 @@ estimate.
 - **Confusion matrix** — separate method if requested, not scalar.
 - `average='binary'` requires K=2 and `pos_label` in `classes`.
 
+**v0.9.2c (roc_auc + multiclass log_loss):**
+- `roc_auc` — multipass (Sort-based, not Reduce). Binary (y_proba scalar)
+  or macro (y_proba list K, classes K>2).
+- Per-threshold grouping (ties) — matches sklearn.
+- Peak RAM = batch + Sort disk. Independent of N.
+- NaN if all-pos or all-neg.
+- Multiclass log_loss — y_proba list of K, y_true encoded via classes.
+- Conflict: roc_auc + regression on same y_true → ValueError.
+- **`roc_curve`** arrays (TPR/FPR) — не возвращаются; separate if asked.
+- `roc_auc` macro — unweighted (`average='macro'`); weighted — backlog.
+- **Binary y_true validation**: y_proba scalar + pos_label → any y_true
+  values treated as positive (pos_label) / negative (rest). String
+  binary → use multiclass form.
+
 ### 11.5. Осознанные ограничения (документированы)
 
 **v0.8.11b:** join strict enforcement requires `budget >= 160 MB`
@@ -4232,6 +4246,163 @@ message. v0.9.2c.
 
 **Связанные:** §13.4/148 (design vs validation), /162 (redundant check
 masks specific), /163 (domain validation), /164 (pos_label ambiguity).
+
+**Эпизод 166 (numpy 2.4 trapz, roc_auc ties, prototype as test-
+authoring layer).** v0.9.2c prototype: 2 fix iterations before PASS.
+
+**Layer 1 (external API contract):** `np.trapz` → `np.trapezoid`
+(numpy 2.0 deprecation, removed in 2.4). pyproject pins
+`numpy>=2.4.4`. Prototype on old API → AttributeError.
+
+**Layer 2 (algorithm — ties):** `roc_auc` requires **per-threshold
+grouping**, not per-row. All tied scores → one ROC point (sklearn
+behavior). My per-row iteration gave wrong AUC for tied scores:
+- Case 4 (all same score 0.5): 0.25 vs correct 0.5
+- Case 7 (partial ties 0.5,0.5,0.7,0.7): 0.25 vs correct 0.5
+
+**Layer 3 (test-authoring in prototype):** expected values in prototype
+were manual arithmetic. Case 3 expected 5/6=0.833, correct 3/4=0.75
+(different sklearn example). Case 2 expected 0.75 (label "random"),
+correct 0.0 (fully inverted). **4th time in session** (§13.4/128, /163,
+/164, /166).
+
+**Fix (v0.9.2c):**
+- `np.trapz` → `np.trapezoid`.
+- **Per-threshold grouping** in streaming: `cur_score` sentinel,
+  accumulate `cur_tp/cur_fp` per group, flush on score change.
+- `tests/_helpers/metrics_reference.py::expected_roc_auc` — reference
+  implementation (validated by prototype PASS + sklearn equivalence).
+  Tests import it; no manual arithmetic in test bodies.
+
+**Урок (§13.4/166, расширение 128, 129, 163, 164, 165):**
+- **Prototype is also code, also requires API contract validation**
+  (`np.trapz` in pyproject numpy>=2.4 → would fail on CI). Backlog:
+  extend `test_api_availability.py` to numpy (`np.trapezoid`,
+  `np.divide(where=)`, `np.int64`).
+- **Prototype with expected values = test-authoring.** 4th time manual
+  arithmetic failed. Rule: prototype expected — **only** from reference
+  library (sklearn) OR **no expected** (A==B consistency only).
+  Expected-tests — separate, with `tests/_helpers/metrics_reference.py`.
+- **Sort-based algorithms need tie-heavy cases in prototype**
+  (all-same-value, partial ties). Random continuous proba misses ties
+  because ties are rare — but 100K E2E with quantized proba might
+  have them. Prototype case 4 (all 0.5) + case 7 (ties 0.5/0.5/0.7/0.7)
+  caught the bug in 5 minutes; without prototype — v092c would ship
+  with tie-bug (missed on random tests, caught only in specific
+  production data).
+
+**Backlog (§11.6):**
+- Extend `test_api_availability.py`: `np.trapezoid` (numpy 2.4+),
+  `np.divide(where=)` (numpy 1.13+), `np.int64`, `np.float64`,
+  `np.asarray`, `np.clip`, `np.isnan`, `np.log`, `np.exp` — что
+  используем в metrics/pca/linear/gbdt.
+- Prototype template: `expected = reference_fn(...)` (sklearn/pandas)
+  or `expected = None` (consistency only). Manual arithmetic — fail.
+
+**Связанные:** §13.4/128, /129, /163, /164, /165.
+
+**Эпизод 167 (partial migration: dual field left active; 5th
+test-authoring).** v0.9.2c: 14 test failures, 4 root causes — 2 code
+bugs (same class), 1 test-authoring (§13.4/166 protocol not applied),
+1 message-regex mismatch.
+
+**Bug 1 — partial migration of `y_proba_col` → `y_proba_cols`:**
+v0.9.2c added `y_proba_cols: list[str]` (unified binary + multiclass).
+Kept `y_proba_col: str | None` (legacy, backward compat). In
+`__init__`, validation checked **legacy** `y_proba_col`:
+```python
+if self._needs_proba and y_proba_col is None:  # WRONG
+```
+Callers passing `y_proba_cols=[...]` but not `y_proba_col` get
+`y_proba_col=None` → false "y_proba_col required". 6 tests fail.
+Fix: `self.y_proba_cols is None`.
+
+**Bug 2 — facade generic column loop not updated after type change:**
+v0.9.2a `y_proba: str | None` (scalar). v0.9.2c `y_proba:
+str | Sequence[str] | None` (can be list). Facade column-existence
+loop still iterates `(y_proba, "y_proba")` and checks
+`if y_proba not in self._columns`. For `y_proba=['p0','p1','p2']` →
+`['p0','p1','p2'] not in ['y','p0','p1','p2']` = True → KeyError.
+Specific per-column check already exists below — remove y_proba
+from generic loop.
+
+**Bug 3 — 5th test-authoring mistake in session (§13.4/166):**
+`test_metrics_roc_auc_with_accuracy` expected 0.875 manually.
+Correct AUC = 1.0 (all 4 pos/neg pairs correctly ordered).
+The test-authoring chain: 128 (rolling) → 163 (log_loss semantic)
+→ 164 (precision FP) → 166 (roc_auc prototype) → **167 (roc_auc mixed
+test)**. Same anti-pattern. Fix: import `expected_roc_auc` helper.
+Test was written BEFORE helper was imported — should've
+derived expected from helper at authoring time.
+
+**Bug 4 — message-regex mismatch:** message "computed by
+CadwDataFrame.metrics via external_sort" vs test regex
+`"roc_auc.*separately"`. Fix message: add "separately" — clearer
+intent, matches test expectation.
+
+**Правило (§13.4/167, расширение 149, 152, 160, 161):**
+Когда поле X **deprecated** в пользу X_new:
+- (a) **Все** validation checks — на X_new. Deprecated X — **только**
+  для input compat (set from X_new[0] если X_new not None). Никогда
+  не validation target.
+- (b) **Все** generic loops / column-existence checks — обновить
+  после type changes (str → str | list[str]).
+- (c) **Test** на mixed-types (scalar + list) — обязательны при
+  расширении типа. Facade y_proba (scalar) tests v0.9.2a **не**
+  ловили list case.
+
+**Связанные:** §13.4/149 (validation add/rename), /152 (stale
+behavior), /160 (stale regex round 5), /161 (AST substring),
+/166 (test-authoring).
+
+**Эпизод 168 (classification setup gate omitted multiclass
+log_loss; same partial-migration class as /167).** v0.9.2c-fix1: 2
+tests fail — `multiclass_log_loss` and `multiclass_log_loss_known`.
+Both: `ValueError: log_loss (multiclass) y_true has labels not in
+classes []: [0, 1, 2]`.
+
+**Bug:** multiclass log_loss в `update()` мапит y_true → proba column
+index через `self._cls_to_idx`. Этот dict заполняется в
+classification setup block, gated на `if self._needs_classification:`.
+Pure `metrics=["log_loss"]` → `_needs_classification = False` →
+`_cls_to_idx = {}` → все y_true labels уходят в `missing_yt`.
+
+**Тот же partial-migration класс, что §13.4/167:** новое feature
+(multiclass log_loss) добавлено, но gate классического блока не
+расширен.
+
+**Fix:**
+- Gate: `_needs_classification OR (_needs_proba AND
+  _needs_multiclass_proba)`. Multiclass log_loss использует
+  `_cls_to_idx` — значит, нужна та же инициализация.
+- `batch_memory_factor` → 8.0 для multiclass proba (`.to_pylist()`
+  на K+1 columns; §3.11 honest peak).
+- Defense: `_needs_regression AND _needs_multiclass_proba` → ValueError.
+  Domain conflict: regression y_true continuous; multiclass log_loss
+  y_true = class index. Mutually exclusive.
+- Tests: (a) pure multiclass log_loss без classification metrics;
+  (b) regression + multiclass conflict; (c) K=2 multiclass form;
+  (d) batch_memory_factor contract.
+
+**Правило (§13.4/168, расширение 167):** если feature F использует
+internal state S, а S инициализируется под gate G — расширить G при
+добавлении F, **даже если семантически F не входит в группу G.**
+«Multiclass log_loss — не classification metric» истина по имени, но
+**ложна по shared state**. Naming ≠ state-sharing.
+
+**Backlog (§11.6):** audit всех internal-state gates после
+v0.9.2 series:
+- `_cls_to_idx` — classification + multiclass log_loss (fixed).
+- `_classes` — same (fixed).
+- `_k` — same (fixed; K-only state; also used by classification
+  fail-fast `K×24+64 > state_limit`).
+- `tp/fp/fn` — classification only (correct; log_loss O(1) state).
+- `sum_log_loss/n_proba` — proba only (correct; binary + multiclass
+  share).
+
+**Связанные:** §13.4/167 (partial migration: y_proba_cols unified
+check), /148 (design vs validation), /162 (redundant check masks
+specific), /165 (gate by needs not presence).
 
 ### 13.5. Открытые вопросы
 

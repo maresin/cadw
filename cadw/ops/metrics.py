@@ -19,6 +19,7 @@ v0.9.2b (require confusion matrix, K×K state; roc_auc needs sort).
 """
 from __future__ import annotations
 
+import math
 from typing import Optional, Sequence
 
 import numpy as np
@@ -30,8 +31,15 @@ from cadw.ops.reduce import ReduceOp
 REGRESSION_METRICS = frozenset({"r2", "mse", "rmse", "mae"})
 PROBA_METRICS = frozenset({"log_loss"})
 CLASSIFICATION_METRICS = frozenset({"accuracy", "precision", "recall", "f1"})
-SUPPORTED_METRICS = REGRESSION_METRICS | PROBA_METRICS | CLASSIFICATION_METRICS
+AUC_METRICS = frozenset({"roc_auc"})
+SUPPORTED_METRICS = (
+    REGRESSION_METRICS | PROBA_METRICS
+    | CLASSIFICATION_METRICS | AUC_METRICS
+)
 VALID_AVERAGES = frozenset({"binary", "macro", "micro", "weighted"})
+
+# module-level sentinel (§13.4/148 lesson: never `obj is object()`)
+_ROC_AUC_UNSET = object()
 
 
 def _to_f64(arr: pa.Array) -> np.ndarray:
@@ -59,7 +67,8 @@ class MetricsOp(ReduceOp):
         y_true_col: str,
         *,
         y_pred_col: Optional[str] = None,
-        y_proba_col: Optional[str] = None,
+        y_proba_col: Optional[str] = None,       # binary backward compat
+        y_proba_cols: Optional[Sequence[str]] = None,  # multiclass/binary
         metrics: Sequence[str] | str,
         classes: Optional[Sequence] = None,
         average: Optional[str] = None,
@@ -74,9 +83,30 @@ class MetricsOp(ReduceOp):
                 f"MetricsOp: unknown metric(s) {unknown}; "
                 f"supported: {sorted(SUPPORTED_METRICS)}"
             )
+        # v0.9.2c: roc_auc is multipass (Sort-based); handled by
+        # CadwDataFrame.metrics() facade, not MetricsOp.
+        if any(m in AUC_METRICS for m in self.metrics):
+            raise ValueError(
+                "MetricsOp: 'roc_auc' is computed separately by "
+                "CadwDataFrame.metrics() via external_sort (multipass). "
+                "Do not pass roc_auc directly to MetricsOp. "
+                "See §13.4/166."
+            )
         self.y_true_col = y_true_col
         self.y_pred_col = y_pred_col
-        self.y_proba_col = y_proba_col
+        self.y_proba_col = y_proba_col  # legacy single; also unified below
+
+        # v0.9.2c: unified y_proba_cols list for binary + multiclass.
+        if y_proba_cols is not None:
+            self.y_proba_cols = list(y_proba_cols)
+        elif y_proba_col is not None:
+            self.y_proba_cols = [y_proba_col]
+        else:
+            self.y_proba_cols = None
+        self._needs_multiclass_proba = (
+            self.y_proba_cols is not None
+            and len(self.y_proba_cols) > 1
+        )
 
         ms = set(self.metrics)
         self._needs_regression = bool(ms & REGRESSION_METRICS)
@@ -92,13 +122,28 @@ class MetricsOp(ReduceOp):
                 f"cannot share y_pred column — one expects continuous "
                 f"values, the other labels. Pass distinct calls."
             )
+        # §13.4/168 (defensive): regression (continuous y_true) +
+        # multiclass proba (y_true = class index 0..K-1) — contradictory
+        # y_true semantics. Mutually exclusive.
+        if self._needs_regression and self._needs_multiclass_proba:
+            raise ValueError(
+                f"MetricsOp: regression ({sorted(ms & REGRESSION_METRICS)}) "
+                f"uses y_true as continuous target; multiclass y_proba "
+                f"(len={len(self.y_proba_cols)}) uses y_true as class "
+                f"index (0..K-1). Contradictory domain contracts — "
+                f"cannot mix. Use separate calls."
+            )
 
         if self._needs_regression and y_pred_col is None:
             raise ValueError(
                 f"MetricsOp: y_pred_col required for "
                 f"{sorted(ms & REGRESSION_METRICS)}"
             )
-        if self._needs_proba and y_proba_col is None:
+        # v0.9.2c-fix1 (§13.4/167): check unified y_proba_cols, NOT
+        # legacy y_proba_col. When only y_proba_cols=[...] is passed,
+        # y_proba_col remains None even though proba IS provided.
+        # Message kept as "y_proba_col" for v0.9.2a test regex compat.
+        if self._needs_proba and self.y_proba_cols is None:
             raise ValueError(
                 f"MetricsOp: y_proba_col required for "
                 f"{sorted(ms & PROBA_METRICS)}"
@@ -116,7 +161,15 @@ class MetricsOp(ReduceOp):
         self._average_method: str = ""
         self._pos_label = None
 
-        if self._needs_classification:
+        # §13.4/168: multiclass log_loss also needs _classes + _cls_to_idx
+        # (y_true label → proba column index). Prior gate `if
+        # self._needs_classification:` left them empty for pure
+        # `metrics=["log_loss"]` → all labels treated as "unknown".
+        _needs_class_setup = (
+            self._needs_classification
+            or (self._needs_proba and self._needs_multiclass_proba)
+        )
+        if _needs_class_setup:
             if classes is None:
                 # K=2 default
                 self._classes = [0, 1]
@@ -180,8 +233,16 @@ class MetricsOp(ReduceOp):
     def batch_memory_factor(self) -> float:
         """§13.4/164: classification uses .to_pylist() per batch
         (~7× Python-object overhead). reduce() checks batch with this
-        factor — honest peak RAM, not hidden."""
-        return 8.0 if self._needs_classification else 1.0
+        factor — honest peak RAM, not hidden.
+
+        §13.4/168: multiclass log_loss also does .to_pylist() on K+1
+        columns (y_true + K proba cols). Same overhead class.
+        """
+        if self._needs_classification:
+            return 8.0
+        if self._needs_proba and self._needs_multiclass_proba:
+            return 8.0
+        return 1.0
 
     def init(self):
         state = {
@@ -217,10 +278,39 @@ class MetricsOp(ReduceOp):
                 state["sum_residual_sq"] += float((resid * resid).sum())
                 state["sum_abs_residual"] += float(np.abs(resid).sum())
 
+        # Log loss (multiclass v0.9.2c; else binary)
+        if self._needs_proba and self._needs_multiclass_proba:
+            # Multiclass: y_true encodes class index (via classes);
+            # sum -log(p[y_idx]).
+            yt_list = batch.column(self.y_true_col).to_pylist()
+            proba_lists = [batch.column(c).to_pylist()
+                           for c in self.y_proba_cols]
+            missing_yt: list = []
+            eps = 1e-15
+            for i, v in enumerate(yt_list):
+                if v is None:
+                    continue
+                idx = self._cls_to_idx.get(v, -1)
+                if idx < 0:
+                    if len(missing_yt) < 5:
+                        missing_yt.append(v)
+                    continue
+                p = proba_lists[idx][i]
+                if p is None:
+                    continue
+                p_c = min(max(float(p), eps), 1.0 - eps)
+                state["sum_log_loss"] += -math.log(p_c)
+                state["n_proba"] += 1
+            if missing_yt:
+                raise ValueError(
+                    f"MetricsOp: log_loss (multiclass) y_true has "
+                    f"labels not in classes {self._classes}: "
+                    f"{missing_yt} (first 5)."
+                )
         # Log loss (binary; y must be {0,1}, p in [0,1])
-        if self._needs_proba:
+        elif self._needs_proba:
             y = _to_f64(batch.column(self.y_true_col))
-            p = _to_f64(batch.column(self.y_proba_col))
+            p = _to_f64(batch.column(self.y_proba_cols[0]))
             mask = ~np.isnan(y) & ~np.isnan(p)
             if mask.any():
                 y_m = y[mask]
@@ -398,3 +488,163 @@ class MetricsOp(ReduceOp):
         raise RuntimeError(
             f"_average_value: unknown average {avg!r} (internal bug)"
         )
+
+
+# ============ ROC-AUC (v0.9.2c) ============
+
+def _compute_roc_auc_binary(
+    stream_factory,
+    *,
+    y_true_col: str,
+    y_proba_col: str,
+    pos_label,
+    spill_dir,
+    memory_guard,
+    log: bool = False,
+) -> float:
+    """ROC-AUC (binary ovr) via external_sort + streaming trapezoid.
+
+    Validated by scripts/proto_roc_auc.py PASS 8/8. All tied probas →
+    single threshold point (matches sklearn roc_curve).
+
+    Peak RAM: batch + external_sort disk. Independent of N.
+
+    Args:
+        stream_factory: callable() → fresh iterable of RecordBatch
+            (called twice: pass 1 counts, pass 2 trapezoid).
+        y_true_col: binary label column (any two distinct values).
+        y_proba_col: probability column.
+        pos_label: value in y_true that denotes positive class.
+        spill_dir: temp dir for external_sort.
+        memory_guard: MemoryGuard for check_batch.
+        log: verbose logging.
+
+    Returns:
+        float AUC in [0, 1], or NaN if n_pos==0 or n_neg==0.
+    """
+    import pyarrow as pa
+    import pyarrow.compute as _pc
+    from pathlib import Path
+    from cadw.ops.sort import external_sort
+    from cadw.io.batch_reader import ArrowIPCBatchReader
+
+    spill_dir = Path(spill_dir)
+    spill_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pass 1: count n_pos / n_neg (both y and proba non-null)
+    total_valid = 0
+    n_pos = 0
+    for batch in stream_factory():
+        memory_guard.check_batch(batch, name="roc_auc.count")
+        y = batch.column(y_true_col)
+        p = batch.column(y_proba_col)
+        both_valid = _pc.and_(_pc.is_valid(y), _pc.is_valid(p))
+        y_f = y.filter(both_valid)
+        total_valid += len(y_f)
+        if len(y_f) > 0:
+            eq = _pc.equal(y_f, pa.scalar(pos_label, type=y.type))
+            n_pos += int(_pc.sum(_pc.cast(eq, pa.int64())).as_py() or 0)
+    n_neg = total_valid - n_pos
+
+    if n_pos == 0 or n_neg == 0:
+        return float("nan")
+
+    # Sort by proba desc (values: y_true)
+    sorted_path = external_sort(
+        stream_factory(),
+        key_columns=[y_proba_col],
+        value_columns=[y_true_col],
+        memory_guard=memory_guard,
+        spill_dir=spill_dir / "sort_by_proba",
+        ascending=False,
+        log=False,
+    )
+
+    # Pass 2: stream sorted, per-threshold grouping, trapezoid
+    tp = 0
+    fp = 0
+    prev_fpr = 0.0
+    prev_tpr = 0.0
+    area = 0.0
+    cur_score = _ROC_AUC_UNSET
+    cur_tp = 0
+    cur_fp = 0
+
+    try:
+        reader = ArrowIPCBatchReader(
+            str(sorted_path), [y_proba_col, y_true_col]
+        )
+        for b in reader:
+            memory_guard.check_batch(b, name="roc_auc.stream")
+            probas = b.column(y_proba_col).to_pylist()
+            ys = b.column(y_true_col).to_pylist()
+            for s, y in zip(probas, ys):
+                if s is None or y is None:
+                    continue
+                if cur_score is _ROC_AUC_UNSET or s != cur_score:
+                    if cur_score is not _ROC_AUC_UNSET:
+                        tp += cur_tp
+                        fp += cur_fp
+                        tpr = tp / n_pos
+                        fpr = fp / n_neg
+                        area += (fpr - prev_fpr) * (tpr + prev_tpr) / 2.0
+                        prev_fpr = fpr
+                        prev_tpr = tpr
+                    cur_score = s
+                    cur_tp = 0
+                    cur_fp = 0
+                if y == pos_label:
+                    cur_tp += 1
+                else:
+                    cur_fp += 1
+        # Flush last group
+        if cur_score is not _ROC_AUC_UNSET:
+            tp += cur_tp
+            fp += cur_fp
+            tpr = tp / n_pos
+            fpr = fp / n_neg
+            area += (fpr - prev_fpr) * (tpr + prev_tpr) / 2.0
+    finally:
+        try:
+            Path(sorted_path).unlink()
+        except OSError:
+            pass
+
+    return float(area)
+
+
+def _compute_roc_auc_macro(
+    stream_factory,
+    *,
+    y_true_col: str,
+    y_proba_cols: Sequence[str],
+    classes: Sequence,
+    spill_dir,
+    memory_guard,
+    log: bool = False,
+) -> float:
+    """Macro-average ROC-AUC (one-vs-rest, K binary passes).
+
+    Peak RAM per pass: batch + Sort disk. Independent of N.
+    NaN if no class produces valid AUC (all-pos or all-neg).
+    """
+    import math as _math
+    from pathlib import Path
+
+    spill_dir = Path(spill_dir)
+    aucs: list = []
+    for k, cls in enumerate(classes):
+        auc = _compute_roc_auc_binary(
+            stream_factory,
+            y_true_col=y_true_col,
+            y_proba_col=y_proba_cols[k],
+            pos_label=cls,
+            spill_dir=spill_dir / f"auc_k{k}",
+            memory_guard=memory_guard,
+            log=log,
+        )
+        aucs.append(auc)
+    valid = [a for a in aucs if not _math.isnan(a)]
+    if not valid:
+        return float("nan")
+    return float(sum(valid) / len(valid))

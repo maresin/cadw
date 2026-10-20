@@ -1,5 +1,119 @@
 ## [Unreleased]
 
+### Исправлено (v0.9.2c-fix2 — multiclass log_loss gate)
+
+- **`MetricsOp.__init__`** — classification setup block
+  (`_classes`/`_cls_to_idx`/`_k`) gated на
+  `_needs_classification OR (_needs_proba AND _needs_multiclass_proba)`.
+  Pure `metrics=["log_loss"]` + multiclass `y_proba=[p0,p1,p2]` раньше
+  оставлял `_cls_to_idx={}` → все y_true метки считались
+  "неизвестными". 2 failures.
+- **`MetricsOp.batch_memory_factor`** — 8.0 для multiclass proba
+  (`.to_pylist()` на K+1 columns — §3.11 honest peak).
+- **`MetricsOp.__init__`** — defensive: `_needs_regression +
+  _needs_multiclass_proba` → ValueError (domain conflict: regression
+  y_true continuous vs multiclass log_loss y_true class index).
+- **`test_metrics.py`** — raw-string regex (4-space indent; v0.9.2c
+  fix1 had 8-space, didn't match); 4 new contract tests
+  (§13.4/168).
+
+### §13.4/168 — partial migration: state-sharing ≠ naming
+
+Feature F использует internal state S; S инициализируется под gate G.
+Добавление F требует расширения G, даже если F не входит в
+семантическую группу G. Пример: multiclass log_loss — не
+classification metric (имя), но использует `_cls_to_idx` (state).
+
+### Исправлено (v0.9.2c-fix1 — partial migration + test-authoring)
+
+- **`MetricsOp.__init__`** — проверка `y_proba_cols` (unified) вместо
+  legacy `y_proba_col`. v0.9.2c добавил `y_proba_cols` (list для
+  multiclass/binary), но `if self._needs_proba and y_proba_col is None:`
+  остался на legacy поле — все вызовы с `y_proba_cols=[...]` (без
+  `y_proba_col`) получали false "y_proba_col required". 6 failures.
+- **`CadwDataFrame.metrics`** — generic column-existence loop больше
+  не включает `y_proba` (может быть list после v0.9.2c). Specific
+  per-column check (after `y_proba_cols` normalization) уже был
+  корректным. 6 failures.
+- **`test_metrics_roc_auc_with_accuracy`** — expected AUC из
+  `expected_roc_auc` helper, не manual 0.875 (правильно 1.0).
+  **5-я** test-authoring ошибка в сессии (§13.4/128 → 163 → 164 →
+  166 → 167).
+- **`MetricsOp`** — message: "'roc_auc' is computed **separately**
+  by CadwDataFrame.metrics()" (test regex `"roc_auc.*separately"`
+  matches; clearer intent).
+- **`tests/test_metrics.py`** — `match=r"len\(y_proba\)"` (raw
+  string; silence SyntaxWarning).
+
+### §13.4/167 — partial-migration pattern
+
+X → X_new (deprecated):
+- validation checks — **all** on X_new;
+- generic loops / type-sensitive checks — **updated** after type
+  widening (`str` → `str | list[str]`);
+- **mixed-type tests** (scalar + list) — обязательны при расширении
+  типа; v0.9.2a scalar tests не ловили list case.
+
+### Добавлено (v0.9.2c — roc_auc + multiclass log_loss)
+
+- **`roc_auc`** в `CadwDataFrame.metrics()`:
+  - **binary** (`y_proba` scalar str): `y_true ∈ {pos_label, other}`.
+    `pos_label` default `1`.
+  - **macro** (`y_proba` list of K cols, `classes` explicit K>2):
+    one-vs-rest, macro average.
+  - Algorithm: **external_sort** by proba desc + **per-threshold
+    grouping** + streaming trapezoid. Peak RAM = batch + Sort disk
+    (independent of N). Validated by prototype 8/8.
+  - NaN if `n_pos == 0` or `n_neg == 0` (honest).
+- **Multiclass `log_loss`**: `y_proba` list of K cols, `classes` explicit.
+  O(1) state (sum_log_loss, n_proba). One pass.
+- **`AUC_METRICS`** = `{"roc_auc"}` (exported).
+- **`tests/_helpers/metrics_reference.py`**: `expected_roc_auc`,
+  `expected_log_loss_binary`, `expected_log_loss_multiclass` —
+  reference implementations (validated by prototype + sklearn
+  equivalence if installed).
+
+### Design decisions (locked-in, v0.9.2c)
+
+- **roc_auc — не Reduce**. Sort-based (multipass): pass 1 count,
+  external_sort, pass 2 trapezoid. `MetricsOp` rejects `roc_auc`
+  directly; `CadwDataFrame.metrics()` dispatches it separately.
+- **Per-threshold grouping** (ties): all tied scores = one ROC point
+  (matches sklearn.roc_curve). Prototype caught this (§13.4/166).
+- **y_proba**: str → binary, list[str] → multiclass (both log_loss
+  and roc_auc).
+- **Conflict**: `roc_auc` (binary labels) + regression (`r2` etc.,
+  continuous) on same `y_true` → ValueError. Use separate calls.
+
+### Ограничения (v0.9.2c, §11.5)
+
+- **roc_auc binary requires `y_true ∈ {0,1}`** (or `pos_label` +
+  one other value; values not in `{pos_label, …}` treated as
+  negative — but validated only for column presence, not value domain).
+  String labels → use multiclass form (`y_proba` list + `classes`).
+- **roc_auc macro** — `average='macro'` only (unweighted); weighted
+  ovr — backlog.
+- **`roc_curve`** (TPR/FPR arrays) — не возвращается; если запросят —
+  отдельный метод.
+- **Sort temp** — `spill_dir/metrics_roc_auc/sort_by_proba/*` (auto
+  cleanup after streaming).
+- **N × row_size** does not bind peak: Sort handles arbitrary N via
+  disk. Fail-fast on `K × 24 + 64 > state_limit` (classification state).
+
+### Тесты (v0.9.2c)
+
+- +10 fast (`test_metrics_reference.py`): helper self-consistency,
+  sklearn-equivalence (importorskip), known cases.
+- +17 fast (`test_metrics.py`): multiclass log_loss (perfect/known/
+  validation), roc_auc binary (perfect/known/ties/all-pos-NaN/
+  all-neg-NaN/nulls/filtered/reference), roc_auc macro, mixed
+  (accuracy + roc_auc, regression conflict, requires y_proba),
+  MetricsOp rejects roc_auc.
+- +1 slow (`test_metrics_e2e.py`): 100K rows, roc_auc + multiclass
+  log_loss, memory 30 MB budget.
+
+- fast: **~1468** (+27). slow: **18** (+1).
+
 ### Добавлено (v0.9.2b — classification metrics)
 
 - **`accuracy`, `precision`, `recall`, `f1`** в `CadwDataFrame.metrics()`:

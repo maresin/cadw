@@ -15,6 +15,7 @@ from .ops.reduce import (
 from .ops.metrics import (
     MetricsOp, SUPPORTED_METRICS,
     REGRESSION_METRICS, PROBA_METRICS, CLASSIFICATION_METRICS,
+    AUC_METRICS,
 )
 from .ops.shuffle import (
     hash_shuffle, compute_hashes, estimate_num_partitions, read_partition_batches,
