@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.9.4] — 2026-10-20
+
 ### Добавлено (v0.9.4b-2 - transform / describe / dt / str)
 
 - **`df.groupby(g).transform(agg_columns, agg_funcs)`** —
