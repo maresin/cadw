@@ -1238,6 +1238,18 @@ estimate.
 - `groupby().agg("std")`: без изменений (Arrow native group_by,
   не использует `StdOp`).
 
+**v0.9.4b-2 (transform / describe):**
+- `df.groupby(g).transform(cols, funcs)` - aggregate + left-merge.
+  Row order = merge partition-concat, NOT original (df.merge()
+  semantics). For pandas-compatible order: add `__orig_rid`
+  column before transform, sort_values after. Streaming
+  order-preserving transform - v0.9.5 backlog.
+- `describe()` cost: 5 Reduce passes + 1 external_sort per
+  numeric column. Fused `DescribeOp` (count/mean/std/min/max
+  in one pass) - 11.6 backlog.
+- `dt.floor/ceil/round` - int64 arithmetic; post-1970 assumption.
+  Pre-1970 timestamps (negative int64) may diverge from pandas.
+- `dt.week_of_year` - ISO week (1-53), not US week numbering.
 ### 11.5. Осознанные ограничения (документированы)
 
 **v0.8.11b:** join strict enforcement requires `budget >= 160 MB`

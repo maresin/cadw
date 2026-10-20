@@ -4450,6 +4450,73 @@ class CadwDataFrame:
             total += per_col[c]
         return {"total": total, "per_column": per_col}
 
+    def describe(self, columns=None):
+        # Numeric summary: count, mean, std, min, 25%, 50%,
+        # 75%, max per column. Returns dict {col: {stat: value}}.
+        #
+        # columns=None: all numeric columns (int/float).
+        #
+        # Cost: per column -- 5 Reduce passes (count/mean/std/
+        # min/max) + 1 external_sort (quantiles). For d numeric
+        # cols, O(d) sorts total. See 11.6 for a fused DescribeOp
+        # (single-pass optimization) backlog.
+        from cadw.ops.reduce import (
+            reduce, CountOp, MeanOp, StdOp, MinMaxOp,
+        )
+        if columns is None:
+            cols = []
+            for c in self._columns:
+                t = self._dataset.schema.field(c).type
+                if (pa.types.is_integer(t)
+                        or pa.types.is_floating(t)):
+                    cols.append(c)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    "describe: column " + repr(c) + " not in "
+                    + str(self._columns)
+                )
+        result = {}
+        for c in cols:
+            count = reduce(
+                self._iter_filtered_batches(), CountOp(c),
+                self._memory_guard, log=False,
+            )
+            mean = reduce(
+                self._iter_filtered_batches(), MeanOp(c),
+                self._memory_guard, log=False,
+            )
+            std = reduce(
+                self._iter_filtered_batches(), StdOp(c),
+                self._memory_guard, log=False,
+            )
+            mn = reduce(
+                self._iter_filtered_batches(),
+                MinMaxOp(c, "min"),
+                self._memory_guard, log=False,
+            )
+            mx = reduce(
+                self._iter_filtered_batches(),
+                MinMaxOp(c, "max"),
+                self._memory_guard, log=False,
+            )
+            q = self.quantile(c, [0.25, 0.5, 0.75])
+            result[c] = {
+                "count": count,
+                "mean": mean,
+                "std": std,
+                "min": mn,
+                "25%": q[0],
+                "50%": q[1],
+                "75%": q[2],
+                "max": mx,
+            }
+        return result
+
     # ---------------- write ----------------
 
     def write_parquet(self, path: str | Path, *, compression: str = "snappy") -> Path:
@@ -4799,6 +4866,34 @@ class _GroupBy:
         if isinstance(on, str):
             return [on]
         return list(on)
+
+    def transform(self, agg_columns, agg_funcs):
+        # Aggregate + broadcast back to original rows via
+        # left-merge on group keys. Same signature as agg().
+        #
+        # Returns CadwDataFrame with all original columns + new
+        # {col}_{func} columns (like pandas assign of transform).
+        #
+        # LIMITATION (§11.5): row order in the result is
+        # partition-concatenation (df.merge semantics), not original.
+        # For pandas-compatible order, add __orig_rid and sort_values
+        # after (documented; v0.9.5 backlog for streaming order-preserving)
+        agg_cols = (
+            [agg_columns] if isinstance(agg_columns, str)
+            else list(agg_columns)
+        )
+        funcs = (
+            [agg_funcs] if isinstance(agg_funcs, str)
+            else list(agg_funcs)
+        )
+        if len(agg_cols) != len(funcs):
+            raise ValueError(
+                "transform: agg_columns and agg_funcs must have "
+                "same length; got " + str(len(agg_cols)) + " vs "
+                + str(len(funcs))
+            )
+        agg_df = self._parent._groupby_impl(self._by, agg_cols, funcs)
+        return self._parent.merge(agg_df, on=self._by, how="left")
 
     def shift(
         self,

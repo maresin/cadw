@@ -1,5 +1,50 @@
 ## [Unreleased]
 
+### Добавлено (v0.9.4b-2 - transform / describe / dt / str)
+
+- **`df.groupby(g).transform(agg_columns, agg_funcs)`** —
+  aggregate + left-merge back. Same signature as `agg()`. Result:
+  all original columns + new `{col}_{func}` columns. Row order =
+  partition-concat (merge semantics) — documented 11.5. For
+  pandas order, add `__orig_rid` + `sort_values()` after.
+- **`df.describe(columns=None)`** — numeric summary dict
+  `{col: {count/mean/std/min/25%/50%/75%/max}}`. Default: all
+  numeric cols. Cost: 5 Reduce passes + 1 sort per column.
+- **`df['ts'].dt.floor(freq)` / `ceil(freq)` / `round(freq)`** —
+  bucketize timestamp. `freq` = `'5s'`, `'1h'`, `'1D'` etc.
+  Appends `{col}_floor` / `_ceil` / `_round` (same dtype).
+- **`df['ts'].dt.week_of_year`** — ISO week (1-53). int16.
+- **`df['s'].str.strip/lstrip/rstrip`** — whitespace trim.
+  Appends `{col}_strip` / `_lstrip` / `_rstrip`.
+- **`df['s'].str.starts_with(pat)` / `.ends_with(pat)`** — return
+  `MaskFilter` for `df[mask]`. `na=False` (pandas default).
+- **`df['s'].str.replace(pat, repl, regex=False)`** — literal
+  substring replace (default). `regex=True` for regex. Appends
+  `{col}_replaced`.
+- **`PredicateFilter` extended** with `starts_with`, `ends_with`
+  ops (per-batch Arrow `pc.starts_with` / `pc.ends_with`).
+
+### Ограничения (v0.9.4b-2, 11.5)
+
+- **`transform` row order** = merge partition-concat, not
+  original. Streaming order-preserving transform → v0.9.5 backlog.
+- **`describe` cost**: O(d) sorts for quantiles. Fused `DescribeOp`
+  (single pass, no separate min/max) → 11.6 backlog.
+- **`dt.floor/ceil/round`** assumes post-1970 timestamps (positive
+  int64). Pre-1970 edge cases (negative int) diverge from pandas
+  floor semantics. `dt.round` = round-half-up.
+- **`dt.week_of_year`** = ISO week. US week numbering → backlog.
+- **`str.replace`** default `regex=False` (literal). pandas default
+  is `regex=True`; CADW chose literal for predictability.
+
+### Тесты (v0.9.4b-2)
+
++22 fast (`test_dataframe_v094b2.py`): transform (4), describe (4),
+dt.floor/ceil/round/week_of_year (5), str.strip/starts_with/
+ends_with/replace (5). Plus 4 error cases.
+
+- fast: **~1640** (+22). slow: **20** (unchanged).
+
 ## [0.9.3] — 2026-10-20
 
 ### Исправлено (v0.9.3e - shadowed _read_for_resplit, S2)

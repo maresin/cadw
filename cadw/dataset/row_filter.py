@@ -66,7 +66,7 @@ class PredicateFilter(MaskFilter):
     # specially in mask_for_batch (is_null/not_null/contains). Prior
     # code extended mask_for_batch but not __init__ validation → tests
     # for new ops raised "unsupported op". Both must stay in sync.
-    _OPS_NO_SCALAR = frozenset({"is_null", "not_null", "contains"})
+    _OPS_NO_SCALAR = frozenset({"is_null", "not_null", "contains", "starts_with", "ends_with"})
 
     def __init__(self, column: str, op: str, value) -> None:
         if op not in self._OPS and op not in self._OPS_NO_SCALAR:
@@ -88,6 +88,12 @@ class PredicateFilter(MaskFilter):
         if self.op == "contains":
             m = pc.match_substring(arr, self.value)
             # na=False (pandas default for .str.contains)
+            return pc.fill_null(m, pa.scalar(False))
+        if self.op == "starts_with":
+            m = pc.starts_with(arr, self.value)
+            return pc.fill_null(m, pa.scalar(False))
+        if self.op == "ends_with":
+            m = pc.ends_with(arr, self.value)
             return pc.fill_null(m, pa.scalar(False))
         scalar = pa.scalar(self.value, type=arr.type)
         return self._OPS[self.op](arr, scalar)

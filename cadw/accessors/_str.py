@@ -54,6 +54,43 @@ class _StrAccessor:
         return self._feature("upper", lambda arr: pc.utf8_upper(arr),
                              pa.string())
 
+    @property
+    def strip(self) -> "CadwDataFrame":
+        return self._feature(
+            "strip", lambda arr: pc.utf8_trim_whitespace(arr),
+            pa.string(),
+        )
+
+    @property
+    def lstrip(self) -> "CadwDataFrame":
+        return self._feature(
+            "lstrip", lambda arr: pc.utf8_ltrim_whitespace(arr),
+            pa.string(),
+        )
+
+    @property
+    def rstrip(self) -> "CadwDataFrame":
+        return self._feature(
+            "rstrip", lambda arr: pc.utf8_rtrim_whitespace(arr),
+            pa.string(),
+        )
+
+    def starts_with(self, pat: str) -> "MaskFilter":
+        from cadw.dataset.row_filter import PredicateFilter
+        return PredicateFilter(self._column, "starts_with", pat)
+
+    def ends_with(self, pat: str) -> "MaskFilter":
+        from cadw.dataset.row_filter import PredicateFilter
+        return PredicateFilter(self._column, "ends_with", pat)
+
+    def replace(self, pat: str, repl: str, *,
+                regex: bool = False) -> "CadwDataFrame":
+        # Appends {col}_replaced. regex=False default (literal).
+        if regex:
+            fn = lambda arr: pc.replace_substring_regex(arr, pat, repl)
+        else:
+            fn = lambda arr: pc.replace_substring(arr, pat, repl)
+        return self._feature("replaced", fn, pa.string())
     def contains(self, pat: str) -> "MaskFilter":
         """Substring match → MaskFilter (for `df[mask]`).
 
