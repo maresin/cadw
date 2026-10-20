@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.9.2] — 2026-10-20
+
 ### Исправлено (v0.9.2f-fix2 — registry 4→8)
 
 - **`test_list_step_types_default`** — ожидаемый список 4 → 8 items
