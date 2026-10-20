@@ -4873,6 +4873,50 @@ scope), P-CV1 (small-N hides O(N) bugs) — same class
 «implementation mismatch с contract», не поймали small-numeric
 test'ом.
 
+**Эпизод 177 (shadowed def - dead code + dead optimization).**
+v0.9.3e: C1 из v0.9.2 audit.
+
+**Bug.** `_local_groupby` (cadw/ops/groupby.py):
+```python
+def _read_for_resplit(): ...    # optimization: reuse `table`
+def _read_for_resplit(): ...    # shadows first (identical name)
+```
+Второй def перекрыл первый. Первый (optimization) никогда не
+выполнялся. Optimization не активна (suboptimal disk re-read) и
+не тестировалась.
+
+**Правило (13.4/177, расширение 152, 160, 167):**
+
+- **Duplicate same-name def в same scope = всегда shadowing**,
+  не fallback. Python не «попробует сначала один, потом другой»;
+  второй безусловно переопределяет первый.
+- **Dead code + dead optimization.** Если optimization shadowed —
+  она не работает. Future reader, глядя на первый def, думает
+  «optimization есть». Должна быть либо активна (delete second),
+  либо удалена (delete first + backlog). Оставлять = misleading.
+- **AST guard для same-scope duplicates:** `test_no_shadowed_def_
+  ast` — для каждой FunctionDef в теле другой функции: name
+  уникален. Extended: ClassDef methods, module-level defs — same
+  check.
+
+**Урок (meta).** Text-match как способ fix'а упал в v0.9.3a
+6 раз (unicode em-dash `—` vs ASCII `->`, escape `\n`, `'''`
+vs `"""` in templates). **AST-based fix** (`ast.walk` +
+`node.lineno`/`end_lineno`) — прецизионный и content-agnostic.
+Для любого deletion/insertion по структуре кода использовать
+AST, не regex/string.
+
+**Backlog (11.6):**
+- Restore optimization: `_read_for_resplit` reuse `table` если
+  available. Prototype needed (correctness: in-memory split == disk
+  re-read). v0.9.4.
+- Extend `test_no_shadowed_def_ast` на весь `cadw/` — grep AST
+  на duplicate top-level defs, duplicate method names per class.
+  Одна проверка всех — cheap, high-value.
+
+**Связанные:** 13.4/152 (stale), 160 (stale regex round 5),
+167 (partial migration).
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).

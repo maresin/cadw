@@ -1,5 +1,44 @@
 ## [Unreleased]
 
+### Исправлено (v0.9.3e - shadowed _read_for_resplit, S2)
+
+**C1 (S2, из v0.9.2 audit):** `_local_groupby` содержал
+**два** `def _read_for_resplit()` подряд. Первый (intended
+оптимизация: reuse in-memory `table` когда partition file fits
+но dict overflow — избегать disk re-read) был shadowed вторым
+и никогда не выполнялся.
+
+**Почему это важно:**
+- Dead code — будущий читатель думает что optimization работает.
+- Optimization никогда не активировалась (второй def перекрыл) →
+  никогда не тестировалась → потенциально buggy. Правильно не
+  активировать без отдельного prototype.
+
+**Fix (AST-based, не text-match):**
+
+- Delete first (dead) `_read_for_resplit`.
+- Current behavior (re-read from disk) сохранён — correct, если
+  suboptimal.
+- Comment marker на месте удалённого def.
+
+**Почему AST, не text-match:** unicode em-dash в Russian comments
+и escape sequences ломали text-match в v0.9.3a (6 round fix).
+AST `FunctionDef` nodes — прецизионные `lineno`/`end_lineno`,
+устойчивы к content.
+
+**Backlog (11.6):**
+
+- Restore optimization: `_read_for_resplit` reuse `table` если
+  available (file fits but dict overflow). Prototype needed:
+  verify correctness (in-memory split vs disk re-read — должны
+  дать same partition content). v0.9.4.
+
+**Тесты (v0.9.3e):** +4 fast (`test_groupby_dead_code.py`):
+exactly 1 `_read_for_resplit` def, no duplicate same-scope defs,
+comment marker present, dict-overflow recursion still works.
+
+- fast: **~1587** (+4). slow: **20** (unchanged).
+
 ### Исправлено (v0.9.3d - StdOp int-column truncation, S2 fix)
 
 **C2 (S2, из v0.9.2 audit):** `StdOp.update` использовал

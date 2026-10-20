@@ -355,23 +355,12 @@ def _local_groupby(
             f"safety={safety_limit} B. Likely skew (DECISIONS §11.4)."
         )
 
-    def _read_for_resplit():
-        # Если таблица уже в памяти (file fits, dict overflow) — не
-        # перечитываем с диска: сплитим in-memory batches.
-        if table is not None:
-            keep = [
-                c for c in list(by_columns) + list(agg_columns)
-                if c in table.schema.names
-            ]
-            for b in table.select(keep).to_batches():
-                yield b
-            return
-        for b in ArrowIPCBatchReader(str(partition_path), None):
-            cols = [
-                c for c in list(by_columns) + list(agg_columns)
-                if c in b.schema.names
-            ]
-            yield b.select(cols)
+    # v0.9.3e (C1, S2): prior (shadowed) `_read_for_resplit`
+    # def removed. It was intended optimization: reuse in-memory
+    # `table` when partition file fits but dict overflows,
+    # avoiding disk re-read. Deferred to backlog (11.6) -- never
+    # activated (second identical-name def shadowed it) and thus
+    # never tested. See 13.4/177.
 
     def _read_for_resplit():
         for b in ArrowIPCBatchReader(str(partition_path), None):
