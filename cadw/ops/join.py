@@ -182,6 +182,7 @@ def _exact_actual_matches_arrow(
     build_table: pa.Table,
     probe_table: pa.Table,
     on: list[str],
+    *, build_counts: "pa.Array | None" = None,
 ) -> int:
     """Точное число совпадений (v0.5.3, P1).
 
@@ -189,6 +190,11 @@ def _exact_actual_matches_arrow(
     через pc.index_in.
 
     Σ over common keys (build_count × probe_count).
+
+    K1.3: `build_counts` may be precomputed once per partition-pair
+    (the build side is the same for every probe batch, so recomputing
+    `value_counts(build)` per probe batch was pure waste — ~P× for
+    partition pairs with P probe batches).
     """
     import pyarrow.compute as _pc
     if build_table.num_rows == 0 or probe_table.num_rows == 0:
@@ -197,7 +203,8 @@ def _exact_actual_matches_arrow(
     # Better: use value_counts
     # For single-column keys: direct
     if len(on) == 1:
-        bc = _pc.value_counts(build_table.column(on[0]))
+        bc = (build_counts if build_counts is not None
+              else _pc.value_counts(build_table.column(on[0])))
         pc_ = _pc.value_counts(probe_table.column(on[0]))
         # bc: struct<values, counts>
         # Convert to dict for lookup? No — use pc.join on structs
@@ -226,35 +233,49 @@ def _exact_actual_matches_arrow(
     )
 
 
+def _combine_join_keys(tbl: pa.Table, on: list[str]) -> pa.Array:
+    """Concatenate multi-column keys into one string array (\x01 sep)."""
+    import pyarrow.compute as _pc
+    if not hasattr(_pc, "binary_join_element_wise"):
+        raise RuntimeError("pc.binary_join_element_wise unavailable")
+    str_cols = [
+        tbl.column(c) if pa.types.is_string(tbl.column(c).type)
+        else _pc.cast(tbl.column(c), pa.string())
+        for c in on
+    ]
+    joined = str_cols[0]
+    for c in str_cols[1:]:
+        joined = _pc.binary_join_element_wise(joined, c, "\x01")
+    return joined
+
+
 def _estimate_multi_key_matches(
     build_table: pa.Table,
     probe_table: pa.Table,
     on: list[str],
+    *, build_counts: "pa.Array | None" = None,
 ) -> int:
     """Fallback for multi-col exact matches — conservative upper bound.
 
     Uses binary_join_element_wise → dictionary_encode → counts merge.
     If binary_join unavailable — returns cartesian (safe upper bound).
+
+    K1.3: `build_counts` may be precomputed once per partition-pair.
     """
     import pyarrow.compute as _pc
     if not hasattr(_pc, "binary_join_element_wise"):
         return build_table.num_rows * probe_table.num_rows
 
     def _combine(tbl):
-        cols = [tbl.column(c) for c in on]
-        str_cols = [
-            c if pa.types.is_string(c.type) else _pc.cast(c, pa.string())
-            for c in cols
-        ]
-        joined = str_cols[0]
-        for c in str_cols[1:]:
-            joined = _pc.binary_join_element_wise(joined, c, "\x01")
-        return joined
+        return _combine_join_keys(tbl, on)
 
     try:
-        bj = _combine(build_table)
+        if build_counts is not None:
+            bc = build_counts
+        else:
+            bj = _combine(build_table)
+            bc = _pc.value_counts(bj)
         pj = _combine(probe_table)
-        bc = _pc.value_counts(bj)
         pcv = _pc.value_counts(pj)
         bc_t = pa.Table.from_arrays(
             [bc.field("values"), bc.field("counts")], names=["k", "bc"],
@@ -460,6 +481,22 @@ def _process_partition_pair(
     # To simplify, always call: (probe, build) as (left, right) when
     # how='left', else based on build_is_left.
 
+    # K1.3: build side is identical for every probe batch of this
+    # partition-pair — compute its value_counts once, not per probe
+    # batch (~P× fewer value_counts calls; P = probe batches/pair).
+    _build_counts = None
+    if build_table.num_rows > 0:
+        import pyarrow.compute as _pc
+        if len(on) == 1:
+            _build_counts = _pc.value_counts(build_table.column(on[0]))
+        elif hasattr(_pc, "binary_join_element_wise"):
+            try:
+                _build_counts = _pc.value_counts(
+                    _combine_join_keys(build_table, on)
+                )
+            except Exception:
+                _build_counts = None
+
     for probe_batch in _iter_probe_batches(probe_path):
         memory_guard.check_batch(
             probe_batch, name=f"join_probe({probe_path.name})"
@@ -473,9 +510,19 @@ def _process_partition_pair(
         # how='left': probe preserved.
 
         # Exact-match guard (P-v0.2.5 §13.4/47): Arrow-native.
-        actual_matches = _exact_actual_matches_arrow(
-            build_table, probe_table, list(on)
-        )
+        if len(on) == 1:
+            actual_matches = _exact_actual_matches_arrow(
+                build_table, probe_table, list(on),
+                build_counts=_build_counts,
+            )
+        else:
+            actual_matches = min(
+                build_table.num_rows * probe_table.num_rows,
+                _estimate_multi_key_matches(
+                    build_table, probe_table, list(on),
+                    build_counts=_build_counts,
+                ),
+            )
         if actual_matches > max_output_rows:
             raise MemoryLimitExceeded(
                 f"hash_join(how={how!r}): exact matches between this "
