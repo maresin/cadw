@@ -79,3 +79,49 @@ def test_metrics_100k_log_loss_binary(tmp_path):
 
     assert res["log_loss"] == pytest.approx(ref_ll, rel=1e-9)
     assert 0 < res["log_loss"] < 1.0  # binary CE ∈ (0, ∞); sigmoid-calibrated ~0.35
+
+
+@pytest.mark.slow
+def test_metrics_100k_classification_multiclass(tmp_path):
+    """100K rows, 3-class, all metrics verified vs manual numpy."""
+    n = 100_000
+    rng = np.random.default_rng(42)
+    y = rng.integers(0, 3, size=n).astype(np.int64)
+    yp = y.copy()
+    flip_mask = rng.random(n) < 0.2  # 20% errors
+    yp[flip_mask] = rng.integers(0, 3, size=int(flip_mask.sum()))
+
+    src = tmp_path / "src.parquet"
+    pq.write_table(
+        pa.table({"y": y.tolist(), "yp": yp.tolist()}),
+        src, row_group_size=5000,
+    )
+    df = CadwDataFrame.from_parquet(
+        src, tmp_path / "ds", chunk_size=5000,
+        memory_guard=MemoryGuard(max_memory_mb=30),
+        spill_dir=tmp_path / "spill",
+    )
+    res = df.metrics(
+        y_true="y", y_pred="yp",
+        metrics=["accuracy", "precision", "recall", "f1"],
+        classes=[0, 1, 2], average="macro",
+    )
+
+    # Manual reference
+    K = 3
+    tp = np.zeros(K, dtype=np.int64)
+    fp = np.zeros(K, dtype=np.int64)
+    fn = np.zeros(K, dtype=np.int64)
+    for k in range(K):
+        tp[k] = int(((y == k) & (yp == k)).sum())
+        fp[k] = int(((y != k) & (yp == k)).sum())
+        fn[k] = int(((y == k) & (yp != k)).sum())
+    pp = np.where((tp + fp) > 0, tp / (tp + fp), 0.0)
+    pr = np.where((tp + fn) > 0, tp / (tp + fn), 0.0)
+    denom = pp + pr
+    pf1 = np.where(denom > 0, 2 * pp * pr / denom, 0.0)
+    acc = float(tp.sum()) / float(tp.sum() + fp.sum())
+    assert res["accuracy"] == pytest.approx(acc, rel=1e-9)
+    assert res["precision"] == pytest.approx(float(pp.mean()), rel=1e-9)
+    assert res["recall"] == pytest.approx(float(pr.mean()), rel=1e-9)
+    assert res["f1"] == pytest.approx(float(pf1.mean()), rel=1e-9)

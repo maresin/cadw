@@ -4200,32 +4200,46 @@ class CadwDataFrame:
         metrics: "Sequence[str] | str",
         y_pred: "str | None" = None,
         y_proba: "str | None" = None,
+        classes: "Sequence | None" = None,
+        average: "str | None" = None,
+        pos_label=None,
     ) -> dict:
-        """Regression + log_loss metrics in one pass (Reduce-based).
+        """Regression + log_loss + classification metrics in one pass.
 
         Metrics:
-          - r2, mse, rmse, mae — require `y_pred` (numeric).
+          - r2, mse, rmse, mae — require `y_pred` (numeric, continuous).
           - log_loss — requires `y_proba` (binary, values in [0,1]).
-          - Combinations of regression + log_loss allowed in one call if
-            both y_pred and y_proba provided.
+          - accuracy, precision, recall, f1 — require `y_pred` (labels,
+            numeric or string).
 
         Args:
             y_true: column with true values.
             metrics: metric name(s) — scalar or list.
-            y_pred: predicted values (float). Required for
-                r2/mse/rmse/mae.
-            y_proba: predicted probabilities (float in [0,1]).
-                Required for log_loss.
+            y_pred: predicted values (float or labels — depends on
+                metric group).
+            y_proba: predicted probabilities (float in [0,1], binary).
+            classes: explicit class list for classification. K=2 default
+                when classes=None.
+            average: 'binary' | 'macro' | 'micro' | 'weighted' for
+                precision/recall/f1. Auto: 'binary' (K=2) / 'macro' (K>2).
+            pos_label: positive class for average='binary'. None →
+                classes[-1] (K=2 default: [0,1]→1; string classes →
+                last class). Explicit value must be in `classes`.
 
         Returns:
-            dict `{metric_name: value}`. Values are NaN for empty input
-            (after filter).
+            dict `{metric_name: value}`. NaN for empty input.
 
-        Nulls in y_true / y_pred / y_proba → row skipped (skipna=True).
+        Restrictions:
+          - Regression (r2/mse/rmse/mae) and classification
+            (accuracy/...) cannot share y_pred in one call.
+          - Classification K×24+64 > state_limit → MemoryLimitExceeded.
 
-        State: O(1) (7 counters). Independent of N.
+        State: O(1) + O(K) (classification). Independent of N.
         """
-        from cadw.ops.metrics import MetricsOp, SUPPORTED_METRICS
+        from cadw.ops.metrics import (
+            CLASSIFICATION_METRICS, REGRESSION_METRICS,
+            SUPPORTED_METRICS, MetricsOp,
+        )
         from cadw.ops.reduce import reduce
 
         if isinstance(metrics, str):
@@ -4233,11 +4247,12 @@ class CadwDataFrame:
         metrics = list(metrics)
         if not metrics:
             raise ValueError("metrics: metrics list is empty")
-
-        # §13.4/162: no generic "at least one required" check —
-        # `MetricsOp.__init__` raises per-metric specific error
-        # ("y_pred_col required for ['r2']" / "y_proba_col required for
-        # ['log_loss']"). Better UX: specific > generic.
+        unknown = [m for m in metrics if m not in SUPPORTED_METRICS]
+        if unknown:
+            raise ValueError(
+                f"metrics: unknown metric(s) {unknown}; "
+                f"supported: {sorted(SUPPORTED_METRICS)}"
+            )
 
         for c, label in (
             (y_true, "y_true"), (y_pred, "y_pred"), (y_proba, "y_proba")
@@ -4247,9 +4262,25 @@ class CadwDataFrame:
                     f"metrics: {label} column {c!r} not in {self._columns}"
                 )
 
+        # §13.4/164: fail-fast for classification K too large — before
+        # constructing MetricsOp (clear message, not "state limit").
+        ms = set(metrics)
+        if ms & CLASSIFICATION_METRICS:
+            K = 2 if classes is None else len(classes)
+            est = 64 + 24 * K
+            state_limit = self._memory_guard.state_limit_bytes
+            if est > state_limit:
+                from cadw.core.memory_guard import MemoryLimitExceeded
+                raise MemoryLimitExceeded(
+                    f"metrics: classification K={K} → state "
+                    f"{est} B > state_limit {state_limit} B. "
+                    f"Reduce class count or increase budget. §13.4/164."
+                )
+
         op = MetricsOp(
             y_true, y_pred_col=y_pred, y_proba_col=y_proba,
-            metrics=metrics,
+            metrics=metrics, classes=classes,
+            average=average, pos_label=pos_label,
         )
         return reduce(
             self._iter_filtered_batches(), op,

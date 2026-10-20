@@ -56,6 +56,17 @@ class ReduceOp(ABC):
         """
         return None
 
+    def batch_memory_factor(self) -> float:
+        """Extra factor for `check_batch` (v0.9.2b).
+
+        Default 1.0 — batch.nbytes covers peak per-batch RAM.
+
+        Override in ops that temporarily exceed `batch.nbytes` inside
+        `update` (e.g., `.to_pylist()` overhead — 7× for Python objects).
+        `reduce()` passes this to `check_batch(extra_factor=...)`.
+        """
+        return 1.0
+
 
 def reduce(
     batch_iter: Iterator[pa.RecordBatch],
@@ -84,8 +95,13 @@ def reduce(
 
     state = op.init()
     batch_id = 0
+    extra_factor = op.batch_memory_factor()
     for batch in batch_iter:
-        memory_guard.check_batch(batch, name=f"{type(op).__name__}.batch")
+        memory_guard.check_batch(
+            batch,
+            name=f"{type(op).__name__}.batch",
+            extra_factor=extra_factor,
+        )
         state = op.update(state, batch)
         memory_guard.check_state(op.state_nbytes(state), name=type(op).__name__)
         if log:

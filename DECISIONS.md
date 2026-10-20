@@ -1173,6 +1173,22 @@ estimate.
 - **Per-group metrics** (`groupby(g).metrics()`) — v0.9.2d.
 - **y_true numeric** for regression — string labels → `encode_categorical`.
 
+**v0.9.2b (classification metrics):** `accuracy`, `precision`,
+`recall`, `f1` (binary + multiclass).
+- State: `tp[K] + fp[K] + fn[K]` int64 = `24×K` bytes.
+- `average` ∈ `binary|macro|micro|weighted`; auto binary (K=2) / macro
+  (K>2).
+- `classes` explicit for K>2; K=2 default when None.
+- zero_division=0 (sklearn default).
+- Mixed regression + classification on same `y_pred` → ValueError.
+- Classification path uses `.to_pylist()` per batch; `reduce()` passes
+  `check_batch(extra_factor=8.0)` (honest peak).
+- Fail-fast: `K × 24 + 64 > state_limit` → `MemoryLimitExceeded`.
+- **`roc_auc`** — v0.9.2c (sort-based).
+- **Multiclass log_loss** (proba matrix) — v0.9.2c.
+- **Confusion matrix** — separate method if requested, not scalar.
+- `average='binary'` requires K=2 and `pos_label` in `classes`.
+
 ### 11.5. Осознанные ограничения (документированы)
 
 **v0.8.11b:** join strict enforcement requires `budget >= 160 MB`
@@ -4151,6 +4167,71 @@ validation:
 **Связанные:** §13.4/128 (test expectations authored), /134 (input
 type not Arrow-safe), /158 (E2E respects complexity), /162 (redundant
 check masks specific).
+
+**Эпизод 164 (pos_label default ambiguity + test-authoring FP
+miss + np.where division warnings).** v0.9.2b: 3 test fails, 4
+RuntimeWarnings.
+
+**Bug 1 (test-authoring, §13.4/128-класс):**
+`test_metrics_precision_binary_pos_label_0` — ручной расчёт:
+y=[1,1,1,0,0], yp=[1,0,1,1,0]. Comment said «class 0: FP=0» — **wrong**.
+Row 1 (y=1, yp=0) — это **FP для class 0** (модель предсказала 0, а
+истина 1). Реально TP=1, FP=1, FN=1 → precision=0.5 (не 1.0).
+**Code правильный**, test ожидал неверное. Класс — §13.4/128
+(expectations authored, not derived).
+
+**Bug 2 (missing import):** `MemoryLimitExceeded` не импортирован в
+test_metrics.py.
+
+**Bug 3 (design, §13.4/164):** `average='binary'` (auto для K=2)
+требует `pos_label ∈ classes`. Default `pos_label=1` (int) не работает
+для `classes=['cat','dog']`. Sklearn also fails (default int on string
+y → error). Но API может быть **дружелюбнее**: `pos_label=None` →
+`classes[-1]` — для `[0,1]` даёт `1` (= sklearn classes[1]), для
+strings — last class. Explicit `pos_label` — validate.
+
+**Bug 4 (warnings, latent):** `np.where((tp+fp)>0, tp/(tp+fp), 0)` —
+`tp/(tp+fp)` evaluates for all elements, включая zeros → RuntimeWarning.
+Fix: `np.divide(tp, tp+fp, out=pp, where=(tp+fp)>0)` — vectorized,
+no warning. Same для pr, pf1.
+
+**Урок (§13.4/164, усиление 128, 163):**
+- **Manual arithmetic в test expectations** — 3-й случай в сессии
+  (128 rolling, 163 log_loss semantic, 164 precision FP).
+  Правило (уже было): reference helper или trace. Здесь применимо:
+  `expected_precision(y_true, y_pred, classes, pos_label)` — helper.
+- **pos_label default как int** — design assumption, ломается на
+  strings. Optional=None + resolve pattern — consistent с sklearn
+  (classes[1]), но friendlier.
+- **np.where для zero-division** — anti-pattern. Всегда
+  `np.divide(..., where=...)`.
+
+**Связанные:** §13.4/128, /129, /163.
+
+**Эпизод 165 (gate by metric needs, not column presence).**
+v0.9.2b: `MetricsOp.update` gated regression block by column presence
+`if self.y_pred_col is not None:`. Для `metrics=['accuracy'],
+y_pred='yp', y_true='cat'` (string labels): regression block runs →
+`_to_f64('cat')` → `ValueError: could not convert string to float`.
+1 test fails.
+
+**Правильный gate:** `_needs_regression` / `_needs_proba` /
+`_needs_classification` — установлены в `__init__` из requested
+metrics. v092b добавил `_needs_classification` gate корректно, но
+регрессию/логи оставил на старом `y_pred_col is not None`.
+
+**Правило (§13.4/165, расширение 148, 162):** gate в `update` /
+`finalize` — **by metric needs** (`_needs_*`), не by input presence.
+Presence говорит «пользователь передал col», needs говорит «этот
+блок действительно нужен». Первое — input, второе — semantic.
+
+**Backlog (§11.6):** log_loss с string y по-прежнему cryptic error
+(`could not convert 'cat'`). Улучшение: `MetricsOp._to_f64_numeric(
+arr, "log_loss requires numeric binary y")` — context-specific
+message. v0.9.2c.
+
+**Связанные:** §13.4/148 (design vs validation), /162 (redundant check
+masks specific), /163 (domain validation), /164 (pos_label ambiguity).
 
 ### 13.5. Открытые вопросы
 

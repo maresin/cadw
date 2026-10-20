@@ -8,6 +8,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from cadw import CadwDataFrame, MemoryGuard
+from cadw.core.memory_guard import MemoryLimitExceeded
 
 
 def make_df(tmp_path, data, chunk=3, name="L", mem_mb=50):
@@ -253,3 +254,295 @@ def test_metrics_log_loss_rejects_continuous_y(tmp_path):
     })
     with pytest.raises(ValueError, match="requires binary y_true"):
         df.metrics(y_true="y", y_proba="p", metrics=["log_loss"])
+
+
+# ============ v0.9.2b: classification metrics ============
+
+def test_metrics_accuracy_binary_perfect(tmp_path):
+    df = make_df(tmp_path, {"y": [0, 1, 0, 1], "yp": [0, 1, 0, 1]})
+    res = df.metrics(
+        y_true="y", y_pred="yp", metrics=["accuracy"],
+        classes=[0, 1],
+    )
+    assert res["accuracy"] == pytest.approx(1.0)
+
+
+def test_metrics_accuracy_binary_mixed(tmp_path):
+    df = make_df(tmp_path, {"y": [0, 1, 0, 1], "yp": [0, 1, 1, 1]})
+    res = df.metrics(
+        y_true="y", y_pred="yp", metrics=["accuracy"],
+        classes=[0, 1],
+    )
+    # 3 correct out of 4
+    assert res["accuracy"] == pytest.approx(0.75)
+
+
+def test_metrics_accuracy_auto_binary_default(tmp_path):
+    """classes=None → K=2 default."""
+    df = make_df(tmp_path, {"y": [0, 1, 0, 1], "yp": [0, 1, 1, 0]})
+    res = df.metrics(y_true="y", y_pred="yp", metrics=["accuracy"])
+    assert res["accuracy"] == pytest.approx(0.5)
+
+
+def test_metrics_precision_recall_f1_binary(tmp_path):
+    """y=[1,1,1,0,0], yp=[1,0,1,1,0] → TP=2, FP=1, FN=1.
+    precision=2/3, recall=2/3, f1=2/3."""
+    df = make_df(tmp_path, {
+        "y": [1, 1, 1, 0, 0],
+        "yp": [1, 0, 1, 1, 0],
+    })
+    res = df.metrics(
+        y_true="y", y_pred="yp",
+        metrics=["precision", "recall", "f1"],
+        classes=[0, 1],
+        average="binary", pos_label=1,
+    )
+    assert res["precision"] == pytest.approx(2.0 / 3.0)
+    assert res["recall"] == pytest.approx(2.0 / 3.0)
+    assert res["f1"] == pytest.approx(2.0 / 3.0)
+
+
+def test_metrics_precision_binary_pos_label_0(tmp_path):
+    """pos_label=0: precision for class 0.
+
+    y=[1,1,1,0,0], yp=[1,0,1,1,0]. For class 0:
+      TP: (0,0) → row 4
+      FP: (≠0, 0) → row 1 (y=1, yp=0)
+      FN: (0, ≠0) → row 3 (y=0, yp=1)
+    precision(0) = TP/(TP+FP) = 1/2 = 0.5 (§13.4/164: prior expected 1.0
+    missed row 1 FP — test-authoring error, code correct).
+    """
+    df = make_df(tmp_path, {
+        "y": [1, 1, 1, 0, 0],
+        "yp": [1, 0, 1, 1, 0],
+    })
+    res = df.metrics(
+        y_true="y", y_pred="yp",
+        metrics=["precision"], classes=[0, 1],
+        average="binary", pos_label=0,
+    )
+    assert res["precision"] == pytest.approx(0.5)
+
+
+def test_metrics_accuracy_multiclass(tmp_path):
+    """3 classes, y=yp → accuracy 1.0; classes explicit."""
+    df = make_df(tmp_path, {
+        "y": [0, 1, 2, 0, 1, 2],
+        "yp": [0, 1, 2, 0, 1, 2],
+    })
+    res = df.metrics(
+        y_true="y", y_pred="yp",
+        metrics=["accuracy", "precision", "recall", "f1"],
+        classes=[0, 1, 2],
+    )
+    assert res["accuracy"] == pytest.approx(1.0)
+    assert res["precision"] == pytest.approx(1.0)
+    assert res["recall"] == pytest.approx(1.0)
+    assert res["f1"] == pytest.approx(1.0)
+
+
+def test_metrics_multiclass_macro_micro(tmp_path):
+    """3-class macro vs micro differ on class imbalance."""
+    df = make_df(tmp_path, {
+        "y": [0, 0, 0, 0, 1, 2],
+        "yp": [0, 0, 1, 2, 1, 2],
+    })
+    macro = df.metrics(
+        y_true="y", y_pred="yp", metrics=["precision"],
+        classes=[0, 1, 2], average="macro",
+    )
+    micro = df.metrics(
+        y_true="y", y_pred="yp", metrics=["precision"],
+        classes=[0, 1, 2], average="micro",
+    )
+    acc = df.metrics(
+        y_true="y", y_pred="yp", metrics=["accuracy"],
+        classes=[0, 1, 2],
+    )
+    # Per-class precision: c0=2/2=1.0, c1=1/1=1.0, c2=0/1=0.0
+    # macro = (1+1+0)/3 = 2/3; micro = accuracy = 4/6 = 2/3
+    assert micro["precision"] == pytest.approx(acc["accuracy"])
+    assert macro["precision"] == pytest.approx(2.0 / 3.0)
+
+
+def test_metrics_multiclass_weighted(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 0, 0, 0, 1, 2],
+        "yp": [0, 0, 1, 2, 1, 2],
+    })
+    # Support: c0=4, c1=1, c2=1. precision: 1.0, 1.0, 0.0
+    # weighted = (4·1 + 1·1 + 1·0) / 6 = 5/6
+    res = df.metrics(
+        y_true="y", y_pred="yp", metrics=["precision"],
+        classes=[0, 1, 2], average="weighted",
+    )
+    assert res["precision"] == pytest.approx(5.0 / 6.0)
+
+
+def test_metrics_classification_zero_division(tmp_path):
+    """No positive predictions → precision=0.0 (sklearn zero_division=0)."""
+    df = make_df(tmp_path, {
+        "y": [1, 1, 0],
+        "yp": [0, 0, 0],  # never predicts 1
+    })
+    res = df.metrics(
+        y_true="y", y_pred="yp",
+        metrics=["precision"], classes=[0, 1],
+        average="binary", pos_label=1,
+    )
+    assert res["precision"] == 0.0
+
+
+def test_metrics_classification_nulls_skipped(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, None, 1, 0],
+        "yp": [0, 1, None, 0],
+    })
+    res = df.metrics(
+        y_true="y", y_pred="yp", metrics=["accuracy"],
+        classes=[0, 1],
+    )
+    # valid rows: y=0 yp=0 (correct), y=0 yp=0 (correct) → accuracy=1.0
+    assert res["accuracy"] == pytest.approx(1.0)
+
+
+def test_metrics_classification_empty(tmp_path):
+    df = make_df(tmp_path, {"y": [0, 1], "yp": [0, 1]})
+    empty = df[df["y"] > 100]
+    res = empty.metrics(
+        y_true="y", y_pred="yp", metrics=["accuracy"], classes=[0, 1],
+    )
+    assert math.isnan(res["accuracy"])
+
+
+def test_metrics_classification_filtered(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 1, 0, 1, 0],
+        "yp": [0, 1, 1, 1, 1],  # errors on rows 2, 4
+    })
+    filtered = df[df["y"] == 0]  # only rows 0, 2, 4
+    res = filtered.metrics(
+        y_true="y", y_pred="yp", metrics=["accuracy"], classes=[0, 1],
+    )
+    # correct: row 0 (0,0); wrong: rows 2,4 (0,1); acc = 1/3
+    assert res["accuracy"] == pytest.approx(1.0 / 3.0)
+
+
+def test_metrics_classification_unknown_label_raises(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 1, 2],  # 2 not in classes
+        "yp": [0, 1, 0],
+    })
+    with pytest.raises(ValueError, match="y_true has labels not in"):
+        df.metrics(
+            y_true="y", y_pred="yp", metrics=["accuracy"],
+            classes=[0, 1],
+        )
+
+
+def test_metrics_classification_unknown_pred_label_raises(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 1, 0],
+        "yp": [0, 5, 0],
+    })
+    with pytest.raises(ValueError, match="y_pred has labels not in"):
+        df.metrics(
+            y_true="y", y_pred="yp", metrics=["accuracy"],
+            classes=[0, 1],
+        )
+
+
+def test_metrics_classification_and_regression_conflict(tmp_path):
+    df = make_df(tmp_path, {"y": [0, 1], "yp": [0, 1]})
+    with pytest.raises(ValueError, match="cannot share y_pred"):
+        df.metrics(
+            y_true="y", y_pred="yp",
+            metrics=["r2", "accuracy"], classes=[0, 1],
+        )
+
+
+def test_metrics_average_binary_on_multiclass_raises(tmp_path):
+    df = make_df(tmp_path, {
+        "y": [0, 1, 2], "yp": [0, 1, 2],
+    })
+    with pytest.raises(ValueError, match="average='binary' requires K=2"):
+        df.metrics(
+            y_true="y", y_pred="yp", metrics=["precision"],
+            classes=[0, 1, 2], average="binary",
+        )
+
+
+def test_metrics_invalid_average_raises(tmp_path):
+    df = make_df(tmp_path, {"y": [0, 1], "yp": [0, 1]})
+    with pytest.raises(ValueError, match="average must be one of"):
+        df.metrics(
+            y_true="y", y_pred="yp", metrics=["precision"],
+            classes=[0, 1], average="bogus",
+        )
+
+
+def test_metrics_classification_k_too_large_raises(tmp_path):
+    """K=10000 → state 240 KB > state_limit (2000 B budget)."""
+    df = make_df(tmp_path, {"y": [0], "yp": [0]})
+    df._memory_guard = MemoryGuard(max_memory_bytes=2000)
+    with pytest.raises(MemoryLimitExceeded, match="state"):
+        df.metrics(
+            y_true="y", y_pred="yp", metrics=["accuracy"],
+            classes=list(range(10000)),
+        )
+
+
+def test_metrics_classification_string_labels(tmp_path):
+    df = make_df(tmp_path, {
+        "y": ["cat", "dog", "cat", "dog"],
+        "yp": ["cat", "dog", "dog", "dog"],
+    })
+    res = df.metrics(
+        y_true="y", y_pred="yp",
+        metrics=["accuracy"], classes=["cat", "dog"],
+    )
+    assert res["accuracy"] == pytest.approx(0.75)
+
+
+def test_metrics_classification_combined_with_log_loss(tmp_path):
+    """classification + log_loss — different columns, OK."""
+    df = make_df(tmp_path, {
+        "y": [0, 1, 0, 1],
+        "yp": [0, 1, 1, 0],
+        "p": [0.1, 0.9, 0.6, 0.4],
+    })
+    res = df.metrics(
+        y_true="y", y_pred="yp", y_proba="p",
+        metrics=["accuracy", "log_loss"], classes=[0, 1],
+    )
+    assert res["accuracy"] == pytest.approx(0.5)
+    assert res["log_loss"] > 0
+
+
+def test_metrics_classification_pandas_equivalence(tmp_path):
+    """Compare to manual numpy reference for binary precision/recall/f1."""
+    rng = np.random.default_rng(42)
+    n = 200
+    y = rng.integers(0, 2, size=n).astype(np.int64)
+    yp = (y + rng.integers(0, 2, size=n)) % 2  # noisy
+    df = make_df(tmp_path, {
+        "y": y.tolist(), "yp": yp.tolist(),
+    }, chunk=20)
+    res = df.metrics(
+        y_true="y", y_pred="yp",
+        metrics=["accuracy", "precision", "recall", "f1"],
+        classes=[0, 1], average="binary", pos_label=1,
+    )
+    tp = int(((y == 1) & (yp == 1)).sum())
+    fp = int(((y == 0) & (yp == 1)).sum())
+    fn = int(((y == 1) & (yp == 0)).sum())
+    total = n
+    ref_acc = (tp + (total - tp - fp - fn)) / total
+    ref_prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    ref_rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    ref_f1 = (2 * ref_prec * ref_rec / (ref_prec + ref_rec)
+              if (ref_prec + ref_rec) > 0 else 0.0)
+    assert res["accuracy"] == pytest.approx(ref_acc, rel=1e-9)
+    assert res["precision"] == pytest.approx(ref_prec, rel=1e-9)
+    assert res["recall"] == pytest.approx(ref_rec, rel=1e-9)
+    assert res["f1"] == pytest.approx(ref_f1, rel=1e-9)

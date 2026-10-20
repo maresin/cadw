@@ -1,5 +1,61 @@
 ## [Unreleased]
 
+### Добавлено (v0.9.2b — classification metrics)
+
+- **`accuracy`, `precision`, `recall`, `f1`** в `CadwDataFrame.metrics()`:
+  - binary (K=2, `pos_label` = 1 по умолчанию) и multiclass (K≥3).
+  - **`average`** ∈ `'binary'|'macro'|'micro'|'weighted'` (auto: binary
+    if K=2, macro if K>2).
+  - `classes` — explicit class list (K=2 default when None).
+  - Numeric или string labels — dict lookup, nulls skipped.
+- **`MetricsOp`** state: `tp[K] + fp[K] + fn[K]` int64 = `24×K` bytes
+  (vs confusion matrix `K²×8 = 8 MB` для K=1000 — 320× дешевле для
+  scalar metrics).
+- **`ReduceOp.batch_memory_factor()`** — protocol extension.
+  Classification path uses `.to_pylist()` per batch (7× Python-object
+  overhead). `reduce()` passes to `check_batch(extra_factor=...)` —
+  honest peak RAM, not hidden.
+- **`SUPPORTED_METRICS`** = regression + proba + classification
+  (exported from `cadw`).
+
+### Design decisions (locked-in, v0.9.2b)
+
+- **TP/FP/FN state** вместо confusion matrix. Accuracy/precision/
+  recall/f1 — все выводятся из TP/FP/FN per class. K² state не нужен
+  (confusion matrix добавим отдельным методом, если запросят).
+- **Average auto-switch**: binary (K=2) / macro (K>2). Matches sklearn
+  semantics; user может переопределить.
+- **zero_division=0** (sklearn default): precision/recall/f1 при
+  пустом знаменателе → 0.0, не NaN.
+- **Mixed regression + classification** на одном `y_pred` → ValueError
+  (continuous vs labels).
+- **`log_loss` + classification** — OK (разные колонки: y_proba vs
+  y_pred).
+- **Fail-fast**: `K × 24 + 64 > state_limit` → `MemoryLimitExceeded`
+  в `metrics()` до `MetricsOp` construction.
+
+### Ограничения (v0.9.2b, §11.5)
+
+- **`roc_auc`** — v0.9.2c (Sort-based, требует полного proba массива).
+- **Multiclass log_loss** (proba matrix) — v0.9.2c.
+- **Confusion matrix** itself — не возвращается; если запросят —
+  отдельный метод (не `metrics()` scalar API).
+- **Class mismatch** y_true/y_pred not in `classes` → ValueError
+  (fail-fast, первые 5 invalid labels).
+- **Empty input** → accuracy=NaN (как regression).
+- **`average='binary'`** требует K=2, `pos_label` в `classes`.
+
+### Тесты (v0.9.2b)
+
+- +20 fast (`test_metrics.py`): accuracy binary perfect/mixed/auto,
+  precision/recall/f1 binary pos_label, multiclass macro/micro/weighted,
+  zero-division, nulls, empty, filtered, unknown label, mixed
+  regression conflict, average=binary on K>2, invalid average, K too
+  large, string labels, log_loss + classification, pandas equivalence.
+- +1 slow (`test_metrics_e2e.py`): 100K rows, 3-class, manual numpy ref.
+
+- fast: **~1441** (+20). slow: **17** (+1).
+
 ### Добавлено (v0.9.2a — metrics, regression + log_loss)
 
 - **`CadwDataFrame.metrics(y_true, metrics, y_pred=, y_proba=)`** —

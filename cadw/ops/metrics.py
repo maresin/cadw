@@ -29,7 +29,9 @@ from cadw.ops.reduce import ReduceOp
 
 REGRESSION_METRICS = frozenset({"r2", "mse", "rmse", "mae"})
 PROBA_METRICS = frozenset({"log_loss"})
-SUPPORTED_METRICS = REGRESSION_METRICS | PROBA_METRICS
+CLASSIFICATION_METRICS = frozenset({"accuracy", "precision", "recall", "f1"})
+SUPPORTED_METRICS = REGRESSION_METRICS | PROBA_METRICS | CLASSIFICATION_METRICS
+VALID_AVERAGES = frozenset({"binary", "macro", "micro", "weighted"})
 
 
 def _to_f64(arr: pa.Array) -> np.ndarray:
@@ -59,6 +61,9 @@ class MetricsOp(ReduceOp):
         y_pred_col: Optional[str] = None,
         y_proba_col: Optional[str] = None,
         metrics: Sequence[str] | str,
+        classes: Optional[Sequence] = None,
+        average: Optional[str] = None,
+        pos_label=None,
     ) -> None:
         if isinstance(metrics, str):
             metrics = [metrics]
@@ -73,26 +78,113 @@ class MetricsOp(ReduceOp):
         self.y_pred_col = y_pred_col
         self.y_proba_col = y_proba_col
 
-        needs_pred = bool(set(self.metrics) & REGRESSION_METRICS)
-        needs_proba = bool(set(self.metrics) & PROBA_METRICS)
-        if needs_pred and y_pred_col is None:
+        ms = set(self.metrics)
+        self._needs_regression = bool(ms & REGRESSION_METRICS)
+        self._needs_proba = bool(ms & PROBA_METRICS)
+        self._needs_classification = bool(ms & CLASSIFICATION_METRICS)
+
+        # §13.4/164: regression (continuous y_pred) and classification
+        # (labels y_pred) can't share the same column.
+        if self._needs_regression and self._needs_classification:
+            raise ValueError(
+                f"MetricsOp: regression ({sorted(ms & REGRESSION_METRICS)}) "
+                f"and classification ({sorted(ms & CLASSIFICATION_METRICS)}) "
+                f"cannot share y_pred column — one expects continuous "
+                f"values, the other labels. Pass distinct calls."
+            )
+
+        if self._needs_regression and y_pred_col is None:
             raise ValueError(
                 f"MetricsOp: y_pred_col required for "
-                f"{sorted(set(self.metrics) & REGRESSION_METRICS)}"
+                f"{sorted(ms & REGRESSION_METRICS)}"
             )
-        if needs_proba and y_proba_col is None:
+        if self._needs_proba and y_proba_col is None:
             raise ValueError(
                 f"MetricsOp: y_proba_col required for "
-                f"{sorted(set(self.metrics) & PROBA_METRICS)}"
+                f"{sorted(ms & PROBA_METRICS)}"
+            )
+        if self._needs_classification and y_pred_col is None:
+            raise ValueError(
+                f"MetricsOp: y_pred_col required for classification "
+                f"{sorted(ms & CLASSIFICATION_METRICS)}"
             )
 
+        # Classification setup
+        self._classes: list = []
+        self._cls_to_idx: dict = {}
+        self._k: int = 0
+        self._average_method: str = ""
+        self._pos_label = None
+
+        if self._needs_classification:
+            if classes is None:
+                # K=2 default
+                self._classes = [0, 1]
+            else:
+                self._classes = list(classes)
+            self._k = len(self._classes)
+            if self._k < 2:
+                raise ValueError(
+                    f"MetricsOp: classification requires at least 2 "
+                    f"classes; got {self._k}"
+                )
+            # Duplicate check
+            if len(set(map(repr, self._classes))) != self._k:
+                raise ValueError(
+                    f"MetricsOp: classes must be unique; got "
+                    f"{self._classes}"
+                )
+            self._cls_to_idx = {c: i for i, c in enumerate(self._classes)}
+
+            # Average method: explicit or auto
+            if average is None:
+                self._average_method = (
+                    "binary" if self._k == 2 else "macro"
+                )
+            elif average not in VALID_AVERAGES:
+                raise ValueError(
+                    f"MetricsOp: average must be one of "
+                    f"{sorted(VALID_AVERAGES)}; got {average!r}"
+                )
+            else:
+                self._average_method = average
+            if self._average_method == "binary" and self._k != 2:
+                raise ValueError(
+                    f"MetricsOp: average='binary' requires K=2; "
+                    f"got K={self._k}. Use 'macro'/'micro'/'weighted'."
+                )
+            if self._average_method == "binary":
+                # §13.4/164: pos_label=None default → resolve to
+                # classes[-1] (matches sklearn's classes[1] for K=2
+                # [0,1]; friendly for string classes).
+                if pos_label is None:
+                    self._pos_label = self._classes[-1]
+                else:
+                    if pos_label not in self._cls_to_idx:
+                        raise ValueError(
+                            f"MetricsOp: pos_label {pos_label!r} not "
+                            f"in classes {self._classes}"
+                        )
+                    self._pos_label = pos_label
+            else:
+                self._pos_label = pos_label
+
     def estimate_state_nbytes(self) -> int:
-        # 7 counters (n, sum_y, sum_yy, sum_res_sq, sum_abs_res, sum_ll,
-        # n_proba) × 8 B = 56, rounded to 64.
-        return 64
+        # Base: 7 counters × 8 B = 56, rounded to 64.
+        base = 64
+        if self._needs_classification:
+            # tp[K] + fp[K] + fn[K] int64 = 24 × K bytes
+            return base + 24 * self._k
+        return base
+
+    def batch_memory_factor(self) -> float:
+        """§13.4/164: classification uses .to_pylist() per batch
+        (~7× Python-object overhead). reduce() checks batch with this
+        factor — honest peak RAM, not hidden."""
+        return 8.0 if self._needs_classification else 1.0
 
     def init(self):
-        return {
+        state = {
             "n": 0,
             "sum_y": 0.0,
             "sum_yy": 0.0,
@@ -101,10 +193,17 @@ class MetricsOp(ReduceOp):
             "sum_log_loss": 0.0,
             "n_proba": 0,
         }
+        if self._needs_classification:
+            state["tp"] = np.zeros(self._k, dtype=np.int64)
+            state["fp"] = np.zeros(self._k, dtype=np.int64)
+            state["fn"] = np.zeros(self._k, dtype=np.int64)
+        return state
 
     def update(self, state, batch):
-        # Regression
-        if self.y_pred_col is not None:
+        # Regression (v0.9.2b-fix2, §13.4/165): gate by _needs_regression,
+        # not by column presence. metrics=['accuracy'], y_pred='yp' with
+        # string y_true would otherwise hit _to_f64('cat') → ValueError.
+        if self._needs_regression:
             y = _to_f64(batch.column(self.y_true_col))
             yp = _to_f64(batch.column(self.y_pred_col))
             mask = ~np.isnan(y) & ~np.isnan(yp)
@@ -119,7 +218,7 @@ class MetricsOp(ReduceOp):
                 state["sum_abs_residual"] += float(np.abs(resid).sum())
 
         # Log loss (binary; y must be {0,1}, p in [0,1])
-        if self.y_proba_col is not None:
+        if self._needs_proba:
             y = _to_f64(batch.column(self.y_true_col))
             p = _to_f64(batch.column(self.y_proba_col))
             mask = ~np.isnan(y) & ~np.isnan(p)
@@ -146,13 +245,61 @@ class MetricsOp(ReduceOp):
                 state["sum_log_loss"] += float(ll.sum())
                 state["n_proba"] += int(mask.sum())
 
+        # Classification (v0.9.2b): TP/FP/FN per class
+        if self._needs_classification:
+            yt_list = batch.column(self.y_true_col).to_pylist()
+            yp_list = batch.column(self.y_pred_col).to_pylist()
+            missing_yt: list = []
+            missing_yp: list = []
+            yt_idx = np.full(len(yt_list), -1, dtype=np.int64)
+            yp_idx = np.full(len(yp_list), -1, dtype=np.int64)
+            for i, v in enumerate(yt_list):
+                if v is None:
+                    continue
+                idx = self._cls_to_idx.get(v, -1)
+                if idx < 0:
+                    if len(missing_yt) < 5:
+                        missing_yt.append(v)
+                else:
+                    yt_idx[i] = idx
+            for i, v in enumerate(yp_list):
+                if v is None:
+                    continue
+                idx = self._cls_to_idx.get(v, -1)
+                if idx < 0:
+                    if len(missing_yp) < 5:
+                        missing_yp.append(v)
+                else:
+                    yp_idx[i] = idx
+            if missing_yt:
+                raise ValueError(
+                    f"MetricsOp: y_true has labels not in classes "
+                    f"{self._classes}: {missing_yt} (first 5)."
+                )
+            if missing_yp:
+                raise ValueError(
+                    f"MetricsOp: y_pred has labels not in classes "
+                    f"{self._classes}: {missing_yp} (first 5)."
+                )
+            valid = (yt_idx >= 0) & (yp_idx >= 0)
+            yt = yt_idx[valid]
+            yp = yp_idx[valid]
+            same = yt == yp
+            diff = ~same
+            np.add.at(state["tp"], yt[same], 1)
+            np.add.at(state["fp"], yp[diff], 1)
+            np.add.at(state["fn"], yt[diff], 1)
+
         return state
 
     def merge(self, a, b):
         return {k: a[k] + b[k] for k in a}
 
     def state_nbytes(self, state):
-        return 8 * 7  # 7 counters × 8 B
+        base = 8 * 7  # 7 counters × 8 B
+        if self._needs_classification:
+            base += state["tp"].nbytes + state["fp"].nbytes + state["fn"].nbytes
+        return base
 
     def finalize(self, state):
         results = {}
@@ -191,4 +338,63 @@ class MetricsOp(ReduceOp):
                 if state["n_proba"] > 0 else nan
             )
 
+        if self._needs_classification:
+            results.update(self._finalize_classification(state))
+
         return results
+
+    def _finalize_classification(self, state) -> dict:
+        tp = state["tp"].astype(np.float64)
+        fp = state["fp"].astype(np.float64)
+        fn = state["fn"].astype(np.float64)
+
+        # Per-class precision / recall / f1 (zero_division=0, sklearn).
+        # §13.4/164: np.divide(..., where=...) — avoids RuntimeWarning
+        # from evaluating a/b on zero denominators inside np.where.
+        pp = np.zeros_like(tp, dtype=np.float64)
+        np.divide(tp, tp + fp, out=pp, where=(tp + fp) > 0)
+        pr = np.zeros_like(tp, dtype=np.float64)
+        np.divide(tp, tp + fn, out=pr, where=(tp + fn) > 0)
+        denom = pp + pr
+        pf1 = np.zeros_like(denom)
+        np.divide(2.0 * pp * pr, denom, out=pf1, where=denom > 0)
+
+        total = float(tp.sum() + fp.sum())  # = n_total
+        accuracy = float(tp.sum()) / total if total > 0 else float("nan")
+
+        results: dict = {}
+        for metric in self.metrics:
+            if metric == "accuracy":
+                results["accuracy"] = accuracy
+            elif metric == "precision":
+                results["precision"] = self._average_value(
+                    pp, tp, fn, accuracy,
+                )
+            elif metric == "recall":
+                results["recall"] = self._average_value(
+                    pr, tp, fn, accuracy,
+                )
+            elif metric == "f1":
+                results["f1"] = self._average_value(
+                    pf1, tp, fn, accuracy,
+                )
+        return results
+
+    def _average_value(self, per_class, tp, fn, accuracy):
+        avg = self._average_method
+        if avg == "micro":
+            return accuracy  # single-label multiclass
+        if avg == "macro":
+            return float(per_class.mean())
+        if avg == "weighted":
+            support = tp + fn  # true count per class
+            total_support = float(support.sum())
+            if total_support <= 0:
+                return float("nan")
+            return float((per_class * support).sum() / total_support)
+        if avg == "binary":
+            pi = self._cls_to_idx[self._pos_label]
+            return float(per_class[pi])
+        raise RuntimeError(
+            f"_average_value: unknown average {avg!r} (internal bug)"
+        )
