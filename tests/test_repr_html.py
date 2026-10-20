@@ -1,0 +1,108 @@
+"""v0.9.0c: CadwDataFrame._repr_html_ tests."""
+from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
+
+from cadw import CadwDataFrame, MemoryGuard
+
+
+def make_df(tmp_path, data, chunk=3, name="L"):
+    t = pa.table(data)
+    p = Path(tmp_path) / f"{name}.parquet"
+    pq.write_table(t, p)
+    return CadwDataFrame.from_parquet(
+        p, Path(tmp_path) / f"ds_{name}", chunk_size=chunk,
+        memory_guard=MemoryGuard(max_memory_mb=20),
+        spill_dir=Path(tmp_path) / f"spill_{name}",
+    )
+
+
+def test_repr_html_returns_string(tmp_path):
+    df = make_df(tmp_path, {"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    html = df._repr_html_()
+    assert isinstance(html, str)
+    assert "<div class='cadw-df'>" in html
+    assert "</div>" in html
+
+
+def test_repr_html_has_table():
+    """HTML contains <table> (schema) and rendered rows."""
+    # Use a trivial in-memory path via parquet roundtrip
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        df = make_df(td, {"a": [1, 2, 3]})
+        html = df._repr_html_()
+        assert "<table>" in html
+        assert "<details>" in html
+
+
+def test_repr_html_empty_df(tmp_path):
+    """Empty df: sample table with 0 rows, but still valid HTML."""
+    df = make_df(tmp_path, {
+        "a": pa.array([], type=pa.int64()),
+        "b": pa.array([], type=pa.string()),
+    })
+    html = df._repr_html_()
+    assert "<div class='cadw-df'>" in html
+    assert "0 rows" in html or "of upper bound" in html
+
+
+def test_repr_html_large_df_shows_sample_note(tmp_path):
+    """Large df: 'Showing first 20 rows' note."""
+    n = 100
+    df = make_df(tmp_path, {"v": list(range(n))}, chunk=25)
+    html = df._repr_html_()
+    assert "Showing first 20 rows" in html
+
+
+def test_repr_html_small_df_no_truncation(tmp_path):
+    """Small df (<=20): no 'Showing first' note."""
+    df = make_df(tmp_path, {"v": [1, 2, 3]})
+    html = df._repr_html_()
+    assert "Showing first" not in html
+
+
+def test_repr_html_filtered_df_note(tmp_path):
+    """Filtered df: note about filters."""
+    df = make_df(tmp_path, {"v": [1, 2, 3, 4, 5]})
+    filtered = df[df["v"] > 2]
+    html = filtered._repr_html_()
+    assert "filter(s) applied" in html
+    assert "upper bound" in html
+
+
+def test_repr_html_schema_types_present(tmp_path):
+    """Schema section shows column types."""
+    df = make_df(tmp_path, {
+        "i": [1, 2],
+        "s": ["a", "b"],
+        "f": [1.0, 2.0],
+    })
+    html = df._repr_html_()
+    assert "int64" in html
+    assert "string" in html
+    assert "double" in html or "float64" in html
+
+
+def test_no_pandas_import_in_dataframe():
+    """AST: dataframe.py must not `import pandas` even after _repr_html_."""
+    import ast
+    import inspect
+    from cadw import dataframe as df_mod
+    src = inspect.getsource(df_mod)
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith("pandas"), (
+                    "dataframe.py must not import pandas — _repr_html_ "
+                    "uses .to_pandas() method call only"
+                )
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                assert not node.module.startswith("pandas"), (
+                    "dataframe.py must not import pandas"
+                )

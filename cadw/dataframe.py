@@ -61,11 +61,12 @@ logger = get_logger("dataframe")
 
 
 class _ColumnProxy:
-    """df['col']: сравнения возвращают ленивый PredicateFilter."""
-    __slots__ = ("_column",)
+    """df['col']: comparisons → PredicateFilter; .dt/.str → accessors."""
+    __slots__ = ("_column", "_parent")
 
-    def __init__(self, column: str) -> None:
+    def __init__(self, column: str, parent: "CadwDataFrame") -> None:
         self._column = column
+        self._parent = parent
 
     def _pred(self, op: str, value) -> PredicateFilter:
         return PredicateFilter(self._column, op, value)
@@ -77,6 +78,26 @@ class _ColumnProxy:
     def __eq__(self, v): return self._pred("eq", v)  # type: ignore[override]
     def __ne__(self, v): return self._pred("ne", v)  # type: ignore[override]
     def __hash__(self): return id(self)
+
+    def isnull(self) -> PredicateFilter:
+        """Null mask. Use in `df[df['a'].isnull()]`."""
+        return PredicateFilter(self._column, "is_null", None)
+
+    def notnull(self) -> PredicateFilter:
+        """Not-null mask. Use in `df[df['a'].notnull()]`."""
+        return PredicateFilter(self._column, "not_null", None)
+
+    @property
+    def dt(self):
+        """Datetime accessor. Requires timestamp or date column."""
+        from cadw.accessors import _DtAccessor
+        return _DtAccessor(self._parent, self._column)
+
+    @property
+    def str(self):
+        """String accessor. Requires string or binary column."""
+        from cadw.accessors import _StrAccessor
+        return _StrAccessor(self._parent, self._column)
 
     def __repr__(self) -> str:
         return f"ColumnProxy({self._column!r})"
@@ -629,7 +650,7 @@ class CadwDataFrame:
         if isinstance(key, str):
             if key not in self._dataset.columns:
                 raise KeyError(f"column {key!r} not found in dataset")
-            return _ColumnProxy(key)
+            return _ColumnProxy(key, self)
 
         # 4. RowFilter: df[mask]
         if isinstance(key, RowFilter):
@@ -721,6 +742,198 @@ class CadwDataFrame:
 
         for b, positions in it:
             yield b.select(self._columns), positions
+
+    # ---------------- accessors + type ops (v0.9.0a) ----------------
+
+    def _apply_column_transform(
+        self,
+        column: str,
+        feature_name: str,
+        transform_fn,
+        out_type: pa.DataType,
+        *,
+        accessor: str,
+    ) -> "CadwDataFrame":
+        """Apply per-batch Arrow transform to one column; append {col}_{feature}."""
+        out_col = f"{column}_{feature_name}"
+        if out_col in self._columns:
+            raise KeyError(
+                f"{accessor}.{feature_name}: output column {out_col!r} "
+                f"already exists in {self._columns}"
+            )
+        out_fields = [self._dataset.schema.field(c) for c in self._columns]
+        out_fields.append(pa.field(out_col, out_type, nullable=True))
+        out_schema = pa.schema(out_fields)
+
+        def _iter():
+            for b in self._iter_arrow_batches():
+                self._memory_guard.check_batch(
+                    b, name=f"{accessor}.{feature_name}",
+                )
+                src = b.column(column)
+                new_arr = transform_fn(src)
+                arrays = [b.column(c) for c in self._columns]
+                arrays.append(new_arr)
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def astype(
+        self,
+        dtype_map: dict,
+        *,
+        safe: bool = True,
+    ) -> "CadwDataFrame":
+        """Cast columns to new dtypes. Streaming, no materialization.
+
+        - dtype_map: {col: pa.DataType | str-alias}
+        - safe=True: raise on overflow (default). safe=False: wrap/truncate.
+        """
+        import pyarrow.compute as _pc
+
+        resolved: dict[str, pa.DataType] = {}
+        for c, dt in dtype_map.items():
+            if c not in self._columns:
+                raise KeyError(
+                    f"astype: column {c!r} not in {self._columns}"
+                )
+            if isinstance(dt, pa.DataType):
+                resolved[c] = dt
+            elif isinstance(dt, str):
+                try:
+                    resolved[c] = pa.type_for_alias(dt)
+                except (ValueError, KeyError) as e:
+                    raise ValueError(
+                        f"astype: unknown dtype alias {dt!r}: {e}"
+                    ) from e
+            else:
+                raise TypeError(
+                    f"astype: dtype for {c!r} must be str or pa.DataType; "
+                    f"got {type(dt).__name__}"
+                )
+
+        out_fields = []
+        for c in self._columns:
+            if c in resolved:
+                out_fields.append(pa.field(c, resolved[c], nullable=True))
+            else:
+                out_fields.append(self._dataset.schema.field(c))
+        out_schema = pa.schema(out_fields)
+
+        def _iter():
+            for b in self._iter_arrow_batches():
+                self._memory_guard.check_batch(b, name="astype")
+                arrays = []
+                for c in self._columns:
+                    if c in resolved:
+                        arrays.append(_pc.cast(
+                            b.column(c), resolved[c], safe=safe,
+                        ))
+                    else:
+                        arrays.append(b.column(c))
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def dropna(
+        self,
+        how: str = "any",
+        subset: "Sequence[str] | None" = None,
+    ) -> "CadwDataFrame":
+        """Drop rows with nulls (lazy — composes notnull() filters).
+
+        - how='any': drop if ANY subset column is null.
+        - how='all': drop only if ALL subset columns are null.
+        - subset=None: all columns.
+        """
+        if how not in ("any", "all"):
+            raise ValueError(
+                f"dropna: how must be 'any' or 'all'; got {how!r}"
+            )
+        cols = list(subset) if subset is not None else list(self._columns)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"dropna: subset column {c!r} not in {self._columns}"
+                )
+        if not cols:
+            return self
+
+        combined = self[cols[0]].notnull()
+        for c in cols[1:]:
+            nf = self[c].notnull()
+            if how == "any":
+                combined = combined & nf
+            else:
+                combined = combined | nf
+        return self[combined]
+
+    def drop(self, cols) -> "CadwDataFrame":
+        """Drop columns (selection minus). Lazy."""
+        if isinstance(cols, str):
+            cols = [cols]
+        else:
+            cols = list(cols)
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(f"drop: column {c!r} not in {self._columns}")
+        keep = [c for c in self._columns if c not in cols]
+        return self[keep]
+
+    def rename(self, mapping: dict[str, str]) -> "CadwDataFrame":
+        """Rename columns. Materializes new Dataset (schema change).
+
+        - mapping: {old: new}. All `old` must exist; `new` must not collide
+          with an existing column (unless it's the column being renamed).
+        """
+        if not isinstance(mapping, dict):
+            raise TypeError(
+                f"rename: mapping must be dict; got {type(mapping).__name__}"
+            )
+        for old, new in mapping.items():
+            if old not in self._columns:
+                raise KeyError(
+                    f"rename: column {old!r} not in {self._columns}"
+                )
+            if new != old and new in self._columns:
+                raise ValueError(
+                    f"rename: target {new!r} collides with existing column"
+                )
+        new_names = [mapping.get(c, c) for c in self._columns]
+        new_fields = []
+        for c in self._columns:
+            orig = self._dataset.schema.field(c)
+            new_fields.append(
+                pa.field(mapping.get(c, c), orig.type, nullable=orig.nullable)
+            )
+        new_schema = pa.schema(new_fields)
+
+        def _iter():
+            for b in self._iter_arrow_batches():
+                yield b.rename_columns(new_names)
+
+        new_ds = Dataset.from_batches(
+            new_schema, _iter(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
 
     # ---------------- reading ----------------
 
@@ -3405,6 +3618,75 @@ class CadwDataFrame:
             f"CadwDataFrame(rows<={self._dataset.total_rows}, "
             f"columns={self._columns}, filters={nf})"
         )
+
+    def _repr_html_(self) -> str:
+        """Jupyter HTML repr — sample 20 rows, schema, shape (upper bound).
+
+        v0.9.0c. Bounded: `.to_pandas().to_html()` on 20-row head only,
+        not full df. Whitelisted in AST guard with rationale.
+        """
+        sample_n = 20
+        try:
+            sample_table = self.head(sample_n)
+            sample_df = sample_table.to_pandas()
+            table_html = sample_df.to_html(
+                index=False, border=0, classes="cadw-table",
+            )
+        except Exception as e:
+            return (
+                f"<pre>CadwDataFrame (repr failed: {e!r})\n"
+                f"columns={self._columns}</pre>"
+            )
+
+        n_rows_upper = self._dataset.total_rows
+        actual = self.count() if self._row_filters else n_rows_upper
+
+        header_parts = [
+            f"<strong>CadwDataFrame</strong> "
+            f"({actual} rows"
+        ]
+        if self._row_filters:
+            header_parts.append(
+                f" of upper bound {n_rows_upper}; {len(self._row_filters)} "
+                f"filter(s) applied"
+            )
+        else:
+            header_parts.append("")
+        header_parts.append(f", {len(self._columns)} columns)")
+        header = "".join(header_parts)
+
+        schema_rows = "".join(
+            f"<tr><td>{c}</td><td>{self._dataset.schema.field(c).type}</td></tr>"
+            for c in self._columns[:20]
+        )
+        if len(self._columns) > 20:
+            schema_rows += (
+                f"<tr><td>... ({len(self._columns) - 20} more)</td>"
+                f"<td></td></tr>"
+            )
+        schema_html = (
+            "<details><summary>schema</summary>"
+            "<table><tr><th>column</th><th>type</th></tr>"
+            f"{schema_rows}</table></details>"
+        )
+
+        truncated_note = ""
+        if actual > sample_n:
+            truncated_note = (
+                f"<div style='color:#666;font-size:0.9em;'>"
+                f"Showing first {sample_n} rows</div>"
+            )
+
+        return (
+            f"<div class='cadw-df'>{header}{schema_html}"
+            f"{truncated_note}{table_html}</div>"
+        )
+
+    @property
+    def plot(self):
+        """Plot accessor: df.plot.hist(col) / df.plot.plotly.hist(col)."""
+        from cadw.plot_accessor import _PlotAccessor
+        return _PlotAccessor(self)
 
 
 class _RollState:

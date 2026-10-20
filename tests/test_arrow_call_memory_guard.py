@@ -93,6 +93,24 @@ WHITELISTED_FUNCS = {
     "_per_group_shift": "2× external_sort + bounded accum zip",
     "_per_group_diff": "delegates to _per_group_shift + streaming subtract",
     "_per_group_rolling": "2× external_sort + _RollState + bounded accum",
+    # v0.9.0a accessors + type ops (streaming per-batch).
+    "_apply_column_transform": "per-batch Arrow transform, no extra alloc",
+    "astype": "per-batch pc.cast, streaming",
+    "dropna": "lazy notnull() composition — returns view, no materialize",
+    "drop": "selection minus — lazy view",
+    "rename": "Dataset.from_batches(streaming) — schema change only",
+    # v0.9.0b Pipeline: delegates to step.transform/predict (each step's
+    # own guards apply), or pure metadata ops in plan/state_bytes.
+    "fit": "delegates to step.fit; plan() checks state feasibility first",
+    "transform": "delegates to step.transform; per-step MemoryGuard",
+    "predict": "delegates to step.predict; per-step MemoryGuard",
+    "fit_transform": "fit + transform, no materialization",
+    "plan": "metadata only (peek_first_batch + estimate_state_bytes)",
+    "state_bytes": "in-memory metadata (fitted state)",
+    "estimate_state_bytes": "metadata only",
+    # v0.9.0c Jupyter: _repr_html_ calls .to_pandas().to_html() on
+    # a 20-row sample only — bounded by design, no O(N) materialize.
+    "_repr_html_": "20-row head().to_pandas().to_html(), bounded sample",
 }
 
 GUARD_ATTRS = {

@@ -62,16 +62,33 @@ class PredicateFilter(MaskFilter):
         "eq": pc.equal,
         "ne": pc.not_equal,
     }
+    # v0.9.0a-fix1: ops that don't take a scalar argument. Handled
+    # specially in mask_for_batch (is_null/not_null/contains). Prior
+    # code extended mask_for_batch but not __init__ validation → tests
+    # for new ops raised "unsupported op". Both must stay in sync.
+    _OPS_NO_SCALAR = frozenset({"is_null", "not_null", "contains"})
 
     def __init__(self, column: str, op: str, value) -> None:
-        if op not in self._OPS:
-            raise ValueError(f"unsupported op {op!r}; expected one of {list(self._OPS)}")
+        if op not in self._OPS and op not in self._OPS_NO_SCALAR:
+            raise ValueError(
+                f"unsupported op {op!r}; expected one of "
+                f"{list(self._OPS) + sorted(self._OPS_NO_SCALAR)}"
+            )
         self.column = column
         self.op = op
         self.value = value
 
     def mask_for_batch(self, batch):
         arr = batch.column(self.column)
+        # v0.9.0a: null/string predicates operate without a scalar.
+        if self.op == "is_null":
+            return pc.is_null(arr)
+        if self.op == "not_null":
+            return pc.is_valid(arr)
+        if self.op == "contains":
+            m = pc.match_substring(arr, self.value)
+            # na=False (pandas default for .str.contains)
+            return pc.fill_null(m, pa.scalar(False))
         scalar = pa.scalar(self.value, type=arr.type)
         return self._OPS[self.op](arr, scalar)
 

@@ -3217,6 +3217,107 @@ of `Table.from_batches(gen, schema=...)` in `cadw/ops/`:
 
 **Связанные:** §13.4/128, /129, /139-144.
 
+**Эпизод 146 (v0.9.0a — three first-run bugs, three classes).**
+Не кластер §13.4/139-144 (fix→bug) и не §13.4/145 (discovery через
+fix-тест). Это **первый прогон нового кода** — три бага трёх разных
+классов:
+
+**1. Partial update within one class (8 test failures).**
+`PredicateFilter._OPS` validation в `__init__` осталась
+`{gt, ge, lt, le, eq, ne}`. `patch_v090a` расширил `mask_for_batch`
+(is_null/not_null/contains), но **не добавил их в validation** →
+`ValueError: unsupported op 'is_null'`. Восемь тестов упали (isnull,
+notnull, dropna_any/all/subset, contains×2, dropna_then_astype).
+
+**2. Input conversion not Arrow-safe (1 test failure).**
+`test_dt_null_timestamp_propagates` использовал `ts.tolist()` —
+это даёт `[Timestamp, NaT, Timestamp]`. `pa.table({"ts": [...]})`
+вызывает `NaT.utcoffset()` → `NaTType does not support utcoffset`.
+Fix: `pa.array(ts)` — Arrow-native, NaT → null.
+Класс — §13.4/134 («input type different from intended»), не bug кода.
+
+**3. `[Unreleased]`-after-tag trap, 2nd hit (silent skip).**
+После v0.8.11 tag секции `[Unreleased]` в CHANGELOG нет (squash
+переименовал). `patch_v090a` код:
+```python
+if "## [Unreleased]\n" not in s:
+    print("WARNING: ... — skip")
+    return
+```
+Silent skip. Это **ровно та же** ловушка, что в `patch_v0811a-fix1`.
+Первый раз (v0.8.11a-fix1) — 1 ч работы на fix; второй раз (v0.9.0a) —
+опять fix. **Правило §13.4/144** («grep before rename») технически
+выполнено, но **assumption "если anchor отсутствует — skip"**
+не был заменён на «если anchor отсутствует — создать». Это **error
+of omission** — отсутствие действия вместо неверного действия.
+
+**Правило (расширение 140+143+146):** patch-скрипт, appending to
+CHANGELOG, **обязан** вызвать `_ensure_unreleased()` — prepend
+`## [Unreleased]` перед первым `## [` если его нет. Никаких
+skip-ов при отсутствии anchor — fallback create.
+
+**Long-term (§11.6 backlog, v0.9.1+):**
+- `cadw/patch_utils.py` — общие утилиты для patch-скриптов:
+  - `ensure_unreleased_header(text) -> text`
+  - `append_unreleased_entry(text, entry) -> text`
+  - `assert_guard_green(cmd) -> None` (§13.4/140)
+- `PredicateFilter` — единый `_VALID_OPS = frozenset(_OPS) | _OPS_NO_SCALAR`,
+  класс-attribute; `__init__` проверяет только `_VALID_OPS`. Никогда
+  не может быть out-of-sync с handler'ом, если handler тоже
+  использует `_VALID_OPS` для dispatch.
+
+**Связанные:** §13.4/128, /129, /139-145. Кластер 139-145 — 6 раундов
+fix→bug; здесь — 3 first-run bugs (новый код, не fix). Класс
+принципиально другой, но **итог тот же**: 9 wasted tests, 1 round fix.
+
+**Эпизод 147 (partial contract — Predictor ≠ Transformer).**
+v0.9.0b: `add_step` валидировал `fit + transform`. `GBDTStep` —
+Predictor (fit + predict, без transform). 6 tests fail.
+
+**Класс — partial contract** (как §13.4/146 bug 1 «partial update within
+one class», но здесь — partial contract между двумя классами):
+- `Transformer` Protocol декларирует `fit + transform`.
+- `Predictor` Protocol — `fit + transform + predict` (в v0.9.0b коде).
+- Но `GBDTStep` реализует `fit + predict` (без transform).
+- `Pipeline.transform` **останавливается перед** Predictor → Predictor
+  никогда не вызывает `.transform()`.
+- `add_step` проверяет `transform` → Predictor'ы (GBDTStep) не проходят
+  validation.
+
+**Fix (v0.9.0b-fix1):** `add_step` validation —
+`has_fit and (has_transform or has_predict)`. Протокол `Transformer`
+остаётся `fit + transform` (для pure-transform steps); `Predictor` —
+`fit + predict` (для model steps); `Pipeline` принимает оба, различает
+по `_is_predictor(step) = hasattr(step, "predict")`.
+
+**Proactive fix:** `add_step` также ловит «Predictor not last» в обоих
+направлениях:
+- new step is Predictor + существующие contain Predictor → RuntimeError.
+- existing last is Predictor + new step non-Predictor → RuntimeError.
+
+Раньше это ловилось только на `fit` (`if is_pred and i != len(self._steps) - 1`),
+что поздно. Теперь — fail-fast при `add_step`.
+
+**Урок:** Protocol `Transformer` в v0.9.0b коде декларирует `fit +
+transform + predict` для `Predictor` (строгое подмножество полного
+набора). Реально `predict`-only steps **не нуждаются** в `transform`.
+Contract должен быть **minimal**: `Predictor = fit + predict`, а
+`Pipeline.transform` проверяет `_is_predictor` и пропускает последний
+шаг. Декларируй больше, чем нужно → validation ломается на классах,
+которые не реализуют ненужное.
+
+**Правило:** для каждого Protocol/ABC — спросить «какой минимум
+методов реально вызывается?». Всё, что «для симметрии» — либо убрать,
+либо сделать optional. `Transformer` (pure transform) vs `Predictor`
+(model) — не подмножество, а два разных минимальных контракта.
+
+**Backlog (v0.9.1):** отделить `Transformer` и `Predictor` Protocols
+строго (не `Predictor ⊃ Transformer`). `Predictor` Protocol: `fit,
+predict, estimate_state_bytes, state_bytes` — без `transform`.
+`Pipeline` типизирует `steps: list[Transformer | Predictor]`.
+
+**Связанные:** §13.4/128, /129, /139-146.
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).
@@ -3260,3 +3361,22 @@ v0.3 (GBDT, Linear, k-means, PCA, NB) на примитивах.
 **v0.1.4 (патч 10):** must-fix «materialize-before-check»: `_local_groupby`
 (stat до чтения) и `reduce` (estimate_state_size до init()). Добавлены
 AST guards + OOM E2E. §3.10 — новый принцип.
+
+**v0.9.0b (Pipeline v1):**
+- `Pipeline.plan(df)` — **fit feasibility only** (`sum(step.state_bytes)
+  ≤ state_limit`). `spill_boundaries` always empty (deferred v0.9.1).
+  Per-batch transform guard — **per-step** (each step's `MemoryGuard`
+  handles its own batch).
+- `Pipeline.transform(df)` **stops before Predictor** (model is last).
+  `Pipeline.predict(df)` requires last step to be Predictor.
+- `Pipeline.fit(df, target=None)` — target required if pipeline contains
+  Predictor. `plan` called first → `PipelineMemoryError` if not feasible
+  (honest fail-fast, §9.3).
+- **Predictor contract:** `fit + predict` (transform optional; Predictor
+  never goes through `.transform()`).
+- **State in-memory** (bounded by K × #features per step). `to_json` /
+  `from_json` — v0.9.1.
+- **`ColumnTransformer`** — v0.9.1 (fanout by columns).
+- **DAG** (via `inputs=[...]`) — v0.9.1.
+- **`TimeSeriesFeatures`** composite — v0.9.2.
+

@@ -1,3 +1,155 @@
+## [0.9.0] — 2026-10-20
+
+### Добавлено (v0.9.0c — Jupyter integration)
+
+- **`CadwDataFrame._repr_html_`** — sample 20 rows + schema + shape
+  (upper bound) + filter note. Bounded: `.to_pandas().to_html()` на
+  20-row `head()` только, не full df. AST guard whitelist с rationale.
+- **`CadwDataFrame.plot` accessor** — matplotlib default через
+  `df.plot.hist/line/box/scatter/hist2d`; explicit backends:
+  `df.plot.plotly.*`, `df.plot.seaborn.*`. Все методы делегируют
+  `cadw.viz.*` adapters (aggregate-first discipline preserved).
+- **`Pipeline._repr_html_`** — HTML-таблица steps с per-step
+  `state_bytes`, fitted marker, total state.
+- **`cadw/plot_accessor.py`** — новый модуль, thin wrapper over
+  `cadw.viz.matplotlib_adapter/plotly_adapter/seaborn_adapter`.
+
+### Ограничения (v0.9.0c, §11.5)
+
+- `df.info()` / `df.dtypes` / `df.describe()` — v0.10.
+- `Pipeline` DAG визуализация — v0.9.1 (после DAG support в Pipeline).
+- `df.plot` — только явные методы (`df.plot.hist(...)`), не
+  `df.plot(kind='hist', ...)` (pandas-style). Method-style selected
+  as primary; kind-based — backlog, если запрос.
+
+### Тесты (v0.9.0c)
+
+- +16 fast: 8 `test_repr_html.py`, 8 `test_plot_accessor.py`.
+- AST guard whitelist: `_repr_html_` (bounded 20-row to_pandas).
+
+- fast: **~1278** (+16). slow: **9** (unchanged).
+
+### Добавлено (v0.9.0b — Pipeline skeleton)
+
+Главный архитектурный шаг v0.9.0: chain of Transformers с plan-first
+feasibility check. Превращает CADW из «набора primitives» в
+out-of-core framework.
+
+- **`cadw/pipeline.py`** — новый модуль:
+  - **`Pipeline`** — sequence of Transformers. Model (if present)
+    всегда LAST.
+    - `add_step(name, step)` — chainable.
+    - `plan(df) -> PipelinePlan` — pre-fit feasibility: sum(state_bytes)
+      ≤ state_limit. Raises `PipelineMemoryError` if not feasible
+      **до** любого materialize. Пользователь может вызвать явно для
+      early check.
+    - `fit(df, target=None)` — fit всех steps последовательно, plan-first.
+    - `transform(df)` — применяет pure-transform steps; **останавливается
+      перед Predictor** (если он есть).
+    - `predict(df)` — fit chain + last Predictor. Требует последний step
+      быть Predictor.
+    - `fit_transform(df, target=None)` — fit + return features (before model).
+    - `total_state_bytes()` — sum fitted state, интроспекция.
+  - **`Transformer` / `Predictor` Protocol** (typing only) — контракт:
+    `fit(df, target=None)`, `transform(df)`, `estimate_state_bytes(dc)`,
+    `state_bytes()`; Predictor adds `predict(df)`.
+
+- **Wrappers (MVP, для тестов)**:
+  - **`CastStep(mapping, safe=True)`** — wrap `df.astype()`. Stateless.
+  - **`DropnaStep(how, subset)`** — wrap `df.dropna()`. Stateless.
+  - **`GBDTStep(X_cols, y_col, **kwargs)`** — wrap `fit_gbdt_regressor`.
+    `estimate_state_bytes` = n_estimators × 2^(max_depth+1) × 48 + 1024
+    (conservative per-node).
+
+### Design decisions (locked-in, v0.9.0)
+
+- **Sequence-first.** DAG (via `inputs=[...]`) — v0.9.1.
+- **Model LAST.** `transform()` stops before Predictor; `predict()`
+  requires it.
+- **Plan-first fit.** `Pipeline.fit` calls `plan(df)` before any work;
+  `PipelineMemoryError` if not feasible.
+- **2-pass fit/transform.** State frozen after fit; transform re-applies
+  pure steps. No fused execution (state-after-fit стабилен — экономии нет).
+- **In-memory state.** Bounded (K × #features). Serialize to JSON — v0.9.1.
+- **Per-batch transform guard — per-step.** Each step uses `MemoryGuard`
+  internally; Pipeline не reimplement'ит.
+
+### Ограничения (v0.9.0b, §11.5)
+
+- `Pipeline.plan` — fit feasibility only (`total_state ≤ state_limit`).
+  `spill_boundaries` always empty (deferred v0.9.1). Batch propagation
+  per step handled by step's own MemoryGuard (not re-planned).
+- `Pipeline.to_json` / `from_json` — v0.9.1.
+- `ColumnTransformer` — v0.9.1.
+- `TimeSeriesFeatures` composite — v0.9.2.
+- `Pipeline` не валидирует, что Predictor is last при `add_step`
+  (проверяется при `fit`). Predictor not-last на `fit` → RuntimeError.
+
+### Тесты (v0.9.0b)
+
+- +15 fast (`test_pipeline.py`): construction, wrappers, compose,
+  fit/transform/predict contract, plan (fits, does_not_fit, with GBDT),
+  state_bytes tracking, small GBDT fit+predict.
+- +1 slow (`test_pipeline_e2e.py`): 20K rows, timestamp → dt features
+  → categorical encoding → GBDT; R² > 0.3.
+
+- fast: **~1257** (+15). slow: **9** (+1).
+
+### Добавлено (v0.9.0a — accessors + type ops)
+
+Первый шаг v0.9.0 «out-of-core framework»: подготовка данных
+(datetime features, string cleaning, type casting, null handling).
+Arrow-native, bounded per-batch, zero pandas.
+
+**Accessors:**
+- **`df['ts'].dt.{year,month,day,hour,minute,second,weekday,day_of_year,quarter}`** —
+  Arrow `pc.year/month/day/hour/minute/second/day_of_week/day_of_year/quarter`.
+  Возвращает CadwDataFrame с `{col}_{feature}` (original columns preserved).
+- **`df['s'].str.{len,lower,upper}`** — `pc.utf8_length/utf8_lower/utf8_upper`.
+  Возвращает CadwDataFrame с `{col}_{op}`.
+- **`df['s'].str.contains(pat)`** — возвращает **MaskFilter** (для `df[mask]`).
+  na=False (pandas default): null не матчится.
+- **`df['col'].isnull()` / `.notnull()`** — MaskFilter.
+
+**Facade:**
+- **`df.astype({col: dtype})`** — cast per column. `dtype` = `pa.DataType`
+  или str-alias (`"int64"`, `"float32"`). `safe=True` (default) → raise на
+  overflow; `safe=False` → wrap (Arrow `pc.cast`).
+- **`df.dropna(how='any'|'all', subset=None)`** — **lazy**: композиция
+  `notnull()` фильтров. `how='any'`: drop if ANY null. `how='all'`: drop
+  if ALL null.
+- **`df.drop(cols)`** — selection minus. Lazy.
+- **`df.rename(mapping)`** — materialized (schema change). `{old: new}`.
+
+**Внутренний helper:**
+- `CadwDataFrame._apply_column_transform(column, feature, fn, out_type,
+  accessor=...)` — generic per-batch Arrow transform + append `{col}_{feature}`.
+- Новая папка `cadw/accessors/` с `_dt.py`, `_str.py`.
+
+**AST guards:** `tests/test_arrow_call_memory_guard.py` — whitelisted
+`_apply_column_transform`, `astype`, `dropna`, `drop`, `rename`.
+
+### Исправлено (v0.9.0a-fix1 — first-run bugs)
+
+- **`PredicateFilter.__init__` не знал про новые ops (8 test failures).**
+  v0.9.0a расширил `mask_for_batch` (is_null/not_null/contains), но
+  `__init__` валидировал по старому `_OPS` → `ValueError: unsupported op`.
+  Fix: `_OPS_NO_SCALAR = frozenset({"is_null", "not_null", "contains"})`,
+  `__init__` проверяет `_OPS ∪ _OPS_NO_SCALAR`. Class: partial update
+  within one class (handler extended, validation not).
+- **`test_dt_null_timestamp_propagates` — NaT не конвертируется через
+  `ts.tolist()` (1 failure).** `pa.table({"ts": [Timestamp, NaT, ...]})`
+  → `NaTType does not support utcoffset`. Fix: `pa.array(ts)` — Arrow-native,
+  NaT → null. Class: §13.4/134-like (input conversion not Arrow-safe).
+- **CHANGELOG `[Unreleased]` отсутствовал после v0.8.11 tag** —
+  silent skip (v0.9.0a entry не записан). Fix: prepend `[Unreleased]`
+  before first `## [` if missing. Class: §13.4/140 recurrence (2nd hit
+  of same trap — v0.8.11a-fix1 was first).
+
+### Тесты (v0.9.0a)
+
+- fast: **~1228** (+30 accessors + type ops). slow: **8**.
+
 ## [0.8.11] — 2026-10-20
 
 ### Исправлено (safety — P-D1 close)
