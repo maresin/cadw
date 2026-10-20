@@ -58,7 +58,9 @@ def _python_hash_column(arr: pa.Array) -> np.ndarray:
     return np.asarray(hashes, dtype=np.uint64)
 
 
-def _pandas_hash_column(arr: pa.Array) -> "np.ndarray | None":
+def _pandas_hash_column(
+    arr: pa.Array, *, strict: bool = False,
+) -> "np.ndarray | None":
     """C-level pandas hashing (v0.8.1). Returns None if unsupported/failed.
 
     **Types_mapper is REQUIRED for correctness** (not optimization):
@@ -86,7 +88,18 @@ def _pandas_hash_column(arr: pa.Array) -> "np.ndarray | None":
         pd_series = arr.to_pandas(types_mapper=_mapper)
         h = pd.util.hash_pandas_object(pd_series, index=False)
         return h.to_numpy(dtype=np.uint64)
-    except Exception:
+    except Exception as exc:
+        if strict:
+            raise
+        # K1.2: silent fallback hid perf regressions (e.g. a pandas
+        # 4.x API change dropping types_mapper would route every batch
+        # to the ~30x slower Python loop with no signal). Warn once
+        # per call site; behaviour unchanged (still returns None).
+        logger.warning(
+            "_pandas_hash_column: pandas fast path failed for type "
+            "%s (%r); falling back to Python hash loop",
+            t, exc,
+        )
         return None
 
 

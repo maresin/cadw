@@ -492,6 +492,59 @@ class MetricsOp(ReduceOp):
 
 # ============ ROC-AUC (v0.9.2c) ============
 
+def _pos_label_kind_error(y_type: "pa.DataType", pos_label) -> "str | None":
+    """K1.4: return an error message if `pos_label` cannot be compared
+    with a column of `y_type`, else None.
+
+    Without this, `pa.scalar(pos_label, type=y.type)` raises a cryptic
+    ArrowInvalid (e.g. "Could not convert yes with type str: tried to
+    convert to int64") with no hint that the problem is a bad
+    `pos_label`. We pre-check and raise a clear ValueError instead.
+    """
+    import pyarrow as pa
+
+    t = y_type
+    if pa.types.is_boolean(t):
+        if not isinstance(pos_label, bool):
+            return (
+                f"roc_auc: pos_label {pos_label!r} incompatible with "
+                f"y column type {t}; expected a bool scalar"
+            )
+        return None
+    if pa.types.is_integer(t):
+        if isinstance(pos_label, bool) or not isinstance(pos_label, int):
+            return (
+                f"roc_auc: pos_label {pos_label!r} incompatible with "
+                f"y column type {t}; expected an int-compatible scalar"
+            )
+        return None
+    if pa.types.is_floating(t):
+        if isinstance(pos_label, bool) or not isinstance(
+            pos_label, (int, float)
+        ):
+            return (
+                f"roc_auc: pos_label {pos_label!r} incompatible with "
+                f"y column type {t}; expected a numeric scalar"
+            )
+        return None
+    if pa.types.is_string(t) or pa.types.is_large_string(t):
+        if not isinstance(pos_label, str):
+            return (
+                f"roc_auc: pos_label {pos_label!r} incompatible with "
+                f"y column type {t}; expected a str scalar"
+            )
+        return None
+    if pa.types.is_binary(t) or pa.types.is_large_binary(t):
+        if not isinstance(pos_label, (bytes, bytearray)):
+            return (
+                f"roc_auc: pos_label {pos_label!r} incompatible with "
+                f"y column type {t}; expected a bytes scalar"
+            )
+        return None
+    # Unknown/other type: let Arrow attempt and surface its own error.
+    return None
+
+
 def _compute_roc_auc_binary(
     stream_factory,
     *,
@@ -534,10 +587,18 @@ def _compute_roc_auc_binary(
     # Pass 1: count n_pos / n_neg (both y and proba non-null)
     total_valid = 0
     n_pos = 0
+    _validated = False
     for batch in stream_factory():
         memory_guard.check_batch(batch, name="roc_auc.count")
         y = batch.column(y_true_col)
         p = batch.column(y_proba_col)
+        if not _validated:
+            # K1.4: fail early and clearly on type mismatch, before
+            # `pa.scalar(pos_label, type=y.type)` produces ArrowInvalid.
+            err = _pos_label_kind_error(y.type, pos_label)
+            if err is not None:
+                raise ValueError(err)
+            _validated = True
         both_valid = _pc.and_(_pc.is_valid(y), _pc.is_valid(p))
         y_f = y.filter(both_valid)
         total_valid += len(y_f)
