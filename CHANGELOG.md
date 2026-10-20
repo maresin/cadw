@@ -1,3 +1,52 @@
+## [Unreleased]
+
+### Добавлено (v0.9.2a — metrics, regression + log_loss)
+
+- **`CadwDataFrame.metrics(y_true, metrics, y_pred=, y_proba=)`** —
+  regression + binary log_loss в одном Reduce-проходе.
+  - **Regression** (require `y_pred`): `r2`, `mse`, `rmse`, `mae`.
+  - **log_loss** (requires `y_proba` in [0,1], binary y): binary
+    cross-entropy.
+  - **Combined** — если `y_pred` и `y_proba` заданы оба, все метрики
+    считаются в одном проходе (state O(1)).
+  - Empty input (после filter) → **NaN** для каждой метрики.
+  - Nulls в `y_true`/`y_pred`/`y_proba` → skip per row (skipna=True).
+  - **R² matches sklearn**: `ss_tot == 0` → 1.0 если perfect, else 0.0.
+- **`cadw/ops/metrics.py::MetricsOp`** — ReduceOp, state = 7 counters
+  × 8 B = 64 B. Независимо от N.
+
+### Design decisions (locked-in, v0.9.2a)
+
+- **Reduce-based**: один проход, O(1) state. Не Sort, не pandas.
+- **Regression + log_loss в одном patch** — обе метрики O(1) state,
+  тривиально комбинируются. Classification (confusion matrix, K×K
+  state) — v0.9.2b.
+- **Empty → NaN**, не 0.0. Honest «no data» — user sees it.
+- **R² совпадает с sklearn** в граничных случаях (constant y).
+- **log_loss**: `np.clip(p, 1e-15, 1 - 1e-15)` — как sklearn.
+
+### Ограничения (v0.9.2a, §11.5)
+
+- **Classification metrics** (`accuracy`, `precision`, `recall`, `f1`)
+  — v0.9.2b. Требуют confusion matrix (K×K state, K = #classes).
+- **`roc_auc`** — v0.9.2c. Требует Sort + cumulative TPR/FPR.
+- **Multiclass log_loss** — v0.9.2b. Требует proba matrix (K columns).
+- **Per-group metrics** (`groupby(g).metrics()`) — v0.9.2d.
+- **`y_true` for regression must be numeric** — string labels need
+  `encode_categorical` first.
+- **log_loss requires binary y** ∈ {0, 1}. Multiclass — v0.9.2b.
+
+### Тесты (v0.9.2a)
+
+- +24 fast (`test_metrics.py`): perfect/known values (r2, mse, rmse,
+  mae), log_loss (perfect/50-50/known), combined, nulls skip, empty→NaN,
+  filtered, string metric, all validation errors, pandas-equivalence,
+  chain integration.
+- +1 slow (`test_metrics_e2e.py`): 100K rows, 30 MB budget, all four
+  metrics verified vs numpy.
+
+- fast: **~1422** (+24). slow: **15** (+1).
+
 ## [0.9.1] — 2026-10-20
 
 ### Добавлено (v0.9.1f — pivot_table / melt / crosstab)

@@ -12,6 +12,7 @@ from .ops.reduce import (
     reduce, ReduceOp,
     CountOp, SumOp, MinMaxOp, MeanOp, StdOp, CovarianceOp, HistogramOp,
 )
+from .ops.metrics import MetricsOp, SUPPORTED_METRICS
 from .ops.shuffle import (
     hash_shuffle, compute_hashes, estimate_num_partitions, read_partition_batches,
 )

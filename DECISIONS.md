@@ -1160,6 +1160,19 @@ cardinality is small, budget can be increased or they can `groupby`
 long format. Diagnostic message includes `K_columns ~N` — user sees
 estimate.
 
+**v0.9.2a (metrics):** `CadwDataFrame.metrics()` — regression
+(r2/mse/rmse/mae) + binary log_loss, Reduce-based, O(1) state.
+- Requires `y_pred` (regression) / `y_proba` (log_loss). Combined OK.
+- Empty → NaN for all.
+- Nulls in y_true/y_pred/y_proba → skip per row.
+- R² matches sklearn: ss_tot == 0 → 1.0 if perfect else 0.0.
+- **Classification metrics** (accuracy/precision/recall/f1) — v0.9.2b.
+  Require confusion matrix (K×K state).
+- **`roc_auc`** — v0.9.2c (needs sort + cumulative TPR/FPR).
+- **Multiclass log_loss** (proba matrix) — v0.9.2b.
+- **Per-group metrics** (`groupby(g).metrics()`) — v0.9.2d.
+- **y_true numeric** for regression — string labels → `encode_categorical`.
+
 ### 11.5. Осознанные ограничения (документированы)
 
 **v0.8.11b:** join strict enforcement requires `budget >= 160 MB`
@@ -4042,6 +4055,102 @@ repeats 6+ times.
 
 **Связанные:** §13.4/144, /149, /152, /156, /160 (stale repeats),
 /143 (substring vs token), /154 (def-prefix), /156 (blanket-walk).
+
+**Эпизод 162 (redundant pre-check masks per-metric validation).**
+v0.9.2a: `metrics()` raises generic `"at least one of y_pred / y_proba
+required"` **before** `MetricsOp.__init__` успевает дать specific
+`"y_pred_col required for ['r2']"` / `"y_proba_col required for
+['log_loss']"`. 2 test failures (test expects specific, code gives
+generic).
+
+**Диагноз:** layered validation — outer layer defends against case,
+inner layer validates more precisely. Generic check **fires first**,
+specific message never shown.
+
+**Fix:** убрать generic check. `MetricsOp` — единственный источник
+правды для per-metric validation. UX: «you asked for r2 but passed no
+y_pred» лучше чем «at least one required».
+
+**Плюс:** `test_metrics_no_pred_or_proba` дублирует
+`test_metrics_missing_y_pred_for_r2` (тот же сценарий `metrics(y_true=
+"y", metrics=["r2"])` без y_pred). Один test ожидал generic, другой
+specific — **несогласованные ожидания** на одно поведение. Delete
+redundant.
+
+**Правило (§13.4/162, расширение 148):** validation должна быть на
+**одном уровне**, не distributed между caller и callee. Outer defends
+только против того, что inner не может (например, `metrics` validates
+column existence, потому что `MetricsOp` не знает про Dataset);
+inner validates то, что знает лучше (specific metric requirements).
+Не дублировать.
+
+**Backlog (§11.6):** audit layered validations:
+- `metrics()` — fixed.
+- `Pipeline.fit` → `plan` → `step.estimate_state_bytes` — outer validates
+  target presence; inner validates state. OK.
+- `pivot_table` → `groupby_aggregate` — outer validates K_pairs; inner
+  validates partition budget. OK (different levels).
+- `apply(fn)` → `_per_group_apply` — outer validates fn callable; inner
+  validates group size. OK.
+
+**Связанные:** §13.4/148 (design intent vs validation), /156 (blanket
+guard), /157 (hasattr pyarrow), /161 (AST substring).
+
+**Эпизод 163 (aggregate formulas need domain validation).**
+v0.9.2a: E2E test uses continuous `y` (rng.normal) для `log_loss`.
+Формула `-(y·log(p) + (1-y)·log(1-p))` предполагает `y ∈ {0, 1}`.
+С `y = 2.0`: `-(2·log(p) + (1-2)·log(1-p))` → **negative** output
+(assert `log_loss > 0` fails: got -0.203).
+
+**Две независимые проблемы:**
+
+1. **Production validation gap:** `MetricsOp` не валидирует `y ∈
+   {0, 1}` для log_loss. Формула молча даёт мусор. Пользователь
+   получает число, не подозревая, что оно неправильное.
+
+2. **Test-authoring semantic mixing:** E2E test использовал **одну
+   `y` (continuous)** для regression (r2/rmse/mae, где continuous OK)
+   и для log_loss (где binary required). Один столбец — два разных
+   семантических контракта. Test «passed» на regression и дал garbage
+   на log_loss.
+
+**Fix (v0.9.2a-fix2):**
+- `MetricsOp.update` log_loss branch: `bad_mask = (y_m != 0) & (y_m
+  != 1)` → raise `ValueError` с первыми 5 invalid values + счётчик +
+  рекомендация (`encode_categorical` для multiclass).
+- E2E: split на `test_metrics_100k_regression` (continuous y,
+  r2/rmse/mae) + `test_metrics_100k_log_loss_binary` (binary y_bin =
+  y > 0, proba = sigmoid(y)). Две независимые семантики.
+- New fast test: `test_metrics_log_loss_rejects_continuous_y` —
+  `y=[0, 1, 2]` → ValueError.
+
+**Правило (§13.4/163, расширение 162):** aggregate formula имеет
+**domain contract** (`log_loss`: y ∈ {0,1}, p ∈ (0,1); `r2`: y, y_pred
+— continuous; `accuracy`: labels). Contract должен валидироваться
+**at Op boundary** — где формула применяется, не у caller. Иначе
+silent garbage.
+
+**Метаправило (§13.4/163, расширение 128, /134, /158):** test,
+смешивающий семантики (continuous + binary в одном столбце),
+не может поймать validation bugs — потому что test сам не осознаёт
+границу. Правильно: **один test = одна семантика**. Если нужно
+проверить два режима — два test'а.
+
+**Backlog (§11.6):** audit **всех** aggregate-формул на domain
+validation:
+- `log_loss` — fixed (y ∈ {0,1}).
+- `r2/mse/rmse/mae` — no domain (любые finite float).
+- `accuracy/f1/...` (v0.9.2b) — labels; validation в K×K confusion
+  matrix (class set must match).
+- `roc_auc` (v0.9.2c) — binary y; same log_loss validation.
+- `groupby().agg` `mean/sum/...` — numeric required (existing
+  validation).
+- `std/var` — numeric, n >= 1 (existing).
+- `PCA` CovarianceOp — numeric, d >= 1 (existing).
+
+**Связанные:** §13.4/128 (test expectations authored), /134 (input
+type not Arrow-safe), /158 (E2E respects complexity), /162 (redundant
+check masks specific).
 
 ### 13.5. Открытые вопросы
 

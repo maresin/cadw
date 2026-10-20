@@ -4191,6 +4191,71 @@ class CadwDataFrame:
             spill_dir=self._spill_dir,
         )
 
+    # ---------------- metrics (v0.9.2a) ----------------
+
+    def metrics(
+        self,
+        *,
+        y_true: str,
+        metrics: "Sequence[str] | str",
+        y_pred: "str | None" = None,
+        y_proba: "str | None" = None,
+    ) -> dict:
+        """Regression + log_loss metrics in one pass (Reduce-based).
+
+        Metrics:
+          - r2, mse, rmse, mae — require `y_pred` (numeric).
+          - log_loss — requires `y_proba` (binary, values in [0,1]).
+          - Combinations of regression + log_loss allowed in one call if
+            both y_pred and y_proba provided.
+
+        Args:
+            y_true: column with true values.
+            metrics: metric name(s) — scalar or list.
+            y_pred: predicted values (float). Required for
+                r2/mse/rmse/mae.
+            y_proba: predicted probabilities (float in [0,1]).
+                Required for log_loss.
+
+        Returns:
+            dict `{metric_name: value}`. Values are NaN for empty input
+            (after filter).
+
+        Nulls in y_true / y_pred / y_proba → row skipped (skipna=True).
+
+        State: O(1) (7 counters). Independent of N.
+        """
+        from cadw.ops.metrics import MetricsOp, SUPPORTED_METRICS
+        from cadw.ops.reduce import reduce
+
+        if isinstance(metrics, str):
+            metrics = [metrics]
+        metrics = list(metrics)
+        if not metrics:
+            raise ValueError("metrics: metrics list is empty")
+
+        # §13.4/162: no generic "at least one required" check —
+        # `MetricsOp.__init__` raises per-metric specific error
+        # ("y_pred_col required for ['r2']" / "y_proba_col required for
+        # ['log_loss']"). Better UX: specific > generic.
+
+        for c, label in (
+            (y_true, "y_true"), (y_pred, "y_pred"), (y_proba, "y_proba")
+        ):
+            if c is not None and c not in self._columns:
+                raise KeyError(
+                    f"metrics: {label} column {c!r} not in {self._columns}"
+                )
+
+        op = MetricsOp(
+            y_true, y_pred_col=y_pred, y_proba_col=y_proba,
+            metrics=metrics,
+        )
+        return reduce(
+            self._iter_filtered_batches(), op,
+            self._memory_guard, log=False,
+        )
+
     # ---------------- write ----------------
 
     def write_parquet(self, path: str | Path, *, compression: str = "snappy") -> Path:
