@@ -401,3 +401,20 @@ def test_numeric_uses_pandas_path(monkeypatch):
     compute_hashes(b, ["k"])
     assert "int64" in called_pandas
 
+
+
+def test_uint64_python_fallback_warns(monkeypatch, caplog):
+    # v0.9.5b (P-SH2): silent -> warning on Python fallback.
+    import logging
+    from cadw.ops import shuffle as sh
+    caplog.set_level(logging.WARNING, logger='cadw.ops.shuffle')
+    monkeypatch.setattr(
+        sh, '_pandas_hash_column', lambda arr, **kw: None,
+    )
+    arr = pa.array([1, 2, 3], type=pa.uint64())
+    h = sh._hash_column(arr)
+    assert h is not None and len(h) == 3
+    msgs = [str(r.message) for r in caplog.records]
+    assert any('uint64' in m and 'fallback' in m for m in msgs), (
+        'expected uint64 fallback warning; got ' + str(msgs)
+    )

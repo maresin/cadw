@@ -148,9 +148,20 @@ def _hash_column(arr: pa.Array) -> np.ndarray:
             h = _pandas_hash_column(signed)
             if h is not None:
                 return h
-        except Exception:
-            pass
+            # _pandas_hash_column already warned (K1.2)
+        except Exception as exc:
+            # v0.9.5b (P-SH2): silence hid 30x perf fallback.
+            # Same class as K1.2 (K1.2._pandas_hash_column).
+            logger.warning(
+                '_hash_column: uint64 bitcast failed (%r); '
+                'falling back to Python hash loop (30x slower)',
+                exc,
+            )
         # extreme fallback: Python loop
+        logger.warning(
+            '_hash_column: uint64 Python hash fallback '
+            '(slow path); check pyarrow cast/pandas API'
+        )
         return _python_hash_column(arr)
     # Numeric / bool / timestamp / date / time → pandas C-hash (19-39×)
     if (pa.types.is_integer(t) or pa.types.is_floating(t)

@@ -106,6 +106,16 @@ WHITELISTED_FUNCS = {
     # v0.9.4b-2: describe() delegates to self.quantile (guarded via external_sort).
     "cadw/dataframe.py:CadwDataFrame.describe":
         "delegates to self.quantile (guarded via external_sort)",
+    # v0.9.5b (C6): viz/_aggregate.py high-risk calls.
+    # line_agg sorts K-row aggregate table (bounded by K).
+    # box_stats delegates to df.quantile (guarded).
+    "cadw/viz/_aggregate.py:line_agg":
+        "table.sort_by on K rows (bounded by group count)",
+    "cadw/viz/_aggregate.py:box_stats":
+        "delegates to df.quantile (guarded via external_sort)",
+    # v0.9.5b (C6): core/memory_guard.py high-risk calls.
+    "cadw/core/memory_guard.py:MemoryGuard.estimate_unique_keys":
+        "pc.dictionary_encode on <=10k sample batch (bounded)",
     # --- indexers.py ---
     "cadw/indexers.py:_ILocIndexer._empty_view":
         "empty schema table, zero rows",
@@ -131,6 +141,12 @@ AUDITED_FILES = (
         CADW_ROOT / "pipeline.py",
         CADW_ROOT / "cv.py",
     ]
+    # v0.9.5b (C6): extend to viz/_aggregate + memory_guard.
+    # line_agg uses sort_by on K rows; box_stats delegates to
+    # df.quantile (guarded via external_sort); estimate_unique_
+    # keys uses dictionary_encode on ≤10k sample. Whitelisted.
+    + [CADW_ROOT / "viz" / "_aggregate.py",
+       CADW_ROOT / "core" / "memory_guard.py"]
 )
 
 
