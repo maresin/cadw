@@ -1,5 +1,106 @@
 ## [Unreleased]
 
+### Исправлено (v0.9.2e-fix1 — nullability + test data)
+
+- **`cadw/cv.py::_attach_column`** — все output fields nullable=True.
+  `nullable=False` на `__fold` ломал `Dataset.from_batches`:
+  singleton-batch через `pa.RecordBatch.from_arrays([col],
+  names=[name])` всегда nullable=True, writer target с
+  `pa.schema([field])` (nullable=False) → ArrowInvalid. 9 failures.
+  CADW convention: output fields always nullable=True (all existing
+  ops соблюдают).
+- **`test_cv_score_timeseries`** — i.i.d. data (`x ~ N(0,1)`,
+  `y = 2x + noise`), не linear trend. Trend + TSS → GBDT
+  extrapolation outside training bin range → r2 = -23.9 (inherent
+  limitation §11.5; test design was wrong, not code). 1 failure.
+- **`test_kfold_shuffle_different_assignment`** — cleaned placeholder
+  (was doing nothing); proper set-of-y comparison + union invariant.
+- **`test_tss_n_lt_k_plus_1_raises`** — raw-string regex (silence
+  SyntaxWarning).
+
+### §13.4/169 — nullability convention + test-respects-limitation
+
+- **Output schema = nullable=True** для всех полей, produced через
+  `Dataset.from_batches`. Core rebuilds singleton via
+  `from_arrays(names=...)` (always nullable=True); writer target must
+  match. Backlog: align `Dataset.from_batches` for nullable=False.
+- **Test data must respect inherent model limitations.** TSS + GBDT
+  (без lag features) cannot extrapolate. Use i.i.d. or bounded
+  (periodic) features. Real time-series → TimeSeriesPipeline (lags,
+  backlog v0.9.4).
+
+### Добавлено (v0.9.2e — cross-validation)
+
+- **`KFold(n_splits, shuffle=False, random_state=None)`** — k-fold CV
+  for CadwDataFrame.
+  - `shuffle=False` (default): `fold_id = arange(n) % k` — O(1) per row,
+    deterministic, no RNG.
+  - `shuffle=True`: `rng.permutation(n)` → fold_id array (O(N) int32;
+    ~4 MB for 1M rows). Documented trade-off.
+  - `.split(df)` yields `(fold_i, train_df, test_df)` — lazy views
+    (PredicateFilter on `__fold` column).
+- **`TimeSeriesSplit(n_splits, time_col)`** — no future leakage.
+  - Sort by `time_col` once (`external_sort`), then positional fold
+    slices via `iloc`.
+  - fold 0: train=[0, fs), test=[fs, 2*fs)
+  - fold k-1: train=[0, k*fs), test=[k*fs, n)
+  - `fs = n // (n_splits + 1)`.
+- **`cv_score(df, cv, model_factory, *, X_cols, y_col, metrics,
+  pred_col=None, **metric_kwargs)`** — runs CV, returns
+  `{fold_scores: [{metric: value}], mean: {metric: nanmean},
+  std: {metric: nanstd}}`.
+  - Model must implement `fit(df, target=y_col)` and
+    `predict(df) -> CadwDataFrame` (GBDTStep-compatible convention).
+  - Prediction column default `f"{y_col}_pred"`; override via `pred_col`.
+  - `**metric_kwargs` passed to `preds.metrics()` (classes, average,
+    y_proba, pos_label).
+- Exports: `from cadw import KFold, TimeSeriesSplit, cv_score`.
+
+### Design decisions (locked-in, v0.9.2e)
+
+- **KFold fold assignment = `row_id % k`** (no shuffle) — trivial and
+  deterministic. `shuffle=True` materializes O(N) int32 — accepted
+  trade-off, not default.
+- **TimeSeriesSplit — sort once, iloc slices per fold.** Sort cost
+  O(N log N) per `split()` generator; cache sorted_df externally if
+  calling multiple times.
+- **cv_score uses `model.predict(test)` result directly** — GBDT-style
+  `predict` returns df with original columns + `{target}_pred`. So
+  `preds.metrics(y_true=y_col, y_pred=pred_col)` — no merge needed.
+- **Model factory pattern** — fresh model per fold (no shared state).
+  sklearn-compatible convention: `lambda: GBDTStep(...)`.
+
+### Ограничения (v0.9.2e, §11.5)
+
+- **`KFold(shuffle=True)`** materializes `fold_id` array (O(N) int32
+  ≈ 4 MB per 1M rows) — for truly out-of-core N, prefer shuffle=False.
+- **`StratifiedKFold`, `GroupKFold`, `Nested CV`** — backlog (v0.9.3+).
+- **`TimeSeriesSplit` sorts once per `.split()` call** — calling
+  `.split()` twice re-sorts. Cache the sorted_df if reusing.
+- **`cv_score`** — relies on `pred_col` convention; user must ensure
+  model's predict output has the named column (or pass `pred_col`).
+- **`cv_score` with y_proba (roc_auc / log_loss)** — supported via
+  `y_proba="..."` kwarg. Model must emit proba column; GBDTClassifier
+  does (y_prob).
+
+### Тесты (v0.9.2e)
+
+- +15 fast (`test_cv.py`): KFold (sizes, uneven, no-overlap, shuffle,
+  errors, filter); TimeSeriesSplit (splits, no leakage, train grows,
+  test sizes, errors, unsorted); cv_score (kfold GBDT, timeseries,
+  empty metrics, custom pred_col).
+- +1 slow (`test_cv_e2e.py`): 100K rows, KFold(5), GBDT, R² > 0.5.
+
+- fast: **~1485** (+15). slow: **19** (+1).
+
+### Backlog (v0.9.3, §11.6 — from v0.9.2e code review)
+
+- `_pandas_hash_column` silent fallback (add logging.warning).
+- `_compute_roc_auc_binary::pa.scalar(pos_label, type=y.type)` mismatch
+  validation.
+- `_exact_actual_matches_arrow` — cache build-table value_counts
+  per partition-pair.
+
 ### Исправлено (v0.9.2c-fix2 — multiclass log_loss gate)
 
 - **`MetricsOp.__init__`** — classification setup block

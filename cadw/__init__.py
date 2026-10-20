@@ -39,6 +39,12 @@ from .pipeline import (
     list_step_types,
 )
 
+from .cv import (
+    KFold,
+    TimeSeriesSplit,
+    cv_score,
+)
+
 from .ml import (
     XTXOp, LinearModel, fit_linear,
     fit_lasso, fit_elasticnet,
@@ -94,4 +100,6 @@ __all__ = [
     "Pipeline", "CastStep", "DropnaStep", "GBDTStep",
     "ColumnTransformer", "Transformer", "Predictor",
     "register_step_type", "unregister_step_type", "list_step_types",
+    # v0.9.2e cross-validation
+    "KFold", "TimeSeriesSplit", "cv_score",
 ]

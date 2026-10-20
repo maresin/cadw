@@ -1358,6 +1358,29 @@ end-of-file from v0.9.0b-fix1.)
 - **DAG** (via `inputs=[...]`) — v0.9.1.
 - **`TimeSeriesFeatures`** composite — v0.9.2.
 
+**v0.9.3 backlog (from v0.9.2e code review):**
+
+- **Silent hash fallback** (`cadw/ops/shuffle.py::_pandas_hash_column`):
+  `try: ... except Exception: return None` → silent Python hash fallback
+  (~30× slower, no warning). Test `test_pandas_path_used_for_int64`
+  spies correctly on happy path, but future pandas API changes →
+  invisible perf regression. Fix: `logging.warning` on fallback; optional
+  `strict=True` to raise. ~10 min.
+- **`pa.scalar(pos_label, type=y.type)` arrow-type mismatch**
+  (`cadw/ops/metrics.py::_compute_roc_auc_binary`): if user passes
+  `pos_label="yes"` with int64 y → `ArrowInvalid`. Rare, but cryptic.
+  Fix: upfront `_validate_pos_label_type(y.type, pos_label)` → clear
+  error. ~15 min.
+- **`_exact_actual_matches_arrow` per-probe-batch recompute**
+  (`cadw/ops/join.py`): `build_table.value_counts` computed per probe
+  batch (~B× redundant). Fix: cache per partition-pair. Expected
+  speedup ~B× on build-side value_counts (real for PK-FK joins). ~1 h.
+- **`_coordinate_descent` O(d²) per iter** (`cadw/ml/linear.py`):
+  **retracted** — residual maintenance is also O(d²) (BLAS dot vs axpy;
+  no asymptotic win). Real win is warm-start over alpha-path
+  (feature, not optimization). Defer to Lasso-path feature.
+
+
 ## 12. Дорожная карта
 
 ### 12.1–12.5. Закрыто в v0.1.0
@@ -4403,6 +4426,61 @@ v0.9.2 series:
 **Связанные:** §13.4/167 (partial migration: y_proba_cols unified
 check), /148 (design vs validation), /162 (redundant check masks
 specific), /165 (gate by needs not presence).
+
+**Эпизод 169 (nullable=False violates Dataset.from_batches
+convention; TSS+GBDT data design).** v0.9.2e: 10 test failures,
+2 root causes.
+
+**Bug 1 (9 failures, `ArrowInvalid: different schema`):**
+`_attach_column` built `out_schema` with
+`pa.field("__fold", type, nullable=False)`. `Dataset.from_batches`
+(core) reconstructs per-column singleton via
+`pa.RecordBatch.from_arrays([col], names=[field_name])` — **always**
+creates nullable=True field. Writer target created with
+`pa.schema([field])` where field nullable=False → schema mismatch
+→ ArrowInvalid.
+
+This is a **CADW convention**: all output fields must be nullable=True
+(matching `from_arrays` default). Existing ops (shift/diff/rank/
+expanding/resample) all use nullable=True. My `_attach_column`
+violated convention by explicit nullable=False on `__fold`.
+
+Fix: force nullable=True everywhere. Yield batches with explicit
+`pa.RecordBatch.from_arrays(arrays, schema=out_schema)` — matches
+writer target.
+
+**Bug 2 (1 failure, r2 = -23.9):**
+`test_cv_score_timeseries` used linear trend data
+(`y = 2*ts`, `x = y`). TSS split fold 0: train ts=[0,50), test
+ts=[50,100). Test x values 100..198 OUTSIDE training bin range
+(0..98). GBDT without lag features **does not extrapolate** — all
+test values clip to last bin (pred ≈ 95 constant). SS_res >> SS_tot
+→ negative r2.
+
+**Not a CADW bug** — inherent tree-model limitation, documented
+§11.5, motivation for TimeSeriesPipeline (lag features — backlog).
+**Bug in test**: unsuitable data for TSS+GBDT. Test design must
+respect inherent model limitation.
+
+Fix: i.i.d. x ~ N(0,1), y = 2x + noise. TSS splits by ts order but
+x/y distributions align train vs test. r2 well above 0.3.
+
+**Правило (§13.4/169, расширение 128, 129, 158, 166):**
+- **Output schema nullability = nullable=True** для всех полей,
+  produced через `Dataset.from_batches`. Core rebuilds singleton
+  via `from_arrays(names=...)` (always nullable=True); writer target
+  must match. Non-nullable output fields → ArrowInvalid. Latent
+  backlog: align `Dataset.from_batches` to handle nullable=False by
+  using `from_arrays(arrays, schema=pa.schema([field]))` for singleton
+  (core change).
+- **Test data must respect inherent model limitations.** TSS + GBDT
+  (без lag features) cannot extrapolate. Test with trend data
+  ensures failure, не от bug'а в коде. Real use case — TimeSeriesPipeline
+  с lags. Test i.i.d. data, or bounded (periodic) features.
+
+**Связанные:** §13.4/128 (test expectations authored), /129 (rolling
+reference), /158 (E2E respects inherent complexity), /166 (prototype
+test-authoring).
 
 ### 13.5. Открытые вопросы
 
