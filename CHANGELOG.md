@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.9.3] — 2026-10-20
+
 ### Исправлено (v0.9.3e - shadowed _read_for_resplit, S2)
 
 **C1 (S2, из v0.9.2 audit):** `_local_groupby` содержал
