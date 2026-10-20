@@ -1,15 +1,22 @@
-"""Cross-validation for out-of-core pipeline (v0.9.2e).
+"""Cross-validation for out-of-core pipeline (v0.9.3a).
 
-KFold: fold_id = row_id % k (shuffle=False, O(1) per row) or
-       rng.permutation(n) (shuffle=True, materialized once).
+KFold fold assignment is **O(batch) state** in the default mode — no
+O(N) arrays, no MemoryGuard violations:
+  - shuffle=False: fold_id = row_id % k (per batch).
+  - shuffle=True:  keyed PRNG splitmix64(row_id, seed) % k (per batch).
+    Deterministic per row_id; split-quality (fold sizes ~binomial,
+    mean n/k, per-fold variance O(sqrt(n/k))).
+  - materialize=True (opt-in): old O(N) fold_id array with
+    MemoryGuard.check_state(20·N). Exact-balanced shuffle for small N
+    or when exact fold sizes matter.
+
 TimeSeriesSplit: sort by time_col once, then positional fold slices
                  (no future leakage).
 
-Both produce (train_df, test_df) pairs lazily via CadwDataFrame views.
-
-Memory: O(N) int8 for fold_id array (KFold); O(1) state for TSS
-        (sorted_df on disk, iloc slices are lazy).
-Independent of N except fold_id array (N × 4 bytes for int32).
+§13.4/173: pre-v0.9.3a docstring claimed "O(N) int8 fold_id" — actual
+code was int32 fold_id + int64 arange/permutation temporaries
+(12-20·N bytes) with NO MemoryGuard check at all. Guaranteed OOM
+for N ≫ RAM — the exact scenario CADW exists for.
 """
 from __future__ import annotations
 
@@ -20,6 +27,25 @@ import pyarrow as pa
 
 from cadw.dataset import Dataset
 from cadw.dataframe import CadwDataFrame
+
+
+# splitmix64 constants (deterministic avalanche, K1 pattern from
+# shuffle.py; here for fold-id derivation).
+_GOLDEN = np.uint64(0x9E3779B97F4A7C15)
+_M1 = np.uint64(0xBF58476D1CE4E5B9)
+_M2 = np.uint64(0x94D049BB133111EB)
+_DEFAULT_SEED = 42  # deterministic default for out-of-core reproducibility
+
+
+def _fold_ids_from_row_ids(
+    row_ids: np.ndarray, k: int, seed: int,
+) -> np.ndarray:
+    """Keyed splitmix64 hash of row_ids modulo k. Vectorized, uint64 math."""
+    h = row_ids.astype(np.uint64) * _GOLDEN + np.uint64(seed)
+    h = (h ^ (h >> np.uint64(30))) * _M1
+    h = (h ^ (h >> np.uint64(27))) * _M2
+    h = h ^ (h >> np.uint64(31))
+    return (h % np.uint64(k)).astype(np.int32)
 
 
 def _attach_column(
@@ -36,8 +62,7 @@ def _attach_column(
     nullable=True. If out_schema has nullable=False for ANY field,
     writer target `pa.schema([field])` (nullable=False) mismatches
     singleton's (nullable=True) → ArrowInvalid. Convention: nullable
-    =True everywhere, matching from_arrays default (all CADW ops do
-    this: shift/diff/rank/expanding all use nullable=True).
+    =True everywhere.
     """
     base_cols = list(df._columns)
     out_fields = [
@@ -76,19 +101,70 @@ def _attach_column(
     )
 
 
+def _attach_column_with_fn(
+    df: CadwDataFrame, name: str, out_type: pa.DataType,
+    fn,
+) -> CadwDataFrame:
+    """Streaming per-batch column attach (v0.9.3a, P-CV1).
+
+    `fn(offset, n) -> pa.Array[n]` is called per batch with the running
+    row offset. Memory = O(batch), independent of N. No O(N) array.
+
+    All output fields nullable=True (§13.4/169).
+    """
+    base_cols = list(df._columns)
+    out_fields = [
+        pa.field(c, df._dataset.schema.field(c).type, nullable=True)
+        for c in base_cols
+    ]
+    out_fields.append(pa.field(name, out_type, nullable=True))
+    out_schema = pa.schema(out_fields)
+
+    def gen():
+        offset = 0
+        for b in df._iter_filtered_batches():
+            n_b = b.num_rows
+            col = fn(offset, n_b)
+            if len(col) != n_b:
+                raise RuntimeError(
+                    f"_attach_column_with_fn: fn returned {len(col)} "
+                    f"rows, expected {n_b} (batch at offset {offset})"
+                )
+            offset += n_b
+            arrays = [b.column(c) for c in base_cols] + [col]
+            yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+    new_ds = Dataset.from_batches(out_schema, gen(), df._new_dataset_dir())
+    return CadwDataFrame(
+        new_ds,
+        memory_guard=df._memory_guard,
+        spill_dir=df._spill_dir,
+    )
+
+
 class KFold:
-    """K-fold cross-validator for CadwDataFrame.
+    """K-fold cross-validator for CadwDataFrame (out-of-core).
 
-    shuffle=False (default): fold_id = arange(n) % k — deterministic,
-    no RNG, O(1) per row.
-    shuffle=True: rng.permutation(n) — materializes fold_id array
-    (O(N) int32; ~4 MB for 1M rows). Different seed → different
-    assignment.
+    Default (shuffle=False): fold_id = row_id % k, computed per batch.
+    O(batch) state, no O(N) arrays.
 
-    Both preserve row order within each fold (filters don't reorder).
+    shuffle=True (default mode, O(1) state): keyed PRNG
+    splitmix64(row_id, seed) % k. Deterministic per row_id (same seed →
+    same split). Fold sizes ~binomial, mean n/k, per-fold variance
+    O(sqrt(n/k)) — split-quality, sufficient for CV.
+
+    materialize=True (opt-in, O(N) RAM): old behavior — exact-balanced
+    shuffle via rng.permutation(n). Requires MemoryGuard headroom
+    (check_state(20·N) applied; raises MemoryLimitExceeded if budget
+    insufficient). Use only when N is small or exact fold sizes matter.
+
+    random_state=None (default) → seed=42 (deterministic reproducibility
+    — same split across runs, machines, storage layouts).
+
+    Row order within each fold is preserved (filters don't reorder).
     """
 
-    __slots__ = ("n_splits", "shuffle", "random_state")
+    __slots__ = ("n_splits", "shuffle", "random_state", "materialize")
 
     def __init__(
         self,
@@ -96,6 +172,7 @@ class KFold:
         *,
         shuffle: bool = False,
         random_state: int | None = None,
+        materialize: bool = False,
     ) -> None:
         if not isinstance(n_splits, int) or n_splits < 1:
             raise ValueError(f"n_splits must be int >= 1; got {n_splits!r}")
@@ -103,9 +180,15 @@ class KFold:
             raise TypeError(
                 f"shuffle must be bool; got {type(shuffle).__name__}"
             )
+        if not isinstance(materialize, bool):
+            raise TypeError(
+                f"materialize must be bool; got "
+                f"{type(materialize).__name__}"
+            )
         self.n_splits = n_splits
         self.shuffle = shuffle
         self.random_state = random_state
+        self.materialize = materialize
 
     def split(
         self, df: CadwDataFrame,
@@ -113,7 +196,6 @@ class KFold:
         """Yield (fold_i, train_df, test_df) for each fold.
 
         Yields lazy CadwDataFrame views (fold filter via PredicateFilter).
-        Iteration over train/test materializes filtered batches.
         """
         n = df.count()
         if self.n_splits > n:
@@ -121,16 +203,46 @@ class KFold:
                 f"KFold: n_splits={self.n_splits} > n={n}"
             )
 
-        if self.shuffle:
-            rng = np.random.default_rng(self.random_state)
-            perm = rng.permutation(n)
-            fold_id = np.empty(n, dtype=np.int32)
-            fold_id[perm] = np.arange(n) % self.n_splits
+        if self.materialize:
+            # Opt-in exact-balanced shuffle. O(N) state, guarded.
+            # Peak: int32 fold_id (4·N) + int64 arange (8·N) + for
+            # shuffle=True rng.permutation (8·N) + np.arange temp (8·N).
+            # Worst case (shuffle=True): ~20·N bytes transient. Use 20·N
+            # as safe upper bound for check_state.
+            df._memory_guard.check_state(
+                20 * n, name="KFold.materialize",
+            )
+            if self.shuffle:
+                seed = (_DEFAULT_SEED if self.random_state is None
+                        else int(self.random_state))
+                rng = np.random.default_rng(seed)
+                perm = rng.permutation(n)
+                fold_id = np.empty(n, dtype=np.int32)
+                fold_id[perm] = np.arange(n) % self.n_splits
+            else:
+                fold_id = (np.arange(n) % self.n_splits).astype(np.int32)
+            fold_arr = pa.array(fold_id, type=pa.int32())
+            augmented = _attach_column(df, "__fold", fold_arr)
         else:
-            fold_id = (np.arange(n) % self.n_splits).astype(np.int32)
-
-        fold_arr = pa.array(fold_id, type=pa.int32())
-        augmented = _attach_column(df, "__fold", fold_arr)
+            # O(batch) state; per-batch fold_id.
+            if self.shuffle:
+                seed = (_DEFAULT_SEED if self.random_state is None
+                        else int(self.random_state))
+                k = self.n_splits
+                def _fn(offset: int, n_b: int) -> pa.Array:
+                    row_ids = np.arange(offset, offset + n_b,
+                                        dtype=np.uint64)
+                    ids = _fold_ids_from_row_ids(row_ids, k, seed)
+                    return pa.array(ids, type=pa.int32())
+            else:
+                k = self.n_splits
+                def _fn(offset: int, n_b: int) -> pa.Array:
+                    ids = (np.arange(offset, offset + n_b) % k).astype(
+                        np.int32)
+                    return pa.array(ids, type=pa.int32())
+            augmented = _attach_column_with_fn(
+                df, "__fold", pa.int32(), _fn,
+            )
 
         base_cols = list(df.columns)
         for i in range(self.n_splits):

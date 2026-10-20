@@ -88,8 +88,12 @@ def test_kfold_no_overlap(tmp_path):
 
 
 def test_kfold_shuffle_true_same_sizes(tmp_path):
+    # v0.9.3a: shuffle=True default is keyed PRNG (binomial
+    # fold sizes, ~mean n/k, sigma ~= sqrt(n/k)). For
+    # exact-balanced, use materialize=True.
     df = make_xy(tmp_path, n=100)
-    cv = KFold(n_splits=5, shuffle=True, random_state=42)
+    cv = KFold(n_splits=5, shuffle=True, random_state=42,
+               materialize=True)
     sizes = [test.count() for _, _, test in cv.split(df)]
     assert sizes == [20, 20, 20, 20, 20]
 
@@ -118,9 +122,10 @@ def test_kfold_shuffle_different_assignment(tmp_path):
     sets1 = _test_y_sets(cv1, df)
     sets2 = _test_y_sets(cv2, df)
 
-    # Sizes equal (same n, k)
-    assert [len(s) for s in sets1] == [20, 20, 20, 20, 20]
-    assert [len(s) for s in sets2] == [20, 20, 20, 20, 20]
+    # v0.9.3a: shuffle=True default = keyed PRNG; sizes are
+    # ~binomial, not exact. Sum invariant holds (all rows).
+    assert sum(len(s) for s in sets1) == 100
+    assert sum(len(s) for s in sets2) == 100
 
     # Assignment differs: at least one fold has different content
     differ = any(s1 != s2 for s1, s2 in zip(sets1, sets2))
