@@ -121,6 +121,66 @@ def assert_guards_green(
 # commit" discipline failed 3 times (§13.4/144, /149, /152). Mechanical
 # tooling is the only reliable fix.
 
+# ============ v0.9.4a: file write / compile / commit ============
+
+
+def write_content(path, lines):
+    # Write list of single-line strings to path.
+    # Replaces triple-quote templates: each line is an isolated
+    # string literal, so escape traps (backslash-n, triple-single,
+    # triple-double) cannot span a multi-line template.
+    # Empty list -> empty file. Non-empty -> joined + one trailing NL.
+    import sys
+    from pathlib import Path as _P
+    _p = _P(path)
+    if not lines:
+        _p.write_text('')
+        return
+    for i, ln in enumerate(lines):
+        if not isinstance(ln, str):
+            print('write_content: line ' + str(i) + ' not str: '
+                  + repr(ln))
+            sys.exit(1)
+    _p.write_text('\n'.join(lines) + '\n')
+
+
+def assert_compiles(path):
+    # py_compile gate. sys.exit(1) on SyntaxError, missing file.
+    # Use after every write_content() to catch bad content.
+    import py_compile
+    import sys
+    from pathlib import Path as _P
+    _p = _P(path)
+    if not _p.exists():
+        print('assert_compiles: missing ' + str(_p))
+        sys.exit(1)
+    try:
+        py_compile.compile(str(_p), doraise=True)
+    except py_compile.PyCompileError as e:
+        print('COMPILE FAIL: ' + str(_p))
+        print(str(e)[:800])
+        sys.exit(1)
+
+
+def commit_with_guards(message, *, self_path=None,
+                      stale_patterns=None, stale_dirs=None,
+                      allow=None):
+    # git add -A + commit, ALWAYS running pre-commit guards.
+    # self_path: py_compile check.
+    # stale_patterns+stale_dirs: assert_no_stale_behavior.
+    # Use instead of sh(['git','commit','-m',msg]) in patches.
+    import subprocess
+    if self_path is not None:
+        assert_compiles(self_path)
+    if stale_patterns and stale_dirs:
+        assert_no_stale_behavior(
+            stale_patterns, stale_dirs, allow=allow,
+        )
+    subprocess.run(['git', 'add', '-A'], check=True)
+    subprocess.run(['git', 'commit', '-m', message], check=True)
+
+
+
 def grep_and_warn(
     patterns: list[str],
     dirs: list[str],

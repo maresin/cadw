@@ -184,3 +184,69 @@ def test_assert_no_stale_behavior_passes_when_clean(tmp_path):
     d.mkdir()
     (d / "test_a.py").write_text("new_behavior = 1\n")
     assert_no_stale_behavior(["old_behavior_xyz"], [str(d)])  # no raise
+
+
+# ============ v0.9.4a: write_content / assert_compiles ============
+
+
+def test_write_content_basic(tmp_path):
+    from cadw.patch_utils import write_content
+    p = tmp_path / 'f.py'
+    write_content(p, ['line1', 'line2'])
+    assert p.read_text() == 'line1\nline2\n'
+
+
+def test_write_content_empty(tmp_path):
+    from cadw.patch_utils import write_content
+    p = tmp_path / 'f.py'
+    write_content(p, [])
+    assert p.read_text() == ''
+
+
+def test_write_content_with_quotes(tmp_path):
+    from cadw.patch_utils import write_content
+    p = tmp_path / 'f.py'
+    write_content(p, ["a = 'x'", 'b = "y"'])
+    text = p.read_text()
+    assert 'a = ' in text and "'x'" in text
+    assert 'b = ' in text and '"y"' in text
+
+
+def test_write_content_with_backslashes(tmp_path):
+    from cadw.patch_utils import write_content
+    p = tmp_path / 'f.py'
+    write_content(p, ['x = "a\\nb"'])
+    text = p.read_text()
+    # content must contain literal 2-char backslash-n, not newline
+    assert 'a\\nb' in text
+
+
+def test_write_content_unicode(tmp_path):
+    from cadw.patch_utils import write_content
+    p = tmp_path / 'f.py'
+    write_content(p, ['# русский текст', '# → ←'])
+    text = p.read_text(encoding='utf-8')
+    assert 'русский' in text
+
+
+def test_assert_compiles_ok(tmp_path):
+    from cadw.patch_utils import assert_compiles, write_content
+    p = tmp_path / 'ok.py'
+    write_content(p, ['x = 1'])
+    assert_compiles(p)
+
+
+def test_assert_compiles_bad(tmp_path):
+    from cadw.patch_utils import assert_compiles, write_content
+    p = tmp_path / 'bad.py'
+    write_content(p, ['def f('])
+    import pytest
+    with pytest.raises(SystemExit):
+        assert_compiles(p)
+
+
+def test_assert_compiles_missing(tmp_path):
+    from cadw.patch_utils import assert_compiles
+    import pytest
+    with pytest.raises(SystemExit):
+        assert_compiles(tmp_path / 'nope.py')
