@@ -56,18 +56,6 @@ def test_add_step_bad_step_type_raises():
 
 # ============ wrappers (pure transforms) ============
 
-def test_cast_step():
-    p = Pipeline().add_step("cast", CastStep({"v": "float64"}))
-    # CastStep is stateless; no fit needed for transform to work
-    p._fitted = True  # bypass fit for MVP (no model)
-    df = make_df_dummy_pq  # not used; see below
-
-
-# Helper for make_df in tests
-def make_df_dummy_pq():
-    pass
-
-
 def test_cast_step_transform(tmp_path):
     df = make_df(tmp_path, {"v": [1, 2, 3]})
     step = CastStep({"v": "float64"})

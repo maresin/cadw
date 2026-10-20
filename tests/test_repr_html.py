@@ -88,21 +88,34 @@ def test_repr_html_schema_types_present(tmp_path):
 
 
 def test_no_pandas_import_in_dataframe():
-    """AST: dataframe.py must not `import pandas` even after _repr_html_."""
+    """AST: dataframe.py must not have MODULE-LEVEL `import pandas`.
+
+    v0.9.1e-fix3 (§13.4/156): updated to module-level only.
+
+    Lazy `import pandas as pd` inside a function (e.g., `_emit_group` in
+    `_per_group_apply` — needed to construct pd.Series/pd.DataFrame from
+    user fn output) is legitimate: it keeps `import cadw` light, pandas
+    only loads when `_per_group_apply` is actually invoked. Only
+    module-level import (eager pandas load on `import cadw`) is forbidden.
+
+    Prior version walked the entire AST (`ast.walk`) — brittle for
+    legitimate lazy imports. See §13.4/155, /156.
+    """
     import ast
     import inspect
     from cadw import dataframe as df_mod
     src = inspect.getsource(df_mod)
     tree = ast.parse(src)
-    for node in ast.walk(tree):
+    # Only check module-level nodes (top-level body), not nested.
+    for node in tree.body:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 assert not alias.name.startswith("pandas"), (
-                    "dataframe.py must not import pandas — _repr_html_ "
-                    "uses .to_pandas() method call only"
+                    "dataframe.py must not MODULE-LEVEL import pandas "
+                    "(lazy imports inside functions OK — see §13.4/156)"
                 )
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 assert not node.module.startswith("pandas"), (
-                    "dataframe.py must not import pandas"
+                    "dataframe.py must not MODULE-LEVEL import pandas"
                 )

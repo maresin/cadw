@@ -111,6 +111,20 @@ WHITELISTED_FUNCS = {
     # v0.9.0c Jupyter: _repr_html_ calls .to_pandas().to_html() on
     # a 20-row sample only — bounded by design, no O(N) materialize.
     "_repr_html_": "20-row head().to_pandas().to_html(), bounded sample",
+    # v0.9.1c save/load: to_json/from_json touch only step params/state
+    # (K×#features scale, not N). No Arrow read of df.
+    "to_json": "params + state serialization, no df read",
+    "from_json": "params + state deserialization, no df read",
+    # v0.9.1e per-group apply: to_pandas() on ONE group, bounded by
+    # 2 × group_nbytes ≤ 0.3 × avail check BEFORE conversion.
+    "_per_group_apply": "one group in RAM, bounded by check_state",
+    "apply": "delegates to _per_group_apply (bounded per group)",
+    # v0.9.1f pivot_table: to_pandas() on grouped (K_pairs rows) —
+    # bounded by explicit `pivot_table.grouped` check_state BEFORE.
+    # AST guard verifies check_state precedes to_pandas.
+    "pivot_table": "grouped (K_pairs rows) checked before to_pandas",
+    "crosstab": "delegates to pivot_table (same bounded groupby)",
+    "melt": "streaming per-batch, no high-risk calls",
 }
 
 GUARD_ATTRS = {

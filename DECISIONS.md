@@ -1097,6 +1097,69 @@ Guard: `tests/test_architecture.py::test_main_code_does_not_reference_legacy`,
 | 4 | `merge_fan_in` эвристика `*128` | 02a | `compute_fan_in(available, read_batch_size, row_size)` |
 | 5 | `compute_hashes` overhead `to_pylist` | 02a | `check_batch(..., extra_factor=3.0)` |
 
+**v0.9.1b (DAG fan-in MVP):** `_merge_fanout` требует **одинаковое
+row count** во всех branches (positional alignment). Dropna /
+row-selection в одной ветви → RuntimeError. Row-selection fan-in
+(join по `__orig_rid` с пересечением) — v0.9.1c backlog. Predictor =
+sink; нельзя быть input. Forward references запрещены (DAG ациклический
+by construction; cycle detection — defensive).
+
+**v0.9.1c (Pipeline save/load):** `to_json` / `from_json` — JSON for
+everything, no pickle (safety). GBDT trees ~30 KB per model (100 trees
+× depth 3). Large models (1000+ trees) — Arrow IPC sidecar backlog
+(v0.9.2). `LambdaTransform` non-serializable (callable). Custom steps
+must implement `to_dict`/`from_dict`; `from_json` registry по умолчанию
+поддерживает только `CastStep`/`DropnaStep`/`GBDTStep` (`register_step_type`
+backlog v0.9.2). Version mismatch — warn; `strict_version=True` для fail.
+
+**v0.9.1d (ColumnTransformer):** column-level fanout только.
+- Predictor НЕ может быть inside (model — только final Pipeline step).
+- Transformers must preserve row count (dropna внутри → RuntimeError).
+  Row filtering — до ColumnTransformer.
+- `remainder='drop'|'passthrough'`; sklearn-style `remainder=transformer`
+  не поддерживается (list explicitly в transformers).
+- Nested state inline in pipeline.json (nested GBDT ~30 KB; extraction
+  to separate file — backlog v0.9.2).
+- `Pipeline.from_json` uses `_STEP_REGISTRY`; custom steps must be
+  registered via `register_step_type(name, cls)`.
+
+**v0.9.1e (apply(fn)):** per-group user callable.
+- Memory: per-group bounded (`2 × group_nbytes ≤ 0.3 × available`
+  BEFORE `to_pandas`). Oversized → `MemoryLimitExceeded` before `fn()`.
+- **fn's own alloc — user responsibility** (§3.9 extended).
+- Three modes: scalar, pd.Series, pd.DataFrame. Uniform across groups
+  (mixed → RuntimeError).
+- Null in group key → own group (dropna=False).
+- Output sorted by group key.
+- **`transform(fn)` NOT included** — v0.9.2.
+- **`fn` returning unsupported type** (list, dict) → TypeError.
+- **fn exceptions propagate** — no wrapping.
+
+**v0.9.1f (pivot_table / melt / crosstab):**
+- `melt`: streaming, `value_vars` must share one dtype (mixed →
+  TypeError, cast first). Output rows = N × len(value_vars).
+- `pivot_table`: `k_pairs × row_size × 2 > 0.3 × avail` →
+  `MemoryLimitExceeded` **before** groupby (sample-based estimate).
+  Missing combos → null. Multi-index supported. Null in `columns`
+  dropped (dropna=True).
+- `crosstab`: filters nulls in index/columns, delegates to
+  `pivot_table(aggfunc='count')`.
+- **Sparse pivot**: fail-fast. Wide with N/A filled → user manual
+  `fillna(0)` after.
+- **melt heterogeneous** → TypeError; use `.astype(...)` first.
+- **pivot column names** = `str(value)`. Int → "0", "1", ....
+
+**Sample-extrapolation K_columns overestimate (v0.9.1f):**
+`pivot_table` estimates K_index, K_columns via sample
+(`MemoryGuard.estimate_unique_keys`), extrapolating linearly to N.
+For **low-cardinality periodic data** (e.g., `col = ["c0", ..., "c19"] * 5000`),
+sample sees 20 unique in 5000 rows → extrapolates to 400 over 100K
+rows, but real unique is still 20. This is a **conservative upper bound**
+(safety-first for fail-fast) — not a bug. If user knows `columns`
+cardinality is small, budget can be increased or they can `groupby`
+long format. Diagnostic message includes `K_columns ~N` — user sees
+estimate.
+
 ### 11.5. Осознанные ограничения (документированы)
 
 **v0.8.11b:** join strict enforcement requires `budget >= 160 MB`
@@ -1227,6 +1290,30 @@ per-batch memory. For guaranteed strict enforcement, set
 
 
 ---
+
+### 11.6. Технический долг
+
+(Header restored v0.9.1a-fix1. Original §11.6 header was removed
+during v0.8.11/v0.9.0 patches; content below was previously at
+end-of-file from v0.9.0b-fix1.)
+
+**v0.9.0b (Pipeline v1):**
+- `Pipeline.plan(df)` — **fit feasibility only** (`sum(step.state_bytes)
+  ≤ state_limit`). `spill_boundaries` always empty (deferred v0.9.1).
+  Per-batch transform guard — **per-step** (each step's `MemoryGuard`
+  handles its own batch).
+- `Pipeline.transform(df)` **stops before Predictor** (model is last).
+  `Pipeline.predict(df)` requires last step to be Predictor.
+- `Pipeline.fit(df, target=None)` — target required if pipeline contains
+  Predictor. `plan` called first → `PipelineMemoryError` if not feasible
+  (honest fail-fast, §9.3).
+- **Predictor contract:** `fit + predict` (transform optional; Predictor
+  never goes through `.transform()`).
+- **State in-memory** (bounded by K × #features per step). `to_json` /
+  `from_json` — v0.9.1.
+- **`ColumnTransformer`** — v0.9.1 (fanout by columns).
+- **DAG** (via `inputs=[...]`) — v0.9.1.
+- **`TimeSeriesFeatures`** composite — v0.9.2.
 
 ## 12. Дорожная карта
 
@@ -3318,6 +3405,644 @@ predict, estimate_state_bytes, state_bytes` — без `transform`.
 
 **Связанные:** §13.4/128, /129, /139-146.
 
+**Эпизод 148 (design intent vs validation — DAG multiple sources).**
+v0.9.1b: `add_step` validation запретил `inputs=[]` после первого шага:
+```python
+if len(inputs) == 0 and self._steps:
+    raise ValueError("explicit source only valid for first step")
+```
+Я перепутал **«explicit source»** (избыточно для первого шага — там
+`inputs=None` уже даёт source) с **«multiple sources»** (главная цель
+DAG — fanout от raw). Мои же тесты используют `a inputs=[]`,
+`b inputs=[]` — оба source. Validation убил фичу в самом патче,
+который эту фичу добавляет. 6 tests fail.
+
+**Различие семантик:**
+- Sequence (v0.9.0): «step N+1 идёт после step N» — один linear source.
+- DAG (v0.9.1b): «любой step может читать raw независимо» — **multiple
+  sources by design**. `inputs=[]` на любом шаге = source, игнорируя prev.
+
+**Fix (v0.9.1b-fix1):** убрать проверку. `inputs=[]` валиден на любом
+шаге. `inputs=None` (default) = chain to prev (backward compat).
+
+**Сопутствующий bug 2 (validation order):**
+`add_step("post", inputs=["model"])` где `model` = Predictor. Мой
+порядок: Predictor-after check → RuntimeError «cannot add step after
+Predictor»; inputs validation не достигается. Но `inputs=["model"]` —
+это семантически **более специфичная** ошибка («зависимость от
+Predictor»). Fix: reorder — inputs validation до Predictor-after.
+
+**Сопутствующий bug 3 (latent code smell):**
+`_merge_fanout._iter` имел `if c in seen and c not in set(b.schema.names[:0])`.
+`b.schema.names[:0]` = пустой list → `set()` → условие сводится к `c in
+seen`. Работает случайно. Заменено на `if c in base_cols_set: continue`.
+
+**Урок (расширение 146-147):** validation в новом API должен пройти
+через **все репрезентативные use cases** *до коммита*. В v0.9.1b я
+написал тесты для: sequence, fan-in, fanout, diamond, mismatch,
+unknown input, Predictor-as-input, explicit source validation, topo
+order (chain, fanout), transform-stops-at-model, predict, repr DAG.
+Первый прогон — 6 fails. Правило: **«написать 1 тест на каждую
+семантическую ветку + прогон до коммита»** — но этого не хватило,
+потому что **тесты и validation были от одной модели** (я писал и
+то, и другое). Нужна **независимая проверка** — либо prototype (A/B
+против pandas groupby — не применимо к DAG), либо **явное документирование
+design intent** до написания validation.
+
+**Backlog (§11.6, v0.9.1c+):** перед `add_step`-style API — сначала
+docstring «## API contract» с явными примерами, **затем** validation.
+Не наоборот. Для DAG это спасло бы: «inputs=[] → source, может быть
+несколько» — одной строки в docstring хватило бы.
+
+**Связанные:** §13.4/146 (3 first-run bugs), §13.4/147 (partial
+contract).
+
+**Эпизод 149 (§13.4/144 REPEAT — round 2, same-file stale test).**
+v0.9.1b-fix1 удалил validation `inputs=[] → error after first step`
+(правильно: multiple sources — DAG feature). Но `test_add_step_explicit_
+source_only_first` (написан в том же `patch_v091b_dag.py`, том же файле
+тестов) продолжал **утверждать** старое поведение → 1 fail.
+
+**Почему round 2:**
+- v0.8.11a-fix2 (§13.4/144): cross-file stale test (guard rename).
+  Я установил правило: «grep `<old_behavior> tests/` before commit».
+- v0.9.1b-fix1: удалил validation, не grep'нул. Второй раз та же
+  ошибка.
+
+**Специфика this round:** patch_v091b_dag.py сам создал и код (buggy
+validation), и тест (`test_add_step_explicit_source_only_first`), который
+эту buggy validation проверял. **Одна mental model** — тест слепо
+воспроизводит то, что код говорит, вместо того чтобы проверять
+намерение (design intent). Тест «прошёл» в v0.9.1b → баг закоммичен.
+
+**Fix (v0.9.1b-fix2):** заменить тест на `test_add_step_multiple_sources_
+allowed` — проверяет правильное поведение. **Derived from docstring
+API contract**, не из implementation.
+
+**Механический grep в этом фиксе:** проверить другие тесты на отголоски
+старого сообщения об ошибке (`explicit source only`, `explicit source.*first`).
+
+**Правило (усиление §13.4/144):** перед коммитом patch, который
+**удаляет или меняет** behavior (validation, error message, guard name,
+return contract) — обязательный grep по `tests/`:
+```python
+# Пример:
+r = subprocess.run(["grep", "-rn", old_error_pattern, "tests/"], ...)
+if r.stdout.strip(): log_warning()
+```
+Это **не** автоматический fail — но **явный warning** перед `git add`.
+Если warning сработал — разобраться до коммита.
+
+**Дополнительно (§13.4/148 связано):** тесты, написанные **из той же
+mental model**, что и код, не ловят ошибок этой mental model. Правильно:
+писать тесты **из docstring API contract** (что должно быть), не из
+implementation (что есть). Но это требует независимого автора (человек/
+LLM после паузы/ревью) — в одной сессии я сам себя не проверю.
+
+**Backlog (§11.6, v0.9.2):** AST guard `test_removed_behavior_stale.py`
+— парсит `scripts/patch_*.py` на предмет удалённых error messages /
+guard names; grep'ает `tests/` на совпадения; warning (не fail) в
+pytest output.
+
+**Связанные:** §13.4/144 (cross-file stale test), §13.4/146 (partial
+update — validation not updated with handler), §13.4/148 (design
+intent vs validation).
+
+**Эпизод 150 (error message clarity for ambiguous inputs).**
+`Pipeline.from_json(path)` принимает file или directory. Для несуществующего
+path `"nope"` старая логика: `if path.is_dir(): ... else: meta_file =
+path` → treated as file → error `"/tmp/.../nope not found"`. Test
+ожидал `match="pipeline.json"`. 1 fail.
+
+**Root cause:** ambiguous input handling молча выбирает интерпретацию
+(«file») без подсказки, что искали. Для пользователя `from_json("mypipe")`
+где `mypipe` — directory, сообщение не помогает — он видит, что
+`"mypipe"` не найден, но не понимает, что внутри ищется `pipeline.json`.
+
+**Fix (code-side):** для несуществующего path — **assume directory**,
+показать `path/pipeline.json` в error. Явно указать: «path can be a
+pipeline directory or the pipeline.json file inside it».
+
+**Урок:** для API с **неоднозначным input** (file-or-directory, scalar-or-
+list, str-or-Path) — не «resolve silent», а либо **явный выбор с clear
+error**, либо **best-guess + helpful message**. `Path.is_dir()` на
+несуществующем path = False → easy to misinterpret; `Path.exists()`
+проверять явно.
+
+**Backlog (§11.6):** audit similar ambiguities:
+- `CadwDataFrame.from_parquet(path, base_dir)` — path must be file
+  (base_dir separate). OK, но неясно что если path directory.
+- `Dataset.from_parquet(parquet_path, base_dir)` — same.
+- `Pipeline.from_json(path)` — fixed here.
+- `write_parquet(path)` — path is file (out), ambiguous if directory
+  passed → check в v0.9.2.
+
+**Связанные:** §13.4/146 (first-run bugs — errors not helpful),
+§13.4/148 (design intent vs validation — user mental model matters).
+
+**Эпизод 151 (registry key vs class name — namespace mismatch).**
+v0.9.1d: `register_step_type("MyCustom", _CustomStep)` регистрирует под
+ключом `"MyCustom"`. Но `to_json` пишет `type = type(step).__name__ =
+"_CustomStep"` — **class name**, не registry key. `from_json` ищет
+`"_CustomStep"` в registry → не находит. 3 tests fail.
+
+**Тот же design flaw, что был в v0.9.1c (`_STEP_REGISTRY` hardcoded
+dict) — но другая грань.** Там я устранил hardcoded registry, но не
+устранил **namespace mismatch** между тем, что регистрируется, и тем,
+что пишется в JSON.
+
+**Fix (v0.9.1d-fix1):**
+- `register_step_type` sets `cls.__serialization_name__ = name`
+  (attribute-based namespace binding).
+- `to_json` prefers `getattr(type(step), "__serialization_name__",
+  type(step).__name__)` — backward compat для старых pipeline.json.
+- Built-in types pre-registered с `__serialization_name__` = canonical
+  name (CastStep, DropnaStep, GBDTStep, ColumnTransformer).
+- `ColumnTransformer` регистрируется **после** class definition
+  (pre-registration block runs before class exists — NameError).
+
+**Сопутствующие fixes (в том же прогоне):**
+- test regex `"does not implement to_dict"` → `"LambdaTransform cannot"`
+  (LambdaTransform **имеет** to_dict — он raises с honest message;
+  test был wrong, code correct).
+- `SyntaxWarning: invalid escape sequence '\+'` — non-raw regex string,
+  `match="must have fit \+ transform"` → raw `match=r"..."`.
+
+**Урок (расширение §13.4/144, /149):** если API использует **lookup key**
+(registry, dict, enum) — **key at write и key at read должны быть одной
+природы**. В v0.9.1d: write by class name (implicit), read by registry
+key (explicit). Fix: явная `__serialization_name__` как единая точка.
+
+**Метаправило:** для **lookup-based API** (registry, plugin system,
+event bus) — обязательное `assert write_key == read_key` в тесте на
+round-trip. Здесь это round-trip `to_json → from_json` — but only for
+built-ins (registry key = class name). Custom step would catch it. Что
+не хватило: **тест с custom registered name ≠ class name**.
+
+**Backlog (§11.6):** audit similar lookups:
+- `_STEP_REGISTRY` (fixed here).
+- `_MODELS` в `memory_guard.py` — `register_model(model.op_name)`:
+  registry key = `model.op_name`, no round-trip. Меньше риск, но
+  `get_model(name)` uses registry directly — OK.
+- `_VARIANTS` в `naive_bayes.py` — enum-like, no write side.
+
+**Связанные:** §13.4/144 (write/read key mismatch, round 2 → 144's rule
+needed), §13.4/150 (error message clarity).
+
+**Эпизод 152 (third recurrence — manual discipline ≠ tooling).**
+v0.9.1d-fix1 добавил `_STEP_REGISTRY["ColumnTransformer"] = ...`
+(правильно — был баг 3 в v0.9.1d). Test `test_list_step_types_default`
+(написан в v0.9.1d, ожидает 3 built-in types) — stale, реально 4 → 1 fail.
+
+**Тот же паттерн, ТРЕТИЙ раз:**
+- v0.8.11a-fix2 (§13.4/144): fix изменил guard name; stale test в другом файле.
+- v0.9.1b-fix2 (§13.4/149): fix удалил validation; stale test в том же файле.
+- **v0.9.1d-fix1 (§13.4/152)**: fix добавил registration; stale test ожидает старое число.
+
+**Правило «grep before commit» установлено дважды (144, 149). Забыто каждый раз.**
+
+**Причина:** «правило» — это текст в DECISIONS. Работает только если помнить. 3 из 3 раз — не вспомнил. **Manual discipline ≠ tooling.**
+
+**Fix (this round — TOOLING, не текст):**
+- `cadw.patch_utils.grep_and_warn(patterns, dirs, label=...)` —
+  `grep -rFn` по указанным папкам, печатает hits, **не** raise.
+  Для ручной инспекции перед `git add`.
+- `cadw.patch_utils.assert_no_stale_behavior(patterns, dirs, label,
+  allow=...)` — как grep_and_warn, но **raise SystemExit(1)** если
+  hits (кроме allow-list). Для **dogfooding** в patch-скриптах:
+  до `git add`, вызвать с patterns = old behavior strings, dirs =
+  ["tests/"]. Любой hit = тест на старое поведение — фиксить.
+- **fix2 dogfoods:** `assert_no_stale_behavior` вызывается в самом
+  patch-скрипте до commit. Так следующий патч **не сможет** забыть —
+  script упадёт при stale.
+
+**Правило (окончательное):** patch, который меняет/удаляет/добавляет
+**behavior** (validation, error message, guard name, return contract,
+list of built-ins, enum values) → **обязан** вызвать
+`patch_utils.assert_no_stale_behavior(...)` перед commit. Не «grep-
+warning» — hard fail. Именно потому что warning игнорируется 3× подряд.
+
+**Backlog (§11.6):** в patch-scripts **template** (когда он появится)
+добавить `assert_no_stale_behavior` как обязательный шаг в `main()`.
+Сейчас каждый патч пишется с нуля — до template, каждый раз явный
+вызов, надежда на память. Скоро: `cadw/scaffold_patch.py` —
+generate skeleton с pre-filled guard + stale checks.
+
+**Связанные:** §13.4/144 (write/read key), /149 (stale test round 2),
+/151 (registry namespace).
+
+**Эпизод 153 (tooling caught its own bug — recursion in discipline).**
+v0.9.1d-fix2 добавил `patch_utils.grep_and_warn` /
+`assert_no_stale_behavior` — mechanical tooling для §13.4/152. Первый же
+dogfood-вызов упал с `NameError: Path not defined` — `grep_and_warn`
+использует `Path(d).exists()`, но `from pathlib import Path` не был
+добавлен в импорты `patch_utils.py`.
+
+**Ирония:** инструмент против stale behaviors содержал **того же класса
+баг**, что и все предыдущие раунды (§13.4/146-152): partial update —
+написал новый метод, забыл про import для его работы. Но **dogfood caught
+it BEFORE commit**, не после. Не потому что код был правильнее, а потому
+что **проверка была немедленной**, не отложенной.
+
+**Класс ошибки:** тот же (§13.4/146-152), но **механизм обнаружения
+другой** — встроенная проверка в том же прогоне, а не CI / следующая
+сессия. Это ровно то, что должно быть для всех патчей: guard-runs в
+`main()` до commit, а не «потом».
+
+**Fix (v0.9.1d-fix3):** добавить `from pathlib import Path` в
+`patch_utils.py`. 4 строки.
+
+**Урок:** mechanical tooling **работает**, если его **вызывать сразу**.
+`assert_no_stale_behavior` в `main()` (dogfood) поймал missing-import
+до коммита. Без dogfood этот баг ушёл бы в коммит и всплыл бы на
+следующем использовании `grep_and_warn` (следующий патч).
+
+**Метаправило:** для любого patch-скрипта с новыми tooling/helpers —
+**dogfood в самом скрипте** до `git add`. Не «протестируем отдельно» —
+**вызвать в main()** в том же прогоне. Иначе tooling сам становится
+источником багов.
+
+**Связанные:** §13.4/144-152 (7 раундов «fix creates bug»), §13.4/146
+(partial update), §13.4/152 (tooling required — manual discipline fails).
+
+**Эпизод 154 (call-site vs definition substring — §13.4/53 repeat).**
+v0.9.1e: `add_helpers()` проверял `if "_detect_mode" in s: skip`.
+`_detect_mode` **есть** в файле — как **вызов** в `_per_group_apply`
+(`_detect_mode(result)`), не как **def**. Проверка не отличила →
+helpers никогда не добавлены → 14 tests fail с `NameError`.
+
+**Тот же класс, что §13.4/53** (из docs — `if "name" not in s` видел
+call site и не добавлял def). Забыто через 140 эпизодов.
+
+**Fix (v0.9.1e-fix1):** проверять `if "def NAME(" in s`. `def ` prefix
+отличает определение от вызова.
+
+**Правило (§13.4/154):** при проверке наличия **функции/класса** в
+исходнике — проверять `"def NAME("` или `"class NAME("`, никогда
+голое `"NAME"`. Аналогично для полей класса — `"self.NAME ="`, не
+`".NAME"`.
+
+**Backlog (§11.6):** audit всех patch scripts на `if "X" in s` where
+X — function/class/attribute name. Regex check: `if f"def {name}(" in s`.
+Сейчас ~30+ патчей с этим паттерном; все исторические, не трогаем.
+Новые — по правилу.
+
+**Связанные:** §13.4/53 (original discovery), §13.4/146 (first-run
+bugs — that round also included a "call site matched" issue),
+§13.4/153 (tooling caught its own bug — but this one not caught).
+
+**Эпизод 155 (chicken-egg guard + lazy-import AST over-strictness).**
+v0.9.1e-fix1 прошёл apply-тесты (19 fast + 1 slow E2E), но упал на
+**двух guard-тестах**:
+
+**Bug 1 (chicken-egg):** `_flush_group` делает `pa.Table.from_batches(
+group_buf)` **до** `check_state(est)`. Нужен `gt.nbytes` для est — а
+`from_batches` и есть момент аллокации. AST guard (§3.11) правильно
+флагает: high-risk Arrow call без preceding check.
+
+Fix: **pre-estimate из `sum(b.nbytes for b in group_buf) * 2`** до
+`from_batches` (pyarrow 26 from_batches — zero-copy per §9.2.9, значит
+`sum(batch.nbytes) ≈ gt.nbytes`). `check_state(est_pre)` → `from_batches`
+→ defense-in-depth `est_actual = gt.nbytes * 2`.
+
+**Bug 2 (too-strict AST):** `test_no_pandas_in_dataframe_facade`
+walks **весь AST** — ловит lazy `import pandas as pd` **внутри
+`_emit_group`** (legitimate: нужен для `pd.Series`/`pd.DataFrame` при
+обработке user fn output). Module-level import pandas в dataframe.py —
+запрещён (тянет pandas при `import cadw`); function-level — допустим.
+
+Fix: `_uses_pandas_import_at_module_level(tree)` — только `ast.Module.body`.
+Strict `_uses_pandas_import` остаётся для `cadw/ops/*` (там даже lazy
+не хотим, кроме whitelisted shuffle.py).
+
+**Оба бага — фиксы не кода, а:**
+- Bug 1 — не «код неверен», а «порядок операций в коде». `from_batches`
+  нельзя сдвинуть после `check_state` без pre-estimate. Pre-estimate из
+  `batch.nbytes` — стандартный паттерн (как `stat().st_size`).
+- Bug 2 — не «код неверен», а «guard слишком широк». Lazy import vs
+  eager import — разные вещи, AST должен различать.
+
+**Урок (расширение §13.4/154):** AST guard должен быть **precise**:
+- `def NAME(` vs `NAME` (— §13.4/154).
+- `ast.Module.body` vs `ast.walk` (module-level vs any).
+- `attribute == X` vs `substring X`.
+
+Too-broad guard блокирует legitimate use cases; too-narrow — пропускает
+баги. Fix always **narrow** to specific semantic (def, module-level,
+attr name), never `walk` or substring.
+
+**Backlog (§11.6):** audit guard-тестов на over-strictness:
+- `test_no_pandas_in_ops` (strict for ops — OK; strict for facade — fixed).
+- `test_no_unguarded_high_risk_arrow_calls` (func-level check — OK).
+- `test_facade_has_no_as_py` (AST Call — OK).
+- `test_materialize_guard` (substring `list(Reader)` — potential false
+  positive if docstring contains pattern; но AST-based, OK).
+
+**Связанные:** §13.4/154 (def-prefix), §13.4/152 (tooling), §13.4/151
+(registry namespace), §3.11 (Arrow call memory discipline).
+
+**Эпизод 156 (round 4 stale test — blanket-walk guard fragility).**
+v0.9.1e-fix2 прошёл все guard-тесты, упал один **fast test**:
+`test_repr_html.py::test_no_pandas_import_in_dataframe` — walks **весь
+AST** и запрещает `import pandas` anywhere в `dataframe.py`. Legitimate
+lazy import в `_emit_group` (fix2, needed to construct pd.Series/DataFrame)
+— флаг.
+
+**Тот же паттерн, 4-й раз:** §13.4/144 → /149 → /152 → **/156**.
+Manual discipline + `assert_no_stale_behavior` (в fix2 искал **только**
+`list_step_types` pattern) — не поймали.
+
+**Корень (расширение §13.4/155):** file-wide AST guard'ы («no X
+anywhere») — хрупки. Ломаются как только legit lazy X появляется.
+`test_no_pandas_import_in_dataframe` и
+`test_no_pandas_in_ops.py::test_no_pandas_in_dataframe_facade` — **два
+теста в разных файлах** проверяют одно и то же; fix2 обновил один,
+забыл другой. Дублирование guard'ов — source of drift.
+
+**Fix (v0.9.1e-fix3):** `ast.Module.body` вместо `ast.walk` в
+`test_no_pandas_import_in_dataframe`. Consistent с fix2 в
+`test_no_pandas_in_ops.py`.
+
+**Правило (§13.4/156, расширение 154, 155):**
+- **AST guard'ы должны быть precise** — `tree.body` (module-level) для
+  «import policy», `ast.walk` только для «anywhere at all is forbidden»
+  (где это реально запрещено).
+- **File-wide blanket guards** («no X in file Y») почти всегда
+  хрупкие — уточняйте semantic: module-level / specific function /
+  specific call pattern.
+- **Не дублировать guard-тесты в разных файлах** — один canonical
+  test, `import` helper'ы (например
+  `_uses_pandas_import_at_module_level` из test_no_pandas_in_ops.py)
+  для consistency.
+
+**Backlog (§11.6):**
+- Audit file-wide AST guards (`test_repr_html`, `test_no_pandas_in_ops`,
+  `test_arrow_call_memory_guard`, `test_facade_has_no_as_py`) —
+  убедиться, что каждый использует **precise** semantic.
+- Consolidate duplicate guards (2 test_no_pandas_* — one canonical).
+- Extend `assert_no_stale_behavior` patterns в каждом patch script:
+  не только specific pattern, но и «все guards, что касаются файла
+  X» — broader grep. `grep_and_warn(["import pandas"], ["tests/"])` в
+  patch_v091e_fix2 поймал бы оба.
+
+**Метаправило:** при **любом** изменении AST-свойства файла
+(`import` policy, `from __future__` presence, module-level constants,
+public API names) — `grep_and_warn` **по всем** тестам, не только по
+одному известному pattern. «Какие тесты могут сломаться» — не «какой
+я знаю», а «какие упоминают X».
+
+**Связанные:** §13.4/144, /149, /152 (stale test repeats), /154
+(def-prefix), /155 (module-level vs walk).
+
+**Эпизод 157 (hasattr on pyarrow types misleading; count
+values=index).** v0.9.1f: 9 tests fail — 6 на `bit_width`, 3 на
+`crosstab values=index`.
+
+**Bug 1 (bit_width):** `if hasattr(t, "bit_width"): t.bit_width` —
+`hasattr` returns True для всех типов (атрибут **есть** в dir()),
+но accessing `.bit_width` raises `ValueError: Non-fixed width type`
+на string/binary/list/struct. Проверка не отличает «fixed-width» от
+«variable-length».
+
+Fix: explicit `pa.types.is_integer/is_floating/is_timestamp/is_date/
+is_time/is_boolean` → `.bit_width`; string/binary → 50 B default;
+остальное → 8 B fallback.
+
+**Bug 2 (crosstab):** `crosstab` delegates to
+`pivot_table(values=index[0], aggfunc='count')`. `pivot_table` validation
+отклоняет `values in index_cols` без исключения для `count`. Но для
+`count` values **не используется** (только non-null counting).
+
+Fix: allow `values in index_cols` **только для `aggfunc='count'`**.
+Для `mean/sum/min/max` — strict check остаётся (values должны быть
+distinct, иначе результат — тождественный).
+
+**Урок (§13.4/157, расширение 154-156):** `hasattr(t, "attr")` на
+**pyarrow types** — MISLEADING для feature detection. Многие атрибуты
+существуют на всех типах, но raise при wrong-type access:
+- `bit_width` → raises на variable-length.
+- `num_fields` → raises на non-struct.
+- `value_type` → raises на non-list.
+- `field(i)` → raises на non-struct.
+
+Правило: для pyarrow type introspection — **только** `pa.types.is_*(t)`
+или `try: t.attr except ValueError`. `hasattr` — никогда.
+
+**Backlog (§11.6):** audit `hasattr` на pyarrow types в `cadw/`:
+- `cadw/dataframe.py` — fixed (pivot_table).
+- `cadw/core/models.py::type_size` — uses `pa.types.is_*` — OK.
+- `cadw/core/memory_guard.py::estimate_row_size_from_schema` —
+  uses `pa.types.is_*` — OK.
+- `cadw/ops/resample.py::_TS_UNIT_FACTOR[t.unit]` — unit access only
+  after `is_timestamp(t)` — OK.
+- `cadw/ml/gbdt.py` — no type introspection in hot path.
+
+**Связанные:** §13.4/154 (def-prefix), /155 (module-level AST),
+/156 (blanket-walk).
+
+**Эпизод 158 (E2E test ignores inherent complexity).** v0.9.1f E2E
+test asserted pivot of 100K **unique** rows × 20 cols fits **50 MB**.
+Real K_pairs = 2M; even perfect cardinality estimate → 2M × ~108 B ×
+2 (pandas) = **432 MB**. State_limit = 15 MB. Fail-fast fires → test
+claims failure on an impossible workload.
+
+**Fail-fast — правильное поведение.** Pivot in pandas requires
+**materializing** K_pairs cells in RAM. `pandas.DataFrame.pivot` не
+out-of-core. Любая попытка «умного» pivot либо OOM, либо возвращает
+данные с silent loss. Fail-fast — honest contract: «это не влезает,
+уменьши размер или используй groupby (long format)».
+
+**Fix (v0.9.1f-fix2):**
+1. E2E success: n=10_000 × 20 cols, budget=200 MB → K_pairs=200K,
+   est 43 MB < 60 MB state_limit. Fits.
+2. E2E fail-fast: n=100_000 × 20 cols, budget=50 MB →
+   `MemoryLimitExceeded` с `match="K_pairs"`. Contract verified.
+
+**Урок (расширение §13.4/128, /134):** E2E test должен **уважать
+неотъемлемую сложность** алгоритма. Если op имеет inherent O(K)
+материализацию — test **не должен** пытаться впихнуть большой K в
+маленький budget. Правильно:
+- Success path — с размером, который реально влезает.
+- Fail-fast path — verify, что правильная ошибка бросается (не OOM).
+- Hand-written expected values (как в v0.9.1f — `rows["r0"]["c0"]
+  is not None`) — проверяют контракт, не математику.
+
+**Связанные issue (§13.4/157 secondary):** sample extrapolation даёт
+`k_cols_est = 400` vs real 20 (для periodic data). Это **консервативная
+upper bound** — правильная для fail-fast. Документировать в §11.5:
+`pivot_table` K_columns может быть переоценено для low-cardinality
+columns; если пользователь знает, что cardinality мала — можно
+увеличить budget или явно ограничить.
+
+**Backlog (§11.6):** audit E2E tests на inherent complexity:
+- `test_pivot_100k` — fixed.
+- `test_e2e_join_*` — already realistic (PK-FK, small right).
+- `test_e2e_groupby_*` — budget realistic.
+- `test_pipeline_save_load_e2e` — 5K rows, GBDT small. OK.
+- `test_pipeline_e2e_time_series` — 20K rows, small GBDT. OK.
+
+**Связанные:** §13.4/128 (test expectations authored), /134 (input
+type not Arrow-safe), /157 (hasattr pyarrow types).
+
+**Эпизод 159 (pivot pre-check = dense memory, not long-format).**
+v0.9.1f-fix2: E2E success test 10K rows × 20 cols в 200 MB budget
+падал с `MemoryLimitExceeded: K_pairs ~1000000 × row_size 108 × 2 =
+216 MB > 0.3 × avail 60 MB`.
+
+**Ошибка формулы.** `pivot_table` использует `groupby([*index,
+columns])` (long format) + `pandas.pivot` (dense). Pre-check считал
+long-format memory (`k_pairs × row_size`) вместо **dense pivot**
+(`K_index × K_columns × value_size`).
+
+- Long format: `K_pairs × 108 B` (row + col + value).
+- Dense pivot: `K_index × K_columns × 8 B` (только value, все cells
+  включая null).
+
+Для 10K unique × 20 cols:
+- Long: `200000 × 108 × 2 = 43 MB` (с точным K_columns=20).
+- Extrapolated: `1M × 108 × 2 = 216 MB` (K_columns_est=100, 5× над).
+- Dense: `10000 × 100 × 8 × 2 = 16 MB` (extrapolated) / 3.2 MB (точный).
+
+**Dense — правильная метрика для `pandas.pivot`.** Long-format
+groupby **уже** streamed на диск (groupby_aggregate → pa.Table, materialized
+но bounded). Проблема — `pivot_table` materializes dense.
+
+**Плюс:** custom `0.3 × avail` был inconsistent с
+`MemoryGuard.state_limit_bytes` (0.5). Fix: use
+`state_limit_bytes` — единая политика.
+
+**Плюс:** отсутствовал pre-check для `grouped_table.to_pandas()`
+(× 3 pandas overhead). Fix: `check_state(grouped_table.nbytes * 3)`
+before to_pandas.
+
+**Урок (§13.4/159):** для ops с **промежуточной materialization**
+(long → dense) — pre-check должен оценивать **максимальный** из
+промежуточных буферов, не первый. Pivot: long (bounded by groupby)
+→ pandas × 3 → dense. Pre-check = max(long, pandas×3, dense) × safety.
+
+Формула «K_pairs × row_size» была буквально **не той метрикой** — K_pairs
+describe long row count, row_size — long row width; их произведение =
+long table nbytes, но pivot dense ≠ long nbytes.
+
+**Правило:** для каждого intermediate buffer — своя формула. Не
+«универсальный `n_rows × row_width`». Pivot dense:
+`K_index × K_columns × value_width`.
+
+**Backlog (§11.6):** audit pre-checks в ops с multi-step materialization:
+- `pivot_table` — fixed.
+- `apply(fn)` — group materialization (per-group bounded). OK.
+- `merge` — build + output. `JoinMemoryModel` покрывает.
+- `dedup` — 1.5× table. OK.
+- `groupby_aggregate` — output = K rows. `GroupByMemoryModel` покрывает.
+
+**Связанные:** §13.4/158 (E2E respects inherent complexity), §13.4/157
+(hasattr pyarrow types).
+
+**Эпизод 160 (stale test regex — round 5, §13.4/144).**
+fix3 заменил pre-check формулу `K_pairs × row_size` на dense `K_index
+× K_columns × value_size`. Тест `test_pivot_100k_rows_fails_fast`
+(fix2) имел `match="K_pairs"` — подстрока нового сообщения отсутствует.
+1 E2E fails.
+
+**Тот же паттерн, ПЯТЫЙ раз:**
+- §13.4/144 — guard rename, other file.
+- §13.4/149 — validation removal, same file.
+- §13.4/152 — registration add, same file.
+- §13.4/156 — blanket AST, other file.
+- **§13.4/160** — formula change, same file.
+
+**Причина each time:** patch script changes behavior; test asserts old
+behavior; manual grep before commit **не сделан**.
+
+**Tooling §13.4/152** (`assert_no_stale_behavior`) существует и
+работает. **Но fix3 его не вызвал** — не применил собственный инструмент.
+Это regression of discipline, not tooling failure.
+
+**Fix (v0.9.1f-fix4):**
+- Test regex `K_pairs` → `pivot_table` (broader, stable across formulas).
+- Docstring `pivot_table` — dense formula (fix3 изменил код, docstring
+  остался старым).
+- Docstrings E2E tests — dense formula.
+- **§13.4/160 — правило усилено:** каждый patch, изменяющий **error
+  message** (even formula-only), обязан `grep_and_warn(["<old_substring>"],
+  ["tests/"])` **перед** `git add`. Не «forgot», не «test passed
+  locally» — **всегда**.
+
+**Правило (усиление 149, 152):**
+> Patch scripts **always** invoke `patch_utils.assert_no_stale_behavior`
+> for:
+> - Any removed/renamed validation error message.
+> - Any changed formula in error message.
+> - Any removed guard name.
+> - Any changed return contract.
+>
+> Manual discipline failed 5x. Tooling exists. **Use it.**
+
+**Backlog (§11.6):** `scaffold_patch.py` должен **enforce**
+`assert_no_stale_behavior` call как mandatory step. Пока scaffold нет,
+каждый patch — ручное решение (которое 5 раз подряд не принято).
+
+**Метаправило:** когда **у тебя есть инструмент, который поймал бы
+баг** — использовать его. `assert_no_stale_behavior` в patch_utils
+ловит stale patterns механически. Пять раз подряд **не использовать
+готовый механизм** — это не «забыл», это **систематическая ошибка
+процесса**. Fix процесса — не «вспомнить», а **enforce** (scaffold).
+
+**Связанные:** §13.4/144, /149, /152, /156 (stale test repeats),
+/157 (hasattr pyarrow), /158 (E2E complexity), /159 (dense pre-check).
+
+**Эпизод 161 (round 6 stale regex + AST substring, layered failure).**
+v0.9.1f-fix4 обновил regex `K_pairs` → `pivot_table` в
+`test_pivot_table_e2e.py`, но **забыл** `test_pivot_table.py::test_pivot_
+too_large_raises` (тот же `match="K_pairs"`). Плюс `test_pivot_table_has_
+check_state_before_to_pandas` использует `src.index()` — после fix4
+docstring упоминает `to_pandas` **раньше** кода → test на substring, не
+на AST node.
+
+**Layered failure (три независимых источника):**
+
+1. **Manual discipline 6-й раз** (§13.4/144 → /149 → /152 → /156 →
+   /160 → /161): forgot to grep `test_pivot_table.py`.
+2. **Dogfood grep found it — но non-fatal.** fix4 вызвал
+   `grep_and_warn` (warning, не exit) вместо `assert_no_stale_behavior`
+   (fatal). Tooling **сработал**, но wrong mode → script продолжился.
+3. **AST test на substring** вместо AST node — после docstring change
+   test false-fails на правильном коде.
+
+**Fix (v0.9.1f-fix5):**
+- Stale regex `K_pairs` → `pivot_table` в test_pivot_table.py.
+- AST test — `ast.parse(inspect.getsource(...))`, найти `Call(func.attr=
+  "check_state")` и `Call(func.attr="to_pandas")`, сравнить `lineno`.
+  Docstring не парсится как Call.
+- **Dogfood в этом fix — `assert_no_stale_behavior`** (fatal), не
+  `grep_and_warn`. Must pass BEFORE commit.
+
+**Правило (§13.4/161, три части):**
+1. **When a fix changes behavior used by multiple tests** — `grep -rFn`
+   **все** test files, не только те, что менял. Список изменённых файлов
+   ≠ список affected files.
+2. **Use `assert_no_stale_behavior` (fatal), not `grep_and_warn`
+   (warning).** Warning-mode = "showed up, I'll fix later" = 0 iterations
+   saved. Fatal-mode = "script stops, must fix now" = discipline enforced.
+3. **AST tests must `ast.parse` — never `src.index()`.** `src.index`
+   matches docstrings, comments, and string literals before code. Class
+   of §13.4/143 (test substring vs token), /154 (def-prefix), /156
+   (blanket-walk). Use AST for structural checks.
+
+**Мета (усиление 160):** when tooling catches a bug **but is
+non-fatal** — the discipline still fails (script continues, bug
+propagates to pytest). **Fatal-by-default**: for any grep of patterns
+known to be stale-after-behavior-change, use `assert_no_stale_behavior`.
+Reserve `grep_and_warn` for exploratory diagnostics, never for patch
+gates.
+
+**Backlog (§11.6):** `scaffold_patch.py` — enforce `assert_no_stale_
+behavior` (fatal) as mandatory step. Without scaffold, this decision
+repeats 6+ times.
+
+**Связанные:** §13.4/144, /149, /152, /156, /160 (stale repeats),
+/143 (substring vs token), /154 (def-prefix), /156 (blanket-walk).
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).
@@ -3361,22 +4086,3 @@ v0.3 (GBDT, Linear, k-means, PCA, NB) на примитивах.
 **v0.1.4 (патч 10):** must-fix «materialize-before-check»: `_local_groupby`
 (stat до чтения) и `reduce` (estimate_state_size до init()). Добавлены
 AST guards + OOM E2E. §3.10 — новый принцип.
-
-**v0.9.0b (Pipeline v1):**
-- `Pipeline.plan(df)` — **fit feasibility only** (`sum(step.state_bytes)
-  ≤ state_limit`). `spill_boundaries` always empty (deferred v0.9.1).
-  Per-batch transform guard — **per-step** (each step's `MemoryGuard`
-  handles its own batch).
-- `Pipeline.transform(df)` **stops before Predictor** (model is last).
-  `Pipeline.predict(df)` requires last step to be Predictor.
-- `Pipeline.fit(df, target=None)` — target required if pipeline contains
-  Predictor. `plan` called first → `PipelineMemoryError` if not feasible
-  (honest fail-fast, §9.3).
-- **Predictor contract:** `fit + predict` (transform optional; Predictor
-  never goes through `.transform()`).
-- **State in-memory** (bounded by K × #features per step). `to_json` /
-  `from_json` — v0.9.1.
-- **`ColumnTransformer`** — v0.9.1 (fanout by columns).
-- **DAG** (via `inputs=[...]`) — v0.9.1.
-- **`TimeSeriesFeatures`** composite — v0.9.2.
-

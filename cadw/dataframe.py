@@ -935,6 +935,359 @@ class CadwDataFrame:
             spill_dir=self._spill_dir,
         )
 
+    # ---------------- pivot / melt / crosstab (v0.9.1f) ----------------
+
+    def melt(
+        self,
+        id_vars: "str | Sequence[str] | None" = None,
+        value_vars: "str | Sequence[str] | None" = None,
+        *,
+        var_name: str = "variable",
+        value_name: str = "value",
+    ) -> "CadwDataFrame":
+        """Unpivot wide → long (streaming).
+
+        Args:
+            id_vars: identifier columns (repeated per melted column).
+                     None → no id columns.
+            value_vars: columns to melt. None → all except id_vars.
+            var_name: name of the "source column" column.
+            value_name: name of the "value" column.
+
+        Returns:
+            CadwDataFrame with [*id_vars, var_name, value_name].
+            Output rows = N × len(value_vars).
+
+        Valid:
+            - Non-overlapping id_vars and value_vars.
+            - All value_vars share the SAME dtype (Arrow column uniform).
+            - var_name and value_name do not collide with id_vars.
+            - Non-empty value_vars.
+
+        Invalid (raises):
+            - Empty value_vars → ValueError.
+            - Overlap id_vars ∩ value_vars → ValueError.
+            - Mixed dtypes in value_vars → TypeError.
+            - var_name / value_name collides with id_vars → ValueError.
+            - Missing columns → KeyError.
+
+        Memory: O(batch × len(value_vars)). Streaming.
+        """
+        import pyarrow as pa
+
+        if id_vars is None:
+            id_list: list[str] = []
+        elif isinstance(id_vars, str):
+            id_list = [id_vars]
+        else:
+            id_list = list(id_vars)
+
+        if value_vars is None:
+            value_list = [c for c in self._columns if c not in id_list]
+        elif isinstance(value_vars, str):
+            value_list = [value_vars]
+        else:
+            value_list = list(value_vars)
+
+        if not value_list:
+            raise ValueError(
+                "melt: value_vars must be non-empty (all columns are "
+                "id_vars?)"
+            )
+        for c in id_list:
+            if c not in self._columns:
+                raise KeyError(f"melt: id_vars {c!r} not in {self._columns}")
+        for c in value_list:
+            if c not in self._columns:
+                raise KeyError(
+                    f"melt: value_vars {c!r} not in {self._columns}"
+                )
+            if c in id_list:
+                raise ValueError(
+                    f"melt: column {c!r} in both id_vars and value_vars"
+                )
+        if var_name in id_list:
+            raise ValueError(
+                f"melt: var_name {var_name!r} collides with id_vars"
+            )
+        if value_name in id_list:
+            raise ValueError(
+                f"melt: value_name {value_name!r} collides with id_vars"
+            )
+        if var_name == value_name:
+            raise ValueError(
+                f"melt: var_name == value_name == {var_name!r}"
+            )
+
+        # Type uniformity check
+        value_types = [
+            self._dataset.schema.field(c).type for c in value_list
+        ]
+        first_t = value_types[0]
+        for c, t in zip(value_list[1:], value_types[1:]):
+            if t != first_t:
+                raise TypeError(
+                    f"melt: value_vars must share one dtype; got "
+                    f"{value_list[0]!r}: {first_t} vs {c!r}: {t}. "
+                    f"Cast to common type first: df.astype({{...}})."
+                )
+
+        out_fields = [self._dataset.schema.field(c) for c in id_list]
+        out_fields.append(pa.field(var_name, pa.string()))
+        out_fields.append(pa.field(value_name, first_t, nullable=True))
+        out_schema = pa.schema(out_fields)
+
+        def _iter():
+            for batch in self._iter_arrow_batches():
+                self._memory_guard.check_batch(batch, name="melt.input")
+                n = batch.num_rows
+                if n == 0:
+                    continue
+                id_arrays = [batch.column(c) for c in id_list]
+                for vv in value_list:
+                    val_arr = batch.column(vv)
+                    var_arr = pa.array([vv] * n, type=pa.string())
+                    arrays = [*id_arrays, var_arr, val_arr]
+                    yield pa.RecordBatch.from_arrays(
+                        arrays, schema=out_schema,
+                    )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def pivot_table(
+        self,
+        index: "str | Sequence[str]",
+        columns: str,
+        values: str,
+        *,
+        aggfunc: str = "mean",
+    ) -> "CadwDataFrame":
+        """Pivot: long → wide (groupby + reshape).
+
+        Args:
+            index: row identifier column(s).
+            columns: column whose unique values become output columns.
+            values: value column to aggregate.
+            aggfunc: {'mean','sum','count','min','max'}, default 'mean'.
+
+        Returns:
+            CadwDataFrame with [*index, <columns-values as columns>].
+            Missing combinations (K_index × K_columns minus real data)
+            → null cells.
+
+        Valid:
+            - All columns exist.
+            - Non-empty input after dropping null in `columns`.
+            - K_pairs = K_index × K_columns fits in memory budget.
+
+        Invalid (raises):
+            - Empty index → ValueError.
+            - Missing columns → KeyError.
+            - aggfunc not in supported set → ValueError.
+            - K_pairs too large → MemoryLimitExceeded BEFORE groupby.
+            - No rows after null-filter → ValueError.
+
+        Memory: intermediate buffers are
+          - grouped long format: K_pairs × row_size (bounded by
+            groupby_aggregate internally),
+          - pandas to_pandas: 3 × grouped_table.nbytes (explicit check),
+          - dense pivot: K_index × K_columns × value_size × 2 (pandas).
+        Fail-fast BEFORE groupby if dense estimate exceeds
+        state_limit_bytes (§13.4/159).
+        """
+        import pyarrow as pa
+        from cadw.core.memory_guard import MemoryLimitExceeded
+        from cadw.core.sampling import peek_first_batch
+
+        if isinstance(index, str):
+            index_cols = [index]
+        else:
+            index_cols = list(index)
+        if not index_cols:
+            raise ValueError("pivot_table: index must be non-empty")
+
+        for c in index_cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"pivot_table: index col {c!r} not in {self._columns}"
+                )
+        if columns not in self._columns:
+            raise KeyError(
+                f"pivot_table: columns {columns!r} not in {self._columns}"
+            )
+        if values not in self._columns:
+            raise KeyError(
+                f"pivot_table: values {values!r} not in {self._columns}"
+            )
+        if columns in index_cols:
+            raise ValueError(
+                f"pivot_table: {columns!r} in both index and columns"
+            )
+        if aggfunc not in ("mean", "sum", "count", "min", "max"):
+            raise ValueError(
+                f"pivot_table: aggfunc must be one of mean/sum/count/"
+                f"min/max; got {aggfunc!r}"
+            )
+        # v0.9.1f-fix1 (§13.4/157): `count` doesn't use value semantics —
+        # only non-null counting. Allow values ∈ index_cols for
+        # aggfunc='count' (used by crosstab: values=index[0]).
+        # Other aggs (mean/sum/min/max) require value ≠ index/columns.
+        if aggfunc != "count":
+            if values in index_cols or values == columns:
+                raise ValueError(
+                    f"pivot_table: values {values!r} must be distinct "
+                    f"from index/columns (aggfunc={aggfunc!r})"
+                )
+        if values == columns:
+            # values=columns makes no sense for any agg
+            raise ValueError(
+                f"pivot_table: values {values!r} == columns {columns!r}"
+            )
+
+        # Drop null rows in `columns` (dropna=True, standard pandas)
+        filtered = self[self[columns].notnull()]
+        n = filtered.count()
+        if n == 0:
+            raise ValueError(
+                f"pivot_table: no rows after filtering null {columns!r}; "
+                f"cannot pivot empty data"
+            )
+
+        # Sample-based K_pairs estimate BEFORE groupby
+        sample = peek_first_batch(filtered._iter_filtered_batches())
+        if sample is None:
+            raise ValueError("pivot_table: empty input")
+        total_rows = n
+        k_index_est = self._memory_guard.estimate_unique_keys(
+            sample.select(index_cols), total_rows,
+        )
+        k_cols_est = self._memory_guard.estimate_unique_keys(
+            sample.select([columns]), total_rows,
+        )
+        k_pairs_est = max(1, k_index_est) * max(1, k_cols_est)
+
+        # §13.4/157: explicit pa.types.is_* — `hasattr(t, "bit_width")`
+        # returns True for ALL types, but accessing `.bit_width` raises
+        # ValueError on string/binary/list/struct.
+        # §13.4/159: pivot allocates DENSE `K_index × K_columns ×
+        # value_size`, not long `K_pairs × row_size`. Use value_size.
+        def _safe_type_bytes(t) -> int:
+            if (pa.types.is_integer(t) or pa.types.is_floating(t)
+                    or pa.types.is_timestamp(t) or pa.types.is_date(t)
+                    or pa.types.is_time(t)):
+                return max(1, t.bit_width // 8)
+            if pa.types.is_boolean(t):
+                return 1
+            if pa.types.is_string(t) or pa.types.is_binary(t):
+                return 50
+            return 8
+
+        value_size = _safe_type_bytes(
+            self._dataset.schema.field(values).type
+        )
+        # Dense pivot upper bound: K_index × K_columns × value_size × 2
+        # (pandas float64 for all aggs except count→int64; both ≤ 8).
+        est_bytes = k_index_est * k_cols_est * value_size * 2
+        state_limit = self._memory_guard.state_limit_bytes
+        if est_bytes > state_limit:
+            raise MemoryLimitExceeded(
+                f"pivot_table: K_index ~{k_index_est} × K_columns "
+                f"~{k_cols_est} × value_size {value_size} B × 2 "
+                f"(pandas) = {est_bytes} B > state_limit "
+                f"{state_limit} B. Reduce cardinality or use groupby() "
+                f"(long format). See §11.5."
+            )
+
+        # Groupby (long format): [*index, columns, values_agg]
+        from cadw.ops.groupby import groupby_aggregate
+        grouped_table = groupby_aggregate(
+            filtered._iter_filtered_batches(),
+            by_columns=index_cols + [columns],
+            agg_columns=[values],
+            agg_funcs=[aggfunc],
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "pivot",
+            log=False,
+        )
+        # v0.9.1f: explicit check_state before to_pandas (AST guard).
+        # grouped_table is K_pairs rows — bounded by groupby internally.
+        self._memory_guard.check_state(
+            grouped_table.nbytes, name="pivot_table.grouped",
+        )
+        # §13.4/159: pre-check pandas overhead (× 3 for to_pandas).
+        # pandas to_pandas allocates ~3× Arrow (object/StringDtype).
+        self._memory_guard.check_state(
+            grouped_table.nbytes * 3,
+            name="pivot_table.to_pandas",
+        )
+        value_col = f"{values}_{aggfunc}"
+
+        # Reshape via pandas (small table)
+        grouped_pd = grouped_table.to_pandas()
+        pivoted_pd = grouped_pd.pivot(
+            index=index_cols, columns=columns, values=value_col,
+        ).reset_index()
+        # Flatten column names: if non-string column values (int etc.),
+        # pandas sets them as-is; Arrow field name requires str.
+        pivoted_pd.columns = [str(c) for c in pivoted_pd.columns]
+
+        # Convert back to Arrow
+        out_table = pa.Table.from_pandas(pivoted_pd, preserve_index=False)
+        new_ds = Dataset.from_batches(
+            out_table.schema, iter(out_table.to_batches()),
+            self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def crosstab(
+        self,
+        index: "str | Sequence[str]",
+        columns: str,
+    ) -> "CadwDataFrame":
+        """Frequency table (count per (index, columns) combo).
+
+        Equivalent to:
+            df.dropna(subset=[*index, columns])
+              .pivot_table(index, columns, values=index[0], aggfunc='count')
+
+        Drops rows with null in any index or columns value (standard
+        pandas crosstab behaviour).
+
+        Returns:
+            CadwDataFrame with [*index, <columns-values as columns>].
+        """
+        index_cols = [index] if isinstance(index, str) else list(index)
+        if not index_cols:
+            raise ValueError("crosstab: index must be non-empty")
+        for c in index_cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"crosstab: index col {c!r} not in {self._columns}"
+                )
+        if columns not in self._columns:
+            raise KeyError(
+                f"crosstab: columns {columns!r} not in {self._columns}"
+            )
+        # Drop nulls in any relevant column (standard crosstab)
+        filtered = self.dropna(subset=index_cols + [columns])
+        return filtered.pivot_table(
+            index=index,
+            columns=columns,
+            values=index_cols[0],  # any non-null col; = row count
+            aggfunc="count",
+        )
+
     # ---------------- reading ----------------
 
     def to_batches(
@@ -2270,6 +2623,263 @@ class CadwDataFrame:
 
         new_ds = Dataset.from_batches(
             out_schema, _iter_zipped(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    # ---------------- per-group apply (v0.9.1e) ----------------
+
+    def _per_group_apply(
+        self,
+        group_cols: list[str],
+        on_cols: list[str],
+        fn,
+        result_col: str,
+        memory_guard: "MemoryGuard",
+    ) -> "CadwDataFrame":
+        """Composite-sort apply(fn) on each group (prototype-validated).
+
+        Args:
+            group_cols: group keys. Non-empty.
+            on_cols: within-group sort keys (empty → row_id order).
+            fn: callable(group_df: pd.DataFrame) → scalar | pd.Series |
+                pd.DataFrame. Uniform mode across groups.
+            result_col: column name for scalar mode.
+            memory_guard: per-group memory check before fn().
+
+        Peak RAM = batch + 2 × max(group_size × row_size) + fn's output.
+        Bounded per group, independent of N.
+
+        fn's own alloc is user responsibility (§3.9 extended).
+        """
+        import pyarrow as pa
+        from cadw.io.batch_reader import ArrowIPCBatchReader
+        from cadw.io.batch_writer import ArrowIPCBatchWriter
+        from cadw.core.memory_guard import MemoryLimitExceeded
+
+        if not group_cols:
+            raise ValueError(
+                "_per_group_apply: group_cols must be non-empty"
+            )
+        if not callable(fn):
+            raise TypeError(
+                f"_per_group_apply: fn must be callable; "
+                f"got {type(fn).__name__}"
+            )
+        for gc in group_cols:
+            if gc not in self._columns:
+                raise KeyError(
+                    f"_per_group_apply: group column {gc!r} not in "
+                    f"{self._columns}"
+                )
+        for oc in on_cols:
+            if oc not in self._columns:
+                raise KeyError(
+                    f"_per_group_apply: on column {oc!r} not in "
+                    f"{self._columns}"
+                )
+        if not isinstance(result_col, str) or not result_col:
+            raise ValueError(
+                f"_per_group_apply: result_col must be non-empty str; "
+                f"got {result_col!r}"
+            )
+
+        if self.count() == 0:
+            out_fields = [
+                self._dataset.schema.field(c) for c in group_cols
+            ]
+            out_fields.append(pa.field(result_col, pa.float64(), nullable=True))
+            out_schema = pa.schema(out_fields)
+            empty_ds = Dataset.from_batches(
+                out_schema, iter([]), self._new_dataset_dir(),
+            )
+            return CadwDataFrame(
+                empty_ds,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
+
+        sort_keys = list(group_cols) + list(on_cols)
+        sorted_path = external_sort(
+            self._iter_filtered_batches(),
+            key_columns=sort_keys,
+            value_columns=self._columns,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "per_group_apply" / "sort_by_keys",
+            ascending=True,
+            log=False,
+        )
+
+        out_schema_box: list = []
+        out_mode_box: list = []
+        buf_rows: list = []
+        BATCH_ROWS = 1000
+        applied_path = (
+            self._spill_dir / "per_group_apply" / "applied.arrow"
+        )
+        applied_path.parent.mkdir(parents=True, exist_ok=True)
+        writer_box: list = []
+
+        def _flush_buf():
+            nonlocal buf_rows
+            if not buf_rows:
+                return
+            if not writer_box:
+                writer_box.append(
+                    ArrowIPCBatchWriter(str(applied_path),
+                                        out_schema_box[0])
+                )
+            table = pa.Table.from_pylist(buf_rows,
+                                         schema=out_schema_box[0])
+            for b in table.to_batches():
+                writer_box[0].write_batch(b)
+            buf_rows = []
+
+        def _emit_group(key: tuple, result):
+            import pandas as pd
+            nonlocal buf_rows
+
+            mode = _detect_mode(result)
+            if not out_mode_box:
+                out_mode_box.append(mode)
+                out_schema_box.append(
+                    _build_out_schema(group_cols, self, mode,
+                                      result, result_col)
+                )
+            elif mode != out_mode_box[0]:
+                raise RuntimeError(
+                    f"_per_group_apply: mixed return modes across "
+                    f"groups: first group returned {out_mode_box[0]!r}, "
+                    f"group {key!r} returned {mode!r}. fn() must "
+                    f"return same type for all groups."
+                )
+
+            if mode == "scalar":
+                row = {gc: v for gc, v in zip(group_cols, key)}
+                row[result_col] = _normalize_scalar(result)
+                buf_rows.append(row)
+            elif mode == "series":
+                row = {gc: v for gc, v in zip(group_cols, key)}
+                for idx, val in result.items():
+                    row[str(idx)] = (
+                        None if pd.isna(val) else val
+                    )
+                buf_rows.append(row)
+            else:  # dataframe
+                for rec in result.to_dict(orient="records"):
+                    row = {gc: v for gc, v in zip(group_cols, key)}
+                    for c, v in rec.items():
+                        row[str(c)] = (
+                            None if pd.isna(v) else v
+                        )
+                    buf_rows.append(row)
+            if len(buf_rows) >= BATCH_ROWS:
+                _flush_buf()
+
+        _UNSET = object()
+        prev_key = _UNSET
+        group_buf: list = []
+        max_group_limit = int(
+            memory_guard.available_bytes() * 0.3
+        )
+
+        def _flush_group():
+            nonlocal group_buf
+            if not group_buf:
+                return
+            # §13.4/155: pre-estimate from `batch.nbytes` BEFORE
+            # `from_batches`. In pyarrow 26 from_batches is zero-copy
+            # (§9.2.9) → sum(b.nbytes) ≈ gt.nbytes. Check first, then
+            # materialize. Keeps AST guard (§3.11) satisfied — no
+            # high-risk Arrow call without preceding check_state.
+            est_pre = sum(b.nbytes for b in group_buf) * 2
+            if est_pre > max_group_limit:
+                raise MemoryLimitExceeded(
+                    f"_per_group_apply: group size ~{est_pre // 2} B "
+                    f"× 2 (pandas) = {est_pre} B > 0.3 × avail = "
+                    f"{max_group_limit} B. Split by more group cols "
+                    f"or use groupby().agg() if fn reduces. See "
+                    f"§11.5."
+                )
+            memory_guard.check_state(
+                est_pre, name="per_group_apply.group",
+            )
+            gt = pa.Table.from_batches(group_buf)
+            # Defense-in-depth: actual nbytes (may differ from sum of
+            # batch.nbytes for chunked buffers; conservative check).
+            est_actual = gt.nbytes * 2
+            if est_actual > max_group_limit:
+                raise MemoryLimitExceeded(
+                    f"_per_group_apply: actual group size "
+                    f"{gt.nbytes} B × 2 = {est_actual} B > 0.3 × avail "
+                    f"= {max_group_limit} B (pre-estimate was "
+                    f"{est_pre} B; buffer overhead). See §11.5."
+                )
+            gdf = gt.to_pandas()
+            result = fn(gdf)
+            _emit_group(tuple(prev_key), result)
+            group_buf.clear()
+
+        try:
+            for b in ArrowIPCBatchReader(str(sorted_path), None):
+                memory_guard.check_batch(
+                    b, name="per_group_apply.sorted"
+                )
+                n = b.num_rows
+                if n == 0:
+                    continue
+                group_vals = {
+                    gc: b.column(gc).to_pylist() for gc in group_cols
+                }
+                start = 0
+                for i in range(1, n):
+                    gk = tuple(group_vals[gc][i] for gc in group_cols)
+                    prev_gk = tuple(
+                        group_vals[gc][i - 1] for gc in group_cols
+                    )
+                    if gk != prev_gk:
+                        gk_start = tuple(
+                            group_vals[gc][start] for gc in group_cols
+                        )
+                        piece = b.slice(start, i - start)
+                        if gk_start != prev_key:
+                            if prev_key is not _UNSET:
+                                _flush_group()
+                            prev_key = gk_start
+                        group_buf.append(piece)
+                        start = i
+                gk_start = tuple(
+                    group_vals[gc][start] for gc in group_cols
+                )
+                piece = b.slice(start, n - start)
+                if gk_start != prev_key:
+                    if prev_key is not _UNSET:
+                        _flush_group()
+                    prev_key = gk_start
+                group_buf.append(piece)
+
+            _flush_group()
+            _flush_buf()
+        finally:
+            if writer_box:
+                writer_box[0].close()
+
+        if not out_schema_box:
+            raise RuntimeError(
+                "_per_group_apply: no groups produced output — "
+                "unreachable after empty check"
+            )
+
+        def _iter_applied():
+            for b in ArrowIPCBatchReader(str(applied_path), None):
+                yield b
+
+        new_ds = Dataset.from_batches(
+            out_schema_box[0], _iter_applied(),
+            self._new_dataset_dir(),
         )
         return CadwDataFrame(
             new_ds,
@@ -3893,6 +4503,37 @@ class _GroupBy:
             self._by, agg_cols, funcs, combiner=combiner
         )
 
+    def apply(
+        self,
+        fn,
+        *,
+        result_col: str = "apply_result",
+        on: "str | Sequence[str] | None" = None,
+    ) -> "CadwDataFrame":
+        """Per-group apply (v0.9.1e). Prototype-validated (11 cases).
+
+        Args:
+            fn: callable(group_df: pd.DataFrame) → scalar | pd.Series |
+                pd.DataFrame. Uniform mode across groups.
+            result_col: column name for scalar mode.
+            on: within-group sort keys (None → row_id order).
+
+        Returns: CadwDataFrame
+            scalar → K rows, [*group_cols, result_col]
+            Series → K rows, [*group_cols, *series.index]
+            DataFrame → Σ|df_i| rows, [*group_cols, *df.columns]
+
+        Order: sorted by group key.
+
+        Memory: per-group bounded (2 × group_nbytes ≤ 0.3 × avail BEFORE
+        fn). Oversized → MemoryLimitExceeded. fn's alloc — user resp.
+        """
+        on_cols = self._normalize_on(on)
+        return self._parent._per_group_apply(
+            self._by, on_cols, fn, result_col,
+            memory_guard=self._parent._memory_guard,
+        )
+
     def _normalize_on(self, on) -> list:
         if on is None:
             return []
@@ -4030,3 +4671,82 @@ def _apply_filter_with_positions(f: RowFilter, it):
         f"{type(f).__name__}"
     )
 
+
+
+# ============ per-group apply helpers (v0.9.1e) ============
+
+def _detect_mode(result) -> str:
+    """Classify fn() output: 'scalar' / 'series' / 'dataframe'."""
+    import pandas as pd
+    import numpy as np
+
+    if isinstance(result, pd.DataFrame):
+        return "dataframe"
+    if isinstance(result, pd.Series):
+        return "series"
+    if result is None:
+        return "scalar"
+    if isinstance(result, (bool, int, float, str)):
+        return "scalar"
+    if isinstance(result, (np.integer, np.floating, np.bool_)):
+        return "scalar"
+    raise TypeError(
+        f"_per_group_apply: fn returned {type(result).__name__}; "
+        f"expected scalar, pd.Series, or pd.DataFrame"
+    )
+
+
+def _normalize_scalar(v):
+    """Convert numpy scalar / pandas NA to Python / None."""
+    import numpy as np
+    import pandas as pd
+
+    if v is None:
+        return None
+    if isinstance(v, (np.integer, np.floating, np.bool_)):
+        v = v.item()
+    if isinstance(v, float) and pd.isna(v):
+        return None
+    return v
+
+
+def _infer_arrow_type_from_value(v):
+    import pyarrow as pa
+    import numpy as np
+
+    if v is None:
+        return pa.float64()
+    if isinstance(v, (np.integer, int)):
+        return pa.int64()
+    if isinstance(v, (np.floating, float)):
+        return pa.float64()
+    if isinstance(v, (np.bool_, bool)):
+        return pa.bool_()
+    if isinstance(v, str):
+        return pa.string()
+    return pa.float64()
+
+
+def _build_out_schema(group_cols, df, mode, first_result, result_col):
+    """Output pa.Schema from group_cols + first group's result shape."""
+    import pyarrow as pa
+
+    fields = [df._dataset.schema.field(c) for c in group_cols]
+    if mode == "scalar":
+        v = _normalize_scalar(first_result)
+        fields.append(pa.field(
+            result_col, _infer_arrow_type_from_value(v), nullable=True,
+        ))
+    elif mode == "series":
+        for idx in first_result.index:
+            v = first_result.loc[idx]
+            fields.append(pa.field(
+                str(idx), _infer_arrow_type_from_value(v), nullable=True,
+            ))
+    else:  # dataframe
+        for c in first_result.columns:
+            v = first_result[c].iloc[0] if len(first_result) > 0 else None
+            fields.append(pa.field(
+                str(c), _infer_arrow_type_from_value(v), nullable=True,
+            ))
+    return pa.schema(fields)

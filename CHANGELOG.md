@@ -1,3 +1,337 @@
+## [0.9.1] — 2026-10-20
+
+### Добавлено (v0.9.1f — pivot_table / melt / crosstab)
+
+Финальный патч v0.9.1: табличные преобразования (long ↔ wide).
+
+- **`df.melt(id_vars, value_vars, var_name='variable',
+  value_name='value')`** — wide → long. **Streaming per-batch**, peak
+  O(batch × #value_vars). Requirements:
+  - `value_vars` share ONE dtype (Arrow column uniform); mixed →
+    TypeError с рекомендацией `astype` для конвертации.
+  - `id_vars` ∩ `value_vars = ∅`; `var_name`/`value_name` не
+    коллидируют с `id_vars`.
+  - Output: `[*id_vars, var_name, value_name]`, rows = `N ×
+    len(value_vars)`.
+
+- **`df.pivot_table(index, columns, values, aggfunc='mean')`** — long →
+  wide. `groupby([*index, columns]).agg(values, aggfunc)` + pandas
+  reshape (small table). **Fail-fast** если `k_pairs = K_index ×
+  K_columns` слишком велико: `k_pairs × row_size × 2 > 0.3 × avail`
+  → `MemoryLimitExceeded` **до** groupby. Missing combos → null.
+  - `aggfunc ∈ {mean, sum, count, min, max}`, default `mean`.
+  - `dropna=True` для null в `columns` (standard pandas).
+  - Null в `index` → own row (kept).
+  - Multi-index (`index=['a','b']`) поддерживается.
+
+- **`df.crosstab(index, columns)`** — frequency table. `dropna=True`
+  на nulls в index/columns (standard crosstab), delegates to
+  `pivot_table(values=index[0], aggfunc='count')`.
+
+### Memory bound (§11.5)
+
+- **melt**: O(batch × #value_vars). Streaming.
+- **pivot_table**: K_pairs estimate через sample (`MemoryGuard.
+  estimate_unique_keys`) **до** groupby. `check_state` на grouped
+  (K_pairs rows) **до** pandas reshape (AST-verified). Peak = batch +
+  K_pairs × row_size (grouped) + K_index × K_cols × value_size
+  (pivot output) — bounded by fail-fast check.
+- **crosstab**: same as pivot_table.
+
+### Ограничения (v0.9.1f, §11.5)
+
+- **`pivot_table` sparse → fail-fast**. K_pairs > 0.3×avail/row_size →
+  `MemoryLimitExceeded` с рекомендацией `groupby()` (long format).
+  Sparse pandas pivot (fill N/A with 0 in wide format) — не
+  поддерживается.
+- **`melt` heterogeneous dtypes** (`['int_col', 'float_col']`) →
+  TypeError. Пользователь: `df.astype({'int_col': 'float64'})` first.
+- **`pivot_table` dropna=True** в `columns` (стандарт pandas).
+  `dropna=False` (null column group) — v0.9.2 если запросят.
+- **`pivot_table` output column names = `str(value)`**. Int-значения
+  `columns` → строковые имена ("0", "1", ...).
+- **`melt` non-streaming types**: list/struct columns in value_vars
+  работают (Arrow-native), но nested dtypes не проверяются на
+  uniformity (assumes Arrow type equality).
+- **`crosstab` count via non-null values** в `index[0]`. Требует
+  non-null `index[0]` — фильтруется через `dropna=True` до.
+
+### Тесты (v0.9.1f)
+
+- +15 fast (`test_pivot_table.py`): melt (6), pivot (7), crosstab (3),
+  AST guards (2).
+- +1 slow (`test_pivot_table_e2e.py`): 100K rows pivot.
+
+- fast: **~1395** (+15). slow: **13** (+1).
+
+### Добавлено (v0.9.1e — per-group apply(fn))
+
+- **`df.groupby('g').apply(fn, result_col='apply_result', on=None)`** —
+  per-group user callable. Prototype-validated (11 cases A/B pandas
+  vs composite-sort, §13.4/123).
+  - **fn**: `callable(group_df: pd.DataFrame)` → scalar | `pd.Series` |
+    `pd.DataFrame`. Uniform mode required across groups.
+  - **Output**:
+    - scalar → K rows, `[*group_cols, result_col]`
+    - Series → K rows, `[*group_cols, *series.index]`
+    - DataFrame → `Σ|df_i|` rows, `[*group_cols, *df.columns]`
+  - **on**: within-group sort keys. `None` → row_id order.
+  - **Order**: output sorted by group key.
+- **`CadwDataFrame._per_group_apply(...)`** — internal: composite-sort
+  by `[*group_cols, *on_cols]`, one group in RAM at a time, streaming
+  output to IPC.
+
+### Memory bound (§11.5)
+
+- **Per-group bound**: `group_nbytes × 2 (pandas) ≤ 0.3 × available`.
+  Oversized → `MemoryLimitExceeded` **before** `fn()`.
+- **Peak RAM** = batch (input stream) + `2 × max(group_size × row_size)`
+  + fn's output + small output-buffer batch. **Independent of N**.
+- **fn's own alloc — user responsibility** (§3.9 extended): CADW bounds
+  input to `fn`, not `fn`'s internals. `fn` that's O(N) per group → OOM
+  is user's fault.
+
+### Ограничения (v0.9.1e, §11.5)
+
+- **`transform(fn)` NOT included** — semantically different (Series →
+  same-length array for broadcast). v0.9.2.
+- **Mixed return modes across groups** → RuntimeError.
+- **Null in group key** → own group (dropna=False, matches pandas).
+- **`fn` exceptions propagate** — no wrapping; user errors surface
+  unchanged.
+- **Output sorted by group key**, not original order.
+
+### Тесты (v0.9.1e)
+
+- +17 fast (`test_apply.py`): 3 modes, nulls, multi-group, single-row,
+  filter, on-col sort, determinism, errors (fn not callable, mixed
+  modes, unsupported type, oversized group, fn exception), pandas
+  equivalence, AST guard.
+- +1 slow (`test_apply_e2e.py`): 10K / 20 groups / mean, pandas equiv.
+
+- fast: **~1378** (+17). slow: **12** (+1).
+
+### Добавлено (v0.9.1d — ColumnTransformer + register_step_type)
+
+- **`ColumnTransformer(transformers, remainder='drop'|'passthrough')`** —
+  sklearn-style column fanout. Каждый трансформер fit+transform на своей
+  subset колонок; результаты concat (column union).
+  - `transformers: list[(name, cols, step)]` — уникальные имена,
+    disjoint cols (каждая колонка ≤1 transformer), Transformer contract.
+  - `remainder='drop'` (default): неименованные колонки удаляются.
+  - `remainder='passthrough'`: проходят как есть в конце.
+  - Row count preserved (dropna внутри → RuntimeError).
+  - Duplicate output column names → RuntimeError.
+  - Output order: transformer order, затем remainder.
+  - `to_dict` / `from_dict` — nested state inline в JSON (nested GBDT
+    ~30 KB в pipeline.json; extraction to separate file — backlog v0.9.2).
+
+- **`register_step_type(name, cls)`** / **`unregister_step_type(name)`** /
+  **`list_step_types()`** — module-level registry для custom steps в
+  `from_json`. Backlog §11.5 закрыт.
+  - Built-in types: `CastStep`, `DropnaStep`, `GBDTStep` (нельзя
+    unregister).
+  - Override built-in → warning (same pattern as `register_model` §9.7).
+  - Custom class MUST implement `from_dict` classmethod.
+
+- **`cadw/__init__.py`** — экспортирует `Pipeline`, `CastStep`,
+  `DropnaStep`, `GBDTStep`, `ColumnTransformer`, `Transformer`,
+  `Predictor`, `register_step_type`, `unregister_step_type`,
+  `list_step_types`.
+
+### Изменено
+
+- **`Pipeline.from_json`** — использует module-level `_STEP_REGISTRY`
+  (было hardcoded dict). Error message указывает на `register_step_type`
+  для custom steps.
+
+### Design decisions (locked-in, v0.9.1d)
+
+- **Predictor not allowed inside ColumnTransformer** — only as final
+  Pipeline step. `ColumnTransformer` is a Transformer (fit + transform
+  on column subsets); model is orthogonal.
+- **Row-preserving constraint** — column-level operations only. Row
+  filtering (dropna) must go before ColumnTransformer.
+- **Nested state inline** — `pipeline.json` содержит `step_dict` для
+  каждого nested step. Large nested models (GBDT inside CT) — larger
+  pipeline.json; extraction to `state/<ct_name>/<nested>.json` — backlog
+  v0.9.2.
+
+### Ограничения (v0.9.1d, §11.5)
+
+- **Nested state inline** в `pipeline.json`. Для ColumnTransformer с
+  GBDT ~30-50 KB в pipeline.json (acceptable). 1000+ tree GBDT — big
+  file; extract-to-separate — v0.9.2.
+- **No `remainder=transformer`** (sklearn supports this) — только
+  `'drop' | 'passthrough'`. Для transform remainder — list explicitly
+  в `transformers`.
+- **Custom step `from_dict`** must be classmethod (validated at
+  `register_step_type`).
+
+### Тесты (v0.9.1d)
+
+- +9 fast (`test_register_step_type.py`): register/unregister/list,
+  override warning, bad name/class, missing from_dict, from_json uses
+  registry.
+- +12 fast (`test_column_transformer.py`): construction errors (empty,
+  bad remainder, duplicate name, overlapping cols, empty cols, missing
+  transform), basic fit/transform (2 transformers), remainder drop vs
+  passthrough, appends new col, transform missing col, row count changed,
+  to_dict/from_dict round-trip, unknown nested type, lambda nested raises.
+- +3 fast + 1 slow (`test_column_transformer_pipeline.py`): inside
+  Pipeline, save/load round-trip, state_bytes propagates, E2E (R² > 0.5).
+
+- fast: **~1351** (+24). slow: **11** (+1).
+
+### Добавлено (v0.9.1c — save/load)
+
+- **`Pipeline.to_json(path)` / `Pipeline.from_json(path)`** — сохранение
+  и восстановление pipeline для reproducibility и production deployment.
+  - `path` — директория: `path/pipeline.json` + (опционально)
+    `path/state/<step_name>.json`.
+  - `from_json` принимает директорию или `pipeline.json` файл.
+  - `strict_version=True` — raise на version mismatch; default — warn.
+  - `path` must be directory (не file) для `to_json` — raises clear
+    error если path exists and is file.
+- **Per-step `to_dict()` / `from_dict()`** — Protocol extension, реализовано
+  для `CastStep`, `DropnaStep`, `GBDTStep`. Custom steps должны
+  реализовать оба, иначе `to_json` raises clear message.
+- **`GBDTStep.to_dict()` / `from_dict()`** — полная сериализация
+  fitted model (trees + base_prediction + mn/mx + hyperparameters) в
+  JSON. ~30 KB для 100 trees × depth 3.
+- **`LambdaTransform.to_dict()`** — raises NotImplementedError: `fn` —
+  callable, не JSON-serializable. Message предлагает: custom step class
+  с to_dict/from_dict, или только именованные wrappers.
+- **`cadw/_serialization.py`** — helpers: `gbdt_regressor_to_dict` /
+  `gbdt_regressor_from_dict`, `linear_to_dict` / `linear_from_dict`.
+  Explicit, no pickle (safety: untrusted input не вызывает RCE).
+
+### Design decisions (locked-in, v0.9.1c)
+
+- **Always directory**: `pipeline_dir/pipeline.json` + optional
+  `state/`. Cleaner для multi-file pipelines (state per step).
+- **JSON for everything**: no pickle. GBDT trees ~30 KB JSON acceptable.
+- **Version field** "0.9.1": `from_json` warns on mismatch, best-effort
+  restore. `strict_version=True` для fail.
+- **`LambdaTransform` non-serializable** — callables нельзя безопасно
+  сохранить в JSON. Custom step class — user-side.
+
+### Ограничения (v0.9.1c, §11.5)
+
+- **JSON size для больших моделей** — GBDT n_estimators=1000 × depth=5
+  ≈ 2.4 MB JSON. Для очень больших моделей — Arrow IPC sidecar
+  backlog (v0.9.2). Сейчас JSON для всех.
+- **Version compatibility**: strict_version=True поддерживает только
+  same-minor. Future minor bumps требуют manual migration.
+- **Custom steps**: `to_json` raises `NotImplementedError` если step
+  не имеет to_dict. `from_json` raises если type не в registry —
+  custom steps требуют register (v0.9.2 `Pipeline.register_step_type`).
+- **`state` dir not created** для stateless pipeline — OK, load
+  detects `has_state=False`.
+
+### Тесты (v0.9.1c)
+
+- +20 fast (`test_pipeline_save_load.py`): CastStep/DropnaStep/GBDTStep
+  round-trip, predictions equal, DAG edges preserved, state file
+  created, version mismatch warn/strict, corrupt JSON, missing state
+  file, missing pipeline.json, path-as-file, LambdaTransform raises,
+  fitted flag preserved.
+- +1 slow (`test_pipeline_save_load_e2e.py`): fit → save → load →
+  predict, predictions equal (rtol=1e-9), R² > 0.9.
+
+- fast: **~1329** (+20). slow: **10** (+1).
+
+### Добавлено (v0.9.1b — DAG Pipeline)
+
+- **`Pipeline.add_step(name, step, inputs=...)`** — DAG edges (v0.9.1b).
+  - `inputs=None` (default): chain semantics — first step = source (`[]`),
+    subsequent = `[previous step name]`. **Backward compat** с v0.9.0.
+  - `inputs=[]`: explicit source (redundant for first step, validated).
+  - `inputs=["a", "b"]`: DAG fan-in. Все names должны существовать;
+    Predictor нельзя использовать как input.
+- **`Pipeline._build_graph()`** — `{name: [input_names]}`. Resolves
+  `inputs=None` chain derivation.
+- **`Pipeline._topological_order()`** — DFS topological sort с cycle
+  detection (defensive: forward refs запрещены, cycle невозможен by
+  construction).
+- **`_merge_fanout(dfs)`** — module helper: column-union concat.
+  Precondition: same row count across branches (positional alignment).
+  Streaming через `zip(*iters)` с per-batch size check.
+- **`LambdaTransform(src_col, feature_name, fn, out_type)`** — test
+  helper: Arrow-native fn on one source column, appends
+  `{src_col}_{feature_name}`.
+- **`Pipeline._repr_html_`** — DAG-aware: column "inputs" показывает
+  `(source)` или `← a, b` для fan-in.
+
+### Изменено
+
+- **`Pipeline.fit` / `transform` / `predict`** — execution через
+  topological order, не list iteration. Multi-input → `_merge_fanout`.
+  `transform` возвращает sink pure-transform подграфа (последний
+  non-Predictor в reversed order); если pipeline model-only — исходный df.
+- **`Pipeline.predict`** — возвращает результат first (и единственного)
+  Predictor в topo order (Predictor валидирован как sink на `add_step`).
+
+### Ограничения (v0.9.1b, §11.5)
+
+- **Fan-in MVP: все branches должны иметь same row count.** Dropna /
+  row-selection в одной ветви → RuntimeError с clear message.
+  Row-selection fan-in (join по `__orig_rid` с пересечением) — v0.9.1c.
+- **Fan-in реализация: positional alignment** (не row_id merge).
+  Гарантия корректности = все branches идут от одного source и не
+  меняют row order. Документировано.
+- **Predictor = sink**, нельзя быть input. Проверяется на `add_step`.
+- **Forward references запрещены** (`inputs=[name]` где `name` ещё не
+  добавлен) → ValueError. Cycle detection — defensive (недостижим).
+- **`Pipeline.plan(df)`** — sum across all steps (не меняется под DAG).
+  Per-DAG-step state estimation — v0.9.1c backlog.
+
+### Тесты (v0.9.1b)
+
+- +14 fast (`test_pipeline_dag.py`): chain backward compat, two/three
+  branch fan-in, diamond (raw → a, raw → b, merge, model), row-mismatch
+  RuntimeError, unknown input, Predictor-as-input, explicit source
+  validation, topo order (chain, fan-out), transform stops at model,
+  predict full DAG, repr_html DAG edges.
+
+- fast: **~1309** (+14). slow: **9** (unchanged).
+
+### Изменено (v0.9.1a — backbone)
+
+- **`tests/conftest.py`** — autouse `plt.close('all')` для всех тестов.
+  Устраняет `More than 20 figures have been opened` RuntimeWarning,
+  появившийся с v0.9.0c (8 plot-accessor тестов перевалили порог;
+  pre-existing seaborn/viz тесты тоже не закрывали figures).
+- **`cadw/patch_utils.py`** — общие helpers для patch-скриптов:
+  `ensure_unreleased_header`, `append_unreleased_entry`,
+  `find_section_anchor` (regex tolerant: `# 11.6`, `## §11.6`, `#### 11.6.`),
+  `insert_before_section` (explicit `found` flag, no silent no-op),
+  `assert_guards_green` (§13.4/140 discipline extraction).
+- **`Transformer` / `Predictor` Protocol split** (§13.4/147 backlog):
+  Predictor БЕЗ `transform`; Transformer БЕЗ `predict`. Строго два
+  минимальных контракта, не nested. Runtime `_is_predictor(step) =
+  hasattr(step, "predict")` — duck typing, Protocol только для typing.
+- **DECISIONS.md §11.6 header restored** — заголовок был потерян
+  в v0.8.11/v0.9.0 патчах; Pipeline v1 addendum от v0.9.0b-fix1
+  (был appended к концу файла из-за anchor-not-found) перенесён
+  в восстановленную §11.6.
+- **`tests/test_pipeline.py`** — удалён dead `test_cast_step` stub
+  (leftover из v0.9.0b, тест без assertions).
+
+### Ограничения (v0.9.1a, §11.5)
+
+- `patch_utils` используется только новыми patch-скриптами (v0.9.1+).
+  Старые (v0.8.x, v0.9.0) сохраняют свою логику — historical artifacts.
+- `conftest.py` — autouse для matplotlib only; torch lazy, уборки не требует.
+
+### Тесты (v0.9.1a)
+
+- +18 fast: 14 `test_patch_utils.py` (CHANGELOG + anchor + insert +
+  Protocol split), +4 dead-test cleanup ensures pipeline suite stays green.
+- RuntimeWarning "More than 20 figures" — исчезает (conftest autouse).
+
+- fast: **~1298** (+18). slow: **9** (unchanged).
+
 ## [0.9.0] — 2026-10-20
 
 ### Добавлено (v0.9.0c — Jupyter integration)

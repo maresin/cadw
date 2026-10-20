@@ -21,6 +21,18 @@ from .ops.dedup import drop_duplicates
 from .ops.rank import compute_ranks_to_disk, VALID_METHODS
 from .ops.quantile import quantile
 from .ops.resample import parse_freq, resample_to_disk
+from .pipeline import (
+    Pipeline,
+    CastStep,
+    DropnaStep,
+    GBDTStep,
+    ColumnTransformer,
+    Transformer,
+    Predictor,
+    register_step_type,
+    unregister_step_type,
+    list_step_types,
+)
 
 from .ml import (
     XTXOp, LinearModel, fit_linear,
@@ -73,4 +85,8 @@ __all__ = [
     "read_partition_batches",
     "external_sort", "read_sorted",
     "groupby_aggregate", "write_groupby_result", "drop_duplicates", "compute_ranks_to_disk", "VALID_METHODS", "quantile", "parse_freq", "resample_to_disk",
+    # v0.9.1d pipeline exports
+    "Pipeline", "CastStep", "DropnaStep", "GBDTStep",
+    "ColumnTransformer", "Transformer", "Predictor",
+    "register_step_type", "unregister_step_type", "list_step_types",
 ]

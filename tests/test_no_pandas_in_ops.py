@@ -47,6 +47,28 @@ def _uses_pandas_import(tree: ast.Module) -> bool:
     return False
 
 
+def _uses_pandas_import_at_module_level(tree: ast.Module) -> bool:
+    """True if module-level (top-level) import of pandas.
+
+    v0.9.1e-fix2 (§13.4/155): lazy `import pandas as pd` inside a
+    function is OK — keeps `import cadw` light, pandas only loaded when
+    needed (e.g., `_per_group_apply` constructs pd.Series/DataFrame from
+    user fn output). Module-level import would eagerly load pandas.
+    """
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "pandas" or alias.name.startswith("pandas."):
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and (
+                node.module == "pandas"
+                or node.module.startswith("pandas.")
+            ):
+                return True
+    return False
+
+
 def test_no_pandas_in_ops_except_shuffle():
     """`cadw/ops/*.py` — no `import pandas` outside whitelist."""
     violations: list[str] = []
@@ -80,12 +102,19 @@ def test_pandas_whitelist_has_rationale():
 
 
 def test_no_pandas_in_dataframe_facade():
-    """`cadw/dataframe.py` — no pandas import (facade is Arrow-native)."""
+    """`cadw/dataframe.py` — no MODULE-LEVEL pandas import.
+
+    v0.9.1e-fix2 (§13.4/155): lazy `import pandas as pd` inside
+    `_emit_group` (used by `_per_group_apply` to construct pd.Series/
+    pd.DataFrame from user fn output) is legitimate — keeps `import
+    cadw` light. Only top-level import is forbidden.
+    """
     py = CADW_OPS.parent / "dataframe.py"
     src = py.read_text()
     tree = ast.parse(src)
-    assert not _uses_pandas_import(tree), (
-        "cadw/dataframe.py must not import pandas (facade is Arrow-native)"
+    assert not _uses_pandas_import_at_module_level(tree), (
+        "cadw/dataframe.py must not import pandas at module level "
+        "(lazy import inside functions OK — see §13.4/155)"
     )
 
 
