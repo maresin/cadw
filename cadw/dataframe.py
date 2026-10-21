@@ -4979,11 +4979,14 @@ class _GroupBy:
         result_col: str = "apply_result",
         on: "str | Sequence[str] | None" = None,
     ) -> "CadwDataFrame":
-        """Per-group apply (v0.9.1e). Prototype-validated (11 cases).
+        """Per-group apply (v0.9.6b2: CADW-native, no pandas).
 
         Args:
-            fn: callable(group_df: pd.DataFrame) → scalar | pd.Series |
-                pd.DataFrame. Uniform mode across groups.
+            fn: callable(group_df: CadwDataFrame) → scalar |
+                dict[str, scalar] | CadwDataFrame. Uniform
+                mode across groups. For pd.Series-like output
+                use a dict; for pd.DataFrame-like output use
+                CadwDataFrame.from_table(pa_table).
             result_col: column name for scalar mode.
             on: within-group sort keys (None → row_id order).
 

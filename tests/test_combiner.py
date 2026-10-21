@@ -231,3 +231,32 @@ def test_dataframe_agg_with_combiner(tmp_path):
     for r in rows:
         i = int(r["k"][1:])
         assert r["v_sum"] == pytest.approx(20 * i + 9500, rel=1e-10)
+
+
+def test_combiner_check_state_called(tmp_path, monkeypatch):
+    # v0.9.9 (N3): _combine_batches / _merge_partials check_state.
+    from cadw.core.memory_guard import MemoryGuard
+    from cadw.ops import groupby as gb_mod
+    import pyarrow as pa
+    guard = MemoryGuard(max_memory_mb=10)
+    calls = []
+    orig_check_state = MemoryGuard.check_state
+    def spy(self, nbytes, *, name='state'):
+        calls.append(name)
+        return orig_check_state(self, nbytes, name=name)
+    monkeypatch.setattr(MemoryGuard, 'check_state', spy)
+    n = 1000
+    table = pa.table({
+        'k': [f'g{i % 50:03d}' for i in range(n)],
+        'v': list(range(n)),
+    })
+    def it():
+        for i in range(0, n, 100):
+            yield table.slice(i, 100).to_batches()[0]
+    gb_mod.groupby_aggregate(
+        it(), ['k'], ['v'], ['sum'], guard, tmp_path,
+        num_partitions=4, combiner=True, log=False,
+    )
+    assert any('combiner' in c for c in calls), (
+        f"expected combiner check_state; got {calls}"
+    )

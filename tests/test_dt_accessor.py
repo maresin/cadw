@@ -118,3 +118,40 @@ def test_dt_null_timestamp_propagates(tmp_path):
     result = df["ts"].dt.month
     got = read_col(result, tmp_path, "ts_month")
     assert got == [1, None, 3]
+
+
+def test_dt_floor_date32_raises_init(tmp_path):
+    # v0.9.9 (N2): date32/64 not supported for floor/ceil/round.
+    import datetime as dt
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from cadw import CadwDataFrame, MemoryGuard
+    t = pa.table({'d': pa.array([dt.date(2020, 1, 1)], type=pa.date32())})
+    p = tmp_path / 'src.parquet'
+    pq.write_table(t, p)
+    df = CadwDataFrame.from_parquet(
+        p, tmp_path / 'ds', chunk_size=2,
+        memory_guard=MemoryGuard(max_memory_mb=10),
+        spill_dir=tmp_path / 'spill',
+    )
+    import pytest
+    with pytest.raises(TypeError, match='expected timestamp'):
+        df['d'].dt.floor('1D')
+
+
+def test_dt_ceil_date64_raises_init(tmp_path):
+    import datetime as dt
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from cadw import CadwDataFrame, MemoryGuard
+    t = pa.table({'d': pa.array([dt.date(2020, 1, 1)], type=pa.date32())})
+    p = tmp_path / 'src.parquet'
+    pq.write_table(t, p)
+    df = CadwDataFrame.from_parquet(
+        p, tmp_path / 'ds', chunk_size=2,
+        memory_guard=MemoryGuard(max_memory_mb=10),
+        spill_dir=tmp_path / 'spill',
+    )
+    import pytest
+    with pytest.raises(TypeError, match='expected timestamp'):
+        df['d'].dt.ceil('1D')

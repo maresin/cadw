@@ -38,6 +38,22 @@ def _validate_temporal(df: "CadwDataFrame", column: str) -> None:
         )
 
 
+def _validate_timestamp_only(df: "CadwDataFrame", column: str) -> None:
+    """v0.9.9 (N2): floor/ceil/round require timestamp (not date).
+
+    date32/64 has no `.unit` attribute; `_freq_bucket` would raise
+    AttributeError mid-iteration instead of clear TypeError in init.
+    Only timestamp types supported for floor/ceil/round.
+    """
+    t = df._dataset.schema.field(column).type
+    if not pa.types.is_timestamp(t):
+        raise TypeError(
+            f".dt.floor/ceil/round: column {column!r} has type {t}; "
+            f"expected timestamp (date32/64 not supported — use "
+            f"cast to timestamp first)"
+        )
+
+
 def _freq_bucket(arr, freq_str, mode):
     # Bucketize timestamp array via int64 math.
     # mode in {"floor", "ceil", "round"} (round half-up).
@@ -134,6 +150,7 @@ class _DtAccessor:
         return self._feature("day_of_year")
 
     def floor(self, freq: str) -> "CadwDataFrame":
+        _validate_timestamp_only(self._parent, self._column)
         return self._feature_custom(
             "floor",
             lambda arr: _freq_bucket(arr, freq, "floor"),
@@ -141,6 +158,7 @@ class _DtAccessor:
         )
 
     def ceil(self, freq: str) -> "CadwDataFrame":
+        _validate_timestamp_only(self._parent, self._column)
         return self._feature_custom(
             "ceil",
             lambda arr: _freq_bucket(arr, freq, "ceil"),
@@ -148,6 +166,7 @@ class _DtAccessor:
         )
 
     def round(self, freq: str) -> "CadwDataFrame":
+        _validate_timestamp_only(self._parent, self._column)
         return self._feature_custom(
             "round",
             lambda arr: _freq_bucket(arr, freq, "round"),

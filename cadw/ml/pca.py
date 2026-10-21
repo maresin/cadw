@@ -17,7 +17,7 @@ Model:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 import pyarrow as pa
@@ -25,6 +25,9 @@ import pyarrow as pa
 from cadw.core.memory_guard import MemoryGuard
 from cadw.ops.reduce import reduce
 from cadw.ops.reduce import CovarianceMeanOp
+
+if TYPE_CHECKING:  # v0.9.9 (B2): forward-annotation only
+    from cadw.dataframe import CadwDataFrame
 
 
 def _stack_numeric(
@@ -46,7 +49,13 @@ def _column_to_f64(arr: pa.Array) -> np.ndarray:
 
 @dataclass
 class PCA:
-    """Fitted PCA model (sklearn.PCA-compatible attributes)."""
+    """Fitted PCA model (sklearn.PCA-compatible attributes).
+
+    v0.9.9 (B4): PCA is a *fitted-model* class — constructor takes
+    all fitted attributes; `n_components` is NOT an __init__ kwarg.
+    Use `fit_pca(df, X_cols, n_components=...)` (or
+    `CadwDataFrame.fit_pca(...)`) to produce a PCA instance.
+    """
 
     components_: np.ndarray             # (k, d)
     mean_: np.ndarray                   # (d,)

@@ -86,6 +86,12 @@ def _combine_batches(
             memory_guard.check_batch(batch, name="combiner.input")
         table = pa.Table.from_batches([batch.select(select_cols)])
         grouped = table.group_by(list(by_columns)).aggregate(base_specs)
+        # v0.9.9 (N3): group_by output + table = peak (checked).
+        if memory_guard is not None:
+            memory_guard.check_state(
+                grouped.nbytes + table.nbytes,
+                name="combiner.group_by",
+            )
 
         # Переименовываем {col}_{base_func} → __comb_{col}_{base_func}.
         # group_by().aggregate() формирует имена `{col}_{func}` — добавим префикс.
@@ -107,6 +113,7 @@ def _merge_partials(
     table: pa.Table,
     by_columns: Sequence[str],
     output_specs: Sequence[tuple[str, str]],  # [(col, func), ...] как в _local_groupby
+    memory_guard: "MemoryGuard | None" = None,  # v0.9.9 (N3)
 ) -> pa.Table:
     """Merge partial aggregates → final aggregated table.
 
@@ -143,6 +150,12 @@ def _merge_partials(
             )
 
     merged = table.group_by(list(by_columns)).aggregate(merge_specs)
+    # v0.9.9 (N3): group_by output + table = peak (checked).
+    if memory_guard is not None:
+        memory_guard.check_state(
+            merged.nbytes + table.nbytes,
+            name="combiner.merge_partials",
+        )
 
     # Финальный output: by + {col}_{func} с правильным dtype.
     fields: list[pa.Field] = []
@@ -336,6 +349,7 @@ def _local_groupby(
                 return _merge_partials(
                     table, by_columns,
                     [(col, f) for col, f in zip(agg_columns, agg_funcs)],
+                    memory_guard=memory_guard,
                 )
             agg_specs = [(col, f) for col, f in zip(agg_columns, agg_funcs)]
             return table.group_by(list(by_columns)).aggregate(agg_specs)

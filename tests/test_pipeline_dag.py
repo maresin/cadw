@@ -293,3 +293,52 @@ def test_repr_html_shows_dag_edges(tmp_path):
     assert "b" in html
     # HTML contains arrow direction marker
     assert "&larr;" in html or "<-" in html
+
+
+def test_merge_fanout_duplicate_new_column_raises(tmp_path):
+    """v0.9.9 (N5) + fix1c: duplicate new column among dfs[1:].
+
+    F5 contract: _merge_fanout treats dfs[0] as base (chain semantics).
+    Guard fires when a NEW column (not in base) appears in TWO branches
+    among dfs[1:]. Honest limitation (§11.5): if the same feature-name
+    is produced by dfs[0] and another branch, base wins silently —
+    _merge_fanout can't distinguish "was in raw" from "added by dfs[0]"
+    without explicit raw_columns (backlog v0.9.10).
+
+    F5-covered scenario: a=base (passthrough x), b produces x_same,
+    c produces x_same → x_same is new (not in a) and duplicated
+    between b and c → RuntimeError.
+    """
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+    import pytest
+    from cadw import CadwDataFrame, MemoryGuard
+    from cadw.pipeline import LambdaTransform, Pipeline
+    t = pa.table({'x': [1, 2, 3, 4]})
+    p = tmp_path / 'src.parquet'
+    pq.write_table(t, p)
+    df = CadwDataFrame.from_parquet(
+        p, tmp_path / 'ds', chunk_size=2,
+        memory_guard=MemoryGuard(max_memory_mb=100),
+        spill_dir=tmp_path / 'spill',
+    )
+    pipe = Pipeline()
+    # Base branch: just passthrough (x only, no new cols).
+    pipe.add_step(
+        'base', __import__('cadw.pipeline', fromlist=['CastStep']).CastStep({'x': 'int64'}),
+        inputs=[],
+    )
+    # Two siblings both produce x_same → duplicate new column.
+    pipe.add_step('b', LambdaTransform(
+        'x', 'same', lambda arr: pc.add(arr, 1), pa.int64(),
+    ), inputs=[])
+    pipe.add_step('c', LambdaTransform(
+        'x', 'same', lambda arr: pc.add(arr, 2), pa.int64(),
+    ), inputs=[])
+    pipe.add_step('merge', __import__('cadw.pipeline', fromlist=['DropnaStep']).DropnaStep(),
+                  inputs=['base', 'b', 'c'])
+    # F5 raises in Pipeline.fit (line 603: _merge_fanout for fan-in),
+    # not transform. Wrap fit in raises.
+    with pytest.raises(RuntimeError, match='duplicate new column'):
+        pipe.fit(df)

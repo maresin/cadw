@@ -687,3 +687,30 @@ def test_all_tests_have_bindings():
         'bare-Call target(s) not bound in test file(s):\n'
         + '\n'.join(errors)
     )
+
+# ============ v0.9.9 (F1): run_verify_in_subprocess ============
+
+
+def test_run_verify_in_subprocess_ok():
+    from cadw.patch_utils import run_verify_in_subprocess
+    def dogfood_ok():
+        import pyarrow  # noqa
+        print('inner ok')
+    run_verify_in_subprocess(dogfood_ok)
+
+
+def test_run_verify_in_subprocess_raises_on_failure():
+    from cadw.patch_utils import run_verify_in_subprocess
+    def dogfood_fails():
+        raise ValueError('intentional')
+    with pytest.raises(SystemExit):
+        run_verify_in_subprocess(dogfood_fails)
+
+
+def test_run_verify_in_subprocess_has_cadw_fresh():
+    from cadw.patch_utils import run_verify_in_subprocess
+    def dogfood_import_cadw():
+        from cadw.core.memory_guard import MemoryGuard
+        g = MemoryGuard(max_memory_mb=10)
+        assert g.budget_bytes == 10 * 1024 * 1024
+    run_verify_in_subprocess(dogfood_import_cadw)

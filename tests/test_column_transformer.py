@@ -214,3 +214,23 @@ def test_to_dict_lambda_nested_raises():
     ])
     with pytest.raises(NotImplementedError, match="LambdaTransform cannot"):
         ct.to_dict()
+
+
+def test_ct_to_dict_uses_serialization_name():
+    # v0.9.9 (N1): custom-step registered name, not class name.
+    from cadw.pipeline import ColumnTransformer
+    from tests.test_register_step_type import _CustomStep, _STEP_REGISTRY
+    import pytest
+    from cadw.pipeline import register_step_type
+    register_step_type('MyCustomV99', _CustomStep)
+    try:
+        ct = ColumnTransformer([
+            ('t1', ['x'], _CustomStep({'x': 'float64'})),
+        ])
+        d = ct.to_dict()
+        assert d['transformers'][0]['type'] == 'MyCustomV99', (
+            f"expected 'MyCustomV99', got {d['transformers'][0]['type']!r}"
+        )
+    finally:
+        from cadw.pipeline import unregister_step_type
+        unregister_step_type('MyCustomV99')

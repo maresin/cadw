@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 
+from pathlib import Path  # v0.9.9 (B3): for `-> Path` annotation
 from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
 
 from cadw.core.memory_guard import MemoryGuard
@@ -110,14 +111,26 @@ def _merge_fanout(dfs: list) -> "CadwDataFrame":
     # Build output schema: base (dfs[0]) + new columns from others
     base_cols = list(dfs[0].columns)
     base_cols_set = set(base_cols)
-    seen = set(base_cols)
+    # v0.9.9 (N5): track NEW column -> first branch index. Duplicate
+    # new column from two branches → clear RuntimeError (prior
+    # silent dedup led to "Schema and number of arrays unequal"
+    # in RecordBatch.from_arrays, cryptic downstream).
+    seen_new: dict = {}
     out_fields = [dfs[0]._dataset.schema.field(c) for c in base_cols]
-    for d in dfs[1:]:
+    for i, d in enumerate(dfs[1:], start=1):
         for c in d.columns:
-            if c in seen:
+            if c in base_cols_set:
                 continue
+            if c in seen_new:
+                raise RuntimeError(
+                    f"_merge_fanout: duplicate new column {c!r} from "
+                    f"DAG branches {seen_new[c]} and {i}. Rename one "
+                    f"of them (or wrap in ColumnTransformer with "
+                    f"distinct feature names)."
+                )
+            seen_new[c] = i
             out_fields.append(d._dataset.schema.field(c))
-            seen.add(c)
+    seen = base_cols_set | set(seen_new.keys())
     out_schema = pa.schema(out_fields)
 
     BATCH = 10_000
@@ -1254,10 +1267,15 @@ class ColumnTransformer:
                     f"ColumnTransformer.to_dict: nested step {name!r} "
                     f"({type(step).__name__}) does not implement to_dict()"
                 )
+            # v0.9.9 (N1): use __serialization_name__ (set by
+            # register_step_type) so from_json finds the same key.
             entries.append({
                 "name": name,
                 "cols": list(cols),
-                "type": type(step).__name__,
+                "type": getattr(
+                    type(step), "__serialization_name__",
+                    type(step).__name__,
+                ),
                 "step_dict": step.to_dict(),
             })
         return {

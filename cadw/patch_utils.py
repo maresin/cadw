@@ -369,6 +369,70 @@ def _collect_call_linenos(tree):
     return out
 
 
+# ============ v0.9.9 (F1): subprocess-based verify (§13.4/178) ============
+#
+# 7× recurring stale-module-cache in patch scripts (v0.9.5a-fix1, 
+# v0.9.6d-fix1, v0.9.6d-fix2, v0.9.6e2-fix1, v0.9.8a-fix2,
+# v0.9.8b-fix1, v0.9.8c-fix1). Root: patch-script imports module X at
+# top; modifies X.py on disk; dogfood reimports X → gets OLD class
+# object from sys.modules. Fix: run dogfood in fresh subprocess.
+
+
+def run_verify_in_subprocess(verify_fn, *, timeout=300):
+    """Run verify_fn in fresh subprocess (structural §13.4/178 fix).
+
+    Saves inspect.getsource(verify_fn) to temp file in project root,
+    invokes `python temp_file` → fresh interpreter → fresh imports
+    → no stale module cache. Prints verify_fn's output to caller's
+    stdout; raises SystemExit(1) on any failure.
+
+    verify_fn must be self-contained: all imports inside its body
+    (nested def or module-level function). Typical usage:
+
+        def dogfood():
+            import pyarrow as pa
+            from cadw.core.memory_guard import MemoryGuard
+            g = MemoryGuard(max_memory_mb=10)
+            # assertions
+
+        run_verify_in_subprocess(dogfood)
+
+    Args:
+        verify_fn: callable() -> None. Raises on failure.
+        timeout: subprocess timeout (seconds).
+    """
+    import inspect as _inspect
+    import subprocess as _sp
+    import sys as _sys
+    import tempfile as _tempfile
+    from pathlib import Path as _P
+
+    import textwrap as _tw
+    source = _tw.dedent(_inspect.getsource(verify_fn))
+    with _tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", delete=False,
+        dir=".", prefix="_verify_",
+    ) as f:
+        f.write(source)
+        f.write("\n\n")
+        f.write(f"{verify_fn.__name__}()\n")
+        f.write(f"print('VERIFY OK: {verify_fn.__name__}')\n")
+        tmp_path = _P(f.name)
+
+    try:
+        r = _sp.run(
+            [_sys.executable, str(tmp_path)],
+            cwd=str(_P.cwd()),
+            timeout=timeout,
+        )
+        if r.returncode != 0:
+            raise SystemExit(
+                f"verify_fn {verify_fn.__name__!r} failed "
+                f"(exit {r.returncode}); see stderr above"
+            )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
 def assert_no_call_in_source(src, *names, fn_name="<unknown>"):
     """AST: raise AssertionError if any Call node matches `name`.
 
