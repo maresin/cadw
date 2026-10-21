@@ -5211,7 +5211,18 @@ def _convert_batch(batch: pa.RecordBatch, format: str):
     if format == "arrow":
         return batch
     if format == "pandas":
-        return batch.to_pandas()
+        # v0.9.6e1: pandas is optional. Arrow's to_pandas() raises
+        # ModuleNotFoundError without pandas; convert to a clear
+        # install-hint error.
+        try:
+            return batch.to_pandas()
+        except (ImportError, ModuleNotFoundError) as e:
+            raise ImportError(
+                "to_batches(format='pandas') requires pandas. "
+                "Install with: uv add 'cadw-framework[pandas]' "
+                "(or: pip install pandas). For pandas-free usage, "
+                "use format='arrow' | 'numpy' | 'torch'."
+            ) from e
     if format == "numpy":
         return {
             name: batch.column(i).to_numpy(zero_copy_only=False)

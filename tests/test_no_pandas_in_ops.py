@@ -190,3 +190,66 @@ def test_no_pandas_in_per_group_apply():
                         f'{name} imports from pandas; must be '
                         'CADW-native'
                     )
+
+
+# ============ v0.9.6e1: whole-cadw pandas guard ============
+
+
+_ALLOWED_PANDAS_FILES = {
+    # seaborn API requires pandas.DataFrame; adapter is the
+    # intentional bridge (Arrow CADW -> seaborn). Not execution
+    # path — only invoked when user explicitly calls
+    # df.plot.seaborn.* or cadw.viz.seaborn_adapter.*
+    "cadw/viz/seaborn_adapter.py":
+        "seaborn API requires pandas.DataFrame; adapter bridge",
+}
+
+
+def test_no_pandas_import_anywhere_in_cadw():
+    """No `import pandas` in any cadw/**/*.py, except explicit
+    allow-list (viz/seaborn_adapter.py)."""
+    cadw_root = CADW_OPS.parent
+    violations: list[str] = []
+    for py in sorted(cadw_root.rglob('*.py')):
+        rel = py.relative_to(cadw_root.parent).as_posix()
+        if rel in _ALLOWED_PANDAS_FILES:
+            continue
+        try:
+            tree = ast.parse(py.read_text())
+        except SyntaxError:
+            continue
+        if _uses_pandas_import(tree):
+            violations.append(rel)
+
+    assert not violations, (
+        "Unexpected `import pandas` in cadw/: "
+        + str(violations)
+        + ". v0.9.6e1: pandas is optional; use format=arrow/numpy/torch. "
+        + "Allow-list: " + str(sorted(_ALLOWED_PANDAS_FILES))
+    )
+
+
+def test_pandas_optional_in_pyproject():
+    """pyproject: pandas is in optional-dependencies.pandas +
+    dev group, NOT in project.dependencies."""
+    import tomllib
+    from pathlib import Path as _P
+    pyproject_path = _P(__file__).parent.parent / 'pyproject.toml'
+    data = tomllib.loads(pyproject_path.read_text())
+
+    core_deps = data['project'].get('dependencies', [])
+    for d in core_deps:
+        assert not d.startswith('pandas'), (
+            f'pandas must not be in [project.dependencies]; got {d}'
+        )
+
+    optional = data['project'].get('optional-dependencies', {})
+    assert 'pandas' in optional, (
+        'pandas missing from [project.optional-dependencies]'
+    )
+    assert any('pandas' in spec for spec in optional['pandas'])
+
+    dev_deps = data.get('dependency-groups', {}).get('dev', [])
+    assert any(d.startswith('pandas') for d in dev_deps), (
+        'pandas must be in [dependency-groups].dev for test helpers'
+    )
