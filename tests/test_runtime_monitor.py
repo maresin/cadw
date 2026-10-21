@@ -56,7 +56,12 @@ def test_calibrate_records_sample():
     assert len(samples["test_op"]) == 1
     s = samples["test_op"][0]
     assert s["predicted"] == 5000
-    assert "arrow" in s and "rss" in s
+    # v0.9.20-fix3 (§13.4/235): entry has peak_pool/peak_rss (deltas
+    # above op-start, comparable to formula predicted). v0.9.19 fields
+    # ("arrow"/"rss") are stale.
+    assert "peak_pool" in s and "peak_rss" in s
+    assert "net_pool_delta" in s and "net_rss_delta" in s
+    assert s["sample_mode"] == "delta"
 
 
 def test_calibrate_accumulates_samples():
@@ -391,3 +396,52 @@ def test_calibrate_does_not_call_get_delta():
         f"calibrate() called _get_rss_delta {calls['rss']} times "
         f"(expected 0; would consume fake reads and collapse delta)"
     )
+
+
+# ============ v0.9.20-fix1: bench decomposition ============
+
+
+def test_bench_has_decomposed_columns():
+    """v0.9.20-fix1: bench prints pred_batch/pred_state/C_batch columns.
+
+    User feedback: 'why only batch size, no aux object sizes?'
+    Fix decomposes reduce (batch + state), wires sort/shuffle/groupby
+    models for pred_total, and adds C_batch = peak/batch (N× batch
+    memory transparency for ops with significant non-batch state).
+    """
+    from pathlib import Path as _P
+    bench = (
+        _P(__file__).resolve().parent.parent
+        / "scripts" / "bench_v0919_calibration.py"
+    )
+    src = bench.read_text()
+    # Header column names
+    assert "pred_batch" in src, "missing pred_batch column"
+    assert "pred_state" in src, "missing pred_state column"
+    assert "pred_total" in src, "missing pred_total column"
+    assert "C_batch" in src, "missing C_batch column"
+    # Model wiring for sort/shuffle/groupby
+    assert '_model_predicted("sort"' in src, "sort model not wired"
+    assert '_model_predicted("hash_shuffle"' in src, (
+        "hash_shuffle model not wired"
+    )
+    assert '_model_predicted("groupby"' in src, (
+        "groupby model not wired"
+    )
+
+
+def test_bench_wires_models_via_solve_estimate():
+    """v0.9.20-fix1: bench uses model.solve()+estimate() for pred_total.
+
+    §9.2.2-4 formulas exist; bench must call them, not hardcode 0.
+    """
+    from pathlib import Path as _P
+    bench = (
+        _P(__file__).resolve().parent.parent
+        / "scripts" / "bench_v0919_calibration.py"
+    )
+    src = bench.read_text()
+    assert "model.solve(" in src
+    assert "model.estimate(" in src
+    # data_chars_from_sample imported for DataChars construction
+    assert "data_chars_from_sample" in src

@@ -5123,6 +5123,55 @@ AST, не regex/string.
 **Связанные:** §13.4/216 (existing helper, use it), /213 (negative → AST).
 
 
+**Эпизод 226 (nullable int to_numpy → float64).** v0.9.18-fix1: `DictionaryArray.indices.to_numpy(zero_copy_only=False)` на null-содержащем массиве возвращает **float64** (NaN для null), не int64. `uniq_hashes[indices[non_null]]` → `IndexError: arrays used as indices must be integer type`.
+
+**Правило (§13.4/226):** pyarrow nullable integer `Array.to_numpy(zero_copy_only=False)` → **float64** (NaN), не int64. Для integer-indexing: `arr.fill_null(0).to_numpy(...).astype(int64)` + отдельная `null_mask = arr.is_null().to_numpy()`. Same class as §13.4/223 (bool→int): pyarrow to_numpy теряет Arrow type strictness при nulls.
+
+**Связанные:** §13.4/223, /229 (numpy `==` coercion).
+
+
+**Эпизод 227 (dictionary_encode all-null → empty dict).** v0.9.18-fix2: `pa.array([None, None, None]).dictionary_encode()` даёт **empty dictionary** (K=0), indices = [null, null, null]. `fill_null(0)` → [0, 0, 0], но `uniq_hashes` размера 0 → `IndexError: index 0 is out of bounds`.
+
+**Правило (§13.4/227):** `dictionary_encode()` на all-null array → пустой dictionary. Проверять `K == 0` **до** любых индексных операций. All-null → all `_NULL_SENTINEL`, no dictionary path.
+
+**Связанные:** §13.4/226.
+
+
+**Эпизод 228 (dogfood = happy path only).** v0.9.18-fix1/fix2: dogfood упал на null-containing path (fix1 root cause), затем на all-null path (fix2 root cause). При этом `test_string_hash_all_nulls` **уже был** в fix1 тестах и поймал бы баг за 10 секунд pytest — но dogfood упал первым.
+
+**Правило (§13.4/228):** dogfood — быстрый happy-path smoke + только структурные инварианты, требующие subprocess (fresh imports). Edge cases — pytest. Иначе каждый edge bug = отдельный patch cycle (3 fix на v0.9.19: initial + fix1 + fix2).
+
+**Связанные:** §13.4/216 (helper exists), /225 (guard scope).
+
+
+**Эпизод 229 (numpy element-wise == coerces label).** v0.9.18-fix3: `get_positions_all(('a', 1))` на string index: `np_arr == ('a', 1)` → numpy coerces tuple to string array, matches first element → false positive position `[0]`. Python `"1" == 1` → False (type strict); numpy `np.array(['1']) == 1` → `[True]` (str coercion). 13 tests с `loc[tuple]` на single index падали с false-positive match.
+
+**Правило (§13.4/229):** numpy fast path для label-lookup безопасен только для **same-type scalar comparisons**. Для string/object index + non-scalar labels — Python loop (type-strict). Same class: §13.4/223 (bool→int), /226 (nullable int → float64): numpy теряет Arrow type strictness.
+
+**Связанные:** §13.4/226, /223.
+
+
+**Эпизод 230 (write_content lines — complete syntactic units).** v0.9.19-fix1: bench script broken — print-headers f-string разбит на два `write_content(lines)` элемента без закрывающей `"` в первом. Результат: два f-string open, один close → `SyntaxError` на line 83. `assert_compiles` сработал, patch упал до commit.
+
+**Правило (§13.4/230):** `write_content(lines: list[str])` — каждый элемент = одна полная строка файла. Каждый должен быть **complete syntactic unit** для multi-part construct (f-string, string concatenation, backslash continuation). Нельзя разбить `f"...` mid-literal. Опции: single-line f-string, `\` continuation, или вынести в переменную.
+
+**Связанные:** §13.4/211 (compile-before-write), /212.
+
+
+**Эпизод 231 (helper methods = caller-facing).** v0.9.19-fix2: `calibrate()` prologue вызывал `_get_pool_delta()` и `_get_rss_delta()` для «ensure baselines init». Эти helpers — **caller-facing measurement APIs**, читают `self._pool`/`self._process` при **каждом** вызове, даже когда baseline уже установлен. Fake с 2 reads `[0, 100M]`: prologue consumed read 0 for each, `pool_start`/`pool_end` both read clamped `value[1]` → `delta = 0` → no raise.
+
+**Правило (§13.4/231):** helper с публичной семантикой («сколько delta с момента baseline») нельзя звать изнутри критического path (calibrate), где контракт другой («1 read start + 1 read end»). calibrate() делает **прямой lazy init** (только когда `None`), не зовёт `_get_*_delta`. Same class как §13.4/178 (вакуумный guard): helper выглядит как utility, но его использование ломает контракт.
+
+**Связанные:** §13.4/178, /230 (fix1), /226 (fix1).
+
+
+**Эпизод 232 (metric unit must match formula unit).** v0.9.19 bench: C_arrow = net_delta / predicted = 0.00 для reduce ops. Formula §9.2.1 predicts **absolute peak** (batch + 2×state); metric measured **net delta** (end − start). Батчи pre-allocated at guard creation, Arrow temp buffers released before end-of-op → net ≈ 0. C_arrow=0 — honest (no leak), но useless как formula validation. v0.9.20: peak-polling (background thread, 10ms sample) → peak_absolute compared to formula. C_peak = peak_pool / predicted, expected 1.5-3.0 (formula excludes Arrow temp buffers, sort_indices intermediate).
+
+**Правило (§13.4/232):** metric unit must match formula unit. Peak vs peak, delta vs delta. Never cross. Bench делал net_delta/predicted_peak — metric artifact, не formula drift.
+
+**Связанные:** §13.4/231 (calibrate проlogue), /229 (type coercion — same «wrong thing measured» class).
+
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).

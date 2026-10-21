@@ -93,3 +93,36 @@ def test_changelog_is_descending():
         f"CHANGELOG not descending. Order: {list(zip(versions, keys))}"
     )
 
+
+
+# ============ v0.9.20-fix1 (§13.4/233): DECISIONS order ============
+
+
+def test_decisions_226_232_order():
+    """v0.9.20-fix1: episodes 226-232 ordered after 225, before §13.5.
+
+    §13.4/233: append with fallback anchor must pick LATEST candidate
+    explicitly. v0.9.20 used anchor = "**Gap 190-210" (present from
+    v0.9.17) with fallback to §13.5 — since gap-note existed, 226-232
+    inserted BEFORE it → order became 189...226-232...gap...211-225.
+    Test pins correct order: 225 < 226 < 232 < §13.5.
+    """
+    from pathlib import Path as _P
+    path = _P(__file__).resolve().parent.parent / "DECISIONS.md"
+    text = path.read_text()
+    if "**Эпизод 226 " not in text:
+        pytest.skip("226 block not yet present (v0.9.20 not applied)")
+    idx_225 = text.index("**Эпизод 225 ")
+    idx_226 = text.index("**Эпизод 226 ")
+    idx_232 = text.index("**Эпизод 232 ")
+    idx_135 = text.index("### 13.5. Открытые вопросы")
+    assert idx_225 < idx_226, (
+        f"Эпизод 226 ({idx_226}) appears before 225 ({idx_225}) — "
+        f"append inserted in wrong position"
+    )
+    assert idx_226 < idx_232, (
+        f"Эпизод 232 ({idx_232}) before 226 ({idx_226})"
+    )
+    assert idx_232 < idx_135, (
+        f"Эпизод 232 ({idx_232}) after §13.5 ({idx_135})"
+    )

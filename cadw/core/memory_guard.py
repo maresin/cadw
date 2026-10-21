@@ -452,6 +452,8 @@ class MemoryGuard:
         self,
         op_name: str,
         predicted_bytes: int = 0,
+        sample_peak: bool = False,
+        sample_interval_ms: float = 10.0,
     ) -> Iterator[None]:
         """Measure pool + RSS delta for op; warn on formula drift.
 
@@ -467,6 +469,15 @@ class MemoryGuard:
         pass model estimate to get actionable drift signal.
 
         Both flags off → yield only, zero overhead.
+
+        v0.9.20: `sample_peak=True` — start background thread that polls
+        pa.default_memory_pool().bytes_allocated() and psutil RSS every
+        `sample_interval_ms` (default 10ms), tracking max. Records
+        peak_absolute (peak above Arrow zero, comparable to formula §9.2.N
+        which predicts absolute peak) AND peak_delta (peak above op-start
+        baseline). Use when validating formula (absolute) or detecting
+        unmodeled temp buffers (delta). No overhead when calibrate=False
+        — thread only spawns when sample_peak=True AND calibrate=True.
         """
         if not (self._calibrate or self._runtime_monitor):
             yield
@@ -489,74 +500,152 @@ class MemoryGuard:
         pool_start = self._pool.bytes_allocated()
         rss_start = self._process.memory_info().rss
 
+        # v0.9.20: optional peak sampling via background thread.
+        # Runs only when sample_peak=True AND (calibrate or monitor).
+        # Thread spawn ~100us; polls every sample_interval_ms.
+        peak_pool_box = [pool_start]
+        peak_rss_box = [rss_start]
+        stop_evt = None
+        sampler_thread = None
+        if sample_peak:
+            import threading
+            stop_evt = threading.Event()
+            interval_s = max(0.001, float(sample_interval_ms) / 1000.0)
+
+            def _sampler():
+                while not stop_evt.is_set():
+                    try:
+                        p = self._pool.bytes_allocated()
+                        r = self._process.memory_info().rss
+                        if p > peak_pool_box[0]:
+                            peak_pool_box[0] = p
+                        if r > peak_rss_box[0]:
+                            peak_rss_box[0] = r
+                    except Exception:
+                        pass
+                    stop_evt.wait(interval_s)
+
+            sampler_thread = threading.Thread(
+                target=_sampler, daemon=True,
+                name=f"cadw_peak_sampler_{op_name}",
+            )
+            sampler_thread.start()
+
         try:
             yield
         finally:
+            if stop_evt is not None:
+                stop_evt.set()
+                if sampler_thread is not None:
+                    sampler_thread.join(timeout=2.0)
+
             pool_end = self._pool.bytes_allocated()
             rss_end = self._process.memory_info().rss
-            pool_delta = pool_end - pool_start
-            rss_delta = rss_end - rss_start
+            net_pool_delta = pool_end - pool_start
+            net_rss_delta = rss_end - rss_start
 
-            # Tier 2 (runtime_monitor): hard safety net via RSS
+            if sample_peak:
+                peak_pool_abs = peak_pool_box[0]
+                peak_rss_abs = peak_rss_box[0]
+                peak_pool_delta = peak_pool_abs - pool_start
+                peak_rss_delta = peak_rss_abs - rss_start
+            else:
+                peak_pool_abs = pool_end
+                peak_rss_abs = rss_end
+                peak_pool_delta = net_pool_delta
+                peak_rss_delta = net_rss_delta
+
+            # Tier 2 (runtime_monitor): hard safety net via peak RSS
+            # when sampled (more honest), fallback net RSS otherwise.
             if self._runtime_monitor:
+                effective_rss = peak_rss_delta if sample_peak else net_rss_delta
                 soft = int(self._budget * self._rss_soft_factor)
                 hard = int(self._budget * self._rss_hard_factor)
-                if rss_delta > hard:
+                if effective_rss > hard:
                     raise MemoryLimitExceeded(
-                        f"{op_name}: RSS delta {rss_delta} B > "
+                        f"{op_name}: RSS delta {effective_rss} B > "
                         f"{self._rss_hard_factor:.1f}× budget ({hard} B). "
                         f"Unmodeled allocation (numpy/pandas/foreign lib?). "
-                        f"Arrow delta {pool_delta} B. See §9.6."
+                        f"Arrow delta {peak_pool_delta if sample_peak else net_pool_delta} B. "
+                        f"See §9.6."
                     )
-                elif rss_delta > soft:
+                elif effective_rss > soft:
                     logger.warning(
                         "RSS soft-drift: op=%s delta=%d B > %.1f× budget "
                         "(soft=%d B, hard=%d B). Arrow delta %d B.",
-                        op_name, rss_delta, self._rss_soft_factor,
-                        soft, hard, pool_delta,
+                        op_name, effective_rss, self._rss_soft_factor,
+                        soft, hard,
+                        peak_pool_delta if sample_peak else net_pool_delta,
                     )
 
             # Tier 3 (calibrate): log sample, warn on formula drift
+            # v0.9.20-fix3 (§13.4/235): pass peak DELTA (above op-start)
+            # not peak ABS. Formula §9.2.N predicts delta (batch + state);
+            # actual must be delta too. Absolute pool/RSS include
+            # pre-existing allocations (all batches, interpreter) → C
+            # absurd (e.g. 161 MB / 5 KB = 32210).
             if self._calibrate:
                 self._record_calibration(
-                    op_name, predicted_bytes, pool_delta, rss_delta,
+                    op_name,
+                    predicted_bytes,
+                    peak_pool_delta,
+                    peak_rss_delta,
+                    net_pool_delta,
+                    net_rss_delta,
+                    sample_mode=sample_peak,
                 )
 
     def _record_calibration(
         self,
         op_name: str,
         predicted: int,
-        actual_pool: int,
-        actual_rss: int,
+        peak_pool_delta: int,
+        peak_rss_delta: int,
+        net_pool_delta: int,
+        net_rss_delta: int,
+        *,
+        sample_mode: bool = False,
     ) -> None:
-        """Append calibration sample; warn on C = actual/predicted > 2."""
+        """Append calibration sample; warn on C = peak_delta/predicted > 2.
+
+        v0.9.20-fix3 (§13.4/235): peak_pool/peak_rss entry fields are
+        DELTAS above op-start (peak_abs - start), not absolute.
+        Formula §9.2.N predicts delta (batch + state); comparison must
+        be delta/delta, not absolute/predicted. v0.9.20 compared peak_abs
+        (e.g. 161 MB interpreter RSS) to predicted (5 KB) → C=32210.
+        """
         entry = {
             "predicted": int(predicted),
-            "arrow": int(actual_pool),
-            "rss": int(actual_rss),
+            "peak_pool": int(peak_pool_delta),
+            "peak_rss": int(peak_rss_delta),
+            "net_pool_delta": int(net_pool_delta),
+            "net_rss_delta": int(net_rss_delta),
+            "sample_mode": "peak" if sample_mode else "delta",
         }
         self._calibration_samples.setdefault(op_name, []).append(entry)
 
         if predicted > 0:
-            c_arrow = actual_pool / predicted
-            c_rss = actual_rss / predicted
+            c_peak = peak_pool_delta / predicted
+            c_rss = peak_rss_delta / predicted
             logger.info(
-                "calibrate op=%s predicted=%d arrow=%d (C=%.2f) "
-                "rss=%d (C=%.2f)",
-                op_name, predicted, actual_pool, c_arrow,
-                actual_rss, c_rss,
+                "calibrate op=%s mode=%s predicted=%d peak_pool_delta=%d "
+                "(C=%.2f) peak_rss_delta=%d (C=%.2f) net_pool_delta=%d",
+                op_name, entry["sample_mode"], predicted, peak_pool_delta,
+                c_peak, peak_rss_delta, c_rss, net_pool_delta,
             )
-            if c_arrow > 2.0 or c_rss > 2.0:
+            if c_peak > 2.0 or c_rss > 2.0:
                 logger.warning(
-                    "calibrate DRIFT: op=%s predicted=%d C_arrow=%.2f "
+                    "calibrate DRIFT: op=%s predicted=%d C_peak=%.2f "
                     "C_rss=%.2f (threshold 2.0; consider fixing formula "
                     "or updating §9.2.N calibration)",
-                    op_name, predicted, c_arrow, c_rss,
+                    op_name, predicted, c_peak, c_rss,
                 )
         else:
             logger.info(
-                "calibrate op=%s predicted=unknown arrow=%d rss=%d",
-                op_name, actual_pool, actual_rss,
+                "calibrate op=%s mode=%s predicted=unknown "
+                "peak_pool_delta=%d peak_rss_delta=%d net_pool_delta=%d",
+                op_name, entry["sample_mode"], peak_pool_delta,
+                peak_rss_delta, net_pool_delta,
             )
 
     @property

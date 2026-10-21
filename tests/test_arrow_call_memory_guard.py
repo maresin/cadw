@@ -90,6 +90,18 @@ WHITELISTED_FUNCS = {
         "dict_encode O(K + batch) where K = uniques-in-batch; caller "
         "hash_shuffle._process check_batch(extra_factor=3.0) covers "
         "peak ≤ 3×batch.nbytes; §13.4/226/227 null edges handled",
+    # v0.9.20-fix4 (§13.4/236): MemoryGuard.calibrate calls
+    # sampler_thread.join(timeout=2.0) — that's threading.Thread.join
+    # (stdlib, safe daemon cleanup), NOT pa.Table.join (C++ hash join,
+    # unbounded output materialization). AST guard matches by attribute
+    # name only; Thread.join is safe. Sampler thread: daemon, 10ms
+    # interval, join has 2s timeout. Rationale MUST keep the
+    # "threading.Thread.join" phrase — test_calibrate_thread_join_whitelisted
+    # asserts it to prevent silent removal (hiding real Table.join).
+    "cadw/core/memory_guard.py:MemoryGuard.calibrate":
+        "threading.Thread.join(timeout=2.0) for peak sampler daemon "
+        "cleanup; NOT pa.Table.join; sampler bounded 10ms interval, "
+        "2s timeout, daemon thread",
     # --- dataframe.py: bounded accumulators / per-batch conversions ---
     "cadw/dataframe.py:_concat_batches":
         "bounded accum list (one group/window), not N",
@@ -472,4 +484,67 @@ def test_estimate_k_sample_whitelist_rationale_updated():
         )
         assert 'to_pandas' not in rationale, (
             f'{key}: stale to_pandas rationale (v0.9.6c1 removed pandas)'
+        )
+
+# ============ v0.9.20-fix4 (§13.4/236): calibrate whitelist ============
+
+
+def test_calibrate_thread_join_whitelisted():
+    """MemoryGuard.calibrate whitelisted for threading.Thread.join.
+
+    v0.9.20 introduced `sampler_thread.join(timeout=2.0)` in calibrate
+    for peak sampler cleanup. AST guard matches by attribute name only
+    ("join"), so this benign stdlib call is flagged. Whitelist entry
+    exists with rationale; this test asserts:
+      (a) key present in WHITELISTED_FUNCS
+      (b) rationale mentions "threading.Thread.join" — proves the
+          entry is for the benign stdlib call, not papering over a
+          real pa.Table.join violation elsewhere in calibrate.
+    """
+    key = "cadw/core/memory_guard.py:MemoryGuard.calibrate"
+    assert key in WHITELISTED_FUNCS, (
+        f"{key!r} missing from whitelist — MemoryGuard.calibrate has "
+        f"threading.Thread.join(); AST guard false-positives without "
+        f"whitelist. See §13.4/236."
+    )
+    rationale = WHITELISTED_FUNCS[key]
+    assert "threading.Thread.join" in rationale, (
+        f"{key!r} rationale must mention 'threading.Thread.join' to "
+        f"distinguish from pa.Table.join. Rationale: {rationale!r}"
+    )
+    assert "NOT pa.Table.join" in rationale or "not pa.Table.join" in rationale, (
+        f"{key!r} rationale must state NOT pa.Table.join "
+        f"(otherwise may hide real C++ hash join violations). "
+        f"Rationale: {rationale!r}"
+    )
+
+
+def test_calibrate_uses_thread_join_not_table_join():
+    """AST: calibrate calls .join() on sampler_thread, not on pa.Table.
+
+    Verifies that the whitelist is genuine: calibrate really uses
+    threading.Thread.join, not pa.Table.join somewhere.
+    """
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _tw
+    from cadw.core.memory_guard import MemoryGuard
+
+    src = _tw.dedent(_inspect.getsource(MemoryGuard.calibrate))
+    tree = _ast.parse(src)
+    join_receivers = []
+    for node in _ast.walk(tree):
+        if (isinstance(node, _ast.Call)
+                and isinstance(node.func, _ast.Attribute)
+                and node.func.attr == "join"):
+            recv = node.func.value
+            if isinstance(recv, _ast.Name):
+                join_receivers.append(recv.id)
+            else:
+                join_receivers.append(_ast.unparse(recv))
+    assert join_receivers, "expected at least one .join() call in calibrate"
+    for recv in join_receivers:
+        assert "sampler" in recv.lower() or "thread" in recv.lower(), (
+            f"calibrate .join() receiver {recv!r} is not thread-like — "
+            f"whitelist may hide real Table.join. Receivers: {join_receivers}"
         )
