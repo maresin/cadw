@@ -477,25 +477,74 @@ _HEAVY_ABSOLUTE_MIN = 100
 
 
 def _detect_heavy_keys(sample_batches, by_columns, threshold_ratio: float = _HEAVY_RATIO) -> set:
-    """Тяжёлые ключи по sample: доля в sample > threshold_ratio."""
+    """Тяжёлые ключи по sample: доля в sample > threshold_ratio.
+
+    v0.9.12 (F12-4, PF1): Arrow-native. Prior: per-row Python loop
+    with .as_py() per column per row — 10k iterations per groupby
+    call (~10-50 ms). Now: pa.concat_tables + group_by().aggregate(
+    [(first_key, "count")]) — ~10x faster, single C++ pass.
+
+    Threshold semantics preserved: heavy iff count >= 100 AND
+    count > total * threshold_ratio. Integer arithmetic:
+    int(total*ratio)+1 == strict `cnt > total*ratio` for all
+    integer counts (verified: t*0.05 truncates, +1 restores).
+    """
     if not sample_batches:
         return set()
-    from collections import Counter
-    counter: Counter = Counter()
-    for b in sample_batches:
-        for i in range(b.num_rows):
-            key = tuple(b.column(c)[i].as_py() for c in by_columns)
-            counter[key] += 1
-    total = sum(counter.values())
+
+    import pyarrow.compute as pc
+
+    by_list = list(by_columns)
+    tables = [
+        pa.Table.from_batches([b.select(by_list)])
+        for b in sample_batches
+    ]
+    combined = pa.concat_tables(tables, promote_options="default")
+    if combined.num_rows == 0:
+        return set()
+
+    first_key = by_list[0]
+    counts = combined.group_by(by_list).aggregate(
+        [(first_key, "count")]
+    )
+    count_col = f"{first_key}_count"
+    total = int(pc.sum(counts.column(count_col)).as_py() or 0)
     if total == 0:
         return set()
+
+    threshold_abs = max(
+        _HEAVY_ABSOLUTE_MIN,
+        int(total * threshold_ratio) + 1,
+    )
+    mask = pc.greater_equal(
+        counts.column(count_col),
+        pa.scalar(threshold_abs, pa.int64()),
+    )
+    filtered = counts.filter(mask)
     return {
-        k for k, cnt in counter.items()
-        if cnt >= _HEAVY_ABSOLUTE_MIN and cnt / total > threshold_ratio
+        tuple(row[c] for c in by_list)
+        for row in filtered.select(by_list).to_pylist()
     }
 
 
 def _compute_heavy_mask(batch: pa.RecordBatch, by_columns, heavy_keys: set) -> pa.Array:
+    """Boolean mask: True where row's key is in heavy_keys.
+
+    v0.9.12-fix2 (§13.4/218): fill_null(False). Prior code
+    returned mask with null values on rows where any by_col
+    was null: pc.equal(null, non_null) = null (Kleene logic),
+    and_(True, null) = null, or_(False, null) = null. Then
+    batch.filter(null) treats null as false → null-key rows
+    dropped from heavy_batch AND from light_batch
+    (invert(null) = null). Silent data loss: any groupby
+    with nulls triggering skew path lost all null-key rows
+    (v0.3.4 to v0.9.12-fix1, ~3 months, no test).
+
+    Fix: fill_null(False) — null-key rows explicitly → light
+    path (invert(False)=True), shuffled by _NULL_SENTINEL,
+    grouped by pyarrow, preserved in output. Non-null data
+    unaffected (mask has no nulls when no nulls in input).
+    """
     n = batch.num_rows
     if not heavy_keys or n == 0:
         return pa.array([False] * n, type=pa.bool_())
@@ -505,7 +554,8 @@ def _compute_heavy_mask(batch: pa.RecordBatch, by_columns, heavy_keys: set) -> p
         for col, v in zip(by_columns, key):
             k_mask = pc.and_(k_mask, pc.equal(batch.column(col), pa.scalar(v)))
         mask = pc.or_(mask, k_mask)
-    return mask
+    # v0.9.12-fix2 (§13.4/218): Kleene null → False, not dropped.
+    return pc.fill_null(mask, pa.scalar(False))
 
 
 def _accumulate_heavy(accum: dict, batch: pa.RecordBatch, by_columns, agg_columns, agg_funcs) -> None:

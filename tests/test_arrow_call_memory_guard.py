@@ -57,9 +57,19 @@ HIGH_RISK_ATTRS = {
 WHITELISTED_FUNCS = {
     # --- ops/: helpers with their own guard or bounded by design ---
     "cadw/ops/dedup.py:_estimate_k_sample":
-        "first batch only; to_pandas on ≤sample rows",
+        "first batch only; v0.9.6c1 Arrow-native "
+        "(dictionary_encode, no pandas); caller-bounded "
+        "sample",
+    "cadw/ops/groupby.py:_detect_heavy_keys":
+        "sample_batches bounded by groupby_aggregate "
+        "(sample_cap 10k rows / 0.3×avail; skip_skew if "
+        "> 0.5×avail); pa.concat_tables + group_by on "
+        "bounded sample; peak ~2×sample + Arrow pool, "
+        "caller MemoryGuard (§9.2.8)",
     "cadw/ops/groupby.py:_estimate_k_sample":
-        "first batch only; to_pandas on ≤sample rows",
+        "first batch only; v0.9.6c1 Arrow-native "
+        "(dictionary_encode, no pandas); caller-bounded "
+        "sample (10k rows / 0.3×avail)",
     "cadw/ops/groupby.py:_merge_partials":
         "small group_by after full partition check",
     "cadw/ops/groupby.py:_accumulate_heavy":
@@ -409,3 +419,53 @@ def test_robust_scaler_fit_is_detected_when_unwhitelisted(monkeypatch):
         "whitelisted (it calls df.quantile)"
     )
     assert any("quantile" in v for v in hits), hits
+
+
+# ============ v0.9.12-fix3 (§3.11, §13.4/219): whitelist guards ============
+
+
+def test_detect_heavy_keys_in_whitelist():
+    """_detect_heavy_keys whitelisted with caller-bounded rationale."""
+    key = 'cadw/ops/groupby.py:_detect_heavy_keys'
+    assert key in WHITELISTED_FUNCS
+    rationale = WHITELISTED_FUNCS[key]
+    assert 'groupby_aggregate' in rationale or 'caller' in rationale.lower()
+
+
+def test_detect_heavy_keys_single_caller():
+    """§13.4/219: whitelist rationale assumes single caller.
+
+    If a new caller appears (potentially unbounded input), the
+    whitelist becomes a lie — no explicit guard, sample not
+    actually bounded. Guard: exactly 1 call site in groupby.py.
+    """
+    import ast
+    import inspect
+    from cadw.ops import groupby as gb_mod
+    src = inspect.getsource(gb_mod)
+    tree = ast.parse(src)
+    call_sites = [
+        n.lineno for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == '_detect_heavy_keys'
+    ]
+    assert len(call_sites) == 1, (
+        f'_detect_heavy_keys called from {len(call_sites)} sites; '
+        f'whitelist rationale assumes single caller (groupby_aggregate). '
+        f'New caller: verify sample is bounded or add check_state.'
+    )
+
+
+def test_estimate_k_sample_whitelist_rationale_updated():
+    """Stale 'to_pandas' rationale replaced with Arrow-native."""
+    for key in ('cadw/ops/groupby.py:_estimate_k_sample',
+                'cadw/ops/dedup.py:_estimate_k_sample'):
+        assert key in WHITELISTED_FUNCS
+        rationale = WHITELISTED_FUNCS[key]
+        assert 'dictionary_encode' in rationale or 'Arrow-native' in rationale, (
+            f'{key}: rationale should mention Arrow-native / dictionary_encode'
+        )
+        assert 'to_pandas' not in rationale, (
+            f'{key}: stale to_pandas rationale (v0.9.6c1 removed pandas)'
+        )

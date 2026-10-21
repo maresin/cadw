@@ -364,6 +364,14 @@ def apply_or_fail(path, old, new, *, label, context=10):
     Fail-fast (SystemExit) if `old` anchor missing — no silent no-op.
     Prints `context` lines around partial-match zone on miss (§13.4/160).
     Idempotent: returns False if `new` already present (no write).
+
+    v0.9.12 (F12-3, §13.4/211): compile-before-write. `new_s`
+    is compile()'d in memory BEFORE p.write_text(). On
+    SyntaxError — SystemExit, file untouched. Without this,
+    bad anchor (e.g. 4-space substring of 8-space line) can
+    corrupt the file, and only then would assert_compiles
+    fail — but the file is already bad. Never reorder:
+    `compile()` MUST precede `write_text()`.
     """
     from pathlib import Path as _P
     p = _P(path)
@@ -387,7 +395,10 @@ def apply_or_fail(path, old, new, *, label, context=10):
     except SyntaxError as e:
         print(f"  {label}: COMPILE FAIL for {path}: {e}")
         raise SystemExit(1) from e
-    p.write_text(new_s)
+    # v0.9.12 (F12-2): newline="" — Python text-mode 'w'
+    # converts \n -> \r\n on Windows. Force LF for
+    # cross-platform deterministic file content.
+    p.write_text(new_s, newline="")
     return True
 
 

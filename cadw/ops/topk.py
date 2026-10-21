@@ -121,10 +121,13 @@ def topk_to_disk(
     out_schema = first.schema
 
     per_batch: list[pa.Table] = []
+    # v0.9.12 (F12-1): incremental (was O(P²) sum per batch;
+    # P=10000 → 100M iters ~1.6 GB attr accesses).
+    acc_bytes = 0
     row_id_offset = 0
 
     def _process(batch: pa.RecordBatch, offset: int) -> None:
-        nonlocal row_id_offset
+        nonlocal row_id_offset, acc_bytes
         memory_guard.check_batch(batch, name=f"topk.{kind}.input")
         if batch.num_rows == 0:
             row_id_offset = offset
@@ -136,10 +139,10 @@ def topk_to_disk(
         t = pa.Table.from_batches([b])
         top = _per_batch_topk(t, column, n, descending)
         per_batch.append(top)
+        acc_bytes += top.nbytes  # v0.9.12 (F12-1): incremental
         row_id_offset = offset + batch.num_rows
 
         # Fail-fast: accumulator + 2× overhead before adding more.
-        acc_bytes = sum(tb.nbytes for tb in per_batch)
         memory_guard.check_state(
             2 * acc_bytes,
             name=f"topk.{kind}.accum(P={len(per_batch)},n={n})",
