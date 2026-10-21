@@ -621,6 +621,8 @@ def _groupby_with_skew(batch_iter, by_columns, agg_columns, agg_funcs, heavy_key
     memory_guard.check_partition_buffers(
         num_partitions, min(_buf_bytes, 64 * 1024)
     )
+    # v0.9.8a (R1): real per-writer check.
+    memory_guard.check_partition_writers(num_partitions)
     writers = [ArrowIPCBatchWriter(str(p), schema) for p in paths]
 
     accum: dict = {}

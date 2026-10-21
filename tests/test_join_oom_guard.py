@@ -154,8 +154,8 @@ def test_oversize_partition_raises_with_max_depth_zero(tmp_path):
 
 def test_oversize_triggers_recursion(tmp_path, monkeypatch):
     """Если партиция > limit, но max_depth > 0 — hash_shuffle вызывается."""
-    left = make_df(tmp_path, "L", {"k": list(range(100)), "a": list(range(100))})
-    right = make_df(tmp_path, "R", {"k": list(range(100)), "b": list(range(100))})
+    left = make_df(tmp_path, "L", {"k": list(range(1000)), "a": list(range(1000))})
+    right = make_df(tmp_path, "R", {"k": list(range(1000)), "b": list(range(1000))})
 
     called_shuffle = []
     orig_hash_shuffle = join_mod.hash_shuffle
@@ -166,8 +166,11 @@ def test_oversize_triggers_recursion(tmp_path, monkeypatch):
 
     monkeypatch.setattr(join_mod, "hash_shuffle", spy)
 
-    # Маленький бюджет, но max_depth достаточно большой
-    guard = MemoryGuard(max_memory_bytes=5000)
+    # v0.9.8a-fix3 (R1): budget must satisfy real per-writer
+    # check (2×2048 = 4096 ≤ 0.3×budget → budget ≥ 13653).
+    # Data must still produce oversize partitions for recursion:
+    # 1000 rows × 24 B / 2 partitions = ~12 KB > 0.5×20000 = 10 KB.
+    guard = MemoryGuard(max_memory_bytes=20000)
     try:
         hash_join(
             left._iter_filtered_batches(),

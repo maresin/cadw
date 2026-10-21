@@ -256,6 +256,63 @@ class MemoryGuard:
             raise ValueError
         return max(1, self._buffer_limit() // num_partitions)
 
+    # ---------- v0.9.8a (R1): real per-writer check ----------
+    #
+    # check_partition_buffers(P, recommended_partition_buffer_bytes(P))
+    # is vacuous: recommended(P) = buffer_limit // P → product
+    # ≤ buffer_limit by construction. Real ArrowIPCBatchWriter
+    # footprint (audit bench_r1: 1.2–4.4 KB/writer measured at
+    # P=100..5000) is not visible to that check → 1e6 writers
+    # could allocate ~1.2 GB while passing.
+    #
+    # check_partition_writers uses a measured conservative
+    # baseline (2048 B/writer). Threshold shared with buffer_safety
+    # (0.3 × available_bytes), same as check_partition_buffers.
+
+    def check_partition_writers(
+        self,
+        num_partitions: int,
+        *,
+        bytes_per_writer: int = 2048,
+    ) -> None:
+        """Verify P × bytes_per_writer fits buffer budget.
+
+        v0.9.8a (R1): check_partition_buffers is vacuous by
+        construction (`P × (limit // P) ≤ limit`); this check
+        uses measured per-writer ArrowIPC writer footprint.
+
+        bytes_per_writer default = 2048 B (conservative median
+        of audit bench_r1: 1.2 KB @ P=5000, 1.9 KB @ P=1000,
+        4.4 KB @ P=100; median 2 KB with margin).
+
+        Limit = buffer_safety × available_bytes (same as
+        check_partition_buffers). Raises MemoryLimitExceeded.
+        """
+        if num_partitions < 1:
+            raise ValueError("num_partitions must be >= 1")
+        if bytes_per_writer < 1:
+            raise ValueError("bytes_per_writer must be >= 1")
+        total = num_partitions * bytes_per_writer
+        limit = self._buffer_limit()
+        if total > limit:
+            logger.error(
+                "check_partition_writers FAIL: P=%d × %d B/writer "
+                "= %d B > limit=%d B (per-writer overhead, "
+                "audit bench_r1)",
+                num_partitions, bytes_per_writer, total, limit,
+            )
+            raise MemoryLimitExceeded(
+                f"Partition writers: P={num_partitions} × "
+                f"{bytes_per_writer} B/writer = {total} B > "
+                f"limit {limit} B. Reduce num_partitions or "
+                f"increase budget. (Real ArrowIPCBatchWriter "
+                f"footprint; see bench_r1.)"
+            )
+        logger.debug(
+            "check_partition_writers OK: P=%d × %d B = %d ≤ %d",
+            num_partitions, bytes_per_writer, total, limit,
+        )
+
     # ---------- оценка числа уникальных ключей ----------
 
     def estimate_unique_keys(

@@ -323,6 +323,9 @@ def hash_shuffle(
     # Контроль памяти на P буферов
     buffer_bytes = memory_guard.recommended_partition_buffer_bytes(num_partitions)
     memory_guard.check_partition_buffers(num_partitions, min(buffer_bytes, 64 * 1024))
+    # v0.9.8a (R1): real per-writer check (check_partition_buffers
+    # is vacuous by construction — P × (limit // P) ≤ limit).
+    memory_guard.check_partition_writers(num_partitions)
 
     paths = [spill_dir / f"partition_{p:05d}.arrow" for p in range(num_partitions)]
     writers = [ArrowIPCBatchWriter(str(p), schema) for p in paths]
