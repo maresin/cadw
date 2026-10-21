@@ -55,13 +55,15 @@ def test_pivot_10k_rows_success(tmp_path):
 
 
 @pytest.mark.slow
-def test_pivot_100k_rows_fails_fast(tmp_path):
-    """100K unique × 20 cols, 50 MB budget → MemoryLimitExceeded.
+def test_pivot_100k_rows_streaming_success(tmp_path):
+    """v0.9.6c2: 100k × 20 cols, 50 MB budget — PASSES streaming.
 
-    §13.4/158-159: dense pivot of 100K × 400 (K_columns_est) × 8 × 2
-    = 640 MB > state_limit 25 MB. Fail-fast is the CORRECT contract —
-    no OOM, no silent wrong-size pivot. User should reduce size or
-    use groupby() long format.
+    Replaces `test_pivot_100k_rows_fails_fast`. Old code called
+    `to_pandas().pivot()` (dense materialize) — 100k × 400 (sample est)
+    × 8 × 2 = 640 MB > state_limit → MemoryLimitExceeded. New streaming
+    path: peak = long_table (~2.4 MB) + sort buffer (~10 MB) + output
+    batch (1000 × 20 × 8 = 160 KB) ≈ 13 MB < 50 MB. Output goes to
+    disk via Dataset.from_batches — output size does not bind peak.
     """
     n = 100_000
     rng = np.random.default_rng(42)
@@ -78,7 +80,18 @@ def test_pivot_100k_rows_fails_fast(tmp_path):
         memory_guard=MemoryGuard(max_memory_mb=50),
         spill_dir=tmp_path / "spill",
     )
-    with pytest.raises(MemoryLimitExceeded, match="pivot_table"):
-        df.pivot_table(
-            index=["row"], columns="col", values="v", aggfunc="mean",
-        )
+    out = df.pivot_table(
+        index=["row"], columns="col", values="v", aggfunc="mean",
+    )
+    out_path = tmp_path / "out.parquet"
+    out.write_parquet(out_path)
+    t = pq.read_table(out_path)
+
+    assert t.num_rows == n
+    assert len(t.schema.names) == 1 + 20
+    rows = {r["row"]: r for r in t.to_pylist()}
+    non_null = sum(
+        1 for k, v in rows["r0"].items() if k != "row" and v is not None
+    )
+    assert non_null == 1
+

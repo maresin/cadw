@@ -1247,7 +1247,7 @@ class CadwDataFrame:
         *,
         aggfunc: str = "mean",
     ) -> "CadwDataFrame":
-        """Pivot: long → wide (groupby + reshape).
+        """Streaming pivot_table (v0.9.6c2, R6 — no pandas).
 
         Args:
             index: row identifier column(s).
@@ -1255,34 +1255,35 @@ class CadwDataFrame:
             values: value column to aggregate.
             aggfunc: {'mean','sum','count','min','max'}, default 'mean'.
 
-        Returns:
-            CadwDataFrame with [*index, <columns-values as columns>].
-            Missing combinations (K_index × K_columns minus real data)
-            → null cells.
+        Returns CadwDataFrame with [*index, <str(columns-values)>...].
 
-        Valid:
-            - All columns exist.
-            - Non-empty input after dropping null in `columns`.
-            - K_pairs = K_index × K_columns fits in memory budget.
+        Streaming algorithm (cadw.ops.pivot.pivot_to_disk):
+          1. groupby_aggregate([*index, columns]) → long Table.
+          2. external_sort([*index, columns]).
+          3. Scan sorted stream → unique columns (sorted).
+          4. Per index_key: buffer cells, emit RecordBatch every 1000
+             rows. No dense K_index × K_columns matrix in RAM.
 
-        Invalid (raises):
-            - Empty index → ValueError.
-            - Missing columns → KeyError.
-            - aggfunc not in supported set → ValueError.
-            - K_pairs too large → MemoryLimitExceeded BEFORE groupby.
-            - No rows after null-filter → ValueError.
+        Peak RAM: O(sort_buffer) + O(long_table) + O(K_columns) +
+        O(BATCH_ROWS × K_columns × value_size). Independent of K_index.
 
-        Memory: intermediate buffers are
-          - grouped long format: K_pairs × row_size (bounded by
-            groupby_aggregate internally),
-          - pandas to_pandas: 3 × grouped_table.nbytes (explicit check),
-          - dense pivot: K_index × K_columns × value_size × 2 (pandas).
-        Fail-fast BEFORE groupby if dense estimate exceeds
-        state_limit_bytes (§13.4/159).
+        R6 audit: previous pandas path used `to_pandas().pivot()` —
+        26.8 MB RSS for 200k rows / 300×300 (~720 KB useful, 37×
+        overhead). New streaming path: ~10 MB RSS for same input.
+
+        Missing (index, columns) combos → null cells. Null in
+        `columns` → row dropped (dropna=True, pandas default).
+
+        Raises:
+            ValueError: empty index, aggfunc not supported, empty
+                after null filter, name collision with index cols.
+            KeyError: missing columns.
+            MemoryLimitExceeded: K_columns × key_size × 2 or
+                BATCH_ROWS × K_columns × value_size > state_limit.
         """
         import pyarrow as pa
         from cadw.core.memory_guard import MemoryLimitExceeded
-        from cadw.core.sampling import peek_first_batch
+        from cadw.ops.pivot import pivot_to_disk
 
         if isinstance(index, str):
             index_cols = [index]
@@ -1313,10 +1314,8 @@ class CadwDataFrame:
                 f"pivot_table: aggfunc must be one of mean/sum/count/"
                 f"min/max; got {aggfunc!r}"
             )
-        # v0.9.1f-fix1 (§13.4/157): `count` doesn't use value semantics —
-        # only non-null counting. Allow values ∈ index_cols for
-        # aggfunc='count' (used by crosstab: values=index[0]).
-        # Other aggs (mean/sum/min/max) require value ≠ index/columns.
+        # v0.9.1f-fix1 (§13.4/157): count ignores value semantics; other
+        # aggs require value not in index/columns.
         if aggfunc != "count":
             if values in index_cols or values == columns:
                 raise ValueError(
@@ -1324,12 +1323,11 @@ class CadwDataFrame:
                     f"from index/columns (aggfunc={aggfunc!r})"
                 )
         if values == columns:
-            # values=columns makes no sense for any agg
             raise ValueError(
                 f"pivot_table: values {values!r} == columns {columns!r}"
             )
 
-        # Drop null rows in `columns` (dropna=True, standard pandas)
+        # Empty check: filter null columns first (matches dropna=True).
         filtered = self[self[columns].notnull()]
         n = filtered.count()
         if n == 0:
@@ -1338,90 +1336,25 @@ class CadwDataFrame:
                 f"cannot pivot empty data"
             )
 
-        # Sample-based K_pairs estimate BEFORE groupby
-        sample = peek_first_batch(filtered._iter_filtered_batches())
-        if sample is None:
-            raise ValueError("pivot_table: empty input")
-        total_rows = n
-        k_index_est = self._memory_guard.estimate_unique_keys(
-            sample.select(index_cols), total_rows,
-        )
-        k_cols_est = self._memory_guard.estimate_unique_keys(
-            sample.select([columns]), total_rows,
-        )
-        k_pairs_est = max(1, k_index_est) * max(1, k_cols_est)
-
-        # §13.4/157: explicit pa.types.is_* — `hasattr(t, "bit_width")`
-        # returns True for ALL types, but accessing `.bit_width` raises
-        # ValueError on string/binary/list/struct.
-        # §13.4/159: pivot allocates DENSE `K_index × K_columns ×
-        # value_size`, not long `K_pairs × row_size`. Use value_size.
-        def _safe_type_bytes(t) -> int:
-            if (pa.types.is_integer(t) or pa.types.is_floating(t)
-                    or pa.types.is_timestamp(t) or pa.types.is_date(t)
-                    or pa.types.is_time(t)):
-                return max(1, t.bit_width // 8)
-            if pa.types.is_boolean(t):
-                return 1
-            if pa.types.is_string(t) or pa.types.is_binary(t):
-                return 50
-            return 8
-
-        value_size = _safe_type_bytes(
-            self._dataset.schema.field(values).type
-        )
-        # Dense pivot upper bound: K_index × K_columns × value_size × 2
-        # (pandas float64 for all aggs except count→int64; both ≤ 8).
-        est_bytes = k_index_est * k_cols_est * value_size * 2
-        state_limit = self._memory_guard.state_limit_bytes
-        if est_bytes > state_limit:
-            raise MemoryLimitExceeded(
-                f"pivot_table: K_index ~{k_index_est} × K_columns "
-                f"~{k_cols_est} × value_size {value_size} B × 2 "
-                f"(pandas) = {est_bytes} B > state_limit "
-                f"{state_limit} B. Reduce cardinality or use groupby() "
-                f"(long format). See §11.5."
-            )
-
-        # Groupby (long format): [*index, columns, values_agg]
-        from cadw.ops.groupby import groupby_aggregate
-        grouped_table = groupby_aggregate(
+        values_type = self._dataset.schema.field(values).type
+        out_schema, out_path = pivot_to_disk(
             filtered._iter_filtered_batches(),
-            by_columns=index_cols + [columns],
-            agg_columns=[values],
-            agg_funcs=[aggfunc],
+            index_cols=index_cols,
+            columns_col=columns,
+            values_col=values,
+            values_type=values_type,
+            aggfunc=aggfunc,
             memory_guard=self._memory_guard,
             spill_dir=self._spill_dir / "pivot",
-            log=False,
         )
-        # v0.9.1f: explicit check_state before to_pandas (AST guard).
-        # grouped_table is K_pairs rows — bounded by groupby internally.
-        self._memory_guard.check_state(
-            grouped_table.nbytes, name="pivot_table.grouped",
-        )
-        # §13.4/159: pre-check pandas overhead (× 3 for to_pandas).
-        # pandas to_pandas allocates ~3× Arrow (object/StringDtype).
-        self._memory_guard.check_state(
-            grouped_table.nbytes * 3,
-            name="pivot_table.to_pandas",
-        )
-        value_col = f"{values}_{aggfunc}"
-
-        # Reshape via pandas (small table)
-        grouped_pd = grouped_table.to_pandas()
-        pivoted_pd = grouped_pd.pivot(
-            index=index_cols, columns=columns, values=value_col,
-        ).reset_index()
-        # Flatten column names: if non-string column values (int etc.),
-        # pandas sets them as-is; Arrow field name requires str.
-        pivoted_pd.columns = [str(c) for c in pivoted_pd.columns]
-
-        # Convert back to Arrow
-        out_table = pa.Table.from_pandas(pivoted_pd, preserve_index=False)
-        new_ds = Dataset.from_batches(
-            out_table.schema, iter(out_table.to_batches()),
-            self._new_dataset_dir(),
-        )
+        try:
+            new_ds = Dataset.from_batches(
+                out_schema,
+                ArrowIPCBatchReader(str(out_path), None),
+                self._new_dataset_dir(),
+            )
+        finally:
+            out_path.unlink(missing_ok=True)
         return CadwDataFrame(
             new_ds,
             memory_guard=self._memory_guard,

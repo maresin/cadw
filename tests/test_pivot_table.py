@@ -186,7 +186,7 @@ def test_pivot_too_large_raises(tmp_path):
         "v": [float(i) for i in range(n)],
     }, chunk=100, mem_mb=1)
     df._memory_guard = MemoryGuard(max_memory_bytes=2000)
-    with pytest.raises(MemoryLimitExceeded, match="pivot_table"):
+    with pytest.raises(MemoryLimitExceeded, match="pivot"):
         df.pivot_table(
             index=["row"], columns="col", values="v", aggfunc="sum",
         )
@@ -245,45 +245,66 @@ def test_crosstab_drops_nulls(tmp_path):
 
 # ============ AST guards ============
 
-def test_pivot_table_has_check_state_before_to_pandas():
-    """AST: pivot_table has check_state CALL before to_pandas CALL.
+def test_pivot_table_delegates_to_streaming():
+    """v0.9.6c2: pivot_table delegates to streaming pivot_to_disk.
 
-    §13.4/161: parse AST nodes (Call func.attr). Docstring mentions
-    "to_pandas" earlier than code — substring `.index()` would match
-    docstring, not code. AST finds actual Call nodes.
+    Old contract (v0.9.1f): dense pivot_table had check_state before
+    to_pandas. New streaming design has no `to_pandas` at all —
+    facade delegates to `pivot_to_disk`, which guards per-step
+    (`check_state` before external_sort, before output writer).
+    Guard-by-delegation: pivot_table is thin validation + call.
     """
-    import ast
+    import ast as _ast
     import inspect
     import textwrap
+
     from cadw.dataframe import CadwDataFrame
 
     src = textwrap.dedent(inspect.getsource(CadwDataFrame.pivot_table))
-    tree = ast.parse(src)
+    tree = _ast.parse(src)
 
-    check_state_linenos: list[int] = []
-    to_pandas_linenos: list[int] = []
-
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        f = node.func
-        if isinstance(f, ast.Attribute):
-            if f.attr == "check_state":
-                check_state_linenos.append(node.lineno)
-            elif f.attr == "to_pandas":
-                to_pandas_linenos.append(node.lineno)
-
-    assert check_state_linenos, "pivot_table: no check_state call"
-    assert to_pandas_linenos, "pivot_table: no to_pandas call"
-
-    first_check = min(check_state_linenos)
-    first_pandas = min(to_pandas_linenos)
-    assert first_check < first_pandas, (
-        f"pivot_table: first check_state call (line {first_check}) must "
-        f"precede first to_pandas call (line {first_pandas}) (§3.11). "
-        f"Note: docstrings are skipped — we check AST Call nodes, not "
-        f"substrings (§13.4/161)."
+    # 1. Delegates to pivot_to_disk (bare Name Call).
+    call_names = {
+        n.func.id for n in _ast.walk(tree)
+        if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name)
+    }
+    assert "pivot_to_disk" in call_names, (
+        "pivot_table must delegate to cadw.ops.pivot.pivot_to_disk "
+        "(v0.9.6c2 streaming)"
     )
+
+    # 2. No pandas-pivot (attr Calls).
+    attr_names = {
+        n.func.attr for n in _ast.walk(tree)
+        if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Attribute)
+    }
+    assert "to_pandas" not in attr_names, (
+        "pivot_table must not call to_pandas (v0.9.6c2 streaming)"
+    )
+    assert "pivot" not in attr_names, (
+        "pivot_table must not call pd.pivot (v0.9.6c2 streaming)"
+    )
+
+
+def test_pivot_to_disk_guarded_before_output():
+    """v0.9.6c2: pivot_to_disk has check_state Call before
+    ArrowIPCBatchWriter Call (guard before output allocation).
+
+    Uses patch_utils.assert_call_order (AST-based, v0.9.6d
+    scaffold) — the helper is dogfooded here on the new streaming
+    implementation (§13.4/183, /185).
+    """
+    import inspect
+
+    from cadw.patch_utils import assert_call_order
+    from cadw.ops.pivot import pivot_to_disk
+
+    src = inspect.getsource(pivot_to_disk)
+    assert_call_order(
+        src, "check_state", "ArrowIPCBatchWriter",
+        fn_name="pivot_to_disk",
+    )
+
 
 
 def test_melt_is_streaming():
