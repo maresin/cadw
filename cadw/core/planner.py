@@ -180,10 +180,59 @@ def propagate_chars(
             order="random",
         )
 
-    # Для hash_shuffle и прочих пропагатор не определён
+    # v0.9.8c (B1): hash_shuffle — audit case.
+    # N unchanged (partition does not change row count), row_size
+    # unchanged (key + value + row_id; row_id uint64 not modeled —
+    # conservative on N, not row_size). Order becomes "random".
+    if op.name == "hash_shuffle":
+        return _copy_chars(input_chars, order="random")
+
+    # v0.9.8c: dedup — conservative N = k_est or n_rows (no model yet).
+    # Best estimate k_est; if None → n_rows (safe). row_size unchanged.
+    if op.name == "dedup":
+        k = input_chars.k_est or input_chars.n_rows
+        return _copy_chars(
+            input_chars,
+            n_rows=k,
+            k_est=k,
+            order="random",
+        )
+
+    # v0.9.8c: rank — N unchanged, row_size + 8 (rank int64).
+    # order = "random" (sort by key then re-sort by row_id).
+    if op.name == "rank":
+        return _copy_chars(
+            input_chars,
+            row_size_bytes=input_chars.row_size_bytes + 8,
+            order="random",
+        )
+
+    # v0.9.8c: quantile — N = 1, row_size = 8 (scalar float64).
+    if op.name == "quantile":
+        return _copy_chars(
+            input_chars,
+            n_rows=1,
+            k_est=1,
+            row_size_bytes=8,
+            order="random",
+        )
+
+    # v0.9.8c: resample — conservative N = k_est or n_rows (buckets),
+    # row_size unchanged (on + agg cols; conservative upper bound).
+    if op.name == "resample":
+        k = input_chars.k_est or input_chars.n_rows
+        return _copy_chars(
+            input_chars,
+            n_rows=k,
+            k_est=k,
+            order="sorted",
+        )
+
+    # Unsupported op.
     raise ValueError(
         f"propagate_chars: unsupported op {op.name!r}. "
-        f"Supported: filter, with_column, groupby, sort, reduce, join."
+        f"Supported: filter, with_column, groupby, sort, reduce, join, "
+        f"hash_shuffle, dedup, rank, quantile, resample."
     )
 
 
