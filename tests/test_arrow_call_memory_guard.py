@@ -107,6 +107,13 @@ WHITELISTED_FUNCS = {
     # internal peak §9.2.7 = 1.5× input + 6 MB).
     "cadw/dataframe.py:CadwDataFrame.sort_values":
         "in-memory fast path: pa.Table.sort_by on group ≤ 0.3×avail",
+    # v0.9.7a: topk_to_disk sort_indices on bounded P×n accum.
+    # per-batch sort_indices bounded by check_batch on input;
+    # accumulator bounded by check_state after each batch.
+    "cadw/ops/topk.py:topk_to_disk":
+        "sort_indices on P×n accum (check_state); per-batch guarded",
+    "cadw/ops/topk.py:_per_batch_topk":
+        "called from topk_to_disk after check_batch on batch",
     # v0.9.5b (C6): viz/_aggregate.py high-risk calls.
     # line_agg sorts K-row aggregate table (bounded by K).
     # box_stats delegates to df.quantile (guarded).
