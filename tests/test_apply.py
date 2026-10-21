@@ -361,3 +361,129 @@ def test_apply_all_int_stays_int(tmp_path):
     result.write_parquet(out)
     schema = pq.read_schema(out)
     assert schema.field('apply_result').type == pa.int64()
+
+# ============ v0.9.14 (F12-6): bool→float + clear error on mismatch ============
+
+
+def test_apply_mixed_bool_float_widens(tmp_path):
+    """F12-6a: first group bool, later float → widen to float64.
+
+    Prior: schema inferred bool from first group; 0.5 at flush →
+    ArrowInvalid (cryptic). Fix: bool field + non-bool numeric →
+    widen to float64. 0.5 lossless; True becomes 1.0.
+    """
+    import pyarrow.parquet as pq
+    df = make_df(tmp_path, {
+        'g': ['a', 'a', 'b', 'b'],
+        'v': [1, 2, 3, 4],
+    })
+    def fn(g):
+        if g['g'].to_list()[0] == 'a':
+            return True  # bool (first group, schema=bool_)
+        return 2.5     # float (later group, needs widen)
+    result = df.groupby('g').apply(fn)
+    out = tmp_path / 'out.parquet'
+    result.write_parquet(out)
+    rows = {r['g']: r['apply_result'] for r in
+            pq.read_table(out).to_pylist()}
+    assert rows['a'] == 1.0
+    assert rows['b'] == 2.5
+
+
+def test_apply_mixed_str_int_clear_error(tmp_path):
+    """F12-6b: str then int → RuntimeError with hint, not cryptic
+    ArrowInvalid from from_pylist."""
+    import pytest
+    df = make_df(tmp_path, {
+        'g': ['a', 'a', 'b', 'b'],
+        'v': [1, 2, 3, 4],
+    })
+    def fn(g):
+        if g['g'].to_list()[0] == 'a':
+            return 'hello'  # str
+        return 5            # int
+    with pytest.raises(RuntimeError, match='inconsistent types'):
+        df.groupby('g').apply(fn).write_parquet(tmp_path / 'o.parquet')
+
+
+def test_apply_all_bool_stays_bool(tmp_path):
+    """F12-6a + v0.9.14-fix3 (§13.4/223): all-bool → schema stays bool.
+
+    Prior bug: _infer_arrow_type_from_value checked int BEFORE
+    bool (Python bool is int subclass) → True inferred as int64.
+    Then from_pylist([{'x': True}], schema=int64) →
+    ArrowTypeError. F12-6a bool widen branch was DEAD CODE.
+    Fix3: bool first → schema pa.bool_. No widen (all-bool).
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    df = make_df(tmp_path, {
+        'g': ['a', 'a', 'b', 'b'],
+        'v': [1, 2, 3, 4],
+    })
+    def fn(g):
+        return True
+    result = df.groupby('g').apply(fn)
+    out = tmp_path / 'out.parquet'
+    result.write_parquet(out)
+    schema = pq.read_schema(out)
+    assert schema.field('apply_result').type == pa.bool_()
+
+def test_apply_mixed_bool_int_widens_to_float(tmp_path):
+    """F12-6a + v0.9.14-fix3: bool first, then int → widen to float64.
+
+    Schema=bool (True first). buf_rows has True + 5 (int, not bool).
+    _maybe_upgrade_schema bool branch: non-bool numeric → widen
+    to float64. True → 1.0, 5 → 5.0. Lossless for |v| < 2^53.
+    """
+    import pyarrow.parquet as pq
+    df = make_df(tmp_path, {
+        'g': ['a', 'a', 'b', 'b'],
+        'v': [1, 2, 3, 4],
+    })
+    def fn(g):
+        if g['g'].to_list()[0] == 'a':
+            return True  # bool (first group, schema=bool_)
+        return 5        # int (later group, non-bool numeric)
+    result = df.groupby('g').apply(fn)
+    out = tmp_path / 'out.parquet'
+    result.write_parquet(out)
+    rows = {r['g']: r['apply_result'] for r in
+            pq.read_table(out).to_pylist()}
+    assert rows['a'] == 1.0
+    assert rows['b'] == 5.0
+
+
+def test_infer_arrow_type_from_value_unit():
+    """v0.9.14-fix3 (§13.4/223): direct unit test for type inference.
+
+    bool BEFORE int (Python bool is int subclass). Catches the exact
+    order bug even without going through apply pipeline.
+    """
+    import pyarrow as pa
+    from cadw.dataframe import _infer_arrow_type_from_value
+    # bool → bool_ (must be first; not int64)
+    assert _infer_arrow_type_from_value(True) == pa.bool_()
+    assert _infer_arrow_type_from_value(False) == pa.bool_()
+    # int (not bool) → int64
+    assert _infer_arrow_type_from_value(5) == pa.int64()
+    assert _infer_arrow_type_from_value(0) == pa.int64()
+    # float → float64
+    assert _infer_arrow_type_from_value(5.5) == pa.float64()
+    # str → string
+    assert _infer_arrow_type_from_value('x') == pa.string()
+    # None → float64 (None widens to float default)
+    assert _infer_arrow_type_from_value(None) == pa.float64()
+
+
+def test_infer_arrow_type_from_value_numpy_bool():
+    """v0.9.14-fix3: np.bool_ also → bool_ (defensive; not int).
+
+    np.bool_ is not a subclass of int/np.integer in modern numpy,
+    but explicit check catches np.bool_(True) → bool_ (not int64).
+    """
+    import numpy as np
+    import pyarrow as pa
+    from cadw.dataframe import _infer_arrow_type_from_value
+    assert _infer_arrow_type_from_value(np.bool_(True)) == pa.bool_()
+    assert _infer_arrow_type_from_value(np.bool_(False)) == pa.bool_()

@@ -808,3 +808,85 @@ def test_apply_or_fail_no_write_on_compile_fail(tmp_path):
     with pytest.raises(SystemExit):
         apply_or_fail(str(p), 'x = 1', 'def broken(', label='t')
     assert p.read_text() == original
+
+# ============ v0.9.14-fix1 (T2.9, §13.4/221): validate= kwarg ============
+
+
+def test_apply_or_fail_toml_valid(tmp_path):
+    """T2.9: validate='toml' — TOML file applied with toml validation."""
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.toml'
+    p.write_text('[project]\nname = "x"\nversion = "0.1.0"\n')
+    applied = apply_or_fail(
+        str(p), 'version = "0.1.0"', 'version = "0.2.0"',
+        label='t', validate='toml',
+    )
+    assert applied is True
+    assert 'version = "0.2.0"' in p.read_text()
+
+
+def test_apply_or_fail_toml_invalid(tmp_path):
+    """T2.9: validate='toml' — invalid TOML → SystemExit, no write."""
+    import pytest
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.toml'
+    original = 'name = "x"\n'
+    p.write_text(original)
+    with pytest.raises(SystemExit):
+        apply_or_fail(
+            str(p), 'name = "x"', 'broken = = =',
+            label='t', validate='toml',
+        )
+    assert p.read_text() == original
+
+
+def test_apply_or_fail_infers_none_for_toml(tmp_path):
+    """Default (validate=None): .toml → 'none' (no Python compile)."""
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.toml'
+    p.write_text('name = "x"\n')
+    applied = apply_or_fail(
+        str(p), 'name = "x"', 'name = "y"', label='t',
+    )
+    assert applied is True
+    assert 'name = "y"' in p.read_text()
+
+
+def test_apply_or_fail_python_default_unchanged(tmp_path):
+    """Default (validate=None): .py → 'python' compile still enforced."""
+    import pytest
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.py'
+    p.write_text('x = 1\n')
+    with pytest.raises(SystemExit):
+        apply_or_fail(
+            str(p), 'x = 1', 'def broken(', label='t',
+        )
+    assert p.read_text() == 'x = 1\n'
+
+# ============ v0.9.14 (T2.2): assert_no_call_in_source receiver_type ============
+
+
+def test_assert_no_call_in_source_receiver_subscript():
+    """T2.2: ast.Subscript receiver filter catches X[i].as_py() only."""
+    import ast
+    from cadw.patch_utils import assert_no_call_in_source
+    # Per-row: X[i].as_py() — Subscript receiver → should match
+    src_per_row = 'def f(x, i):\n    return x[i].as_py()\n'
+    with pytest.raises(AssertionError, match='as_py'):
+        assert_no_call_in_source(
+            src_per_row, 'as_py', receiver_type=ast.Subscript,
+        )
+    # Aggregate: pc.sum(x).as_py() — Call receiver → should NOT match
+    src_aggregate = 'def f(x):\n    return pc.sum(x).as_py()\n'
+    assert_no_call_in_source(  # no raise
+        src_aggregate, 'as_py', receiver_type=ast.Subscript,
+    )
+
+
+def test_assert_no_call_in_source_receiver_none_unchanged():
+    """Backward compat: receiver_type=None matches any receiver."""
+    from cadw.patch_utils import assert_no_call_in_source
+    src = 'def f(x):\n    return pc.sum(x).as_py()\n'
+    with pytest.raises(AssertionError, match='as_py'):
+        assert_no_call_in_source(src, 'as_py')

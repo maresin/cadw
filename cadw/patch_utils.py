@@ -358,20 +358,30 @@ def grep_and_warn(
 # idempotent, no AST fallback that prints diagnostics without warning.
 
 
-def apply_or_fail(path, old, new, *, label, context=10):
+def apply_or_fail(path, old, new, *, label, context=10,
+                  validate=None):
     """Replace old->new in path; return True if applied, False if already.
 
     Fail-fast (SystemExit) if `old` anchor missing — no silent no-op.
     Prints `context` lines around partial-match zone on miss (§13.4/160).
     Idempotent: returns False if `new` already present (no write).
 
-    v0.9.12 (F12-3, §13.4/211): compile-before-write. `new_s`
-    is compile()'d in memory BEFORE p.write_text(). On
-    SyntaxError — SystemExit, file untouched. Without this,
-    bad anchor (e.g. 4-space substring of 8-space line) can
-    corrupt the file, and only then would assert_compiles
-    fail — but the file is already bad. Never reorder:
-    `compile()` MUST precede `write_text()`.
+    v0.9.12 (F12-3, §13.4/211): compile-before-write for
+    Python files. `new_s` is compile()'d in memory BEFORE
+    p.write_text(). On SyntaxError — SystemExit, file untouched.
+    Never reorder: `compile()` MUST precede `write_text()`.
+
+    v0.9.14-fix1 (T2.9, §13.4/221): `validate` kwarg.
+    - None (default): infer from path extension.
+      `.py`/`.pyi` → "python", else → "none".
+    - "python": compile(new_s, path, 'exec').
+    - "toml": tomllib.loads(new_s) — stdlib 3.11+.
+    - "json": json.loads(new_s).
+    - "none": skip validation (non-code files: .md, .txt,
+      .yaml without parser).
+    Prior (v0.9.10-fix3-v0.9.14): always Python compile →
+    pyproject.toml (TOML) failed with cryptic
+    SyntaxError: cannot assign to expression. Fixed.
     """
     from pathlib import Path as _P
     p = _P(path)
@@ -390,11 +400,42 @@ def apply_or_fail(path, old, new, *, label, context=10):
                 break
         raise SystemExit(f"{label}: anchor missing in {path}")
     new_s = s.replace(old, new, 1)
-    try:
-        compile(new_s, str(p), 'exec')
-    except SyntaxError as e:
-        print(f"  {label}: COMPILE FAIL for {path}: {e}")
-        raise SystemExit(1) from e
+
+    # Format-aware validation (v0.9.14-fix1, §13.4/221)
+    if validate is None:
+        ext = p.suffix.lower()
+        if ext in (".py", ".pyi"):
+            validate = "python"
+        else:
+            validate = "none"
+    if validate == "python":
+        try:
+            compile(new_s, str(p), 'exec')
+        except SyntaxError as e:
+            print(f"  {label}: COMPILE FAIL for {path}: {e}")
+            raise SystemExit(1) from e
+    elif validate == "toml":
+        try:
+            import tomllib as _tl
+            _tl.loads(new_s)
+        except Exception as e:
+            print(f"  {label}: TOML FAIL for {path}: {e}")
+            raise SystemExit(1) from e
+    elif validate == "json":
+        try:
+            import json as _json
+            _json.loads(new_s)
+        except Exception as e:
+            print(f"  {label}: JSON FAIL for {path}: {e}")
+            raise SystemExit(1) from e
+    elif validate == "none":
+        pass
+    else:
+        raise SystemExit(
+            f"{label}: validate={validate!r} not in "
+            f"{{python, toml, json, none}}"
+        )
+
     # v0.9.12 (F12-2): newline="" — Python text-mode 'w'
     # converts \n -> \r\n on Windows. Force LF for
     # cross-platform deterministic file content.
@@ -422,12 +463,18 @@ def verify_anchors(checks, *, fail_fast=True):
             _sys.exit(1)
     return misses
 
-def _collect_call_linenos(tree):
+def _collect_call_linenos(tree, *, receiver_type=None):
     """Return {attr_or_name: [lineno, ...]} for all Call nodes.
 
     Handles both `obj.attr(...)` (ast.Attribute, use .attr) and
     `bare(...)` (ast.Name, use .id). Docstrings/comments are
     invisible to ast.walk over Call nodes (§13.4/161, /183, /185).
+
+    v0.9.14 (T2.2, §13.4/217): optional `receiver_type` filter
+    (ast class). When set, only Calls where
+    `node.func.value` is `isinstance(..., receiver_type)` are
+    collected. Use ast.Subscript for per-row `X[i].method()`,
+    ast.Call for aggregate `fn(...).method()`.
     """
     import ast as _ast
     out: dict = {}
@@ -435,6 +482,10 @@ def _collect_call_linenos(tree):
         if not isinstance(node, _ast.Call):
             continue
         f = node.func
+        if receiver_type is not None:
+            if not (isinstance(f, _ast.Attribute)
+                    and isinstance(f.value, receiver_type)):
+                continue
         if isinstance(f, _ast.Name):
             out.setdefault(f.id, []).append(node.lineno)
         elif isinstance(f, _ast.Attribute):
@@ -506,7 +557,9 @@ def run_verify_in_subprocess(verify_fn, *, timeout=300):
     finally:
         tmp_path.unlink(missing_ok=True)
 
-def assert_no_call_in_source(src, *names, fn_name="<unknown>"):
+def assert_no_call_in_source(
+    src, *names, fn_name="<unknown>", receiver_type=None,
+):
     """AST: raise AssertionError if any Call node matches `name`.
 
     `name` may be a bare function call (`foo()`) or an attribute
@@ -514,6 +567,12 @@ def assert_no_call_in_source(src, *names, fn_name="<unknown>"):
     (§13.4/161, /183) — only ast.Call nodes are checked. Replaces
     `assert 'foo' not in src`, which catches `# No foo() here`
     and `Use CadwDataFrame.foo(...)` docstrings.
+
+    v0.9.14 (T2.2, §13.4/217): optional `receiver_type` ast class.
+    When set, only Calls where `node.func.value` is instance
+    of `receiver_type` match. Common: ast.Subscript for
+    per-row `X[i].method()` (data-loss anti-pattern);
+    ast.Call for aggregate `fn(...).method()` (legitimate).
     """
     import ast as _ast
     import textwrap as _tw
@@ -523,7 +582,7 @@ def assert_no_call_in_source(src, *names, fn_name="<unknown>"):
         raise AssertionError(
             f"assert_no_call_in_source({fn_name}): parse error {e}"
         ) from None
-    calls = _collect_call_linenos(tree)
+    calls = _collect_call_linenos(tree, receiver_type=receiver_type)
     violations = {n: calls[n] for n in names if n in calls}
     if violations:
         detail = "; ".join(

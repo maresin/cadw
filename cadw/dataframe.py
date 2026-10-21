@@ -2778,6 +2778,18 @@ class CadwDataFrame:
         Peak RAM = batch + 2 × max(group_size × row_size) + fn's output.
         Bounded per group, independent of N.
 
+        Empty-input limitation (§11.5, v0.9.14 F12-7):
+        when df.count() == 0, fn is never called; output
+        schema = [group_cols..., result_col: float64]. This
+        is only accurate for scalar mode. For dict mode
+        (fn returns dict[str, scalar]) or DataFrame mode
+        (fn returns CadwDataFrame) with empty input, the
+        output is the flat result_col schema — not dict
+        keys / df columns, since mode is unknown at
+        empty-input time. Caller who needs accurate empty
+        schema for dict/df mode: use a non-empty check or
+        synthesize one row.
+
         No pandas. For multi-metric per-group output use a dict
         (`{"mean": ..., "max": ...}`); for multi-row output use
         `CadwDataFrame.from_table(pa_table)`.
@@ -2862,8 +2874,23 @@ class CadwDataFrame:
                     ArrowIPCBatchWriter(str(applied_path),
                                         out_schema_box[0])
                 )
-            table = pa.Table.from_pylist(buf_rows,
-                                         schema=out_schema_box[0])
+            # v0.9.14 (F12-6b): non-widenable type mismatch
+            # (e.g. str field + numeric later) → clear error,
+            # not cryptic ArrowInvalid from from_pylist.
+            try:
+                table = pa.Table.from_pylist(buf_rows,
+                                             schema=out_schema_box[0])
+            except (pa.ArrowInvalid, pa.ArrowTypeError) as _e:
+                raise RuntimeError(
+                    f"_per_group_apply: fn() returned "
+                    f"inconsistent types across groups. "
+                    f"Buffered schema={out_schema_box[0]}, "
+                    f"error={_e}. fn() must return the "
+                    f"same type for all groups. Hint: "
+                    f"return float(x) from fn() if numeric "
+                    f"types might mix (int/float/bool); "
+                    f"return None for missing values. §11.5"
+                ) from _e
             for b in table.to_batches():
                 writer_box[0].write_batch(b)
             buf_rows = []
@@ -2895,6 +2922,27 @@ class CadwDataFrame:
             needs = False
             widen_fields: list = []
             for field in schema:
+                # v0.9.14 (F12-6a): bool field, any non-bool
+                # numeric → widen to float64. Prior: pa.bool_
+                # schema + later float → ArrowInvalid (cryptic).
+                # Same class as C1 (int→float).
+                if pa.types.is_boolean(field.type):
+                    widen = False
+                    for row in buf_rows:
+                        val = row.get(field.name)
+                        if isinstance(val, (int, float)) and not isinstance(val, bool):
+                            widen = True
+                            break
+                    if widen:
+                        upgraded.append(pa.field(
+                            field.name, pa.float64(),
+                            nullable=field.nullable,
+                        ))
+                        needs = True
+                        widen_fields.append(field.name)
+                    else:
+                        upgraded.append(field)
+                    continue
                 if not pa.types.is_integer(field.type):
                     upgraded.append(field)
                     continue
@@ -5429,17 +5477,30 @@ def _normalize_scalar(v):
 
 
 def _infer_arrow_type_from_value(v):
+    """Map a Python scalar to Arrow type (schema inference).
+
+    v0.9.14-fix3 (§13.4/223): bool check BEFORE int. Python
+    bool is int subclass — `isinstance(True, int)` = True,
+    so int branch captured True → schema int64. Then
+    `pa.Table.from_pylist([{'x': True}], schema=int64)` →
+    ArrowTypeError (Expected integer, got bool). Prior:
+    F12-6a bool widen branch in _maybe_upgrade_schema was
+    DEAD CODE — schema never had pa.bool_ from _infer.
+    np.bool_ is not subclass of int/np.integer; for safety
+    check both bool and np.bool_ first.
+    """
     import pyarrow as pa
     import numpy as np
 
     if v is None:
         return pa.float64()
+    # §13.4/223: bool BEFORE int (bool is int subclass).
+    if isinstance(v, (bool, np.bool_)):
+        return pa.bool_()
     if isinstance(v, (np.integer, int)):
         return pa.int64()
     if isinstance(v, (np.floating, float)):
         return pa.float64()
-    if isinstance(v, (np.bool_, bool)):
-        return pa.bool_()
     if isinstance(v, str):
         return pa.string()
     return pa.float64()
