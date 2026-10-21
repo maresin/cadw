@@ -2898,6 +2898,10 @@ class CadwDataFrame:
         writer_box: list = []
 
         def _flush_buf():
+            # v0.9.22 (§13.4/244, AUDIT_ML §1.7): buf_rows bounded
+            # at BATCH_ROWS=1000 (see _emit_row) → ~140 KB at K=5.
+            # Real guard is _flush_group at 0.3·available. No
+            # check_batch needed — bounded by construction.
             nonlocal buf_rows
             if not buf_rows:
                 return

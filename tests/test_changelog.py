@@ -146,3 +146,29 @@ def test_decisions_233_240_order():
     )
     assert i_233 < i_240, f"240 ({i_240}) before 233 ({i_233})"
     assert i_240 < i_135, f"240 ({i_240}) after §13.5 ({i_135})"
+
+
+# ============ v0.9.22: DECISIONS sections + order ============
+
+
+def test_decisions_v0922_sections():
+    """v0.9.22: §9.2.20-22 present + §13.4/241-245 present + ordered."""
+    from pathlib import Path as _P
+    text = (_P(__file__).resolve().parent.parent / "DECISIONS.md").read_text()
+    # 9.2.20-22 (before §9.3)
+    for h in ("### 9.2.20. GBDT top-level peak",
+              "### 9.2.21. Pipeline.plan()",
+              "### 9.2.22. KFold(materialize=True)"):
+        assert h in text, f"missing {h}"
+    i_920 = text.index("### 9.2.20. GBDT")
+    i_922 = text.index("### 9.2.22. KFold")
+    i_93 = text.index("### 9.3. Pipeline planner")
+    assert i_920 < i_922 < i_93
+    # 13.4/241-245 (after 240, before §13.5)
+    for n in range(241, 246):
+        assert f"**Эпизод {n} " in text, f"missing episode {n}"
+    i_240 = text.index("**Эпизод 240 ")
+    i_241 = text.index("**Эпизод 241 ")
+    i_245 = text.index("**Эпизод 245 ")
+    i_135 = text.index("### 13.5. Открытые вопросы")
+    assert i_240 < i_241 < i_245 < i_135

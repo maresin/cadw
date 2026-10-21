@@ -664,31 +664,33 @@ def _validate_binary_y(df, y_col: str) -> tuple[float, int]:
     v0.7.6.1 (I5): returns y_sum and n_valid so _fit_boosting can skip
     a second full scan. Single pass over df instead of two.
     """
+    # v0.9.22 (§13.4/246, AUDIT_ML §1.2): single-pass over y.
+    # Prior did col.unique() + uniq.to_pylist() + _column_to_f64(col)
+    # = 3 passes per batch. Now: one numpy scan; validate + sum +
+    # count in one shot. Output identical (same y_sum, n_valid,
+    # same ValueError for non-binary y).
+    import numpy as np
     seen: set = set()
     y_sum = 0.0
     n_valid = 0
     for b in df._iter_filtered_batches():
-        col = b.column(y_col)
-        try:
-            uniq = col.unique()
-            vals = uniq.to_pylist() if uniq is not None else col.to_pylist()
-        except Exception:
-            vals = col.to_pylist()
-        for v in vals:
-            if v is None:
-                continue
-            fv = float(v)
-            if fv != 0.0 and fv != 1.0:
-                raise ValueError(
-                    f"fit_gbdt_classifier: y must be binary (0/1); got {v!r}"
-                )
-            seen.add(fv)
-        # Accumulate y_sum / n_valid in same pass
-        import numpy as np
-        y_np = _column_to_f64(col)
+        y_np = _column_to_f64(b.column(y_col))
         mask = ~np.isnan(y_np)
-        y_sum += float(y_np[mask].sum())
-        n_valid += int(mask.sum())
+        valid = y_np[mask]
+        if valid.size == 0:
+            continue
+        bad = (valid != 0.0) & (valid != 1.0)
+        if bad.any():
+            raise ValueError(
+                f"fit_gbdt_classifier: y must be binary (0/1); "
+                f"got {float(valid[bad][0])!r}"
+            )
+        if (valid == 0.0).any():
+            seen.add(0.0)
+        if (valid == 1.0).any():
+            seen.add(1.0)
+        y_sum += float(valid.sum())
+        n_valid += int(valid.size)
     if len(seen) < 2:
         raise ValueError(
             f"fit_gbdt_classifier: y must have both classes 0 and 1; got {seen}"
@@ -1245,9 +1247,13 @@ def _fit_boosting_multiclass(
     if n_total == 0:
         raise ValueError("fit_gbdt_multiclass: no rows")
 
-    # State: pred (n,K) + grad_all (n,K) + hess_all (n,K) + cur_leaf (n)
-    #        = n * K * 8 * 3 (minimal, cur_leaf reused per class)
-    est_n_state = n_total * K * 8 * 3
+    # v0.9.22 (§13.4/241, AUDIT_ML §1.1): state formula corrected.
+    # Persistent: y_all (n·8) + pred (n·K·8) + grad_all (n·K·8)
+    # + hess_all (n·K·8) + round_cur_leaves (K·n·8, one per class
+    # held through round) = n·8·(1 + 4K). Prior n·K·8·3 missed
+    # y_all and the K-th round_cur_leaves array: at N=10M K=10,
+    # formula 2.4 GB vs actual 3.28 GB (880 MB miss).
+    est_n_state = n_total * 8 * (1 + 4 * K)
     try:
         mg.check_state(est_n_state, name="gbdt.multiclass_state")
     except MemoryLimitExceeded:

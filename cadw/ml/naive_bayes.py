@@ -65,10 +65,15 @@ class _GaussianStatsOp(ReduceOp):
     def estimate_state_nbytes(self) -> int:
         # v0.7.6-fix: pre-init bound for reduce() check_state.
         # Real state is O(C×d), C discovered dynamically from y.
-        # Conservative C_ASSUMED=32 (typical multi-class); actual C > 32
-        # → per-update check_state in reduce() catches real overflow.
+        # v0.9.22 (§13.4/242, AUDIT_ML §1.3): C_ASSUMED=64 (was 32).
+        # Audit: K=100 gives 3.125× drift, K=500 gives 15.6×; but
+        # measured RSS is tiny (2 MB @ K=100) — not a RAM bug,
+        # per-update check_state enforces actual bound. Bumping to 64
+        # doubles the assumption (covers K≤64) without breaking
+        # K>32 users (audit's ValueError K>32 too aggressive for 0
+        # RAM win).
         # Per class: 8 (n) + 8d (sum_x) + 8d (sum_xx) = 8 + 16d.
-        return 32 * (8 + 16 * self.d)
+        return 64 * (8 + 16 * self.d)
 
     def init(self):
         return {}
@@ -133,7 +138,8 @@ class _MultinomialStatsOp(ReduceOp):
 
     def estimate_state_nbytes(self) -> int:
         # Per class: 8 (n) + 8d (sum_x) = 8 + 8d.
-        return 32 * (8 + 8 * self.d)
+        # v0.9.22 (§13.4/242): C_ASSUMED=64 (was 32). See Gaussian.
+        return 64 * (8 + 8 * self.d)
 
     def init(self):
         return {}
@@ -193,7 +199,8 @@ class _BernoulliStatsOp(ReduceOp):
 
     def estimate_state_nbytes(self) -> int:
         # Per class: 8 (n) + 8d (count_ones) = 8 + 8d.
-        return 32 * (8 + 8 * self.d)
+        # v0.9.22 (§13.4/242): C_ASSUMED=64 (was 32). See Gaussian.
+        return 64 * (8 + 8 * self.d)
 
     def init(self):
         return {}

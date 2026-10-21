@@ -221,3 +221,22 @@ def test_kmeans_model_to_dict(tmp_path):
     assert "inertia" in d
     assert "n_iter" in d
     assert "converged" in d
+
+
+# ============ v0.9.22 (§13.4/243): kmeans batch_memory_factor ============
+
+
+def test_kmeans_batch_memory_factor_2k():
+    """v0.9.22: KMeansStepOp.batch_memory_factor = 2k.
+
+    update() creates two (n, k, d) tensors (diff then diff*diff) =
+    2·k·batch.nbytes transient. Prior inherited 1.0 → 200× under-report
+    at k=100 (AUDIT_ML §1.4).
+    """
+    import numpy as np
+    from cadw.ml.kmeans import KMeansStepOp
+    for k in (2, 5, 10, 100):
+        op = KMeansStepOp(["a", "b"], np.zeros((k, 2)))
+        assert op.batch_memory_factor() == 2.0 * k, (
+            f"k={k}: expected factor {2.0*k}, got {op.batch_memory_factor()}"
+        )
