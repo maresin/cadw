@@ -116,6 +116,18 @@ class MemoryGuard:
     def estimate_row_size_from_schema(
         self, schema: pa.Schema, *, default_string_bytes: int = 50
     ) -> int:
+        """Estimate bytes/row from schema alone. Conservative for numeric.
+
+        WARNING (v0.9.8b, R2): for string/binary columns, uses
+        `default_string_bytes=50` regardless of actual value length.
+        Real-world string columns can be 4× to 20× larger (audit
+        bench_r2: 10 string cols, 200 B/value → schema est 500 B/row,
+        exact 10080 B/row). If schema contains string/binary fields,
+        PREFER `reestimate_from_batch(batch)` (exact) or
+        `estimate_row_size_from_schema_with_sample(schema, batch)`.
+
+        Existing numeric-only schemas: accurate (bit_width // 8).
+        """
         total = 0
         for field in schema:
             t = field.type
@@ -147,6 +159,55 @@ class MemoryGuard:
             return self.estimate_row_size_from_schema(schema)
         return self._row_size_bytes
 
+    # ---------- v0.9.8b (R2): reestimate from sample batch ----------
+    #
+    # estimate_row_size_from_schema underestimates string/binary
+    # (default_string_bytes=50, real 4–20× larger). If caller can peek
+    # first batch (peek_first_batch in cadw.core.sampling), use these
+    # methods for exact per-row bytes before choosing batch_size / P.
+    #
+    # §3.10 discipline: check before materialize. reestimate AFTER
+    # peek, BEFORE any decision that depends on row_size.
+
+    def reestimate_from_batch(self, batch: pa.RecordBatch) -> int:
+        """Update self._row_size_bytes from real batch (v0.9.8b).
+
+        Returns exact bytes/row (batch.nbytes / num_rows). Updates
+        cached `self._row_size_bytes` used by `get_batch_rows()`.
+
+        Use after `peek_first_batch`: schema-only estimate may be
+        10–20× low for string/binary; real batch is exact.
+
+        Raises ValueError for empty batch (caller must pass non-empty).
+        """
+        if batch.num_rows == 0:
+            raise ValueError(
+                "reestimate_from_batch: cannot estimate from empty "
+                "batch (0 rows). Caller must pass non-empty batch."
+            )
+        return self.estimate_row_size_from_batch(batch)
+
+    def estimate_row_size_from_schema_with_sample(
+        self,
+        schema: pa.Schema,
+        sample_batch: pa.RecordBatch | None = None,
+        *,
+        default_string_bytes: int = 50,
+    ) -> int:
+        """Schema-based estimate; exact if sample_batch provided.
+
+        v0.9.8b (R2): if `sample_batch` provided → uses
+        `estimate_row_size_from_batch` (exact, R2 fix). Else falls
+        back to `estimate_row_size_from_schema` (numeric-accurate,
+        string-underestimate). Also updates `self._row_size_bytes`.
+        """
+        if sample_batch is not None:
+            return self.estimate_row_size_from_batch(sample_batch)
+        return self.estimate_row_size_from_schema(
+            schema, default_string_bytes=default_string_bytes,
+        )
+
+
     @property
     def row_size_bytes(self) -> int:
         return self._row_size_bytes
@@ -157,8 +218,22 @@ class MemoryGuard:
         self,
         row_size_bytes: Optional[int] = None,
         expansion_factor: Optional[float] = None,
+        *,
+        sample_batch: Optional[pa.RecordBatch] = None,
     ) -> int:
-        row_bytes = row_size_bytes if row_size_bytes is not None else self._row_size_bytes
+        """How many rows fit in one batch under current budget.
+
+        v0.9.8b (R2): `sample_batch` kwarg — if provided, uses exact
+        estimate_row_size_from_batch (fixes string underestimate).
+        Otherwise uses `row_size_bytes` argument or cached value.
+        """
+        if sample_batch is not None:
+            row_bytes = self.estimate_row_size_from_batch(sample_batch)
+        else:
+            row_bytes = (
+                row_size_bytes if row_size_bytes is not None
+                else self._row_size_bytes
+            )
         ef = expansion_factor if expansion_factor is not None else self._default_ef
         if row_bytes <= 0 or ef <= 0:
             raise ValueError("row_size_bytes и expansion_factor должны быть > 0")
