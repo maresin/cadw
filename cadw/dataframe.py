@@ -3254,35 +3254,74 @@ class CadwDataFrame:
         prev_group = _SENTINEL
         try:
             for b in ArrowIPCBatchReader(str(sorted_path), None):
-                self._memory_guard.check_batch(b, name="per_group_shift.sorted")
+                self._memory_guard.check_batch(
+                    b, name="per_group_shift.sorted"
+                )
                 n = b.num_rows
                 if n == 0:
                     continue
-                group_arrs = {gc: b.column(gc).to_pylist() for gc in group_cols}
-                col_vals = {c: b.column(c).to_pylist() for c in cols}
-                shifted_vals = {c: [None] * n for c in cols}
-                for i in range(n):
-                    gk = tuple(group_arrs[gc][i] for gc in group_cols)
-                    if gk != prev_group:
+                # v0.9.21 (§1.4): Arrow-native group boundaries in shift.
+                # Prior: group_arrs = {gc: b.column(gc).to_pylist()...}
+                # + per-row tuple(group_arrs[gc][i]) = O(n × K_cols)
+                # Python ops + n × K_cols Python objects (28 B each).
+                # Now: _group_boundaries_arrow = O(n × K_cols) C++ ops
+                # + O(n) transient bool masks. Peak Python per batch =
+                # max_group_size × cols (transient, GC'd between
+                # groups), not n × cols.
+                boundaries = _group_boundaries_arrow(b, group_cols)
+
+                # v0.9.21-fix1: batch-level key via 1-row to_pylist
+                # (bounded #batches × K_cols, NOT per-group as_py).
+                batch_first_key = tuple(
+                    b.column(gc).slice(0, 1).to_pylist()[0]
+                    for gc in group_cols
+                )
+                if (prev_group is _SENTINEL
+                        or batch_first_key != prev_group):
+                    if prev_group is not _SENTINEL:
                         for dq in bufs.values():
                             dq.clear()
-                        prev_group = gk
+
+                all_shifted_arrow = {c: [] for c in cols}
+                for gi in range(len(boundaries) - 1):
+                    start = boundaries[gi]
+                    end = boundaries[gi + 1]
+                    if gi > 0:
+                        # New group within batch — reset state (no key
+                        # tracking; batch-boundary key handles carryover).
+                        for dq in bufs.values():
+                            dq.clear()
+                    group_len = end - start
+                    gvals = {
+                        c: b.column(c).slice(start, group_len).to_pylist()
+                        for c in cols
+                    }
+                    group_shifted = {c: [None] * group_len for c in cols}
+                    for i in range(group_len):
+                        for c in cols:
+                            if len(bufs[c]) < k:
+                                group_shifted[c][i] = fill_value
+                            else:
+                                group_shifted[c][i] = bufs[c][0]
+                            bufs[c].append(gvals[c][i])
                     for c in cols:
-                        if len(bufs[c]) < k:
-                            shifted_vals[c][i] = fill_value
-                        else:
-                            shifted_vals[c][i] = bufs[c][0]
-                        bufs[c].append(col_vals[c][i])
+                        all_shifted_arrow[c].append(
+                            pa.array(
+                                group_shifted[c],
+                                type=b.schema.field(c).type,
+                            )
+                        )
                 arrays = [b.column("row_id")]
                 for c in cols:
-                    arrays.append(
-                        pa.array(
-                            shifted_vals[c],
-                            type=b.schema.field(c).type,
-                        )
-                    )
+                    arrays.append(pa.concat_arrays(all_shifted_arrow[c]))
                 writer.write_batch(
                     pa.RecordBatch.from_arrays(arrays, schema=applied_schema)
+                )
+                # v0.9.21-fix1: track last row's key for next batch's
+                # cross-batch continuity (bounded 1-row to_pylist).
+                prev_group = tuple(
+                    b.column(gc).slice(n - 1, 1).to_pylist()[0]
+                    for gc in group_cols
                 )
         finally:
             writer.close()
@@ -3571,23 +3610,53 @@ class CadwDataFrame:
                 n = b.num_rows
                 if n == 0:
                     continue
-                group_arrs = {gc: b.column(gc).to_pylist() for gc in group_cols}
-                col_vals = {c: b.column(c).to_pylist() for c in cols}
-                rolled_vals = {c: [None] * n for c in cols}
-                for i in range(n):
-                    gk = tuple(group_arrs[gc][i] for gc in group_cols)
-                    if gk != prev_group:
+                # v0.9.21 (§1.4): Arrow-native group boundaries in rolling
+                # (same rationale as _per_group_shift).
+                boundaries = _group_boundaries_arrow(b, group_cols)
+
+                # v0.9.21-fix1: batch-level key via 1-row to_pylist.
+                batch_first_key = tuple(
+                    b.column(gc).slice(0, 1).to_pylist()[0]
+                    for gc in group_cols
+                )
+                if (prev_group is _SENTINEL
+                        or batch_first_key != prev_group):
+                    if prev_group is not _SENTINEL:
                         for st in states.values():
                             st.reset()
-                        prev_group = gk
+
+                all_rolled_arrow = {c: [] for c in cols}
+                for gi in range(len(boundaries) - 1):
+                    start = boundaries[gi]
+                    end = boundaries[gi + 1]
+                    if gi > 0:
+                        # New group within batch — reset state.
+                        for st in states.values():
+                            st.reset()
+                    group_len = end - start
+                    gvals = {
+                        c: b.column(c).slice(start, group_len).to_pylist()
+                        for c in cols
+                    }
+                    group_rolled = {c: [None] * group_len for c in cols}
+                    for i in range(group_len):
+                        for c in cols:
+                            group_rolled[c][i] = states[c].push(gvals[c][i])
                     for c in cols:
-                        rolled_vals[c][i] = states[c].push(col_vals[c][i])
+                        out_name, ot = out_type_by_col[c]
+                        all_rolled_arrow[c].append(
+                            pa.array(group_rolled[c], type=ot)
+                        )
                 arrays = [b.column("row_id")]
                 for c in cols:
-                    out_name, ot = out_type_by_col[c]
-                    arrays.append(pa.array(rolled_vals[c], type=ot))
+                    arrays.append(pa.concat_arrays(all_rolled_arrow[c]))
                 writer.write_batch(
                     pa.RecordBatch.from_arrays(arrays, schema=applied_schema)
+                )
+                # v0.9.21-fix1: track last row's key for next batch.
+                prev_group = tuple(
+                    b.column(gc).slice(n - 1, 1).to_pylist()[0]
+                    for gc in group_cols
                 )
         finally:
             writer.close()
@@ -4958,6 +5027,51 @@ class _ArrowTail:
     def get(self):
         """Return current tail pa.Array of length <= k, or None."""
         return self._tail
+
+
+
+
+def _group_boundaries_arrow(batch, group_cols):
+    """v0.9.21 (§1.4): Arrow-native group boundary detection.
+
+    Returns list [0, b1, b2, ..., n] where boundaries[k] is the
+    row index at which group k starts (0 = first, n = past end).
+
+    Assumes input is sorted by group_cols (caller contract; group
+    boundaries = value changes between consecutive rows).
+
+    Peak: O(n) transient bool mask per group col. No n × K_cols
+    Python objects (prior `to_pylist()` + per-row tuple alloc).
+
+    Null semantics: null==null → same group (SQL-style; matches
+    Python tuple compare used before v0.9.21). NULL vs non-null
+    → different group (Arrow Kleene equal returns null → treated
+    as different via fill_null(False)).
+    """
+    import pyarrow.compute as _pc
+    n = batch.num_rows
+    if n <= 1:
+        return [0, n] if n > 0 else [0]
+    same = None
+    for gc in group_cols:
+        col = batch.column(gc)
+        prev_slice = col.slice(0, n - 1)
+        curr_slice = col.slice(1)
+        eq = _pc.equal(curr_slice, prev_slice)
+        both_null = _pc.and_(
+            _pc.is_null(curr_slice), _pc.is_null(prev_slice)
+        )
+        col_same = _pc.or_(
+            _pc.fill_null(eq, pa.scalar(False, type=pa.bool_())),
+            both_null,
+        )
+        if same is None:
+            same = col_same
+        else:
+            same = _pc.and_(same, col_same)
+    same_np = same.to_numpy(zero_copy_only=False)
+    changes = np.flatnonzero(~same_np) + 1
+    return [0] + changes.tolist() + [n]
 
 
 class _RollState:

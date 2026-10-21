@@ -5172,6 +5172,65 @@ AST, не regex/string.
 **Связанные:** §13.4/231 (calibrate проlogue), /229 (type coercion — same «wrong thing measured» class).
 
 
+
+
+
+**Эпизод 233 (append with fallback anchor — check ALL candidates).** v0.9.20 initial: `append_decisions` used `anchor = "**Gap 190–210"` (present, v0.9.17) with fallback `if anchor not in s: anchor = §13.5`. Since gap-note EXISTS → insert BEFORE gap → order became 189...226-232...gap...211-225. Assert 225 < 226 failed → 226 (early) < 225 (late).
+
+**Правило (§13.4/233):** append с fallback anchor — **не полагаться на `if X not in s`**. Проверять **все** candidate anchors; выбирать **латест** по позиции явно. Если несколько — `insert_before(target)` параметризованный, не «первый-if-present».
+
+**Связанные:** §13.4/160 (silent no-op), /216 (helper exists).
+
+
+**Эпизод 234 (contiguous-text anchor vs multi-line code).** v0.9.20-fix2: verify anchor `'_model_predicted("hash_shuffle"'` expects single-line call; bench had multi-line. Sort/groupby single-line → pass; hash_shuffle multi-line → fail.
+
+**Правило (§13.4/234):** anchor на contiguous text (`func("arg"`) требует single-line. Multi-line calls → anchor на args-only (`'"hash_shuffle", batches'`) или **normalize style** (все single-line). Prefer normalize — simpler AST-check + readability.
+
+**Связанные:** §13.4/230 (write_content units).
+
+
+**Эпизод 235 (stale test names after API change).** v0.9.20-fix2: `test_calibrate_records_sample` asserts `"arrow" in s and "rss" in s` — v0.9.19 field names. v0.9.20 renamed to peak_pool/peak_rss → assertion False. Test was never updated.
+
+**Правило (§13.4/235):** при rename API в patch — grep ALL tests for old field names BEFORE commit. Use `assert_no_stale_behavior(['"arrow" in s'])` в patch, или explicit test refresh.
+
+**Связанные:** §13.4/152 (grep stale), /193 (write_content_checked).
+
+
+**Эпизод 236 (peak_delta vs peak_abs — unit mismatch).** v0.9.20-fix3: `_record_calibration` passed `peak_pool_abs`/`peak_rss_abs` (absolute process values, 161 MB) to C calc. Formula §9.2.1 = delta above op-start (batch + state = 149 KB). C = 161 MB / 149 KB = 1080. Absurd.
+
+**Правило (§13.4/236):** metric = **delta above op-start**. `peak_delta = peak_abs - start`. Formula = delta. Both sides delta. Same class as §13.4/232 but ABSOLUTE side (232 был NET side).
+
+**Связанные:** §13.4/232, /240.
+
+
+**Эпизод 237 (generic method names in AST guards).** v0.9.20-fix4: `"join"` in `HIGH_RISK_ATTRS` matches `pa.Table.join` (high-risk) AND `threading.Thread.join` (benign stdlib). AST matcher attribute-name only → false positive on sampler cleanup.
+
+**Правило (§13.4/237):** generic method names (join, update, filter, compute, read) → per-qualname whitelist с rationale. NOT removal from `HIGH_RISK_ATTRS` (hides real violations). Rationale = permission + documentation.
+
+**Связанные:** §13.4/229 (type coercion in numpy), /170 (whitelist by qualname).
+
+
+**Эпизод 238 (multi-feature patch → fix cascade).** v0.9.20 initial — 4 features in one patch: peak-polling (a), bench rewrite (b), DECISIONS append (c), tests (d). Cascade: **5 fix-cycles** (initial + fix1 + fix2 + fix3 + fix4). Each fix exposed one bug from one feature.
+
+**Правило (§13.4/238):** если patch требует >2 fix-cycle → **split on next opportunity**. Better: split **before** in first attempt. v0.9.21+ — single-purpose atomic patches.
+
+**Связанные:** §13.4/211 (compile-before-write), /222 (multi-step abort).
+
+
+**Эпизод 239 (sampler miss ≠ no peak).** v0.9.20 bench: `peak_pool=0` для reduce ops (sampler 10ms interval, op ~5ms → sampled 0 times). But also: `pc.sum(skip_nulls)` на int64 без nulls = zero-copy → **no temp alloc**. Both true simultaneously.
+
+**Правило (§13.4/239):** sampler miss + zero-copy kernel = `peak=0` honest. Verify with **null-containing** input + shorter interval to distinguish. Не assume drift без контроля обоих.
+
+**Связанные:** §13.4/240.
+
+
+**Эпизод 240 (formula-as-sizing ≠ formula-as-validation metric).** §9.2.1 `ReduceMemoryModel`: `batch_size × row_size + 2 × state` = **sizing decision** («сколько строк выбрать для бюджета»). Bench measures **delta during op** (temp allocs above pre-sized batch). Formula = per-batch-total, bench = incremental-during-op. Compare → 0/149K = 0 (no temp) or >1 (temp exists).
+
+**Правило (§13.4/240):** formula validates at **sizing time** (batch_size picked, guard check). Bench validates at **runtime** (temp alloc). Two different purposes. Do NOT compare across. Correct metric for formula = «does sizing fail to fit?» not «does op delta exceed formula?».
+
+**Связанные:** §13.4/232, /236, /239.
+
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).

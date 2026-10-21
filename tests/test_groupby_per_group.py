@@ -525,3 +525,131 @@ def test_rollstate_has_reset():
     """_RollState.reset() must exist (used by per_group_rolling)."""
     from cadw.dataframe import _RollState
     assert hasattr(_RollState, "reset")
+
+
+# ============ v0.9.21 (§1.4): Arrow-native group boundaries ============
+
+
+def test_group_boundaries_arrow_correctness():
+    """v0.9.21 (§1.4): boundary helper matches per-row tuple compare."""
+    import pyarrow as pa
+    from cadw.dataframe import _group_boundaries_arrow
+    # Single col, no nulls
+    b = pa.RecordBatch.from_arrays(
+        [pa.array([1, 1, 2, 2, 2, 3])], names=["g"]
+    )
+    assert _group_boundaries_arrow(b, ["g"]) == [0, 2, 5, 6]
+    # Single col with nulls: null==null → same group (SQL-style)
+    b2 = pa.RecordBatch.from_arrays(
+        [pa.array([1, 1, None, None, 2])], names=["g"]
+    )
+    assert _group_boundaries_arrow(b2, ["g"]) == [0, 2, 4, 5]
+    # Multi-col: combined AND
+    b3 = pa.RecordBatch.from_arrays(
+        [pa.array([1, 1, 1, 2]), pa.array(["a", "a", "b", "b"])],
+        names=["k1", "k2"],
+    )
+    assert _group_boundaries_arrow(b3, ["k1", "k2"]) == [0, 2, 3, 4]
+    # Empty
+    b4 = pa.RecordBatch.from_arrays(
+        [pa.array([], type=pa.int64())], names=["g"]
+    )
+    assert _group_boundaries_arrow(b4, ["g"]) == [0]
+    # Single row
+    b5 = pa.RecordBatch.from_arrays([pa.array([5])], names=["g"])
+    assert _group_boundaries_arrow(b5, ["g"]) == [0, 1]
+    # Mixed null across different values
+    b6 = pa.RecordBatch.from_arrays(
+        [pa.array([None, 1, None, 1])], names=["g"]
+    )
+    assert _group_boundaries_arrow(b6, ["g"]) == [0, 1, 2, 3, 4]
+
+
+def test_per_group_shift_no_whole_batch_to_pylist():
+    """v0.9.21 (§1.4): _per_group_shift must NOT call
+    b.column(gc).to_pylist() on the whole batch — only on group slices."""
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _tw
+    from cadw.dataframe import CadwDataFrame
+    src = _tw.dedent(_inspect.getsource(CadwDataFrame._per_group_shift))
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if not (isinstance(node, _ast.Call)
+                and isinstance(node.func, _ast.Attribute)
+                and node.func.attr == "to_pylist"):
+            continue
+        recv = node.func.value
+        # Old pattern: b.column(gc).to_pylist() (no .slice)
+        # New pattern: b.column(c).slice(start, group_len).to_pylist() OK
+        if (isinstance(recv, _ast.Call)
+                and isinstance(recv.func, _ast.Attribute)
+                and recv.func.attr == "column"):
+            raise AssertionError(
+                f"_per_group_shift whole-batch to_pylist at line "
+                f"{node.lineno} — use slice().to_pylist() per group"
+            )
+    # Positive: helper is called
+    assert "_group_boundaries_arrow" in src
+
+
+def test_per_group_rolling_no_whole_batch_to_pylist():
+    """v0.9.21 (§1.4): same for _per_group_rolling."""
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _tw
+    from cadw.dataframe import CadwDataFrame
+    src = _tw.dedent(_inspect.getsource(CadwDataFrame._per_group_rolling))
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if not (isinstance(node, _ast.Call)
+                and isinstance(node.func, _ast.Attribute)
+                and node.func.attr == "to_pylist"):
+            continue
+        recv = node.func.value
+        if (isinstance(recv, _ast.Call)
+                and isinstance(recv.func, _ast.Attribute)
+                and recv.func.attr == "column"):
+            raise AssertionError(
+                f"_per_group_rolling whole-batch to_pylist at line "
+                f"{node.lineno} — use slice().to_pylist() per group"
+            )
+    assert "_group_boundaries_arrow" in src
+
+
+# ============ v0.9.21-fix1: no as_py in per-group shift/rolling ============
+
+
+def test_per_group_shift_no_as_py_batch_level_only():
+    """v0.9.21-fix1: cross-batch key via 1-row to_pylist, no as_py.
+
+    Prior v0.9.21 (initial) used per-group .as_py() for prev_group
+    tracking: O(#groups), triggered test_facade_has_no_as_py. Fix:
+    batch-level only via .slice().to_pylist()[0] on 1-row slices.
+    """
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _tw
+    from cadw.dataframe import CadwDataFrame
+
+    for fn_name in ("_per_group_shift", "_per_group_rolling"):
+        fn = getattr(CadwDataFrame, fn_name)
+        src = _tw.dedent(_inspect.getsource(fn))
+        tree = _ast.parse(src)
+        as_py_lines = [
+            n.lineno for n in _ast.walk(tree)
+            if isinstance(n, _ast.Call)
+            and isinstance(n.func, _ast.Attribute)
+            and n.func.attr == "as_py"
+        ]
+        assert not as_py_lines, (
+            f"{fn_name}: {len(as_py_lines)} as_py calls at "
+            f"{as_py_lines}; use .slice().to_pylist()[0] for bounded "
+            f"batch key. See §13.4/235-240."
+        )
+        assert ".slice(0, 1).to_pylist()" in src, (
+            f"{fn_name}: expected bounded batch_first_key extraction"
+        )
+        assert ".slice(n - 1, 1).to_pylist()" in src, (
+            f"{fn_name}: expected bounded prev_last_key extraction"
+        )

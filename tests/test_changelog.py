@@ -126,3 +126,23 @@ def test_decisions_226_232_order():
     assert idx_232 < idx_135, (
         f"Эпизод 232 ({idx_232}) after §13.5 ({idx_135})"
     )
+
+
+# ============ v0.9.21: DECISIONS 233-240 order ============
+
+
+def test_decisions_233_240_order():
+    """v0.9.21: episodes 233-240 after 232, before §13.5."""
+    from pathlib import Path as _P
+    text = (_P(__file__).resolve().parent.parent / "DECISIONS.md").read_text()
+    if "**Эпизод 233 " not in text:
+        pytest.skip("233 block not yet present")
+    i_232 = text.index("**Эпизод 232 ")
+    i_233 = text.index("**Эпизод 233 ")
+    i_240 = text.index("**Эпизод 240 ")
+    i_135 = text.index("### 13.5. Открытые вопросы")
+    assert i_232 < i_233, (
+        f"233 ({i_233}) before 232 ({i_232})"
+    )
+    assert i_233 < i_240, f"240 ({i_240}) before 233 ({i_233})"
+    assert i_240 < i_135, f"240 ({i_240}) after §13.5 ({i_135})"
