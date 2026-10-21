@@ -97,9 +97,6 @@ WHITELISTED_FUNCS = {
         "bounded accum list; guard in _per_group_rolling",
     "cadw/dataframe.py:CadwDataFrame._repr_html_":
         "20-row head().to_pandas().to_html(), bounded sample",
-    # v0.9.4b-2: describe() delegates to self.quantile (guarded via external_sort).
-    "cadw/dataframe.py:CadwDataFrame.describe":
-        "delegates to self.quantile (guarded via external_sort)",
     # v0.9.6b1: sort_values in-memory fast path (pa.Table.sort_by)
     # for group tables in per-group apply. Group already ≤ 0.3×
     # available (checked in _per_group_apply before fn() call);

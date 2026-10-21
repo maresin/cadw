@@ -4608,19 +4608,36 @@ class CadwDataFrame:
             total += per_col[c]
         return {"total": total, "per_column": per_col}
 
-    def describe(self, columns=None):
-        # Numeric summary: count, mean, std, min, 25%, 50%,
-        # 75%, max per column. Returns dict {col: {stat: value}}.
-        #
-        # columns=None: all numeric columns (int/float).
-        #
-        # Cost: per column -- 5 Reduce passes (count/mean/std/
-        # min/max) + 1 external_sort (quantiles). For d numeric
-        # cols, O(d) sorts total. See 11.6 for a fused DescribeOp
-        # (single-pass optimization) backlog.
-        from cadw.ops.reduce import (
-            reduce, CountOp, MeanOp, StdOp, MinMaxOp,
-        )
+    def describe(self, columns=None, *, reservoir_size=10000):
+        """Numeric summary — fused single-pass (v0.9.7b, R5: 109×).
+
+        Single Reduce pass per column group: Welford (mean/M2/std)
+        + min/max + reservoir (Algorithm R) for quantiles. Replaces
+        5 Reduce passes + 1 external_sort per column.
+
+        Peak RAM = batch + O(d × reservoir_size × 8B), independent
+        of N. Default reservoir_size=10000 → quantiles exact for
+        N ≤ reservoir_size, approximate above (§11.5).
+
+        Args:
+            columns: numeric columns (None → auto-detect int/float).
+            reservoir_size: reservoir capacity per column
+                (>= 1, default 10000). Larger → more exact quantiles,
+                more memory (d × reservoir_size × 8B).
+
+        Returns {col: {count, mean, std, min, 25%, 50%, 75%, max}}.
+        Empty / all-null column → NaN for stat fields, count=0.
+
+        For exact quantiles at any N, use `df.quantile()`
+        (external_sort per column; slower but exact).
+        """
+        from cadw.ops.describe import describe_columns
+
+        if not isinstance(reservoir_size, int) or reservoir_size < 1:
+            raise ValueError(
+                f"describe: reservoir_size must be int >= 1; "
+                f"got {reservoir_size!r}"
+            )
         if columns is None:
             cols = []
             for c in self._columns:
@@ -4638,42 +4655,10 @@ class CadwDataFrame:
                     "describe: column " + repr(c) + " not in "
                     + str(self._columns)
                 )
-        result = {}
-        for c in cols:
-            count = reduce(
-                self._iter_filtered_batches(), CountOp(c),
-                self._memory_guard, log=False,
-            )
-            mean = reduce(
-                self._iter_filtered_batches(), MeanOp(c),
-                self._memory_guard, log=False,
-            )
-            std = reduce(
-                self._iter_filtered_batches(), StdOp(c),
-                self._memory_guard, log=False,
-            )
-            mn = reduce(
-                self._iter_filtered_batches(),
-                MinMaxOp(c, "min"),
-                self._memory_guard, log=False,
-            )
-            mx = reduce(
-                self._iter_filtered_batches(),
-                MinMaxOp(c, "max"),
-                self._memory_guard, log=False,
-            )
-            q = self.quantile(c, [0.25, 0.5, 0.75])
-            result[c] = {
-                "count": count,
-                "mean": mean,
-                "std": std,
-                "min": mn,
-                "25%": q[0],
-                "50%": q[1],
-                "75%": q[2],
-                "max": mx,
-            }
-        return result
+        return describe_columns(
+            self._iter_filtered_batches(), cols, self._memory_guard,
+            reservoir_size=reservoir_size,
+        )
 
     # ---------------- write ----------------
 
@@ -5415,4 +5400,5 @@ def _build_out_schema(group_cols, df, mode, first_result, result_col):
                 continue
             fields.append(first_result._dataset.schema.field(c))
     return pa.schema(fields)
+
 
