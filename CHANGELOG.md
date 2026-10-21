@@ -1,5 +1,68 @@
 ## [Unreleased]
 
+
+### v0.9.15–v0.9.22: post-release v0.9.14 fixes + audit round 3
+
+**8 patches** since v0.9.14 tag. Full per-patch detail via
+`git log --oneline v0.9.14..master`. Highlights:
+
+- **v0.9.15** — `patch_utils.dedent_method_source` + T2.7 meta-guard
+  (no inline `dedent(getsource(...))` outside helper).
+- **v0.9.16** — DECISIONS §13.4/211–225 append (15 meta-lessons
+  from v0.9.7–v0.9.14); tag v0.9.14.
+- **v0.9.17** — DECISIONS §13.4/178–189 append (round-1 audit
+  lessons); seaborn deprecation filter; category-beyond-memory
+  tests (K × per_key > avail, §13.4/218 null-key regression).
+- **v0.9.18** — AUDIT.md round-1 fixes: §1.1 `_ArrowTail` (shift),
+  §1.2 rank numpy fast path, §1.3 string hash dict-encode, §1.5
+  `to_list` sample-based guard, §1.6 `MaterializedIndex` numpy.
+  3 fix-cycles for null/edge cases.
+- **v0.9.19** — closed-loop memory correctness:
+  `MemoryGuard(calibrate=True, runtime_monitor=True)` — 3 tiers
+  (pyarrow pool exact / psutil RSS sampled / calibration log
+  warns at C > 2.0); `reduce()` wired; `bench_v0919_calibration.py`.
+- **v0.9.20** — peak-polling `calibrate(sample_peak=True)`;
+  bench decomposition columns (`pred_batch` / `pred_state` /
+  `pred_total` / `C_peak` / `C_batch`); DECISIONS §13.4/226–232
+  append. **5 fix-cycles** — §13.4/238 anti-pattern (4-feature
+  patch → cascade).
+- **v0.9.21** — AUDIT §1.4 (last CONFIRMED item):
+  `_group_boundaries_arrow` + per-group shift/rolling Arrow-native
+  group boundaries; §13.4/233–240 append. 1 fix-cycle (per-group
+  as_py → batch-level slice.to_pylist).
+- **v0.9.22** — AUDIT_ML round 3 fixes: gbdt multiclass
+  `est_n_state = n·8·(1+4K)` (was n·K·8·3 — missed y_all + K-th
+  round_cur_leaves, 880 MB under-report @ N=10M K=10); gbdt
+  `_validate_binary_y` single-pass; NB `C_ASSUMED=64` (was 32);
+  kmeans `batch_memory_factor=2k` (S1: 800 MB real vs 4 MB check
+  @ k=100 closed); `_flush_buf` bounded-by-construction comment;
+  DECISIONS §9.2.20–22 + §13.4/241–245 append.
+
+**Key outcomes:**
+- AUDIT.md round-1 **all 5 CONFIRMED closed** (§1.1–§1.6).
+- AUDIT_ML_v0922 round-3: 24 suspected → **7 CONFIRMED** (all
+  fixed v0.9.22) → 17 **RETRACTED** under measurement. Two S1
+  bugs closed: gbdt multiclass formula (880 MB miss), kmeans
+  batch_memory_factor (200× under-report at k=100).
+- **Closed-loop memory** (v0.9.19+): `MemoryGuard` can measure
+  runtime — pyarrow pool exact, RSS sampled, calibration log
+  warns at drift > 2.0. `bench_v0919_calibration.py` automates
+  AUDIT workflow.
+- **25 meta-lessons** documented (§13.4/178–245).
+
+**Deferred:**
+- **v0.9.22b** — `extra_factor=3.0-5.0` at 5 `to_pylist` call
+  sites (rank:269,345; groupby:581; resample:272; pivot:204).
+  Needs exact anchors per site.
+- **v0.9.23** — kmeans++ reservoir (quality: +36.9% inertia on
+  skewed data); `RobustScaler` O(d) sort batching.
+- **v0.9.24+** — A1 `dataframe.py` split; Pingis round 4;
+  v1.0 readiness.
+
+**Test count:** 1916 fast + 24 slow (was 1876+24 at v0.9.14;
++40 fast, 0 slow). Whitelist 31 keys.
+
+
 ## [0.9.14] — 2026-10-21
 
 ### v0.9.7–v0.9.14: audit round 2 (16 patches, 3 silent data-loss bugs)

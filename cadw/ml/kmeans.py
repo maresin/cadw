@@ -48,6 +48,14 @@ class KMeansStepOp(ReduceOp):
             )
         self.k, self.d = self.centroids.shape
 
+    def batch_memory_factor(self) -> float:
+        """v0.9.22 (§13.4/243, AUDIT_ML §1.4): update() creates two
+        (n, k, d) float64 tensors (diff then diff*diff) — 2·k·
+        batch.nbytes transient. Prior inherited 1.0 → k=100, d=50,
+        batch=10k: real peak ~800 MB vs check_batch 4 MB. Override
+        to 2k. Output identity unchanged (guard-only edit)."""
+        return 2.0 * float(self.k)
+
     def init(self):
         return (
             np.zeros((self.k, self.d), dtype=np.float64),

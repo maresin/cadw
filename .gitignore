@@ -35,3 +35,7 @@ main.py
 .pingis/*
 !.pingis/TASK.md
 _FOR_PINGIS/
+
+# v0.9.22-fix1: user attachment folder (no underscore),
+# distinct from _FOR_PINGIS/ (audit output, gitignored).
+FOR_PINGIS/

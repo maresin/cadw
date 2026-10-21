@@ -330,3 +330,25 @@ def test_multinomial_nb_non_negative_X_passes(tmp_path):
     model = fit_multinomial_nb(df, ["x0", "x1"], "y")
     assert model is not None
 
+
+
+# ============ v0.9.22 (§13.4/242): NB C_ASSUMED=64 ============
+
+
+def test_nb_c_assumed_is_64():
+    """v0.9.22: C_ASSUMED bumped 32→64 (AUDIT_ML §1.3).
+
+    Drift is bounded (K=100 gives 3.125×, RSS=2MB — not RAM bug);
+    bump + doc is honest fix, ValueError too aggressive.
+    """
+    import inspect
+    from cadw.ml import naive_bayes as nb_mod
+    for op_name in ("_GaussianStatsOp", "_MultinomialStatsOp",
+                    "_BernoulliStatsOp"):
+        src = inspect.getsource(getattr(nb_mod, op_name))
+        assert "return 64 * (8 +" in src, (
+            f"{op_name}: expected C_ASSUMED=64 (return 64 * ...)"
+        )
+        assert "return 32 * (8 +" not in src, (
+            f"{op_name}: old C_ASSUMED=32 must be removed"
+        )

@@ -315,3 +315,23 @@ def test_binary_classifier_still_works(tmp_path):
     assert proba.shape == (n,)  # binary stays (n,)
     pred = (proba >= 0.5).astype(int)
     assert (pred == y).mean() > 0.85
+
+
+# ============ v0.9.22 (§13.4/241): multiclass state formula ============
+
+
+def test_multiclass_est_state_includes_y_all():
+    """v0.9.22: est_n_state = n·8·(1 + 4K), not n·K·8·3.
+
+    Prior formula missed y_all (n·8) and K-th round_cur_leaves (K·n·8).
+    """
+    from cadw.ml.gbdt import _fit_boosting_multiclass
+    import inspect
+    src = inspect.getsource(_fit_boosting_multiclass)
+    assert "n_total * 8 * (1 + 4 * K)" in src, (
+        "multiclass state formula must be n·8·(1+4K) "
+        "(AUDIT_ML §1.1). Prior n·K·8·3 under-reports."
+    )
+    assert "n_total * K * 8 * 3" not in src, (
+        "old formula n·K·8·3 must be removed"
+    )

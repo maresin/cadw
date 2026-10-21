@@ -771,6 +771,55 @@ backed by Arrow).
 
 **Guard**: `check_state(df.memory_usage(deep=True).sum())` before call.
 
+
+### 9.2.20. GBDT top-level peak (multiclass) — §13.4/241
+
+**Persistent per-op state** (multiclass, K classes):
+
+    est_n_state = n·8·(1 + 4K)
+
+Components: `y_all` (n·8), `pred` (n·K·8), `grad_all` (n·K·8),
+`hess_all` (n·K·8), `round_cur_leaves` (K·n·8). Prior formula
+n·K·8·3 missed `y_all` + one `round_cur_leaves` slot → 33-50%
+under-report (AUDIT_ML §1.1 measured 1.37-1.44× at K=3-10; N=10M
+K=10 → 880 MB miss). Fixed in v0.9.22.
+
+**Per-batch hist peak** (still separate `check_state` in
+`_AllNodeHistOp.estimate_state_nbytes`): `S × F × B × 32 B` for
+current level S nodes × F features × B bins. For F=1000, B=255,
+S=63 (d=5): ~514 MB — larger than base state at small N. Audited
+exact (AUDIT_ML §3.1 retracted): `estimate == state_nbytes(init())`
+for S∈{3,7,16,31,63} × F∈{2,100,1000} × B∈{16,255}.
+
+**Full peak ≈** `est_n_state + max_hist + 2 × batch_X`. Not
+aggregated into one formula: per-op `check_state` calls cover each
+phase. For small N (hist dominates), ratio vs `n·32` blows up to
+7-10×; safe because hist is separately checked.
+
+
+### 9.2.21. Pipeline.plan() = sum(state_bytes), not peak — §13.4/247
+
+`plan(df)` checks `sum(step.state_bytes) ≤ state_limit` and returns
+`predicted_outcome ∈ {fits, does_not_fit}`. **State-only**: does
+**not** model per-step peak (transform buffer + batch). Honest by
+design: transform is per-batch streamed, each step's MemoryGuard
+handles its own batch. `plan` = feasibility of fitted state, not
+runtime peak. If a transform step internally needs large temp
+buffers (e.g. `RobustScaler.fit` O(d) sorts), its own
+`check_state` catches at runtime — plan may say `fits` and
+transform may raise. Documented as intentional (§13.4/247).
+
+
+### 9.2.22. KFold(materialize=True) budget ≈ 2 × check_state — §13.4/248
+
+`KFold(n_splits, materialize=True)` calls
+`check_state(20 * n)` — bounds int32 fold_id (4n) + int64
+`np.arange` (8n) + int64 `rng.permutation` (8n) numpy transients.
+**But** the resulting Arrow `augmented` dataset (~n × K_cols × 8 B)
+is outside that bound. Measured N=100k: RSS 4.33 MB vs 20n=2 MB
+(ratio 2.17×). User must budget ~2× check_state for total KFold
+memory. Default (streaming) mode is O(batch), no such caveat.
+
 ### 9.3. Pipeline planner
 
     plan_pipeline(ops: list[Op], data_chars, available) -> PipelinePlan
@@ -5229,6 +5278,44 @@ AST, не regex/string.
 **Правило (§13.4/240):** formula validates at **sizing time** (batch_size picked, guard check). Bench validates at **runtime** (temp alloc). Two different purposes. Do NOT compare across. Correct metric for formula = «does sizing fail to fit?» not «does op delta exceed formula?».
 
 **Связанные:** §13.4/232, /236, /239.
+
+
+
+
+
+**Эпизод 241 (formula components must be enumerated).** v0.9.22 (AUDIT_ML §1.1): gbdt multiclass `est_n_state = n·K·8·3` — intended `pred + grad_all + hess_all`, but actual persistent state includes **`y_all` (n·8)** and `round_cur_leaves` (K·n·8, one per class held through the round) — formula missed two components. Measured ratio 1.37-1.44× (K=3-10); N=10M K=10 → 880 MB under-report. Fix: `n·8·(1 + 4K)`.
+
+**Правило (§13.4/241):** state formula должен **enumerate все persistent arrays**. Перед публикацией — grep `self.` assignments в `_fit_*` / `_build_*` и убедиться что каждый → 8·bytes в formula. Missing component → silent under-report на production scale.
+
+**Связанные:** §13.4/187 (Arrow state accounting), /240 (formula unit vs metric).
+
+
+**Эпизод 242 (C_ASSUMED drift — bump or error, not both).** v0.9.22 (AUDIT_ML §1.3): NB `estimate_state_nbytes` hardcodes `C_ASSUMED=32` — actual K classes discovered dynamically from y. K=100 → 3.125× under; K=500 → 15.6×. **But** measured RSS is tiny (2 MB @ K=100) because state is O(K·d·8), per-class overhead small. Audit suggested `ValueError K>32`; rejected — breaks existing K=33-64 users for zero RAM win. Fix: bump 32→64 (2× more conservative, covers common K) + docstring note. Per-update `check_state` still enforces actual bound.
+
+**Правило (§13.4/242):** при formula drift, **сначала измерить actual RSS**. Если tiny — bump assumption + doc. Если large — fix formula / extract actual metric. `ValueError` — только если **нет** clean bounded path (для NB — есть: per-update check). Не ломать users ради формальной точности.
+
+**Связанные:** §13.4/240 (formula unit vs metric), /178 (вакуумный guard — обе «модель не отражает реальность»).
+
+
+**Эпизод 243 (inherited default = wrong for op-specific transient).** v0.9.22 (AUDIT_ML §1.4): `KMeansStepOp` inherits `ReduceOp.batch_memory_factor() = 1.0`. But `update()` creates two (n, k, d) float64 tensors (`diff` then `diff*diff`) — transient `2·k·batch.nbytes`. For k=100, d=50, batch=10k: real peak 800 MB vs check_batch 4 MB → **guaranteed OOM** (S1).
+
+**Правило (§13.4/243):** если `update()` (или `merge`) создаёт **N intermediate arrays размера k×batch**, override `batch_memory_factor` явно. Default 1.0 — only for streaming kernels с temp ≤ batch.nbytes. Test: grep `np.zeros`, `[None]`, tensor broadcasts в `update` — если N intermediates, factor ≥ N.
+
+**Связанные:** §13.4/187 (per-row as_py — memory accounting).
+
+
+**Эпизод 244 (bounded-by-construction = no check_batch needed).** v0.9.22 (AUDIT_ML §1.7): `_flush_buf` accumulates `buf_rows` (Python list) с **нет** `check_batch`. But `buf_rows` bounded at `BATCH_ROWS=1000` in `_emit_row` — ~140 KB at K=5. Real guard is `_flush_group` at `0.3 × available` (per-group memory). No check_batch needed — bounded by construction. Add comment.
+
+**Правило (§13.4/244):** buffer с **explicit cap** (`BATCH_ROWS`, `maxlen=`, `if len(x) >= N: flush()`) — **не нужен check_batch**, нужен **comment** с указанием cap + real guard. Иначе будущий читатель / auditor пометит как «missing guard» (§13.4/138 false positive). Distinguish bounded-by-construction from bounded-by-guard.
+
+**Связанные:** §13.4/138 (AST guard for high-risk calls), /216 (helper exists).
+
+
+**Эпизод 245 (audit-first, measure-second — retract 0 evidence).** v0.9.22 (AUDIT_ML overall): 17 SUSPECTED findings из 24 **retracted** under measurement (71%). Examples: gbdt `_AllNodeHistOp` estimate exact (63 combos); gbdt predict_df per-tree no accum; NB dict-growth no OOM path (2 MB RSS @ K=500); pipeline fanout 0.152× formula; K6 §2.3 join 0.472× formula. Only 7 CONFIRMED (29%). **Without measurement, all 24 → v0.9.22 scope would be 6× larger than justified** — patch cascade (§13.4/238) guaranteed.
+
+**Правило (§13.4/245):** SUSPECTED finding без benchmark — **не actionable**. Сначала measure (tracemalloc + RSS + reference-assert), потом status: CONFIRMED / RETRACTED / NEEDS-RESEARCH. Assumptions — не findings. Retracted с evidence — valuable output (не «пропущено», а «проверено, не баг»).
+
+**Связанные:** §13.4/232-240 (metric unit — без правильной metric findings неотличимы от noise), /228 (dogfood = happy path, edge cases = pytest).
 
 
 ### 13.5. Открытые вопросы
