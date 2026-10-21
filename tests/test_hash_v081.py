@@ -44,10 +44,9 @@ def make_df(tmp_path, data, chunk=2, name="L"):
 def test_int64_consistent_hash_across_null_presence():
     """int64 with nulls vs without → same hash for non-null values.
 
-    Without types_mapper in _pandas_hash_column:
-      - batch without nulls: to_pandas → int64
-      - batch with nulls:    to_pandas → float64 (NaN)
-      → hash(1) ≠ hash(1.0) → partition inconsistency → WRONG results.
+    v0.9.6a: hash is deterministic on value regardless of
+    nulls present in the batch (own XXH64 for numeric;
+    nulls sentinel).
     """
     b1 = batch([1, 2, 3], names=["k"])
     b2 = batch([1, 2, None], names=["k"])

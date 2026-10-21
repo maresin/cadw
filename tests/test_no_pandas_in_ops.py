@@ -1,9 +1,9 @@
 """v0.8.11a: AST guard — pandas removed from ops hot path.
 
 After v0.8.11a, `cadw/ops/` has zero `import pandas` except in
-`shuffle.py::_pandas_hash_column` — a documented perf exception
-(pandas C-hash is 19–40× faster than Python fallback for
-int/float/timestamp; §9.2.20).
+v0.9.6a replaced `_pandas_hash_column` with own XXH64-based
+hash (`_vectorized_hash_numeric` + `_string_hash_column`).
+`cadw/ops/` is pandas-free.
 
 Principle §3.11 (Arrow call memory discipline) is enforced separately in
 `test_arrow_call_memory_guard.py`. This file guards the narrower claim:

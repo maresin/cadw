@@ -394,3 +394,112 @@ def test_commit_with_guards_no_param_shadowing():
             'commit_with_guards param ' + repr(param_name)
             + ' shadows module-level function with same name'
         )
+
+
+# ============ v0.9.6d: AST + subprocess + scoped helpers ============
+
+
+def test_assert_no_call_in_source_clean():
+    from cadw.patch_utils import assert_no_call_in_source
+    src = 'def f():\n    return 1\n'
+    assert_no_call_in_source(src, 'to_pandas')  # no raise
+
+
+def test_assert_no_call_in_source_finds_bare():
+    from cadw.patch_utils import assert_no_call_in_source
+    src = 'def f():\n    to_pandas()\n'
+    with pytest.raises(AssertionError, match="'to_pandas'"):
+        assert_no_call_in_source(src, 'to_pandas')
+
+
+def test_assert_no_call_in_source_finds_attr():
+    from cadw.patch_utils import assert_no_call_in_source
+    src = 'def f(t):\n    t.to_pandas()\n'
+    with pytest.raises(AssertionError, match="'to_pandas'"):
+        assert_no_call_in_source(src, 'to_pandas')
+
+
+def test_assert_no_call_in_source_ignores_comment():
+    # §13.4/183: substring would catch `# No to_pandas()`. AST does not.
+    from cadw.patch_utils import assert_no_call_in_source
+    src = 'def f():\n    # No to_pandas() here\n    return 1\n'
+    assert_no_call_in_source(src, 'to_pandas')  # no raise
+
+
+def test_assert_no_call_in_source_ignores_docstring():
+    from cadw.patch_utils import assert_no_call_in_source
+    src = (
+        'def f():\n'
+        '    """Use CadwDataFrame.from_table(pa_table)."""\n'
+        '    return 1\n'
+    )
+    assert_no_call_in_source(src, 'from_table')  # no raise
+
+
+def test_assert_call_order_ok():
+    from cadw.patch_utils import assert_call_order
+    src = (
+        'def f(t):\n'
+        '    t.check_state(1)\n'
+        '    CadwDataFrame.from_table(t)\n'
+    )
+    assert_call_order(src, 'check_state', 'from_table')
+
+
+def test_assert_call_order_wrong():
+    from cadw.patch_utils import assert_call_order
+    src = (
+        'def f(t):\n'
+        '    CadwDataFrame.from_table(t)\n'
+        '    t.check_state(1)\n'
+    )
+    with pytest.raises(AssertionError, match='must precede'):
+        assert_call_order(src, 'check_state', 'from_table')
+
+
+def test_assert_call_order_missing_first():
+    from cadw.patch_utils import assert_call_order
+    src = 'def f():\n    pass\n'
+    with pytest.raises(AssertionError, match='not found'):
+        assert_call_order(src, 'check_state', 'from_table')
+
+
+def test_assert_call_order_ignores_docstring():
+    # §13.4/185: docstring mention of `from_table` must not affect ordering.
+    from cadw.patch_utils import assert_call_order
+    src = (
+        'def f(t):\n'
+        '    """Use CadwDataFrame.from_table(...)."""\n'
+        '    t.check_state(1)\n'
+        '    CadwDataFrame.from_table(t)\n'
+    )
+    assert_call_order(src, 'check_state', 'from_table')
+
+
+def test_is_patched_scoped():
+    # §13.4/182: scoped idempotency uses inspect.getsource(fn).
+    from cadw.patch_utils import is_patched
+    def fn():
+        return 'marker_a'
+    assert is_patched(fn, 'marker_a')
+    assert not is_patched(fn, 'marker_a', 'marker_b')
+    assert not is_patched(fn, 'nonexistent')
+
+
+def test_run_smoke_inline_ok(capsys):
+    from cadw.patch_utils import run_smoke_inline
+    run_smoke_inline("print('hello-smoke')")
+    captured = capsys.readouterr()
+    assert 'hello-smoke' in captured.out
+
+
+def test_run_smoke_inline_fail():
+    from cadw.patch_utils import run_smoke_inline
+    with pytest.raises(SystemExit):
+        run_smoke_inline("raise ValueError('boom')")
+
+
+def test_run_smoke_inline_has_cadw_on_path():
+    # §13.4/184: cwd on sys.path. `import cadw` works.
+    from cadw.patch_utils import run_smoke_inline
+    run_smoke_inline("import cadw; print('cadw-import-ok')")

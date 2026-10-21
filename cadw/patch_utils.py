@@ -336,6 +336,144 @@ def grep_and_warn(
     return hits
 
 
+# ============ v0.9.6d: AST + subprocess + scoped-idempotency ============
+#
+# Six consecutive patch-script meta-bugs (§13.4/178, /179, /182,
+# /183, /184, /185) — these helpers make the patterns structurally
+# impossible:
+#   - substring `assert 'X' not in src` catches comments
+#     → assert_no_call_in_source() / assert_call_order() [AST]
+#   - `python scripts/foo.py` puts scripts/ on sys.path[0]
+#     → run_smoke_inline() [uv run python -c]
+#   - whole-file idempotency guard matches tokens from other patches
+#     → is_patched(fn, *markers) [inspect.getsource(fn)]
+
+
+def _collect_call_linenos(tree):
+    """Return {attr_or_name: [lineno, ...]} for all Call nodes.
+
+    Handles both `obj.attr(...)` (ast.Attribute, use .attr) and
+    `bare(...)` (ast.Name, use .id). Docstrings/comments are
+    invisible to ast.walk over Call nodes (§13.4/161, /183, /185).
+    """
+    import ast as _ast
+    out: dict = {}
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, _ast.Name):
+            out.setdefault(f.id, []).append(node.lineno)
+        elif isinstance(f, _ast.Attribute):
+            out.setdefault(f.attr, []).append(node.lineno)
+    return out
+
+
+def assert_no_call_in_source(src, *names, fn_name="<unknown>"):
+    """AST: raise AssertionError if any Call node matches `name`.
+
+    `name` may be a bare function call (`foo()`) or an attribute
+    call (`obj.foo()`). Comments and docstrings are invisible
+    (§13.4/161, /183) — only ast.Call nodes are checked. Replaces
+    `assert 'foo' not in src`, which catches `# No foo() here`
+    and `Use CadwDataFrame.foo(...)` docstrings.
+    """
+    import ast as _ast
+    import textwrap as _tw
+    try:
+        tree = _ast.parse(_tw.dedent(src))
+    except SyntaxError as e:
+        raise AssertionError(
+            f"assert_no_call_in_source({fn_name}): parse error {e}"
+        ) from None
+    calls = _collect_call_linenos(tree)
+    violations = {n: calls[n] for n in names if n in calls}
+    if violations:
+        detail = "; ".join(
+            f"{n!r} at line(s) {ls}" for n, ls in violations.items()
+        )
+        raise AssertionError(
+            f"assert_no_call_in_source({fn_name}): forbidden Call "
+            f"node(s) found: {detail}"
+        )
+
+
+def assert_call_order(src, first_name, second_name, *, fn_name="<unknown>"):
+    """AST: assert min(lineno of first Call) < min(lineno of second).
+
+    Raises AssertionError if either Call is absent, or if first does
+    not precede second. Docstrings mentioning `first_name`/`second_name`
+    are invisible (§13.4/161, /185). Use instead of
+    `src.index('first') < src.index('second')`.
+    """
+    import ast as _ast
+    import textwrap as _tw
+    try:
+        tree = _ast.parse(_tw.dedent(src))
+    except SyntaxError as e:
+        raise AssertionError(
+            f"assert_call_order({fn_name}): parse error {e}"
+        ) from None
+    calls = _collect_call_linenos(tree)
+    if first_name not in calls:
+        raise AssertionError(
+            f"assert_call_order({fn_name}): first Call "
+            f"{first_name!r} not found"
+        )
+    if second_name not in calls:
+        raise AssertionError(
+            f"assert_call_order({fn_name}): second Call "
+            f"{second_name!r} not found"
+        )
+    first_min = min(calls[first_name])
+    second_min = min(calls[second_name])
+    if first_min >= second_min:
+        raise AssertionError(
+            f"assert_call_order({fn_name}): {first_name!r} "
+            f"(first line {first_min}) must precede {second_name!r} "
+            f"(first line {second_min})"
+        )
+
+
+def is_patched(fn, *markers):
+    """Scoped idempotency guard: fn source contains ALL markers.
+
+    Use instead of `if marker in whole_file: skip` (§13.4/182).
+    Whole-file substring matches tokens from OTHER patches in the
+    same file — e.g. v0.9.6b2's `if 'v0.9.6b2' in s and 'CADW-native'
+    in s` matched because add_len() wrote 'v0.9.6b2' to __len__
+    docstring and _ColumnProxy.mean had 'CADW-native' from v0.9.6b1.
+
+    Returns True iff `inspect.getsource(fn)` contains every marker.
+    """
+    import inspect as _inspect
+    src = _inspect.getsource(fn)
+    return all(m in src for m in markers)
+
+
+def run_smoke_inline(script, *, timeout=60):
+    """Run `uv run python -c <script>` (cwd on sys.path[0]).
+
+    Use instead of writing a temp file under scripts/ and running
+    `python scripts/foo.py`: that puts `scripts/` (not cwd) on
+    sys.path[0] → `import cadw` fails with ModuleNotFoundError
+    (§13.4/184). Stdout from the script is echoed (2-space indent);
+    on failure prints last 1200 chars of stderr, then sys.exit(1).
+    """
+    import subprocess as _sp
+    import sys as _sys
+    r = _sp.run(
+        ["uv", "run", "python", "-c", script],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if r.stdout.strip():
+        for line in r.stdout.strip().splitlines():
+            print("  " + line)
+    if r.returncode != 0:
+        print("  STDERR: " + r.stderr.strip()[-1200:])
+        _sys.exit(1)
+
+
 def assert_no_stale_behavior(
     patterns: list[str],
     dirs: list[str],

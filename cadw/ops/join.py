@@ -33,8 +33,9 @@ from typing import Iterable, Optional
 import numpy as np
 import pyarrow as pa
 
-# v0.8.11a: no pandas in hot path (dead helpers removed; only
-# `_pandas_hash_column` in cadw/ops/shuffle.py remains, documented).
+# v0.8.11a: no pandas in hot path (dead helpers removed).
+# v0.9.6a: shuffle.py uses own XXH64-based hash; cadw/ops/
+# is pandas-free.
 from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ArrowIPCBatchWriter
