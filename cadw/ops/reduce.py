@@ -93,27 +93,35 @@ def reduce(
         )
     memory_guard.check_state(_estimated, name=f"{type(op).__name__}.estimated")
 
-    state = op.init()
-    batch_id = 0
-    extra_factor = op.batch_memory_factor()
-    for batch in batch_iter:
-        memory_guard.check_batch(
-            batch,
-            name=f"{type(op).__name__}.batch",
-            extra_factor=extra_factor,
-        )
-        state = op.update(state, batch)
-        memory_guard.check_state(op.state_nbytes(state), name=type(op).__name__)
-        if log:
-            memory_guard.log_step(
-                "reduce",
-                batch_id=batch_id,
-                n_rows=batch.num_rows,
-                batch_bytes=batch.nbytes,
-                state_bytes=op.state_nbytes(state),
+    # v0.9.19: calibrate wrapper — measure pool + RSS deltas vs
+    # predicted peak. predicted=0 for now (state_bytes only, not
+    # full peak). Bench script passes model-computed peak explicitly.
+    # When both calibrate=False and runtime_monitor=False (defaults),
+    # context manager is a no-op (zero overhead).
+    with memory_guard.calibrate(type(op).__name__, 0):
+        state = op.init()
+        batch_id = 0
+        extra_factor = op.batch_memory_factor()
+        for batch in batch_iter:
+            memory_guard.check_batch(
+                batch,
+                name=f"{type(op).__name__}.batch",
+                extra_factor=extra_factor,
             )
-        batch_id += 1
-    return op.finalize(state)
+            state = op.update(state, batch)
+            memory_guard.check_state(
+                op.state_nbytes(state), name=type(op).__name__,
+            )
+            if log:
+                memory_guard.log_step(
+                    "reduce",
+                    batch_id=batch_id,
+                    n_rows=batch.num_rows,
+                    batch_bytes=batch.nbytes,
+                    state_bytes=op.state_nbytes(state),
+                )
+            batch_id += 1
+        return op.finalize(state)
 
 
 # ---------------------------------------------------------------------------

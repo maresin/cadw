@@ -19,7 +19,8 @@ MemoryGuard: бюджет памяти и проверки перед опера
 from __future__ import annotations
 
 import math
-from typing import Optional
+from contextlib import contextmanager
+from typing import Any, Iterator, Optional
 
 import pyarrow as pa
 
@@ -46,6 +47,11 @@ class MemoryGuard:
         buffer_safety: float = 0.3,
         min_batch_rows: int = 1000,
         default_expansion_factor: float = 2.0,
+        # v0.9.19: closed-loop measurement (opt-in, defaults off).
+        runtime_monitor: bool = False,
+        calibrate: bool = False,
+        rss_soft_factor: float = 1.2,
+        rss_hard_factor: float = 1.8,
     ) -> None:
         if max_memory_bytes is not None:
             budget = int(max_memory_bytes)
@@ -66,6 +72,19 @@ class MemoryGuard:
         self._reserved = 0
         # Консервативный дефолт для legacy-методов; перезаписывается estimate_*
         self._row_size_bytes: int = 80
+
+        # v0.9.19: closed-loop memory measurement (opt-in).
+        self._runtime_monitor = bool(runtime_monitor)
+        self._calibrate = bool(calibrate)
+        self._rss_soft_factor = float(rss_soft_factor)
+        self._rss_hard_factor = float(rss_hard_factor)
+        # Lazy baselines (initialized on first _get_pool_delta / _get_rss_delta)
+        self._pool: Any = None
+        self._pool_baseline: int = 0
+        self._process: Any = None
+        self._rss_baseline: int = 0
+        # Calibration samples: {op_name: [{predicted, arrow, rss}, ...]}
+        self._calibration_samples: dict[str, list[dict]] = {}
 
         logger.info(
             "MemoryGuard: budget=%.2f MiB safety=%.2f state=%.2f buffer=%.2f "
@@ -387,6 +406,172 @@ class MemoryGuard:
             "check_partition_writers OK: P=%d × %d B = %d ≤ %d",
             num_partitions, bytes_per_writer, total, limit,
         )
+
+    # ---------- v0.9.19: closed-loop memory measurement ----------
+    #
+    # Tier 1 (pool): pa.default_memory_pool().bytes_allocated() is an
+    # exact C++ atomic counter for Arrow allocations. ~100ns to read.
+    # Delta since MemoryGuard.__init__ = bytes held by CADW's Arrow use.
+    #
+    # Tier 2 (RSS): psutil.Process().memory_info().rss is approximate
+    # (includes all memory: Arrow + numpy + Python + shared libs).
+    # ~10us per read; only sampled (rss_sample_every). Catches unmodeled
+    # allocations (to_pylist Python objects, np.zeros, foreign libs).
+    #
+    # Tier 3 (calibration): per-op {predicted, arrow, rss} sample log.
+    # Compare actual to predicted — C = actual/predicted. Warn on C > 2.
+    #
+    # All baselines are lazy: initialized on first call, so
+    # MemoryGuard() with both flags off has zero overhead.
+
+    def _get_pool_delta(self) -> int:
+        """Bytes allocated by Arrow since guard creation (or last baseline).
+
+        Lazily initializes pa.default_memory_pool() baseline on first call.
+        Cheap (~100ns): atomic read of C++ counter.
+        """
+        if self._pool is None:
+            self._pool = pa.default_memory_pool()
+            self._pool_baseline = self._pool.bytes_allocated()
+        return self._pool.bytes_allocated() - self._pool_baseline
+
+    def _get_rss_delta(self) -> int:
+        """Bytes of RSS delta since guard creation.
+
+        Lazily initializes psutil.Process() baseline on first call.
+        ~10us per read (system call). Sampled, not per-batch.
+        """
+        if self._process is None:
+            import psutil
+            self._process = psutil.Process()
+            self._rss_baseline = self._process.memory_info().rss
+        return self._process.memory_info().rss - self._rss_baseline
+
+    @contextmanager
+    def calibrate(
+        self,
+        op_name: str,
+        predicted_bytes: int = 0,
+    ) -> Iterator[None]:
+        """Measure pool + RSS delta for op; warn on formula drift.
+
+        v0.9.19: context manager wraps op execution. On entry, captures
+        pool/RSS baselines. On exit, computes deltas and:
+          - if calibrate=True: records {predicted, arrow, rss} sample;
+            warns (log WARNING) if actual/predicted > 2.0 (drift signal).
+          - if runtime_monitor=True: raises MemoryLimitExceeded if RSS
+            delta > rss_hard_factor × budget (safety net for unmodeled
+            allocations). Warns if > rss_soft_factor × budget.
+
+        predicted_bytes=0 means "no formula" (measure only). Caller may
+        pass model estimate to get actionable drift signal.
+
+        Both flags off → yield only, zero overhead.
+        """
+        if not (self._calibrate or self._runtime_monitor):
+            yield
+            return
+
+        # v0.9.19-fix2: direct lazy init — do NOT call _get_*_delta.
+        # Those are caller-facing measurement APIs that read from
+        # self._pool / self._process on EVERY call, even when baseline
+        # is already set. Calling them here consumed 1 extra read from
+        # each of pool/process, breaking start/end measurement:
+        # start=clamped[last], end=clamped[last] → delta=0. §13.4/231.
+        if self._pool is None:
+            self._pool = pa.default_memory_pool()
+            self._pool_baseline = self._pool.bytes_allocated()
+        if self._process is None:
+            import psutil
+            self._process = psutil.Process()
+            self._rss_baseline = self._process.memory_info().rss
+
+        pool_start = self._pool.bytes_allocated()
+        rss_start = self._process.memory_info().rss
+
+        try:
+            yield
+        finally:
+            pool_end = self._pool.bytes_allocated()
+            rss_end = self._process.memory_info().rss
+            pool_delta = pool_end - pool_start
+            rss_delta = rss_end - rss_start
+
+            # Tier 2 (runtime_monitor): hard safety net via RSS
+            if self._runtime_monitor:
+                soft = int(self._budget * self._rss_soft_factor)
+                hard = int(self._budget * self._rss_hard_factor)
+                if rss_delta > hard:
+                    raise MemoryLimitExceeded(
+                        f"{op_name}: RSS delta {rss_delta} B > "
+                        f"{self._rss_hard_factor:.1f}× budget ({hard} B). "
+                        f"Unmodeled allocation (numpy/pandas/foreign lib?). "
+                        f"Arrow delta {pool_delta} B. See §9.6."
+                    )
+                elif rss_delta > soft:
+                    logger.warning(
+                        "RSS soft-drift: op=%s delta=%d B > %.1f× budget "
+                        "(soft=%d B, hard=%d B). Arrow delta %d B.",
+                        op_name, rss_delta, self._rss_soft_factor,
+                        soft, hard, pool_delta,
+                    )
+
+            # Tier 3 (calibrate): log sample, warn on formula drift
+            if self._calibrate:
+                self._record_calibration(
+                    op_name, predicted_bytes, pool_delta, rss_delta,
+                )
+
+    def _record_calibration(
+        self,
+        op_name: str,
+        predicted: int,
+        actual_pool: int,
+        actual_rss: int,
+    ) -> None:
+        """Append calibration sample; warn on C = actual/predicted > 2."""
+        entry = {
+            "predicted": int(predicted),
+            "arrow": int(actual_pool),
+            "rss": int(actual_rss),
+        }
+        self._calibration_samples.setdefault(op_name, []).append(entry)
+
+        if predicted > 0:
+            c_arrow = actual_pool / predicted
+            c_rss = actual_rss / predicted
+            logger.info(
+                "calibrate op=%s predicted=%d arrow=%d (C=%.2f) "
+                "rss=%d (C=%.2f)",
+                op_name, predicted, actual_pool, c_arrow,
+                actual_rss, c_rss,
+            )
+            if c_arrow > 2.0 or c_rss > 2.0:
+                logger.warning(
+                    "calibrate DRIFT: op=%s predicted=%d C_arrow=%.2f "
+                    "C_rss=%.2f (threshold 2.0; consider fixing formula "
+                    "or updating §9.2.N calibration)",
+                    op_name, predicted, c_arrow, c_rss,
+                )
+        else:
+            logger.info(
+                "calibrate op=%s predicted=unknown arrow=%d rss=%d",
+                op_name, actual_pool, actual_rss,
+            )
+
+    @property
+    def calibration_samples(self) -> dict[str, list[dict]]:
+        """Read-only copy of calibration samples.
+
+        {op_name: [{"predicted": int, "arrow": int, "rss": int}, ...]}
+
+        Empty if calibrate=False. Accumulated across all calibrate() calls.
+        """
+        return {k: list(v) for k, v in self._calibration_samples.items()}
+
+    def reset_calibration(self) -> None:
+        """Clear accumulated calibration samples (between bench runs)."""
+        self._calibration_samples = {}
 
     # ---------- оценка числа уникальных ключей ----------
 
