@@ -890,3 +890,90 @@ def test_assert_no_call_in_source_receiver_none_unchanged():
     src = 'def f(x):\n    return pc.sum(x).as_py()\n'
     with pytest.raises(AssertionError, match='as_py'):
         assert_no_call_in_source(src, 'as_py')
+
+# ============ v0.9.15 (T2.6/T2.7): dedent_method_source + meta-guard ============
+
+
+def test_dedent_method_source_basic():
+    """T2.6: dedent_method_source returns (str, ast.Module)."""
+    import ast as _ast
+    from cadw.patch_utils import dedent_method_source
+    from cadw.dataframe import CadwDataFrame
+    src, tree = dedent_method_source(CadwDataFrame.head)
+    assert isinstance(src, str)
+    assert isinstance(tree, _ast.Module)
+    # Dedented: no leading whitespace before `def`
+    first_line = src.split(chr(10))[0]
+    assert first_line.startswith('def '), (
+        f'expected `def ...` first line, got {first_line!r}'
+    )
+
+
+def test_dedent_method_source_ast_parses():
+    """T2.6: returned tree is real Module (not exception)."""
+    import ast as _ast
+    from cadw.patch_utils import dedent_method_source
+    from cadw.dataframe import CadwDataFrame
+    src, tree = dedent_method_source(CadwDataFrame._per_group_apply)
+    fdefs = [n for n in _ast.walk(tree)
+             if isinstance(n, _ast.FunctionDef)]
+    assert any(f.name == '_per_group_apply' for f in fdefs)
+
+
+def test_no_inline_dedent_getsource_outside_helper():
+    """T2.7 (§13.4/216): dedent+getsource on class methods must go
+    through dedent_method_source helper. Catches future
+    'reinvented inline' bugs (v0.9.11-fix1 got it wrong).
+
+    Skips patch_utils.py itself (helper) and any file with
+    docstring-only references. Uses AST — no substring false
+    positives (§13.4/213).
+    """
+    import ast as _ast
+    from pathlib import Path as _P
+    # v0.9.15-fix2 (§13.4/225): cadw/ only. Scripts/
+    # skipped — historical patch-scripts (v0.9.6-v0.9.14)
+    # predate dedent_method_source helper; they inline
+    # _tw.dedent(_inspect.getsource(...)) legitimately
+    # (ran once, ephemeral). Future patch-scripts use
+    # helper by convention (docstring + code review).
+    roots = [_P('cadw')]
+    violations: list[str] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for py in root.rglob('*.py'):
+            if py.name == 'patch_utils.py':
+                continue  # helper module
+            # v0.9.15-fix2 (§13.4/225): SyntaxWarning —
+            # invalid escape sequences in scanned files.
+            import warnings as _warn
+            try:
+                src = py.read_text()
+                with _warn.catch_warnings():
+                    _warn.simplefilter('ignore', SyntaxWarning)
+                    tree = _ast.parse(src)
+            except (SyntaxError, OSError, UnicodeDecodeError):
+                continue
+            # Find `_tw.dedent(_inspect.getsource(...))` calls
+            for n in _ast.walk(tree):
+                if not isinstance(n, _ast.Call):
+                    continue
+                f = n.func
+                if not (isinstance(f, _ast.Attribute)
+                        and f.attr == 'dedent'):
+                    continue
+                if not n.args:
+                    continue
+                inner = n.args[0]
+                if not (isinstance(inner, _ast.Call)
+                        and isinstance(inner.func, _ast.Attribute)
+                        and inner.func.attr == 'getsource'):
+                    continue
+                # Exception: in patch_utils itself already filtered
+                violations.append(f'{py}:{n.lineno}')
+    assert not violations, (
+        '§13.4/216: inline dedent(getsource(...)) outside '
+        'patch_utils.dedent_method_source:'
+        + chr(10) + chr(10).join(violations)
+    )

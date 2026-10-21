@@ -702,6 +702,32 @@ def parse_method_source(fn):
     return _ast.parse(_tw.dedent(_inspect.getsource(fn)))
 
 
+def dedent_method_source(fn):
+    """v0.9.15 (T2.6): return (dedented_src, ast.Module) for fn.
+
+    §13.4/215/216: inspect.getsource(fn) on class method /
+    nested def returns source WITH class-level indent; both
+    ast.parse and substring checks need dedented form.
+
+    inspect.getsource(fn) on a class method / nested def returns
+    source WITH class-level indent. Both `ast.parse(src)` and
+    substring checks (e.g. `'foo' in src`) need the dedented
+    form. §13.4/215 (dedent before parse), §13.4/216 (existing
+    helper exists, use it) — v0.9.11-fix1 dogfood reinvented
+    this inline and got it wrong (ast.parse on indented src →
+    IndentationError). Use this helper from now on.
+
+    Returns (dedented_src, parsed_tree). Either may be
+    discarded if caller needs only one.
+    """
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _tw
+    src = _tw.dedent(_inspect.getsource(fn))
+    tree = _ast.parse(src)
+    return src, tree
+
+
 def safe_skip_or_write(path, lines, *, required_symbols=()):
     """Skip only if existing file is valid + has all symbols
     (§13.4/189). Otherwise force-write.

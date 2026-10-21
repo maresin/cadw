@@ -1,5 +1,129 @@
 ## [Unreleased]
 
+## [0.9.14] — 2026-10-21
+
+### v0.9.7–v0.9.14: audit round 2 (16 patches, 3 silent data-loss bugs)
+
+**Milestone**: closes all 21 original findings from
+`_FOR_PINGIS/cadw_audit_report.md` (R1–R6, B1–B4, N1–N7)
++ 13 findings discovered during implementation. Three
+silent data-loss bugs found and fixed — one 3 months in
+prod, undetected by tests:
+
+- **C1**: `_per_group_apply` mixed int/float groups silently
+  truncated fractional floats (`from_pylist(schema=int64)`).
+- **§13.4/218**: null-key rows dropped in `groupby` skew path
+  (`filter(null)` treats null as false — data loss in both
+  heavy and light paths). v0.3.4 → v0.9.12-fix2, ~3 months.
+- **§13.4/223**: `_infer_arrow_type_from_value` checked
+  `isinstance(v, int)` before `bool` (Python bool is int
+  subclass) → `True` inferred as int64 → `ArrowTypeError`.
+  F12-6a bool-widen was dead code.
+
+Plus 13 new §13.4 meta-lessons (§13.4/211–223) on patch-
+script safety (compile-before-write, partial-state abort),
+AST-check precision (negative→AST, receiver-type filter),
+and falsy-default traps (dedent-before-parse, fill_null).
+
+#### Added
+
+- **R1**: `MemoryGuard.check_partition_writers(P, bytes_per_writer)`
+  — real per-writer footprint (audit bench: 1.2–4.4 KB/writer).
+  Prior `check_partition_buffers` was vacuous by construction
+  (`P × (limit // P) ≤ limit`).
+- **R2**: `MemoryGuard.reestimate_from_batch(batch)` +
+  `get_batch_rows(..., sample_batch=)` — schema underestimate
+  fixed (10× for string columns: 500 B/row est vs 2040 actual).
+- **B1**: `propagate_chars` for `hash_shuffle`/`dedup`/`rank`/
+  `quantile`/`resample` — audit `plan_pipeline([filter,
+  hash_shuffle, groupby])` crash closed.
+- **R4**: `TopKOp` (`topk_to_disk`) streaming — `nlargest`/
+  `nsmallest` **~3946×** faster (audit bench N=2M, k=10).
+- **R5**: `DescribeOp` (`describe_columns`) fused — `describe`
+  **~109×** faster (audit bench N=2M, 2 cols).
+- **R6**: `pivot_to_disk` streaming Arrow-native — replaces
+  `to_pandas().pivot()` (26.8 MB → ~10 MB for 200k/300×300;
+  100k×20 passes where dense failed).
+- **F1**: `patch_utils.run_verify_in_subprocess(fn)` — fresh
+  subprocess dogfood; 8× §13.4/178 stale-module-cache fixed.
+- **T2.1**: `patch_utils.apply_or_fail` + `verify_anchors` —
+  fail-fast with context, compile-before-write (§13.4/211).
+- **T2.2**: `assert_no_call_in_source(receiver_type=)` — precise
+  AST check (§13.4/217): `X[i].as_py()` per-row flagged,
+  `fn(...).as_py()` aggregate allowed.
+- **T2.6**: `patch_utils.dedent_method_source(fn)` — dedent +
+  parse helper (§13.4/215/216).
+- **T2.9**: `apply_or_fail(validate=)` — format-aware validation
+  (`toml`/`json`/`python`/`none`); extension-inferred default
+  (§13.4/221).
+- **C1**: `_maybe_upgrade_schema` — int→float64 widen in
+  `_per_group_apply` mixed groups.
+- **F12-6a/b**: bool→float64 widen + clear `RuntimeError` on
+  non-widenable mismatch (was cryptic `ArrowInvalid`).
+- **F12-6c**: `_infer_arrow_type_from_value` bool-before-int
+  reorder (§13.4/223).
+- **F12-5**: `_stream_values_at_positions` Arrow-native —
+  quantile ~100–400× faster for high quantiles.
+- **F12-4**: `_detect_heavy_keys` Arrow-native — groupby skew
+  detection ~10× faster, single C++ `group_by` pass.
+- **F12-1**: `topk_to_disk` incremental `acc_bytes` —
+  O(P²) → O(P).
+
+#### Fixed
+
+- **C1: silent int truncation** in `_per_group_apply` when first
+  group returns int and later returns fractional float —
+  previously truncated (silent data loss) or `ArrowInvalid`.
+- **§13.4/218: silent null-key data loss** in `groupby` skew
+  path: `_compute_heavy_mask` produced null mask on null-key
+  rows (`pc.equal(null, non_null)` = null via Kleene);
+  `filter(null)` drops → rows lost from both heavy and light.
+  Fix: `pc.fill_null(mask, pa.scalar(False))`.
+- **§13.4/223: bool→int silent misinference** in
+  `_infer_arrow_type_from_value` (order: `isinstance(v, int)`
+  before `bool`). `True` inferred as int64; `from_pylist(
+  schema=int64)` → `ArrowTypeError`. F12-6a bool-widen was
+  dead code. Fix: bool before int.
+- **PF4**: `_maybe_upgrade_for_row` per-row (v0.9.10) → per-
+  flush `_maybe_upgrade_schema` (v0.9.11) — for 10M groups ×
+  K=10, ~100M list allocs + ~1B attr checks eliminated.
+- **N1–N5**: `ColumnTransformer.to_dict` (`__serialization_name__`),
+  `dt.floor/ceil/round` (`TypeError` in init for date32/64),
+  groupby combiner `check_state`, `_merge_fanout` duplicate
+  column (`RuntimeError`), `PCA` docstring, `_GroupBy.apply`
+  docstring.
+- **B2–B4**: `pca.py` F821 (`TYPE_CHECKING`), `pipeline.py`
+  `-> Path` module-level import, `PCA` fitted-model docstring.
+- **U1, U2, U3**: `test_dt_ceil_date64` test data (pa.date32
+  → pa.date64 via from_table), `_concat_batches` per-column
+  `pa.concat_arrays` (1× alloc vs 3×), `pyproject.toml`
+  version 0.1.0 → 0.9.14.
+- **F12-8**: `PredicateFilter.mask_for_batch` null semantics
+  documented (Kleene-drop numeric vs fill_null string —
+  intentional asymmetry).
+- **§13.4/220**: shadowed module import (`from cadw.ops import
+  quantile` gets function, not module) — tests and dogfoods
+  use direct submodule import; meta-guard added.
+
+#### Changed
+
+- `pyproject.toml`: version 0.1.0 → 0.9.14 (was stale since
+  initial scaffold, drifted 3+ months from CHANGELOG).
+- `cadw.__version__` = `"0.9.14"` (was undefined; `pip show`
+  and `import cadw` now agree).
+
+#### Removed
+
+- (none)
+
+#### Deferred to v0.9.16
+
+- **A1**: `dataframe.py` split (5404 lines → 7 modules) —
+  architectural, ~4h, risky. Do after v0.9.14 tag.
+- **§11.5 backlog**: N6 (`Dataset.iter_batches` guard — user
+  responsibility), R3 (planner spill stub, v0.2).
+- `DECISIONS.md §13.4/211–223` — new meta-lessons doc block.
+
 ## [0.9.6] — 2026-10-21
 
 ### v0.9.6 — pandas removal + own XXH64 hash + streaming PivotOp + scaffold
