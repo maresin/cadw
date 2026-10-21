@@ -140,18 +140,17 @@ def test_dt_floor_date32_raises_init(tmp_path):
 
 
 def test_dt_ceil_date64_raises_init(tmp_path):
+    """v0.9.11 (U1): actual pa.date64() (prior: copy-paste from date32).
+
+    date32/64 → TypeError in dt.ceil (N2). Uses from_table (in-memory,
+    no parquet round-trip: parquet has no ms-date type, date64 → date32
+    on read, §11.5). Prior test used pa.date32() despite name.
+    """
     import datetime as dt
     import pyarrow as pa
-    import pyarrow.parquet as pq
-    from cadw import CadwDataFrame, MemoryGuard
-    t = pa.table({'d': pa.array([dt.date(2020, 1, 1)], type=pa.date32())})
-    p = tmp_path / 'src.parquet'
-    pq.write_table(t, p)
-    df = CadwDataFrame.from_parquet(
-        p, tmp_path / 'ds', chunk_size=2,
-        memory_guard=MemoryGuard(max_memory_mb=10),
-        spill_dir=tmp_path / 'spill',
-    )
+    from cadw import CadwDataFrame
+    t = pa.table({'d': pa.array([dt.date(2020, 1, 1)], type=pa.date64())})
+    df = CadwDataFrame.from_table(t)
     import pytest
     with pytest.raises(TypeError, match='expected timestamp'):
         df['d'].dt.ceil('1D')

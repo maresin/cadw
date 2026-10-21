@@ -2856,6 +2856,7 @@ class CadwDataFrame:
             nonlocal buf_rows
             if not buf_rows:
                 return
+            _maybe_upgrade_schema()  # v0.9.11 (PF4)
             if not writer_box:
                 writer_box.append(
                     ArrowIPCBatchWriter(str(applied_path),
@@ -2867,41 +2868,65 @@ class CadwDataFrame:
                 writer_box[0].write_batch(b)
             buf_rows = []
 
-        def _maybe_upgrade_for_row(row: dict) -> None:
-            """v0.9.10 (C1): widen int->float64 on fractional float.
+        def _maybe_upgrade_schema() -> None:
+            """v0.9.11 (PF4): widen int->float64 on fractional float.
 
-            _build_out_schema infers from first group only. If first is
-            int, later is float, pa.Table.from_pylist(rows, schema=int64)
-            either truncates (silent corruption) or raises ArrowInvalid.
-            Widen to float64 before flush. Lossless for |v| < 2^53.
+            Deferred from per-row (_maybe_upgrade_for_row) to
+            once-per-flush. Per-row allocation of `upgraded` list
+            was O(N*K) — for 10M groups x K=10, ~100M list allocs
+            + ~1B attr checks. Now: one scan of buf_rows
+            (<= BATCH_ROWS=1000 rows) per flush. ~1000x fewer allocs,
+            ~10x fewer attr checks.
 
-            Limitation: only before first flush (BATCH_ROWS=1000).
-            If mixed appears after first flush, writer committed to
-            int64 -> ArrowInvalid. Workaround: return float(x) from fn().
+            Checks each integer field across all buf_rows; if any
+            fractional float found -> widen to float64. Lossless
+            for |v| < 2^53.
+
+            Limitation (§11.5): only before first flush. Once writer
+            committed (writer_box non-empty), post-flush widen raises
+            clear RuntimeError (prior: silent truncation or cryptic
+            ArrowInvalid at write_batch). Workaround: return
+            float(x) from fn() if any group might be fractional.
             """
             if not out_schema_box:
                 return
             schema = out_schema_box[0]
             upgraded = []
             needs = False
+            widen_fields: list = []
             for field in schema:
-                val = row.get(field.name)
-                if pa.types.is_integer(field.type) and isinstance(val, float):
-                    if val != int(val):
-                        upgraded.append(pa.field(
-                            field.name, pa.float64(),
-                            nullable=field.nullable,
-                        ))
-                        needs = True
-                        continue
-                upgraded.append(field)
+                if not pa.types.is_integer(field.type):
+                    upgraded.append(field)
+                    continue
+                widen = False
+                for row in buf_rows:
+                    val = row.get(field.name)
+                    if isinstance(val, float) and val != int(val):
+                        widen = True
+                        break
+                if widen:
+                    upgraded.append(pa.field(
+                        field.name, pa.float64(),
+                        nullable=field.nullable,
+                    ))
+                    needs = True
+                    widen_fields.append(field.name)
+                else:
+                    upgraded.append(field)
             if needs:
+                if writer_box:
+                    raise RuntimeError(
+                        f"_per_group_apply: post-flush widen needed "
+                        f"for {widen_fields}, but writer already "
+                        f"committed. Workaround: return float(x) "
+                        f"from fn() if any group might be fractional. "
+                        f"See §11.5."
+                    )
                 out_schema_box[0] = pa.schema(upgraded)
 
         def _emit_row(row: dict) -> None:
-            """Append a row, widening schema if C1 numeric conflict."""
+            """Append row; widen check deferred to _flush_buf (PF4)."""
             nonlocal buf_rows
-            _maybe_upgrade_for_row(row)
             buf_rows.append(row)
 
         def _emit_group(key: tuple, result):
