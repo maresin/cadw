@@ -474,6 +474,217 @@ def run_smoke_inline(script, *, timeout=60):
         _sys.exit(1)
 
 
+# ============ v0.9.6e2: patch-script hardening #2 ============
+#
+# Closes §13.4/189 (.exists() != correct), /191 (getsource needs
+# dedent), /192 (copied-template missing imports), /193
+# (assert_compiles BEFORE mutation).
+
+
+def write_content_checked(path, lines):
+    """write_content + assert_compiles (§13.4/193).
+
+    Use for any file write where syntax errors from escape/quote
+    traps (multi-line templates, embedded backslashes) could slip
+    through. assert_compiles raises SystemExit on syntax error
+    BEFORE the file is imported or run by anything else.
+    """
+    write_content(path, lines)
+    assert_compiles(path)
+
+
+def parse_method_source(fn):
+    """Return ast.Module for inspect.getsource(fn) (§13.4/191).
+
+    inspect.getsource(Class.method) includes the method's
+    class-level indent (4 spaces before `def`); ast.parse requires
+    zero-indent top-level. Wraps textwrap.dedent.
+    """
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _tw
+    return _ast.parse(_tw.dedent(_inspect.getsource(fn)))
+
+
+def safe_skip_or_write(path, lines, *, required_symbols=()):
+    """Skip only if existing file is valid + has all symbols
+    (§13.4/189). Otherwise force-write.
+
+    Before v0.9.6e2, new-file creation often used `if p.exists():
+    skip` — assumes existing file is correct. If the file is
+    broken (partial prior run, external source), the skip writes
+    broken code to prod. Here: skip requires
+        assert_compiles(p) AND all(s in src for s in required)
+    Else force-write via write_content_checked.
+
+    Returns True if skipped (file valid), False if written.
+    """
+    from pathlib import Path as _P
+    p = _P(path)
+    if p.exists():
+        ok = True
+        try:
+            assert_compiles(p)
+        except SystemExit:
+            ok = False
+        if ok:
+            src = p.read_text()
+            missing = [s for s in required_symbols if s not in src]
+            if missing:
+                print(f"  {p}: exists but missing symbols {missing} "
+                      f"— force-write")
+                ok = False
+        if ok:
+            print(f"  {p}: exists + valid — skip")
+            return True
+        print(f"  {p}: exists but invalid — force-write")
+    write_content_checked(p, lines)
+    return False
+
+
+# Complete list from `dir(builtins)` — includes abs/all/.../zip AND
+# every exception type (TypeError, ValueError, KeyError, ...), True/
+# False/None, __import__, etc. No maintenance; no false positives on
+# builtin exceptions (§13.4/195).
+import builtins as _builtins_mod
+_BUILTINS = frozenset(dir(_builtins_mod))
+
+
+def assert_test_imports_defined(src, *, fn_name="<unknown>"):
+    """AST: bare-Call target in test OWN scope is bound.
+
+    Narrow scope (§13.4/195, v0.9.6e2-fix2): flags
+    `Call(func=Name(id))` inside the function's own scope (not
+    nested defs/lambdas) where `id` is not bound (args, imports,
+    assignments, for/comprehension/with targets, nested-def
+    names) nor module-level import/def/assign, nor builtin.
+
+    Does NOT flag:
+      - Attribute calls (`obj.method(...)`) — NameError on `obj`
+        or AttributeError caught at runtime by pytest.
+      - Names inside nested defs/lambdas — their own scopes.
+      - Names inside comprehensions — their own scopes.
+
+    Purpose (§13.4/192): catch "copied-template missing import"
+    in test bodies (e.g. test uses `assert_call_order(...)` but
+    forgot `from cadw.patch_utils import assert_call_order`).
+    """
+    import ast as _ast
+    import builtins as _bi
+    import textwrap as _tw
+
+    tree = _ast.parse(_tw.dedent(src))
+    _BUILTINS_LOCAL = frozenset(dir(_bi))
+
+    module_names: set = set()
+    for node in tree.body:
+        if isinstance(node, _ast.Import):
+            for a in node.names:
+                module_names.add((a.asname or a.name).split(".")[0])
+        elif isinstance(node, _ast.ImportFrom):
+            for a in node.names:
+                module_names.add(a.asname or a.name)
+        elif isinstance(node, (_ast.FunctionDef,
+                               _ast.AsyncFunctionDef,
+                               _ast.ClassDef)):
+            module_names.add(node.name)
+        elif isinstance(node, _ast.Assign):
+            for t in node.targets:
+                if isinstance(t, _ast.Name):
+                    module_names.add(t.id)
+        elif isinstance(node, _ast.AnnAssign):
+            if isinstance(node.target, _ast.Name):
+                module_names.add(node.target.id)
+
+    def _walk_own(node):
+        """Yield descendants; skip nested def/lambda/class bodies."""
+        for child in _ast.iter_child_nodes(node):
+            yield child
+            if not isinstance(child, (
+                _ast.FunctionDef, _ast.AsyncFunctionDef,
+                _ast.Lambda, _ast.ClassDef,
+            )):
+                yield from _walk_own(child)
+
+    violations: dict = {}
+    for fn_node in [
+        n for n in tree.body
+        if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+    ]:
+        local: set = set()
+        for a in fn_node.args.args:
+            local.add(a.arg)
+        for a in getattr(fn_node.args, "posonlyargs", ()):
+            local.add(a.arg)
+        for a in getattr(fn_node.args, "kwonlyargs", ()):
+            local.add(a.arg)
+        if fn_node.args.vararg:
+            local.add(fn_node.args.vararg.arg)
+        if fn_node.args.kwarg:
+            local.add(fn_node.args.kwarg.arg)
+
+        for n in _walk_own(fn_node):
+            if isinstance(n, _ast.Import):
+                for a in n.names:
+                    local.add((a.asname or a.name).split(".")[0])
+            elif isinstance(n, _ast.ImportFrom):
+                for a in n.names:
+                    local.add(a.asname or a.name)
+            elif isinstance(n, _ast.Assign):
+                for t in n.targets:
+                    for nn in _ast.walk(t):
+                        if isinstance(nn, _ast.Name):
+                            local.add(nn.id)
+            elif isinstance(n, _ast.AnnAssign):
+                if isinstance(n.target, _ast.Name):
+                    local.add(n.target.id)
+            elif isinstance(n, _ast.AugAssign):
+                if isinstance(n.target, _ast.Name):
+                    local.add(n.target.id)
+            elif isinstance(n, _ast.NamedExpr):
+                if isinstance(n.target, _ast.Name):
+                    local.add(n.target.id)
+            elif isinstance(n, (_ast.FunctionDef,
+                               _ast.AsyncFunctionDef,
+                               _ast.ClassDef)):
+                local.add(n.name)
+            elif isinstance(n, (_ast.For, _ast.AsyncFor)):
+                for nn in _ast.walk(n.target):
+                    if isinstance(nn, _ast.Name):
+                        local.add(nn.id)
+            elif isinstance(n, _ast.comprehension):
+                for nn in _ast.walk(n.target):
+                    if isinstance(nn, _ast.Name):
+                        local.add(nn.id)
+            elif isinstance(n, _ast.withitem):
+                if n.optional_vars is not None:
+                    for nn in _ast.walk(n.optional_vars):
+                        if isinstance(nn, _ast.Name):
+                            local.add(nn.id)
+
+        missing: set = set()
+        for n in _walk_own(fn_node):
+            if not isinstance(n, _ast.Call):
+                continue
+            f = n.func
+            if not isinstance(f, _ast.Name):
+                continue  # attribute/subscript call: not a NameError
+            name = f.id
+            if (name in local
+                    or name in module_names
+                    or name in _BUILTINS_LOCAL):
+                continue
+            missing.add(name)
+        if missing:
+            violations[fn_node.name] = sorted(missing)
+
+    if violations:
+        msg = "; ".join(f"{k}: {v}" for k, v in violations.items())
+        raise AssertionError(
+            f"assert_test_imports_defined({fn_name}): undefined "
+            f"bare Call targets: {msg}"
+        )
+
 def assert_no_stale_behavior(
     patterns: list[str],
     dirs: list[str],
@@ -498,3 +709,4 @@ def assert_no_stale_behavior(
         print(f"\n*** {label}: {len(hits)} stale reference(s) remain ***")
         print("Fix tests or update allow-list before commit.")
         sys.exit(1)
+

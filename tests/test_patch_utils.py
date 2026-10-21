@@ -1,4 +1,5 @@
 """v0.9.1a: patch_utils + Protocol split tests."""
+import ast
 import pytest
 
 
@@ -503,3 +504,186 @@ def test_run_smoke_inline_has_cadw_on_path():
     # §13.4/184: cwd on sys.path. `import cadw` works.
     from cadw.patch_utils import run_smoke_inline
     run_smoke_inline("import cadw; print('cadw-import-ok')")
+
+
+# ============ v0.9.6e2: write_content_checked ============
+
+
+def test_write_content_checked_ok(tmp_path):
+    from cadw.patch_utils import write_content_checked
+    p = tmp_path / 'f.py'
+    write_content_checked(p, ['x = 1'])
+    assert p.read_text() == 'x = 1\n'
+
+
+def test_write_content_checked_bad_raises(tmp_path):
+    from cadw.patch_utils import write_content_checked
+    p = tmp_path / 'f.py'
+    with pytest.raises(SystemExit):
+        write_content_checked(p, ['def f('])
+
+
+# ============ v0.9.6e2: parse_method_source ============
+
+
+def test_parse_method_source_indented():
+    from cadw.patch_utils import parse_method_source
+    from cadw.dataframe import CadwDataFrame
+    tree = parse_method_source(CadwDataFrame.pivot_table)
+    assert any(isinstance(n, ast.FunctionDef) for n in tree.body)
+
+
+def test_parse_method_source_nested_function():
+    from cadw.patch_utils import parse_method_source
+    from cadw.dataframe import CadwDataFrame
+    tree = parse_method_source(CadwDataFrame._per_group_apply)
+    assert tree is not None
+
+
+# ============ v0.9.6e2: safe_skip_or_write ============
+
+
+def test_safe_skip_or_write_new(tmp_path):
+    from cadw.patch_utils import safe_skip_or_write
+    p = tmp_path / 'f.py'
+    written = safe_skip_or_write(p, ['x = 1'])
+    assert written is False
+    assert p.read_text() == 'x = 1\n'
+
+
+def test_safe_skip_or_write_valid_skips(tmp_path):
+    from cadw.patch_utils import safe_skip_or_write
+    p = tmp_path / 'f.py'
+    p.write_text('x = 1\n')
+    written = safe_skip_or_write(p, ['x = 2'],
+                                 required_symbols=['x'])
+    assert written is True
+    assert 'x = 1' in p.read_text()
+
+
+def test_safe_skip_or_write_broken_rewrites(tmp_path):
+    from cadw.patch_utils import safe_skip_or_write
+    p = tmp_path / 'f.py'
+    p.write_text('def f(\n')
+    written = safe_skip_or_write(p, ['x = 1'])
+    assert written is False
+    assert p.read_text() == 'x = 1\n'
+
+
+def test_safe_skip_or_write_missing_symbol_rewrites(tmp_path):
+    from cadw.patch_utils import safe_skip_or_write
+    p = tmp_path / 'f.py'
+    p.write_text('y = 1\n')
+    written = safe_skip_or_write(p, ['x = 1'],
+                                 required_symbols=['x'])
+    assert written is False
+    assert p.read_text() == 'x = 1\n'
+
+
+# ============ v0.9.6e2: assert_test_imports_defined ============
+
+
+def test_assert_test_imports_defined_ok():
+    from cadw.patch_utils import assert_test_imports_defined
+    src = (
+        'def test_a():\n'
+        '    import os\n'
+        '    assert os.path.exists("/") or True\n'
+    )
+    assert_test_imports_defined(src, fn_name='test_a')
+
+
+def test_assert_test_imports_defined_catches_missing():
+    from cadw.patch_utils import assert_test_imports_defined
+    src = (
+        'def test_a():\n'
+        '    missing_helper(1, 2)\n'
+    )
+    with pytest.raises(AssertionError, match='missing_helper'):
+        assert_test_imports_defined(src, fn_name='test_a')
+
+
+def test_assert_test_imports_defined_module_import():
+    from cadw.patch_utils import assert_test_imports_defined
+    src = (
+        'import pytest\n'
+        'def test_a():\n'
+        '    pytest.raises(ValueError)\n'
+    )
+    assert_test_imports_defined(src, fn_name='test_a')
+
+
+def test_assert_test_imports_defined_builtin_ok():
+    from cadw.patch_utils import assert_test_imports_defined
+    src = (
+        'def test_a():\n'
+        '    assert len([1, 2]) == 2\n'
+    )
+    assert_test_imports_defined(src, fn_name='test_a')
+
+
+def test_assert_test_imports_defined_assignment_ok():
+    from cadw.patch_utils import assert_test_imports_defined
+    src = (
+        'def test_a():\n'
+        '    x = 5\n'
+        '    assert x == 5\n'
+    )
+    assert_test_imports_defined(src, fn_name='test_a')
+
+
+def test_assert_test_imports_defined_builtin_exceptions_ok():
+    # §13.4/195: TypeError/ValueError/etc are builtins; must not
+    # be flagged as undefined.
+    from cadw.patch_utils import assert_test_imports_defined
+    src = (
+        'def test_a():\n'
+        '    raise TypeError("x")\n'
+        'def test_b():\n'
+        '    try:\n'
+        '        int("no")\n'
+        '    except ValueError:\n'
+        '        pass\n'
+    )
+    assert_test_imports_defined(src, fn_name='builtin_exceptions')
+
+
+def test_assert_test_imports_defined_lambda_param_ok():
+    # §13.4/195: lambda parameter binds within lambda body; must not
+    # be flagged as undefined.
+    from cadw.patch_utils import assert_test_imports_defined
+    src = (
+        'def test_a():\n'
+        '    rows = [{"g": "x"}]\n'
+        '    out = sorted(rows, key=lambda r: r["g"])\n'
+        '    assert len(out) == 1\n'
+    )
+    assert_test_imports_defined(src, fn_name='lambda_param')
+
+# ============ v0.9.6e2-fix3: meta-guard — all tests bound ============
+
+
+def test_all_tests_have_bindings():
+    """Meta-guard (§13.4/192/196): every tests/test_*.py has all
+    bare-Call targets bound (import / local / module / builtin).
+
+    Runs assert_test_imports_defined over every test file. Catches
+    future regressions of the class that produced v0.9.6e2-fix3
+    (ast missing in test_parse_method_source_indented — helper's
+    own bug class, in the helper's own test file).
+    """
+    from cadw.patch_utils import assert_test_imports_defined
+    from pathlib import Path as _P
+    root = _P(__file__).parent
+    errors: list[str] = []
+    for py in sorted(root.glob('test_*.py')):
+        try:
+            assert_test_imports_defined(
+                py.read_text(), fn_name=py.name,
+            )
+        except AssertionError as e:
+            errors.append(str(e))
+    assert not errors, (
+        'bare-Call target(s) not bound in test file(s):\n'
+        + '\n'.join(errors)
+    )
