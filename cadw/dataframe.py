@@ -99,6 +99,142 @@ class _ColumnProxy:
         from cadw.accessors import _StrAccessor
         return _StrAccessor(self._parent, self._column)
 
+
+    # ---------- scalar aggregators (v0.9.6b1) ----------
+    #
+    # Composition of existing ReduceOp. O(1) state, bounded by
+    # MemoryGuard. No pandas. This is the CADW-native replacement for
+    # `g["col"].mean()` etc. inside per-group apply.
+
+    def mean(self) -> float:
+        from cadw.ops.reduce import MeanOp, reduce
+        return reduce(
+            self._parent._iter_filtered_batches(),
+            MeanOp(self._column),
+            self._parent._memory_guard,
+            log=False,
+        )
+
+    def sum(self) -> float:
+        from cadw.ops.reduce import SumOp, reduce
+        return reduce(
+            self._parent._iter_filtered_batches(),
+            SumOp(self._column),
+            self._parent._memory_guard,
+            log=False,
+        )
+
+    def min(self):
+        from cadw.ops.reduce import MinMaxOp, reduce
+        return reduce(
+            self._parent._iter_filtered_batches(),
+            MinMaxOp(self._column, "min"),
+            self._parent._memory_guard,
+            log=False,
+        )
+
+    def max(self):
+        from cadw.ops.reduce import MinMaxOp, reduce
+        return reduce(
+            self._parent._iter_filtered_batches(),
+            MinMaxOp(self._column, "max"),
+            self._parent._memory_guard,
+            log=False,
+        )
+
+    def std(self, ddof: int = 1) -> float:
+        from cadw.ops.reduce import StdOp, reduce
+        return reduce(
+            self._parent._iter_filtered_batches(),
+            StdOp(self._column, ddof=ddof),
+            self._parent._memory_guard,
+            log=False,
+        )
+
+    def count(self) -> int:
+        """Non-null count (skipna=True)."""
+        from cadw.ops.reduce import CountOp, reduce
+        return reduce(
+            self._parent._iter_filtered_batches(),
+            CountOp(self._column),
+            self._parent._memory_guard,
+            log=False,
+        )
+
+    # ---------- bounded materialize (v0.9.6b1) ----------
+    #
+    # check_state BEFORE materialize (§3.10). n = upper bound via
+    # parent.count(); over-estimate acceptable (conservative guard).
+
+    def to_list(self) -> list:
+        """Materialize column as Python list. Bounded by MemoryGuard.
+
+        Peak ≈ n × 50 B (Python object overhead, conservative for
+        numeric/string mix). check_state BEFORE materialize.
+        """
+        n = self._parent.count()
+        self._parent._memory_guard.check_state(
+            n * 50, name=f"to_list({self._column})",
+        )
+        out: list = []
+        for b in self._parent._iter_filtered_batches():
+            out.extend(b.column(self._column).to_pylist())
+        return out
+
+    def to_numpy(self):
+        """Materialize column as numpy array. Bounded by MemoryGuard.
+
+        Numeric: zero-copy from Arrow buffer (via to_numpy(zero_copy_
+        only=False)). Strings: object array. Peak ≈ n × element_size
+        + n × 8 (offset for variable types). check_state BEFORE.
+        """
+        import numpy as np
+        n = self._parent.count()
+        ftype = self._parent._dataset.schema.field(self._column).type
+        # Conservative element size: 8 for numeric, 32 for string/other.
+        elem_size = 8 if (
+            pa.types.is_integer(ftype) or pa.types.is_floating(ftype)
+            or pa.types.is_boolean(ftype)
+            or pa.types.is_timestamp(ftype) or pa.types.is_date(ftype)
+            or pa.types.is_time(ftype)
+        ) else 32
+        self._parent._memory_guard.check_state(
+            n * elem_size, name=f"to_numpy({self._column})",
+        )
+        chunks: list = []
+        for b in self._parent._iter_filtered_batches():
+            chunks.append(
+                b.column(self._column).to_numpy(zero_copy_only=False)
+            )
+        if not chunks:
+            return np.array([])
+        return np.concatenate(chunks)
+
+    def to_arrow(self) -> pa.Array:
+        """Materialize column as single Arrow Array. Bounded.
+
+        Peak ≈ n × element_size. check_state BEFORE materialize.
+        """
+        n = self._parent.count()
+        ftype = self._parent._dataset.schema.field(self._column).type
+        elem_size = 8 if (
+            pa.types.is_integer(ftype) or pa.types.is_floating(ftype)
+            or pa.types.is_boolean(ftype)
+            or pa.types.is_timestamp(ftype) or pa.types.is_date(ftype)
+            or pa.types.is_time(ftype)
+        ) else 50
+        self._parent._memory_guard.check_state(
+            n * elem_size, name=f"to_arrow({self._column})",
+        )
+        chunks: list = []
+        for b in self._parent._iter_filtered_batches():
+            chunks.append(b.column(self._column))
+        if not chunks:
+            return pa.array([], type=ftype)
+        if len(chunks) == 1:
+            return chunks[0]
+        return pa.concat_arrays(chunks)
+
     def __repr__(self) -> str:
         return f"ColumnProxy({self._column!r})"
 
@@ -158,6 +294,39 @@ class CadwDataFrame:
         spill_dir: str | Path | None = None,
     ) -> "CadwDataFrame":
         return cls(dataset, memory_guard=memory_guard, spill_dir=spill_dir)
+
+    @classmethod
+    def from_table(
+        cls,
+        table: pa.Table,
+        *,
+        memory_guard: MemoryGuard | None = None,
+        spill_dir: str | Path | None = None,
+    ) -> "CadwDataFrame":
+        """In-memory CadwDataFrame backed by pa.Table. No disk I/O.
+
+        v0.9.6b1. Read-only view: add_column raises
+        NotImplementedError. Operations that produce a new
+        Dataset (astype, rename, groupby, etc.) still write to
+        disk (via Dataset.from_batches) — but this is rare on
+        small in-memory groups and acceptable. sort_values on
+        the in-memory df uses pa.Table.sort_by directly (fast
+        path) — critical for per-group apply.
+
+        Peak RAM: 0 (no copy — table ref shared). Caller owns
+        table and any pre-materialization cost.
+        """
+        from cadw.dataset._in_memory import _InMemoryDataset
+        if not isinstance(table, pa.Table):
+            raise TypeError(
+                f"from_table requires pa.Table; "
+                f"got {type(table).__name__}"
+            )
+        return cls(
+            _InMemoryDataset(table),
+            memory_guard=memory_guard,
+            spill_dir=spill_dir,
+        )
 
     # ---------------- properties ----------------
 
@@ -1416,6 +1585,20 @@ class CadwDataFrame:
         for c in by_cols:
             if c not in self._columns:
                 raise KeyError(f"sort_values: column {c!r} not in selection")
+        # in-memory fast path (v0.9.6b1): pa.Table.sort_by directly.
+        # Avoids 1-5 ms external_sort overhead per small group —
+        # critical for per-group apply (100k groups × 5 ms = 500 s).
+        from cadw.dataset._in_memory import _InMemoryDataset
+        if isinstance(self._dataset, _InMemoryDataset):
+            sorted_table = self._dataset._table.select(self._columns).sort_by(
+                [(c, "ascending" if ascending else "descending")
+                 for c in by_cols],
+            )
+            return CadwDataFrame.from_table(
+                sorted_table,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
         path = external_sort(
             self._iter_filtered_batches(),
             key_columns=by_cols,

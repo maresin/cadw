@@ -1,4 +1,5 @@
 from .dataset import Dataset
+from ._in_memory import _InMemoryDataset
 from .index import (
     CadwIndex,
     RangeIndex,

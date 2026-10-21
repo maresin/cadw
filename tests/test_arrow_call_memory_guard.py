@@ -100,6 +100,13 @@ WHITELISTED_FUNCS = {
     # v0.9.4b-2: describe() delegates to self.quantile (guarded via external_sort).
     "cadw/dataframe.py:CadwDataFrame.describe":
         "delegates to self.quantile (guarded via external_sort)",
+    # v0.9.6b1: sort_values in-memory fast path (pa.Table.sort_by)
+    # for group tables in per-group apply. Group already ≤ 0.3×
+    # available (checked in _per_group_apply before fn() call);
+    # sort_by allocates output × 1.5 in-memory (pa.Table.sort_by
+    # internal peak §9.2.7 = 1.5× input + 6 MB).
+    "cadw/dataframe.py:CadwDataFrame.sort_values":
+        "in-memory fast path: pa.Table.sort_by on group ≤ 0.3×avail",
     # v0.9.5b (C6): viz/_aggregate.py high-risk calls.
     # line_agg sorts K-row aggregate table (bounded by K).
     # box_stats delegates to df.quantile (guarded).
