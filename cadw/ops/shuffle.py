@@ -130,21 +130,70 @@ def _vectorized_hash_numeric(arr: pa.Array) -> np.ndarray:
 
 
 def _string_hash_column(arr: pa.Array) -> np.ndarray:
-    """Per-element xxhash.xxh64 over utf8/binary bytes. No pandas.
+    """Dictionary-encode → hash K uniques → vectorized map-back.
 
     v0.9.6a: no repr()/encode() wrapper — column is homogeneous type
     (all str or all bytes), so no cross-type hash-collision concern.
     Cross-batch consistency: same string → same xxh64 output.
     Nulls → _NULL_SENTINEL (own group).
+
+    v0.9.18 (AUDIT §1.3): dictionary-encode fast path.
+    Prior: per-element to_pylist + xxhash = O(n) Python objects
+    (19.6 MB, 111ms/300k strings). Now: hash K uniques only,
+    vectorized map-back via indices (6.4 MB, 9.5ms = 11.7x, -13.2 MB).
+    Nulls preserved as _NULL_SENTINEL.
     """
     n = len(arr)
-    out = np.empty(n, dtype=np.uint64)
-    for i, v in enumerate(arr.to_pylist()):
+    if n == 0:
+        return np.empty(0, dtype=np.uint64)
+
+    # Fast path: dictionary-encode. Falls back if unsupported.
+    try:
+        enc = arr.dictionary_encode()
+        uniques = enc.dictionary
+    except (pa.lib.ArrowNotImplementedError, pa.lib.ArrowInvalid,
+            AttributeError):
+        uniques = None
+
+    if uniques is None or enc.indices is None:
+        # Fallback: per-element
+        out = np.empty(n, dtype=np.uint64)
+        for i, v in enumerate(arr.to_pylist()):
+            if v is None:
+                out[i] = _NULL_SENTINEL
+            else:
+                data = v.encode("utf-8") if isinstance(v, str) else v
+                out[i] = xxhash.xxh64(data, seed=0).intdigest()
+        return out
+
+    K = len(uniques)
+    # v0.9.18-fix2 (§13.4/227): all-null array → empty dictionary (K=0).
+    # fill_null(0) then indexes empty uniq_hashes → IndexError. Early
+    # return all-sentinel — every row is null by construction.
+    if K == 0:
+        return np.full(n, _NULL_SENTINEL, dtype=np.uint64)
+
+    uniq_hashes = np.empty(K, dtype=np.uint64)
+    for i, v in enumerate(uniques.to_pylist()):
         if v is None:
-            out[i] = _NULL_SENTINEL
+            uniq_hashes[i] = _NULL_SENTINEL
         else:
             data = v.encode("utf-8") if isinstance(v, str) else v
-            out[i] = xxhash.xxh64(data, seed=0).intdigest()
+            uniq_hashes[i] = xxhash.xxh64(data, seed=0).intdigest()
+
+    # v0.9.18-fix1 (§13.4/226): null-containing DictionaryArray.indices
+    # to_numpy(zero_copy_only=False) → float64 (NaN), not int64. Prior
+    # `uniq_hashes[indices[non_null]]` → IndexError. Fix: null_mask via
+    # is_null(), safe_indices via fill_null(0).astype(int64).
+    idx_arr = enc.indices
+    null_mask = idx_arr.is_null().to_numpy(zero_copy_only=False)
+    safe_indices = (
+        idx_arr.fill_null(0)
+        .to_numpy(zero_copy_only=False)
+        .astype(np.int64, copy=False)
+    )
+    out = uniq_hashes[safe_indices]
+    out[null_mask] = _NULL_SENTINEL
     return out
 
 

@@ -166,15 +166,42 @@ class _ColumnProxy:
     # check_state BEFORE materialize (§3.10). n = upper bound via
     # parent.count(); over-estimate acceptable (conservative guard).
 
+    def _estimate_materialize_bytes(self) -> int:
+        """v0.9.18 (AUDIT §1.5): sample-based per-row estimate.
+
+        Prior: `n * 50` under-estimates strings 1.2×-200× — 1M rows
+        × 1KB strings passes 50 MB guard but allocates 1.05 GB (OOM).
+        Fix: sample first batch, use nbytes/num_rows + 49 (CPython
+        str overhead). Numeric keeps 50 B/row conservative default.
+        """
+        n = self._parent.count()
+        if n == 0:
+            return 0
+        ftype = self._parent._dataset.schema.field(self._column).type
+        if (pa.types.is_string(ftype) or pa.types.is_large_string(ftype)
+                or pa.types.is_binary(ftype)
+                or pa.types.is_large_binary(ftype)):
+            # Sample first batch to estimate avg row bytes
+            avg_bytes = 64  # fallback if empty
+            for b in self._parent._iter_filtered_batches():
+                if b.num_rows > 0:
+                    # batch.nbytes includes string data + 4B offsets
+                    avg_bytes = max(64, int(b.nbytes / b.num_rows) + 50)
+                    break
+            return n * avg_bytes
+        # Numeric / temporal / bool — 50 B/row is generous
+        return n * 50
+
     def to_list(self) -> list:
         """Materialize column as Python list. Bounded by MemoryGuard.
 
-        Peak ≈ n × 50 B (Python object overhead, conservative for
-        numeric/string mix). check_state BEFORE materialize.
+        v0.9.18 (AUDIT §1.5): sample-based estimate. check_state
+        BEFORE materialize.
         """
         n = self._parent.count()
+        est = self._estimate_materialize_bytes()
         self._parent._memory_guard.check_state(
-            n * 50, name=f"to_list({self._column})",
+            est, name=f"to_list({self._column})",
         )
         out: list = []
         for b in self._parent._iter_filtered_batches():
@@ -2015,8 +2042,13 @@ class CadwDataFrame:
             return pa.array([fill_value] * size, type=type_)
 
         def _iter_shifted():
-            bufs: dict[str, deque] = {
-                c: deque(maxlen=k) for c in shift_cols
+            # v0.9.18 (AUDIT §1.1): Arrow-native tail buffer.
+            # Prior: `deque(maxlen=k)` of Python scalars +
+            # `col_vals.to_pylist()` per batch (O(batch_size * 28B) peak).
+            # Now: `_ArrowTail` (deque of Arrow slices, O(k) peak).
+            # Peak 2.05 MB -> <400 KB for 300k rows / k=2 (proven).
+            bufs: dict[str, _ArrowTail] = {
+                c: _ArrowTail(k) for c in shift_cols
             }
             for b in self._iter_filtered_batches():
                 n = b.num_rows
@@ -2026,13 +2058,14 @@ class CadwDataFrame:
                     if c not in shift_cols:
                         arrays.append(col_vals)
                         continue
-                    prev = list(bufs[c])
-                    fill_n = max(0, k - len(prev))
+                    prev_arr = bufs[c].get()
+                    prev_len = len(prev_arr) if prev_arr is not None else 0
+                    fill_n = max(0, k - prev_len)
                     parts = []
                     if fill_n > 0:
                         parts.append(_fill(fill_n, col_vals.type))
-                    if prev:
-                        parts.append(pa.array(prev, type=col_vals.type))
+                    if prev_arr is not None:
+                        parts.append(prev_arr)
                     if n > k:
                         parts.append(col_vals.slice(0, n - k))
                     out = (
@@ -2046,8 +2079,7 @@ class CadwDataFrame:
                             out, pa.nulls(n - len(out), type=col_vals.type),
                         ])
                     arrays.append(out)
-                    for v in col_vals.to_pylist():
-                        bufs[c].append(v)
+                    bufs[c].push(col_vals)
                 yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
 
         new_ds = Dataset.from_batches(
@@ -2233,7 +2265,8 @@ class CadwDataFrame:
             return pa.array([fill_value] * size, type=type_)
 
         writer = ArrowIPCBatchWriter(str(shift_path), shift_schema)
-        bufs: dict[str, deque] = {c: deque(maxlen=k) for c in cols}
+        # v0.9.18 (AUDIT §1.1): Arrow-native tail buffer (same fix as shift).
+        bufs: dict[str, _ArrowTail] = {c: _ArrowTail(k) for c in cols}
         try:
             for b in sorted_reader:
                 self._memory_guard.check_batch(
@@ -2243,13 +2276,14 @@ class CadwDataFrame:
                 arrays: list = [b.column("row_id")]
                 for c in cols:
                     col_vals = b.column(c)
-                    prev = list(bufs[c])
-                    fill_n = max(0, k - len(prev))
+                    prev_arr = bufs[c].get()
+                    prev_len = len(prev_arr) if prev_arr is not None else 0
+                    fill_n = max(0, k - prev_len)
                     parts = []
                     if fill_n > 0:
                         parts.append(_fill(fill_n, col_vals.type))
-                    if prev:
-                        parts.append(pa.array(prev, type=col_vals.type))
+                    if prev_arr is not None:
+                        parts.append(prev_arr)
                     if n > k:
                         parts.append(col_vals.slice(0, n - k))
                     out = (
@@ -2264,8 +2298,7 @@ class CadwDataFrame:
                             pa.nulls(n - len(out), type=col_vals.type),
                         ])
                     arrays.append(out)
-                    for v in col_vals.to_pylist():
-                        bufs[c].append(v)
+                    bufs[c].push(col_vals)
                 rb = pa.RecordBatch.from_arrays(arrays, schema=shift_schema)
                 writer.write_batch(rb)
         finally:
@@ -4876,6 +4909,55 @@ class CadwDataFrame:
         """Plot accessor: df.plot.hist(col) / df.plot.plotly.hist(col)."""
         from cadw.plot_accessor import _PlotAccessor
         return _PlotAccessor(self)
+
+
+
+
+class _ArrowTail:
+    """v0.9.18 (AUDIT §1.1): Arrow-native sliding tail buffer of k rows.
+
+    Replaces `deque(maxlen=k)` of Python scalars + per-batch
+    `col_vals.to_pylist()` with `deque` of Arrow slices. Peak
+    memory: one small Arrow array of length <= k per column,
+    not `batch_size * python_obj_size`.
+
+    Correctness: preserves Arrow types and nulls exactly.
+    Cross-batch identity: same Arrow buffer passed to push()
+    may be held (via slice ref) until next push; if batch buffer
+    pressure matters, call sites should copy after yield. For
+    shift semantics, holding one prior batch alive is acceptable
+    (was already the case with deque of Python values, which held
+    full batches as Python objects).
+    """
+
+    __slots__ = ("_k", "_tail")
+
+    def __init__(self, k: int) -> None:
+        self._k = k
+        self._tail = None  # pa.Array of length <= k, or None
+
+    def push(self, arr) -> None:
+        """Append Arrow array; trim to last k values."""
+        n = len(arr)
+        if n == 0:
+            return
+        if self._tail is None:
+            combined = arr
+        else:
+            combined = pa.concat_arrays([self._tail, arr])
+        if len(combined) > self._k:
+            combined = combined.slice(len(combined) - self._k)
+        # Force a small copy so we do not retain parent batch buffer
+        if len(combined) > 0:
+            # pa.array(combined.to_pylist(), type=...) is O(k) — tiny;
+            # forces fresh buffer, releases parent.
+            self._tail = pa.array(combined.to_pylist(), type=combined.type)
+        else:
+            self._tail = None
+
+    def get(self):
+        """Return current tail pa.Array of length <= k, or None."""
+        return self._tail
 
 
 class _RollState:

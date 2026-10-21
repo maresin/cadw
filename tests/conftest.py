@@ -23,3 +23,17 @@ def _close_matplotlib_figures():
         plt.close("all")
     except ImportError:
         pass
+
+
+# v0.9.17 (§13.4/225 + third-party tracking): filter specific
+# MatplotlibDeprecationWarning from seaborn/categorical.py:700
+# (seaborn < 0.14 passes vert=True to ax.bxp; matplotlib 3.11
+# deprecates vert in favor of orientation). Third-party
+# transition — CADW code correct, upstream fix pending.
+# Tracking: §11.6 upgrade to seaborn>=0.14 backlog.
+import warnings as _warnings
+_warnings.filterwarnings(
+    'ignore',
+    message='vert: bool was deprecated in Matplotlib 3.11',
+    category=DeprecationWarning,
+)

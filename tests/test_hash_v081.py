@@ -298,6 +298,53 @@ def test_groupby_recursion_end_to_end_v081(tmp_path):
 # ---------- v0.8.1-fix3: string uses Python path ----------
 
 
+# ============ v0.9.18-fix1 (§13.4/226): dict-encode null path ============
+
+
+def test_string_hash_dict_encode_path_with_nulls():
+    """Dictionary-encode fast path with nulls must not IndexError.
+
+    §13.4/226: DictionaryArray.indices.to_numpy(zero_copy_only=False)
+    returns float64 (NaN for nulls), not int64. Prior
+    `uniq_hashes[indices[non_null]]` → IndexError: arrays used as
+    indices must be integer type. Fix: fill_null(0).astype(int64) +
+    separate is_null mask.
+    """
+    from cadw.ops.shuffle import _string_hash_column, _NULL_SENTINEL
+    arr = pa.array(["a", "b", "a", None, "b", None], type=pa.string())
+    h = _string_hash_column(arr)
+    assert h[0] == h[2]          # "a" == "a"
+    assert h[1] == h[4]          # "b" == "b"
+    assert h[0] != h[1]          # "a" != "b"
+    assert h[3] == h[5] == _NULL_SENTINEL  # nulls coalesce
+    assert _NULL_SENTINEL not in h[[0, 1, 2, 4]]
+
+
+def test_string_hash_all_nulls():
+    """All-null array → all _NULL_SENTINEL, no crash."""
+    from cadw.ops.shuffle import _string_hash_column, _NULL_SENTINEL
+    arr = pa.array([None, None, None], type=pa.string())
+    h = _string_hash_column(arr)
+    assert all(int(v) == int(_NULL_SENTINEL) for v in h)
+
+
+def test_string_hash_empty_array():
+    """Empty array → empty result."""
+    from cadw.ops.shuffle import _string_hash_column
+    arr = pa.array([], type=pa.string())
+    h = _string_hash_column(arr)
+    assert len(h) == 0
+
+
+def test_string_hash_no_nulls_no_regression():
+    """No-null path unchanged (all unique values)."""
+    from cadw.ops.shuffle import _string_hash_column
+    arr = pa.array(["a", "b", "c"], type=pa.string())
+    h = _string_hash_column(arr)
+    assert len(set(h.tolist())) == 3
+
+
+
 # ============ v0.9.6a: own XXH64 hash, no pandas ============
 
 

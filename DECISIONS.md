@@ -4930,6 +4930,94 @@ AST, не regex/string.
 167 (partial migration).
 
 
+
+**Эпизод 178 (guard, вакуумный по построению).** v0.9.8a (R1): `check_partition_buffers(P, P*buf)` с `buf = buffer_limit // P` — произведение `P × (limit//P) ≤ limit` всегда. Реальная стоимость ArrowIPCBatchWriter (1.2–4.4 KB/писатель; audit bench_r1) не участвует в проверке. P=5000 → 5.8 MB RSS; экстраполяция P=1e6 → 1.2 GB без срабатывания guard.
+
+**Правило (§13.4/178):** guard должен измерять **реальную стоимость** операции, а не величину, которая по построению ≤ limit. `check_partition_writers(P, bytes_per_writer)` — правильная форма (явный per-writer cost, не P×size-of-one-buf).
+
+**Связанные:** §13.4/185 (per-row vs per-flush allocation — same class: модели памяти не отражают реальную стоимость).
+
+
+**Эпизод 179 (schema estimate хуже batch-based).** v0.9.8b (R2): `estimate_row_size_from_schema(default_string_bytes=50)` для 10 cols × 200 B/value даёт 500 B/row против 2040 B/row реально (10.1× низко). `get_batch_rows(ef=2) = 3670` → батч 7.1 MB при бюджете 5 MB. `check_batch` сработает, но **после** аллокации — sizing неверный.
+
+**Правило (§13.4/179):** для variable-length типов (string/binary) estimate с **первого batch** (`batch.nbytes / num_rows`), не из schema defaults. Schema-based оценка — только для fixed-width. `reestimate_from_batch` + `get_batch_rows(sample_batch=)`.
+
+**Связанные:** §13.4/175 (memory formula validity scope — formula, выведенная на одном типе, не переносится на другой).
+
+
+**Эпизод 180 (propagator/model asymmetry).** v0.9.8c (B1): `HashShuffleMemoryModel` зарегистрирован (`plan('hash_shuffle')` работает), но `propagate_chars(op.name='hash_shuffle')` → `ValueError: unsupported op` — hard crash. Не `PipelineMemoryError`.
+
+**Правило (§13.4/180):** memory model + output-chars propagator — **отдельные** контракты. Наличие `get_model(op)` не гарантирует `propagate_chars(op)`. Test для каждой новой op: `plan_pipeline([filter, op, sort])`.
+
+**Связанные:** §13.4/172 (registry growth — closed lists stale-bait; parallel: propagator list stale).
+
+
+**Эпизод 181 (full sort для top-n).** v0.9.7a (R4): `nlargest(n)` вызывал `external_sort` по всему N → `head(n)`. O(N log N) + O(N) дискового I/O при k ≪ N. Streaming per-batch `pc.select_k_unstable` + merge: **3946×** быстрее / **2.8×** меньше RSS (audit bench N=2M, k=10).
+
+**Правило (§13.4/181):** если целевой output — O(k) строк, полная сортировка не нужна. Partial selection (heap / `select_k`) + k-way merge. Спросить «какой k относительно N?» перед выбором алгоритма.
+
+**Связанные:** §13.4/182 (multi-pass replaceable by single-pass).
+
+
+**Эпизод 182 (multi-pass описание).** v0.9.7b (R5): `describe()` = 5 Reduce-проходов (count/mean/std/min/max) + 1 external_sort per column. Fused single-pass (Welford + min/max + reservoir для quantiles): **109×** быстрее / **12.1×** меньше RSS (audit bench N=2M, 2 cols).
+
+**Правило (§13.4/182):** summary stats на одном столбце — fused в **один** `ReduceOp`. Multi-pass на полный dataset оправдан только когда stats действительно независимы (например, hyperloglog requires distinct state).
+
+**Связанные:** §13.4/181.
+
+
+**Эпизод 183 (pandas pivot dense matrix).** v0.9.6c2 (R6): `to_pandas().pivot()` materializes dense matrix: 200k rows, 300×300 cardinality → 26.8 MB RSS vs 720 KB useful (37× overhead). 100k×20 cols passes where dense failed. Streaming `pivot_to_disk` (HashShuffle на (index, cols) + Sort + per-key buffer flush): ~10 MB.
+
+**Правило (§13.4/183):** pandas pivot — dense reshape; для K_index × K_columns ≫ buffer streaming reshape необходим. Peak = O(K_columns × buffer) + O(sort), не O(K_index × K_columns).
+
+**Связанные:** §9.2.18 (to_pandas cost model), §13.4/170 (whitelist by qualname — pivot был за whitelist).
+
+
+**Эпизод 184 (from_pylist int truncation).** v0.9.10 (C1): `_per_group_apply` first group returns int → `_infer_arrow_type_from_value(int)` = int64; later float `2.5` → `pa.Table.from_pylist(rows, schema=int64)` **silent truncates** до 2 (или ArrowInvalid в редких случаях). Fix: widen int→float64 при fractional float.
+
+**Правило (§13.4/184):** при mixed-type numeric groups — **widen** через один level (int → float64, float64 → строка не нужна — что не влезает, raise). Very large int (> 2^53) теряют precision на widen → §11.5 limitation.
+
+**Связанные:** §13.4/223 (bool→int misinference — same «schema ≠ actual type» class, other direction), §13.4/218.
+
+
+**Эпизод 185 (per-row hot-path allocation).** v0.9.11 (PF4): `_maybe_upgrade_for_row` вызывался на **каждую** строку `_emit_row`, аллоцировал `upgraded: list = []` (K элементов). Для 10M groups × K=10 → ~100M list allocs + ~1B attr checks. Deferred to flush boundary (`_maybe_upgrade_schema` раз в BATCH_ROWS=1000): ~1000× fewer allocs.
+
+**Правило (§13.4/185):** hot-path per-row allocation с fixed-size per-call → defer to flush/finalize boundary. Bounded-по-batch state дешевле bounded-по-row.
+
+**Связанные:** §13.4/178, /186.
+
+
+**Эпизод 186 (recompute в цикле → incremental).** v0.9.12 (F12-1): `topk_to_disk` recompute `sum(tb.nbytes for tb in per_batch)` **на каждой** итерации → O(P²). P=10000 → 100M итераций, ~1.6 GB attr accesses за один вызов. Incremental `acc_bytes += top.nbytes`.
+
+**Правило (§13.4/186):** если значение в цикле — **monoid** (sum/count/min/max), поддерживай инкрементально. Recompute = O(N×K), incremental = O(N).
+
+**Связанные:** §13.4/185 (per-row fix аналогичен: «не повторяй вычисление в hot path»).
+
+
+**Эпизод 187 (per-row as_py где есть Arrow primitive).** v0.9.12 (F12-4): `_detect_heavy_keys` делал `for i in range(b.num_rows): b.column(c)[i].as_py()` — 10k Python iterations per groupby call (~10-50 ms). Arrow-native `pa.concat_tables + group_by().aggregate([(k, 'count')]) + filter`: single C++ pass, ~10× faster.
+
+**Правило (§13.4/187):** per-row Python loop где Arrow имеет aggregate kernel — заменяй. Exception: bounded case (K ≪ N, ~100 keys) — приемлемо, документируй.
+
+**Связанные:** §13.4/188 (same class, quantile path), /217 (precise AST check — detect exactly X[i].as_py()).
+
+
+**Эпизод 188 (per-value loop где есть Arrow take).** v0.9.13 (F12-5): `_stream_values_at_positions` итерировал **каждое** значение sorted file до `max_target` — O(N) Python iterations (~500 ms–2 s для N=10M). `pc.take(non_null_arr, local_targets)` per batch: O(K) per batch, не O(N). ~100–400× для high quantiles.
+
+**Правило (§13.4/188):** если нужны значения по индексам `[i1, i2, ...]` (K targets), а не все N — Arrow `take`, не итерация. Спросить «сколько target'ов относительно N?» перед выбором цикла.
+
+**Связанные:** §13.4/187, /217.
+
+
+**Эпизод 189 (asymmetric null semantics — documented contract).** v0.9.13 (F12-8): `PredicateFilter.mask_for_batch` даёт numeric `_OPS` (gt/ge/lt/le/eq/ne) — Kleene null-propagation (`pc.greater(null, 5)` = null); `b.filter(null)` drops → matches pandas boolean indexing + SQL WHERE. String `_OPS_NO_SCALAR` (contains/starts_with/ends_with) — `fill_null(False)` → matches pandas `.str.contains(na=False)` (CADW default). **Asymmetry by design.** §13.4/218 (fill_null) применяется только к fill-default cases, не к Kleene-drop.
+
+**Правило (§13.4/189):** asymmetry в null semantics — **документируй как intentional contract**, не «унифицируй». Обе семантики согласованы с ecosystem (pandas/SQL), и unification сломает user expectation.
+
+**Связанные:** §13.4/218 (fill_null — где mandatory), /223 (bool→int — semantic class != this).
+
+
+**Gap 190–210 (reserved).** Initially projected 178–210 for v0.9.7–v0.9.13 lessons; после consolidation audit — **12 distinct meta-lessons** (178–189), не 33. Numbers 190–210 зарезервированы, не fabricated. Fix-chain meta-lessons v0.9.10–v0.9.15 — 211–225. Итог: 178–189 (round-1 audit + Arrow-native migrations) + 211–225 (patch-script safety + AST precision).
+
+
 **Эпизод 211 (compile-before-write в apply_or_fail).** v0.9.10-fix3 (T2.1): `apply_or_fail` делал `p.write_text(s.replace(old, new))`, затем `assert_compiles(p)`. Если `new_s` синтаксически некорректен (например, bad anchor оставил невалидный indent) — файл уже на диске. Compile падает, файл corrupt, `SystemExit`.
 
 **Правило (§13.4/211):** любой write-helper с post-write валидацией должен компилировать in-memory **до** `write_text`. На `SyntaxError` — `SystemExit`, файл нетронут.

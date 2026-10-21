@@ -18,6 +18,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Iterator
 
+import numpy as np
 import pyarrow as pa
 
 
@@ -115,7 +116,17 @@ class MaterializedIndex(CadwIndex):
         )
 
     def __iter__(self) -> Iterator:
-        yield from self._values.to_pylist()
+        # v0.9.18 (AUDIT §1.6): numpy iteration (zero-copy for numeric).
+        # Prior `to_pylist()` materialized full Python list (40 MB / 1M ints).
+        # Now O(1) peak — one numpy scalar at a time.
+        # v0.9.18-fix3: null-containing falls back to to_pylist (numpy
+        # gives NaN for nulls, not None — semantic difference).
+        if self._values.null_count > 0:
+            yield from self._values.to_pylist()
+            return
+        np_arr = self._values.to_numpy(zero_copy_only=False)
+        for x in np_arr:
+            yield x.item() if hasattr(x, "item") else x
 
     def to_arrow(self) -> pa.Array:
         return self._values
@@ -134,44 +145,61 @@ class MaterializedIndex(CadwIndex):
         return self._values.equals(other._values)
 
     def is_monotonic_increasing(self) -> bool:
-        """True iff values (skipping nulls) are non-decreasing."""
-        v = self._values.to_pylist()
-        prev = None
-        first = True
-        for x in v:
-            if x is None:
-                continue
-            if first:
-                prev = x
-                first = False
-                continue
-            try:
-                if x < prev:
+        """True iff values (skipping nulls) are non-decreasing.
+
+        v0.9.18 (AUDIT §1.6): numpy fast path for null-free indexes
+        (22.1× faster, 9 MB vs 40 MB at N=1M); null fallback preserved.
+        """
+        if self._values.null_count > 0:
+            v = self._values.to_pylist()
+            prev = None
+            first = True
+            for x in v:
+                if x is None:
+                    continue
+                if first:
+                    prev = x
+                    first = False
+                    continue
+                try:
+                    if x < prev:
+                        return False
+                except TypeError:
                     return False
-            except TypeError:
-                return False
-            prev = x
-        return True
+                prev = x
+            return True
+        np_arr = self._values.to_numpy(zero_copy_only=False)
+        if len(np_arr) <= 1:
+            return True
+        return bool(np.all(np_arr[1:] >= np_arr[:-1]))
 
     def is_monotonic_decreasing(self) -> bool:
-        """True iff values (skipping nulls) are non-increasing."""
-        v = self._values.to_pylist()
-        prev = None
-        first = True
-        for x in v:
-            if x is None:
-                continue
-            if first:
-                prev = x
-                first = False
-                continue
-            try:
-                if x > prev:
+        """True iff values (skipping nulls) are non-increasing.
+
+        v0.9.18 (AUDIT §1.6): numpy fast path for null-free indexes.
+        """
+        if self._values.null_count > 0:
+            v = self._values.to_pylist()
+            prev = None
+            first = True
+            for x in v:
+                if x is None:
+                    continue
+                if first:
+                    prev = x
+                    first = False
+                    continue
+                try:
+                    if x > prev:
+                        return False
+                except TypeError:
                     return False
-            except TypeError:
-                return False
-            prev = x
-        return True
+                prev = x
+            return True
+        np_arr = self._values.to_numpy(zero_copy_only=False)
+        if len(np_arr) <= 1:
+            return True
+        return bool(np.all(np_arr[1:] <= np_arr[:-1]))
 
     def is_monotonic(self) -> bool:
         """True iff increasing OR decreasing (or length <= 1)."""
@@ -180,11 +208,28 @@ class MaterializedIndex(CadwIndex):
         return self.is_monotonic_increasing() or self.is_monotonic_decreasing()
 
     def has_duplicates(self) -> bool:
-        """True iff at least one label appears more than once."""
-        v = self._values.to_pylist()
+        """True iff at least one label appears more than once.
+
+        v0.9.18 (AUDIT §1.6): count_distinct (Arrow-native hash,
+        O(K) peak not O(N)).
+
+        v0.9.18-fix3: mode='all' — count null as a value (matches
+        pandas Index.has_duplicates). v0.9.18 default mode=
+        'only_valid' skipped nulls → mixed null/value duplicates
+        detected wrong (e.g. [1, None, 2] gave True incorrectly).
+        """
+        import pyarrow.compute as _pc
+        n = len(self._values)
+        if n <= 1:
+            return False
         try:
-            return len(set(v)) < len(v)
-        except TypeError:
+            distinct = int(
+                _pc.count_distinct(self._values, mode='all').as_py()
+            )
+            return distinct < n
+        except (TypeError, AttributeError, ValueError):
+            # Fallback for non-hashable types
+            v = self._values.to_pylist()
             seen: list = []
             for x in v:
                 if x in seen:
@@ -195,9 +240,32 @@ class MaterializedIndex(CadwIndex):
     def get_positions_all(self, label) -> list[int]:
         """All 0-based positions matching `label` (v0.4.1).
 
-        O(N) scan, `==` comparison. For non-hashable labels — same cost.
-        Возвращает [] если не найдено (проверка на caller).
+        v0.9.18 (AUDIT §1.6): numpy `flatnonzero` for numeric
+        indexes (peak O(n) bool mask, not O(n) Python objects).
+
+        v0.9.18-fix3 (§13.4/229): numpy fast path restricted to
+        numeric + scalar labels. For string/object arrays, numpy
+        coerces label to array dtype (`np.array(["1"]) == 1` →
+        [True] str coercion), losing Arrow type strictness. For
+        tuple labels on single index, numpy coerces tuple to str
+        array → false positives. Fallback: Python loop (type-strict,
+        matches pre-v0.9.18 semantics).
         """
+        import numpy as _np
+        t = self._values.type
+        is_scalar = not isinstance(label, (tuple, list))
+        is_numeric = (
+            pa.types.is_integer(t) or pa.types.is_floating(t)
+        )
+        if is_scalar and is_numeric:
+            try:
+                np_arr = self._values.to_numpy(zero_copy_only=False)
+                if np_arr.dtype != object:
+                    return _np.flatnonzero(np_arr == label).tolist()
+            except (TypeError, ValueError):
+                pass
+        # Fallback: Python loop (type-strict, handles strings,
+        # nulls, non-scalar labels; matches pandas label semantics)
         v = self._values.to_pylist()
         positions: list[int] = []
         for i, x in enumerate(v):

@@ -325,6 +325,20 @@ def test_get_positions_all_missing():
     assert idx.get_positions_all(99) == []
 
 
+def test_get_positions_all_string_index_type_strict():
+    """v0.9.18-fix3 (§13.4/229): string index + int label → no match."""
+    idx = MaterializedIndex(pa.array(["1", "2", "3"]))
+    assert idx.get_positions_all(1) == []
+    assert idx.get_positions_all("1") == [0]
+
+
+def test_get_positions_all_tuple_label_single_index():
+    """v0.9.18-fix3 (§13.4/229): non-scalar label on single index → no match."""
+    idx = MaterializedIndex(pa.array(["a", "b", "c"]))
+    assert idx.get_positions_all(("a", 1)) == []
+    assert idx.get_positions_all(["a"]) == []
+
+
 # ---------- loc[[labels]] ----------
 
 def test_loc_list(tmp_path):

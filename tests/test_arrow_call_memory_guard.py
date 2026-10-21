@@ -86,6 +86,10 @@ WHITELISTED_FUNCS = {
         "backward-compat wrapper, caller check_batch'd",
     "cadw/ops/sort.py:_write_run":
         "buf ≤ 0.2×avail; sort_indices per batch",
+    "cadw/ops/shuffle.py:_string_hash_column":
+        "dict_encode O(K + batch) where K = uniques-in-batch; caller "
+        "hash_shuffle._process check_batch(extra_factor=3.0) covers "
+        "peak ≤ 3×batch.nbytes; §13.4/226/227 null edges handled",
     # --- dataframe.py: bounded accumulators / per-batch conversions ---
     "cadw/dataframe.py:_concat_batches":
         "bounded accum list (one group/window), not N",
