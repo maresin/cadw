@@ -79,6 +79,27 @@ class PredicateFilter(MaskFilter):
         self.value = value
 
     def mask_for_batch(self, batch):
+        """v0.9.13 (F12-8): null semantics — asymmetric, intentional.
+
+        Numeric comparisons (_OPS: gt/ge/lt/le/eq/ne) — Kleene
+        null-propagation: `pc.greater(null, 5)` = null;
+        `b.filter(null)` treats null as false → null rows
+        drop. Matches pandas boolean indexing (NaN comparisons
+        drop) and SQL WHERE (null > 5 = false via Kleene).
+        INTENTIONAL — do NOT fill_null(False) here: pandas
+        user expects drop semantics.
+
+        String predicates (_OPS_NO_SCALAR: contains/starts_with/
+        ends_with) — fill_null(False): null string does not
+        match, but not dropped. Matches pandas
+        .str.contains(na=False) (CADW default; §11.5).
+
+        Asymmetry is by design: numeric default = SQL/pandas
+        drop, string default = explicit False. §13.4/218
+        (fill_null before filter) applies ONLY to fill-default
+        cases (like _compute_heavy_mask), not to Kleene-drop
+        semantics.
+        """
         arr = batch.column(self.column)
         # v0.9.0a: null/string predicates operate without a scalar.
         if self.op == "is_null":

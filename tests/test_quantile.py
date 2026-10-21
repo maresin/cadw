@@ -186,3 +186,155 @@ def test_quantile_then_groupby(tmp_path):
     })
     q_med = df.quantile("v", 0.5)  # median of all = (3+4)/2 = 3.5
     assert q_med == 3.5
+
+
+# ============ v0.9.13 (F12-5): Arrow-native quantile stream ============
+
+
+def test_quantile_many_batches_consistency(tmp_path):
+    """F12-5: result identical across batch_size (1 vs 3 vs 1000).
+
+    Arrow-native take must not change per-batch consistency; if
+    pos accounting for n_valid is wrong, cross-batch results diverge.
+    """
+    data = list(range(100))
+    from cadw import CadwDataFrame, MemoryGuard
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    t = pa.table({'v': data})
+    src = tmp_path / 'src.parquet'
+    pq.write_table(t, src)
+    results = []
+    for bs in (1, 3, 7, 1000):
+        df = CadwDataFrame.from_parquet(
+            src, tmp_path / f'ds_{bs}', chunk_size=bs,
+            memory_guard=MemoryGuard(max_memory_mb=20),
+            spill_dir=tmp_path / f'spill_{bs}',
+        )
+        results.append(df.quantile('v', [0.0, 0.25, 0.5, 0.75, 1.0]))
+    # All batch sizes → identical result
+    for r in results[1:]:
+        assert r == results[0]
+
+
+def test_quantile_with_nulls_multi_batch(tmp_path):
+    """F12-5: nulls skip correctly across many batches.
+
+    Values: [1, None, 2, None, 3, None, 4, None, 5, None] — non-null
+    sorted = [1,2,3,4,5], n_valid=5. q=0.5 → pos=2 → value 3.0.
+    With bs=1: each row its own batch, pos accounting for n_valid.
+    """
+    from cadw import CadwDataFrame, MemoryGuard
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    vals = [1.0, None, 2.0, None, 3.0, None, 4.0, None, 5.0, None]
+    t = pa.table({'v': pa.array(vals, type=pa.float64())})
+    src = tmp_path / 'src.parquet'
+    pq.write_table(t, src)
+    df = CadwDataFrame.from_parquet(
+        src, tmp_path / 'ds', chunk_size=1,
+        memory_guard=MemoryGuard(max_memory_mb=20),
+        spill_dir=tmp_path / 'spill',
+    )
+    assert df.quantile('v', 0.5) == 3.0
+    assert df.quantile('v', 0.0) == 1.0
+    assert df.quantile('v', 1.0) == 5.0
+
+
+def test_quantile_single_row(tmp_path):
+    """F12-5 edge: single row, single batch."""
+    from cadw import CadwDataFrame, MemoryGuard
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    t = pa.table({'v': pa.array([42.0], type=pa.float64())})
+    src = tmp_path / 'src.parquet'
+    pq.write_table(t, src)
+    df = CadwDataFrame.from_parquet(
+        src, tmp_path / 'ds', chunk_size=2,
+        memory_guard=MemoryGuard(max_memory_mb=20),
+        spill_dir=tmp_path / 'spill',
+    )
+    assert df.quantile('v', 0.5) == 42.0
+
+
+def test_quantile_arrow_native_no_per_value_loop():
+    """F12-5 AST: no `for v in vals` per-value loop (precise check).
+
+    §13.4/217: check for `For` iter with `for <x> in <name>` where
+    name is 'vals' — the anti-pattern. Loops over `covered` (small,
+    ≤ len(targets)) are fine — that's the take-selected zip.
+    """
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _tw
+    # §13.4/220: direct submodule import. `from cadw.ops import
+    # quantile` gets the FUNCTION (re-exported in
+    # cadw/ops/__init__.py), shadowing the submodule attribute
+    # → AttributeError on `.member` access.
+    from cadw.ops.quantile import _stream_values_at_positions
+    src = _tw.dedent(_inspect.getsource(_stream_values_at_positions))
+    tree = _ast.parse(src)
+    per_value_loops: list[int] = []
+    for n in _ast.walk(tree):
+        if not isinstance(n, _ast.For):
+            continue
+        it = n.iter
+        if isinstance(it, _ast.Name) and it.id in ('vals',):
+            per_value_loops.append(n.lineno)
+    assert not per_value_loops, (
+        f'F12-5 regression: per-value `for v in vals` loop at '
+        f'{per_value_loops}'
+    )
+    # Positive: take Call present
+    take_calls = [
+        n for n in _ast.walk(tree)
+        if isinstance(n, _ast.Call)
+        and isinstance(n.func, _ast.Attribute)
+        and n.func.attr == 'take'
+    ]
+    assert take_calls, 'F12-5: pc.take not called'
+
+# ============ v0.9.13-fix1 (§13.4/220): shadowed module imports ============
+
+
+def test_no_shadowed_module_import_in_tests():
+    """§13.4/220: `from cadw.ops import <shadowed> as <alias>`
+    where <shadowed> is a FUNCTION re-exported in
+    cadw/ops/__init__.py that shadows its submodule.
+
+    Only `reduce` and `quantile` are shadowed. `from cadw.ops
+    import quantile as q_mod` gets the FUNCTION, not module —
+    any `.member` access → AttributeError. Use
+    `from cadw.ops.<name> import symbol` for module access.
+    """
+    import ast as _ast
+    from pathlib import Path as _P
+    SHADOWED = {'reduce', 'quantile'}
+    tests_root = _P(__file__).parent
+    violations: list[str] = []
+    for py in tests_root.glob('test_*.py'):
+        if py.name == _P(__file__).name:
+            continue
+        try:
+            tree = _ast.parse(py.read_text())
+        except SyntaxError:
+            continue
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.ImportFrom):
+                continue
+            if node.module != 'cadw.ops':
+                continue
+            for alias in node.names:
+                if alias.name in SHADOWED and alias.asname:
+                    violations.append(
+                        f'{py.name}:{node.lineno}: '
+                        f'from cadw.ops import {alias.name} as '
+                        f'{alias.asname}'
+                    )
+    assert not violations, (
+        '§13.4/220: shadowed module import — cadw.ops.__init__ '
+        're-exports these as FUNCTIONS, shadowing submodules:'
+        + chr(10) + chr(10).join(violations)
+        + chr(10) + 'Use `from cadw.ops.<name> import <symbol>` '
+        + 'for module access.'
+    )
