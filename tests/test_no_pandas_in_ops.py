@@ -102,19 +102,23 @@ def test_pandas_whitelist_has_rationale():
 
 
 def test_no_pandas_in_dataframe_facade():
-    """`cadw/dataframe.py` — no MODULE-LEVEL pandas import.
+    """`cadw/dataframe.py` — no pandas import anywhere (v0.9.6b2).
 
-    v0.9.1e-fix2 (§13.4/155): lazy `import pandas as pd` inside
-    `_emit_group` (used by `_per_group_apply` to construct pd.Series/
-    pd.DataFrame from user fn output) is legitimate — keeps `import
-    cadw` light. Only top-level import is forbidden.
+    v0.9.6b2: _per_group_apply is CADW-native (fn returns
+    scalar | dict | CadwDataFrame). No `import pandas` at
+    module level or inside functions. Remaining pandas touch
+    in dataframe.py is `Table.to_pandas()` in pivot_table —
+    that is a METHOD, not an import; addressed separately
+    (v0.9.6c PivotOp).
     """
     py = CADW_OPS.parent / "dataframe.py"
     src = py.read_text()
     tree = ast.parse(src)
-    assert not _uses_pandas_import_at_module_level(tree), (
-        "cadw/dataframe.py must not import pandas at module level "
-        "(lazy import inside functions OK — see §13.4/155)"
+    assert not _uses_pandas_import(tree), (
+        "cadw/dataframe.py must not import pandas anywhere "
+        "(v0.9.6b2: _per_group_apply is CADW-native). "
+        "If a new lazy import is genuinely required, add a "
+        "whitelist rationale — do not weaken this test."
     )
 
 
@@ -153,3 +157,36 @@ def test_join_no_pandas_import():
     assert not _uses_pandas_import(tree), (
         "cadw/ops/join.py must not import pandas (v0.8.11a cleanup)"
     )
+
+
+def test_no_pandas_in_per_group_apply():
+    """_per_group_apply + helpers must not import pandas
+    (v0.9.6b2)."""
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _textwrap
+    from cadw import dataframe as df_mod
+
+    targets = [
+        "_per_group_apply", "_detect_mode", "_normalize_scalar",
+        "_build_out_schema", "_infer_arrow_type_from_value",
+    ]
+    for name in targets:
+        fn = getattr(df_mod, name, None)
+        if fn is None:
+            continue
+        src = _inspect.getsource(fn)
+        tree = _ast.parse(_textwrap.dedent(src))
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith('pandas'), (
+                        f'{name} imports pandas; must be '
+                        'CADW-native'
+                    )
+            elif isinstance(node, _ast.ImportFrom):
+                if node.module and node.module.startswith('pandas'):
+                    raise AssertionError(
+                        f'{name} imports from pandas; must be '
+                        'CADW-native'
+                    )

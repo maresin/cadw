@@ -789,6 +789,15 @@ class CadwDataFrame:
             n += b.num_rows
         return n
 
+    def __len__(self) -> int:
+        """Row count (v0.9.6b2) — same as count().
+
+        Enables `len(df)` in per-group apply patterns
+        (`lambda g: len(g)`). O(1) unfiltered, O(N) filtered
+        (same cost as count()).
+        """
+        return self.count()
+
     # ---------------- __getitem__ ----------------
 
     def __getitem__(self, key):
@@ -2823,18 +2832,22 @@ class CadwDataFrame:
         result_col: str,
         memory_guard: "MemoryGuard",
     ) -> "CadwDataFrame":
-        """Composite-sort apply(fn) on each group (prototype-validated).
+        """Composite-sort apply(fn) on each group. v0.9.6b2 CADW-native.
 
         Args:
             group_cols: group keys. Non-empty.
             on_cols: within-group sort keys (empty → row_id order).
-            fn: callable(group_df: pd.DataFrame) → scalar | pd.Series |
-                pd.DataFrame. Uniform mode across groups.
+            fn: callable(group_df: CadwDataFrame) → scalar | dict[str,scalar]
+                | CadwDataFrame. Uniform mode across groups.
             result_col: column name for scalar mode.
             memory_guard: per-group memory check before fn().
 
         Peak RAM = batch + 2 × max(group_size × row_size) + fn's output.
         Bounded per group, independent of N.
+
+        No pandas. For multi-metric per-group output use a dict
+        (`{"mean": ..., "max": ...}`); for multi-row output use
+        `CadwDataFrame.from_table(pa_table)`.
 
         fn's own alloc is user responsibility (§3.9 extended).
         """
@@ -2922,7 +2935,6 @@ class CadwDataFrame:
             buf_rows = []
 
         def _emit_group(key: tuple, result):
-            import pandas as pd
             nonlocal buf_rows
 
             mode = _detect_mode(result)
@@ -2944,21 +2956,18 @@ class CadwDataFrame:
                 row = {gc: v for gc, v in zip(group_cols, key)}
                 row[result_col] = _normalize_scalar(result)
                 buf_rows.append(row)
-            elif mode == "series":
+            elif mode == "dict":
                 row = {gc: v for gc, v in zip(group_cols, key)}
-                for idx, val in result.items():
-                    row[str(idx)] = (
-                        None if pd.isna(val) else val
-                    )
+                for k, v in result.items():
+                    row[str(k)] = _normalize_scalar(v)
                 buf_rows.append(row)
-            else:  # dataframe
-                for rec in result.to_dict(orient="records"):
-                    row = {gc: v for gc, v in zip(group_cols, key)}
-                    for c, v in rec.items():
-                        row[str(c)] = (
-                            None if pd.isna(v) else v
-                        )
-                    buf_rows.append(row)
+            else:  # CadwDataFrame
+                for b in result._iter_filtered_batches():
+                    for rec in b.to_pylist():
+                        row = dict(rec)
+                        for gc, v in zip(group_cols, key):
+                            row.setdefault(gc, v)
+                        buf_rows.append(row)
             if len(buf_rows) >= BATCH_ROWS:
                 _flush_buf()
 
@@ -2973,26 +2982,19 @@ class CadwDataFrame:
             nonlocal group_buf
             if not group_buf:
                 return
-            # §13.4/155: pre-estimate from `batch.nbytes` BEFORE
-            # `from_batches`. In pyarrow 26 from_batches is zero-copy
-            # (§9.2.9) → sum(b.nbytes) ≈ gt.nbytes. Check first, then
-            # materialize. Keeps AST guard (§3.11) satisfied — no
-            # high-risk Arrow call without preceding check_state.
             est_pre = sum(b.nbytes for b in group_buf) * 2
             if est_pre > max_group_limit:
                 raise MemoryLimitExceeded(
                     f"_per_group_apply: group size ~{est_pre // 2} B "
-                    f"× 2 (pandas) = {est_pre} B > 0.3 × avail = "
-                    f"{max_group_limit} B. Split by more group cols "
-                    f"or use groupby().agg() if fn reduces. See "
-                    f"§11.5."
+                    f"× 2 (materialize + overhead) = {est_pre} B > "
+                    f"0.3 × avail = {max_group_limit} B. Split by "
+                    f"more group cols or use groupby().agg() if fn "
+                    f"reduces. See §11.5."
                 )
             memory_guard.check_state(
                 est_pre, name="per_group_apply.group",
             )
             gt = pa.Table.from_batches(group_buf)
-            # Defense-in-depth: actual nbytes (may differ from sum of
-            # batch.nbytes for chunked buffers; conservative check).
             est_actual = gt.nbytes * 2
             if est_actual > max_group_limit:
                 raise MemoryLimitExceeded(
@@ -3001,7 +3003,12 @@ class CadwDataFrame:
                     f"= {max_group_limit} B (pre-estimate was "
                     f"{est_pre} B; buffer overhead). See §11.5."
                 )
-            gdf = gt.to_pandas()
+            # v0.9.6b2: CADW-native group materialize (in-memory).
+            gdf = CadwDataFrame.from_table(
+                gt,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
             result = fn(gdf)
             _emit_group(tuple(prev_key), result)
             group_buf.clear()
@@ -5331,15 +5338,26 @@ def _apply_filter_with_positions(f: RowFilter, it):
 
 # ============ per-group apply helpers (v0.9.1e) ============
 
+# ============ per-group apply helpers (v0.9.6b2, CADW-native) ============
+
 def _detect_mode(result) -> str:
-    """Classify fn() output: 'scalar' / 'series' / 'dataframe'."""
-    import pandas as pd
+    """Classify fn() output: 'scalar' / 'dict' / 'dataframe'.
+
+    v0.9.6b2: CADW-native contract. fn returns one of:
+      - scalar (int/float/str/bool/None, or numpy scalar): single-value row
+      - dict[str, scalar]: multi-value single row (replaces pd.Series)
+      - CadwDataFrame: multi-row output (replaces pd.DataFrame)
+
+    No pandas. For pandas-like multi-row output, wrap in
+    CadwDataFrame.from_table(pa_table).
+    """
+    from cadw.dataframe import CadwDataFrame
     import numpy as np
 
-    if isinstance(result, pd.DataFrame):
+    if isinstance(result, CadwDataFrame):
         return "dataframe"
-    if isinstance(result, pd.Series):
-        return "series"
+    if isinstance(result, dict):
+        return "dict"
     if result is None:
         return "scalar"
     if isinstance(result, (bool, int, float, str)):
@@ -5348,20 +5366,26 @@ def _detect_mode(result) -> str:
         return "scalar"
     raise TypeError(
         f"_per_group_apply: fn returned {type(result).__name__}; "
-        f"expected scalar, pd.Series, or pd.DataFrame"
+        f"expected scalar, dict[str, scalar], or CadwDataFrame "
+        f"(v0.9.6b2 CADW-native contract). For multi-metric output "
+        f"use a dict; for multi-row output use CadwDataFrame.from_table("
+        f"pa_table)."
     )
 
 
 def _normalize_scalar(v):
-    """Convert numpy scalar / pandas NA to Python / None."""
+    """Convert numpy scalar / NaN to Python scalar / None.
+
+    v0.9.6b2: no pandas. NaN detection via float comparison (`v != v`),
+    not pd.isna. pd.NA / pd.NaT not supported (fn should return None).
+    """
     import numpy as np
-    import pandas as pd
 
     if v is None:
         return None
     if isinstance(v, (np.integer, np.floating, np.bool_)):
         v = v.item()
-    if isinstance(v, float) and pd.isna(v):
+    if isinstance(v, float) and v != v:  # NaN
         return None
     return v
 
@@ -5384,7 +5408,14 @@ def _infer_arrow_type_from_value(v):
 
 
 def _build_out_schema(group_cols, df, mode, first_result, result_col):
-    """Output pa.Schema from group_cols + first group's result shape."""
+    """Output pa.Schema from group_cols + first group's result shape.
+
+    v0.9.6b2: CADW-native. Modes:
+      - 'scalar': group_cols + result_col (inferred type)
+      - 'dict':   group_cols + first_result keys (inferred types)
+      - 'dataframe': group_cols + first_result.columns (skipping
+        group_cols if already present in df.columns)
+    """
     import pyarrow as pa
 
     fields = [df._dataset.schema.field(c) for c in group_cols]
@@ -5393,16 +5424,15 @@ def _build_out_schema(group_cols, df, mode, first_result, result_col):
         fields.append(pa.field(
             result_col, _infer_arrow_type_from_value(v), nullable=True,
         ))
-    elif mode == "series":
-        for idx in first_result.index:
-            v = first_result.loc[idx]
+    elif mode == "dict":
+        for k in first_result:
+            v = _normalize_scalar(first_result[k])
             fields.append(pa.field(
-                str(idx), _infer_arrow_type_from_value(v), nullable=True,
+                str(k), _infer_arrow_type_from_value(v), nullable=True,
             ))
-    else:  # dataframe
+    else:  # CadwDataFrame
         for c in first_result.columns:
-            v = first_result[c].iloc[0] if len(first_result) > 0 else None
-            fields.append(pa.field(
-                str(c), _infer_arrow_type_from_value(v), nullable=True,
-            ))
+            if c in group_cols:
+                continue
+            fields.append(first_result._dataset.schema.field(c))
     return pa.schema(fields)
