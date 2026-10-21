@@ -408,15 +408,49 @@ def _estimate_k_sample(
     sample_batches: list[pa.RecordBatch],
     by_columns: Sequence[str],
 ) -> int:
-    """Число уникальных ключей в sample. Без экстраполяции (консервативно)."""
+    """Unique-key count in sample. Arrow-native (v0.9.6c1).
+
+    Composition of per-batch `dictionary_encode` (single-col) or
+    binary_join + dictionary_encode (multi-col); union across batches
+    via Python set on the *dictionary values* (small — bounded by
+    sample_rows, typically K_sample).
+    """
+    from cadw.core._k_est import estimate_k_sample_arrow
+
     if not sample_batches:
         return 0
-    seen: set[tuple] = set()
     cols = list(by_columns)
+    if len(cols) == 1:
+        # Single column: union of dictionaries across batches.
+        seen: set = set()
+        for b in sample_batches:
+            arr = b.column(cols[0])
+            enc = arr.dictionary_encode()
+            if enc.dictionary is not None:
+                for v in enc.dictionary.to_pylist():
+                    if v is not None:
+                        seen.add(v)
+            else:
+                for v in arr.to_pylist():
+                    if v is not None:
+                        seen.add(v)
+        return max(1, len(seen))
+    # Multi-column: union of binary-joined string keys.
+    import pyarrow.compute as pc
+    seen2: set = set()
     for b in sample_batches:
-        for i in range(b.num_rows):
-            seen.add(tuple(b.column(c)[i].as_py() for c in cols))
-    return len(seen)
+        str_cols = [
+            b.column(c) if pa.types.is_string(b.column(c).type)
+            else pc.cast(b.column(c), pa.string())
+            for c in cols
+        ]
+        joined = str_cols[0]
+        for c in str_cols[1:]:
+            joined = pc.binary_join_element_wise(joined, c, "\x01")
+        for v in joined.to_pylist():
+            if v is not None:
+                seen2.add(v)
+    return max(1, len(seen2))
 
 
 

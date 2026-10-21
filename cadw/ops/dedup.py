@@ -42,12 +42,16 @@ def _estimate_k_sample(
     subset: list[str],
     n_total: int,
 ) -> int:
-    """Rough estimate: unique count in subset, linear extrapolation."""
+    """Rough K estimate on sample. Arrow-native (v0.9.6c1).
+
+    K_sample via `pc.dictionary_encode` (no pandas). Extrapolate to
+    n_total: linear scaling capped at n_total.
+    """
+    from cadw.core._k_est import estimate_k_sample_arrow
+
     if batch.num_rows == 0:
         return 1
-    sub = batch.select(subset)
-    df = sub.to_pandas()
-    k_sample = int(df.drop_duplicates().shape[0])
+    k_sample = estimate_k_sample_arrow(batch, subset)
     if k_sample <= 0:
         return 1
     if n_total <= batch.num_rows:
