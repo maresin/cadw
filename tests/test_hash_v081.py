@@ -18,7 +18,7 @@ import pytest
 
 from cadw import CadwDataFrame, MemoryGuard
 from cadw.core.memory_guard import MemoryGuard as MG
-from cadw.ops.shuffle import compute_hashes, hash_shuffle, _pandas_hash_column
+from cadw.ops.shuffle import compute_hashes, hash_shuffle
 
 
 def batch(*cols, names):
@@ -131,66 +131,6 @@ def test_nulls_hash_differently_from_any_number():
 
 
 # ---------- AST / path check ----------
-
-def test_pandas_path_used_for_int64(monkeypatch):
-    """Spy: _pandas_hash_column is called for int64 (fast path)."""
-    from cadw.ops import shuffle as sh
-    called = []
-    orig = sh._pandas_hash_column
-
-    def spy(arr):
-        called.append(str(arr.type))
-        return orig(arr)
-
-    monkeypatch.setattr(sh, "_pandas_hash_column", spy)
-    b = batch([1, 2, 3], names=["k"])
-    compute_hashes(b, ["k"])
-    assert "int64" in called, f"pandas path not used for int64: {called}"
-
-
-def test_uint64_uses_pandas_via_bitcast(monkeypatch):
-    """v0.8.9 (P-SH2): uint64 → int64 (safe=False bitcast) → pandas C-hash.
-
-    Replaces pre-v0.8.9 `test_uint64_falls_back_to_python`, which asserted
-    the OLD behaviour (uint64 → Python loop, because Int64Dtype can't hold
-    uint64 values ≥ 2^63). After P-SH2, `_hash_column` bitcasts uint64 to
-    int64 (bijection, partition-disjoint preserved) and routes through
-    the same pandas path as int64 (19× faster than Python).
-
-    v0.8.9-fix2: bitcast done via `pc.cast(arr, int64, safe=False)` — a
-    direct two's-complement reinterpretation. Prior variant XOR-2^63-then-
-    cast(safe=True) raised ArrowInvalid on every value (XOR pushes all
-    into ≥ 2^63) and silently fell back to Python.
-    """
-    from cadw.ops import shuffle as sh
-    called_pandas = []
-    called_python = []
-    orig_pd = sh._pandas_hash_column
-    orig_py = sh._python_hash_column
-
-    def spy_pd(arr):
-        called_pandas.append(str(arr.type))
-        return orig_pd(arr)
-
-    def spy_py(arr):
-        called_python.append(str(arr.type))
-        return orig_py(arr)
-
-    monkeypatch.setattr(sh, "_pandas_hash_column", spy_pd)
-    monkeypatch.setattr(sh, "_python_hash_column", spy_py)
-    b = pa.RecordBatch.from_arrays(
-        [pa.array([1, 2, 3], type=pa.uint64())], names=["k"]
-    )
-    compute_hashes(b, ["k"])
-    # P-SH2: uint64 bitcast to int64 → pandas path (NOT Python fallback).
-    assert "int64" in called_pandas, (
-        f"uint64 should bitcast to int64 and use pandas hash; "
-        f"called_pandas={called_pandas}, called_python={called_python}"
-    )
-    assert "uint64" not in called_python, (
-        f"uint64 should NOT fall back to Python hash; "
-        f"called_python={called_python}"
-    )
 
 
 # ---------- partition-disjoint end-to-end ----------
@@ -358,63 +298,145 @@ def test_groupby_recursion_end_to_end_v081(tmp_path):
 
 # ---------- v0.8.1-fix3: string uses Python path ----------
 
-def test_string_uses_python_path(monkeypatch):
-    """Strings must use _python_hash_column (pandas is slower — bench 50 vs 39 ms)."""
+
+# ============ v0.9.6a: own XXH64 hash, no pandas ============
+
+
+def test_hash_no_pandas_import_ast():
+    # AST: cadw/ops/shuffle.py has no `import pandas`.
+    import ast as _ast
+    import inspect
     from cadw.ops import shuffle as sh
-    called = {"pandas": [], "python": []}
+    src = inspect.getsource(sh)
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith("pandas"), (
+                    "shuffle.py must not import pandas (v0.9.6a)"
+                )
+        elif isinstance(node, _ast.ImportFrom):
+            if node.module:
+                assert not node.module.startswith("pandas"), (
+                    "shuffle.py must not import pandas (v0.9.6a)"
+                )
 
-    orig_pd = sh._pandas_hash_column
-    orig_py = sh._python_hash_column
 
-    def spy_pd(arr):
-        called["pandas"].append(str(arr.type))
-        return orig_pd(arr)
+def test_own_hash_removed_pandas_functions():
+    # Belt-and-suspenders: old function names gone from source.
+    import inspect
+    from cadw.ops import shuffle as sh
+    src = inspect.getsource(sh)
+    assert "_pandas_hash_column" not in src
+    assert "_python_hash_column" not in src
+    assert "_vectorized_hash_numeric" in src
+    assert "_string_hash_column" in src
 
-    def spy_py(arr):
-        called["python"].append(str(arr.type))
-        return orig_py(arr)
 
-    monkeypatch.setattr(sh, "_pandas_hash_column", spy_pd)
-    monkeypatch.setattr(sh, "_python_hash_column", spy_py)
+def test_own_hash_cross_batch_int64_with_and_without_nulls():
+    b1 = batch([1, 2, 3], names=["k"])
+    b2 = batch([1, 2, None], names=["k"])
+    h1 = compute_hashes(b1, ["k"]).to_pylist()
+    h2 = compute_hashes(b2, ["k"]).to_pylist()
+    assert h1[0] == h2[0]
+    assert h1[1] == h2[1]
 
-    b = batch(["a", "b", "c"], names=["k"])
-    compute_hashes(b, ["k"])
 
-    assert "string" in called["python"], (
-        f"string must use _python_hash_column; got python={called['python']}, "
-        f"pandas={called['pandas']}"
+def test_own_hash_cross_batch_float64_with_and_without_nulls():
+    b1 = batch([1.5, 2.5, 3.5], names=["k"])
+    b2 = batch([1.5, 2.5, None], names=["k"])
+    h1 = compute_hashes(b1, ["k"]).to_pylist()
+    h2 = compute_hashes(b2, ["k"]).to_pylist()
+    assert h1[0] == h2[0]
+    assert h1[1] == h2[1]
+
+
+def test_own_hash_cross_batch_string_with_and_without_nulls():
+    b1 = batch(["a", "b"], names=["k"])
+    b2 = batch(["a", None], names=["k"])
+    h1 = compute_hashes(b1, ["k"]).to_pylist()
+    h2 = compute_hashes(b2, ["k"]).to_pylist()
+    assert h1[0] == h2[0]
+
+
+def test_own_hash_null_consistency():
+    b = batch([None, None, None], names=["k"])
+    h = compute_hashes(b, ["k"]).to_pylist()
+    assert h[0] == h[1] == h[2]
+
+
+def test_own_hash_uint64_extreme_values():
+    # uint64 values >= 2^63 must hash distinctively (safe=False bitcast).
+    values = [1, 2**63, 2**63 + 1, 2**64 - 1]
+    b = pa.RecordBatch.from_arrays(
+        [pa.array(values, type=pa.uint64())], names=["k"],
+    )
+    h = compute_hashes(b, ["k"]).to_pylist()
+    assert len(set(h)) == len(values), (
+        f"distinct uint64 values must hash distinctively; got {h}"
     )
 
 
-def test_numeric_uses_pandas_path(monkeypatch):
-    """Numeric keeps pandas C-hash (19-40× speedup)."""
-    from cadw.ops import shuffle as sh
-    called_pandas = []
-    orig_pd = sh._pandas_hash_column
-
-    def spy_pd(arr):
-        called_pandas.append(str(arr.type))
-        return orig_pd(arr)
-
-    monkeypatch.setattr(sh, "_pandas_hash_column", spy_pd)
-    b = batch([1, 2, 3], names=["k"])
-    compute_hashes(b, ["k"])
-    assert "int64" in called_pandas
-
-
-
-def test_uint64_python_fallback_warns(monkeypatch, caplog):
-    # v0.9.5b (P-SH2): silent -> warning on Python fallback.
-    import logging
-    from cadw.ops import shuffle as sh
-    caplog.set_level(logging.WARNING, logger='cadw.ops.shuffle')
-    monkeypatch.setattr(
-        sh, '_pandas_hash_column', lambda arr, **kw: None,
+def test_own_hash_timestamp_cross_batch():
+    import datetime as dt
+    ts = [dt.datetime(2020, 1, 1), dt.datetime(2020, 6, 1)]
+    b1 = pa.RecordBatch.from_arrays(
+        [pa.array(ts, type=pa.timestamp("s"))], names=["k"],
     )
-    arr = pa.array([1, 2, 3], type=pa.uint64())
-    h = sh._hash_column(arr)
-    assert h is not None and len(h) == 3
-    msgs = [str(r.message) for r in caplog.records]
-    assert any('uint64' in m and 'fallback' in m for m in msgs), (
-        'expected uint64 fallback warning; got ' + str(msgs)
+    b2 = pa.RecordBatch.from_arrays(
+        [pa.array([ts[0], None], type=pa.timestamp("s"))], names=["k"],
+    )
+    h1 = compute_hashes(b1, ["k"]).to_pylist()
+    h2 = compute_hashes(b2, ["k"]).to_pylist()
+    assert h1[0] == h2[0]
+
+
+def test_own_hash_avalanche_uniform_low_bits():
+    # After splitmix64, low bits uniform for P in {2,4,8,16}.
+    import numpy as np_
+    n = 5000
+    values = [f"g{i:05d}" for i in range(n)]
+    b = batch(values, names=["k"])
+    h = np_.array(compute_hashes(b, ["k"]).to_pylist(),
+                  dtype=np_.uint64)
+    for P in (2, 4, 8, 16):
+        counts = np_.bincount(h & np_.uint64(P - 1), minlength=P)
+        expected = n / P
+        assert counts.min() >= expected * 0.7, (
+            f'P={P}: min bucket {counts.min()} < {expected*0.7}'
+        )
+        assert counts.max() <= expected * 1.3
+
+
+def test_no_test_imports_stale_hash_names():
+    # AST: no test file imports _pandas_hash_column or
+    # _python_hash_column (removed v0.9.6a). Any import attempt
+    # fails collection with cryptic ImportError; AST guard
+    # fails earlier with actionable message (§13.4/174).
+    import ast as _ast
+    from pathlib import Path as _P
+    STALE = {'_pandas_hash_column', '_python_hash_column'}
+    tests_root = _P(__file__).parent
+    violations = []
+    for py in tests_root.rglob('test_*.py'):
+        if py.name == _P(__file__).name:
+            continue
+        try:
+            tree = _ast.parse(py.read_text())
+        except SyntaxError:
+            continue
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.ImportFrom):
+                continue
+            if not node.module or 'shuffle' not in node.module:
+                continue
+            for alias in node.names:
+                if alias.name in STALE:
+                    violations.append(
+                        f'{py.name}:{node.lineno} '
+                        f'imports {alias.name}'
+                    )
+    assert not violations, (
+        'stale hash imports (removed v0.9.6a):\n'
+        + '\n'.join(violations)
     )

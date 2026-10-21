@@ -5,7 +5,7 @@ HashShuffle: разложить поток строк по P партициям 
 по ключам → результат агрегации = конкатенация (без merge).
 
 Контракт (DECISIONS.md §6):
-  - детерминированный хэш (xxhash64, seed) — стабилен между прогонами;
+  - детерминированный XXH64-based хэш (v0.9.6a: own impl, no pandas);
   - каждая строка несёт row_id (uint64) — для восстановления идентичности;
   - одна перестановка (sort_indices) вместо P фильтров;
   - пустой вход → ValueError (без schema нельзя создать writers).
@@ -42,137 +42,139 @@ def _dedup_columns(cols: Sequence[str]) -> list[str]:
     return out
 
 
-def _stable_bytes(v) -> bytes:
-    """Стабильная сериализация значения в bytes (без зависимости от PYTHONHASHSEED).
+# v0.9.6a: fixed hash for nulls (all nulls → one group, matching
+# pandas dropna=False groupby semantics). Magic value chosen after
+# splitmix64 avalanche — collision with hashed real value ~2^-64.
+_NULL_SENTINEL = np.uint64(0x1BADB002CAFEF00D)
 
-    repr() различает типы: repr('1') = "'1'", repr(1) = '1', repr(None) = 'None'.
-    Это важно: строка '1' и число 1 не должны попадать в одну партицию.
+# XXH64 primes (from xxHash reference implementation, XXH64).
+_XXH64_P1 = np.uint64(11400714785074694791)
+_XXH64_P2 = np.uint64(14029467366897019727)
+_XXH64_P3 = np.uint64(1609587929392839161)
+_XXH64_P4 = np.uint64(9650029242287828579)
+_XXH64_P5 = np.uint64(2870177450012600261)
+
+
+def _rotl64(x: np.ndarray, r: int) -> np.ndarray:
+    """Rotate uint64 array left by r bits (r in [0, 63])."""
+    r_u = np.uint64(r)
+    return (x << r_u) | (x >> (np.uint64(64) - r_u))
+
+
+def _vectorized_hash_numeric(arr: pa.Array) -> np.ndarray:
+    """XXH64-round over 8-byte uint64 view. Vectorized, no pandas.
+
+    - int/uint/bool/timestamp/date/time: cast to int64 (or uint64)
+      → bitcast uint64 → XXH64 round.
+    - float: bitcast float64 → int64 → uint64 (preserves NaN bit
+      pattern; nulls become NaN via to_numpy → hash(NaN) — matches
+      pandas groupby(dropna=False) NaN/null coalescing for floats).
+    - nulls in int/temporal: overwritten with _NULL_SENTINEL (own
+      group, distinct from any integer value).
+
+    v0.9.6a: own XXH64-based hash. No pandas. Vectorized over the
+    batch (O(batch) numpy ops on uint64 arrays).
     """
+    n = len(arr)
+    t = arr.type
+
+    if pa.types.is_floating(t):
+        np_arr = arr.to_numpy(zero_copy_only=False)  # float64, NaN for nulls
+        int_view = np_arr.view(np.uint64)
+        null_mask = None  # NaN bit pattern hashed; NaN/null coalesce
+    else:
+        if pa.types.is_boolean(t):
+            int_arr = pc.cast(arr, pa.int64())
+        elif (pa.types.is_timestamp(t) or pa.types.is_date(t)
+              or pa.types.is_time(t)):
+            int_arr = pc.cast(arr, pa.int64())
+        elif pa.types.is_integer(t):
+            # For uint types, keep unsigned representation to avoid
+            # int64 overflow (safe=True cast would raise for >= 2^63).
+            int_arr = arr  # already an Arrow array; will view below
+        else:
+            raise NotImplementedError(
+                f"_vectorized_hash_numeric: unsupported dtype {t}"
+            )
+        if int_arr.null_count > 0:
+            null_mask = pc.is_null(int_arr).to_numpy(zero_copy_only=False)
+            int_arr = pc.fill_null(int_arr, 0)
+        else:
+            null_mask = None
+        np_arr = int_arr.to_numpy(zero_copy_only=False)
+        if pa.types.is_unsigned_integer(t) or pa.types.is_boolean(t):
+            int_view = np_arr.astype(np.uint64, copy=False)
+        else:
+            int_view = np_arr.astype(np.int64, copy=False).view(np.uint64)
+
+    # XXH64 round (one 8-byte block, seed=0)
+    acc = np.full(n, _XXH64_P5, dtype=np.uint64)
+    acc = acc + np.uint64(8)  # += len(block_bytes)
+    k1 = int_view * _XXH64_P2
+    k1 = _rotl64(k1, 31)
+    k1 = k1 * _XXH64_P1
+    acc = acc ^ k1
+    acc = _rotl64(acc, 27) * _XXH64_P1 + _XXH64_P4
+
+    # XXH64 avalanche (final)
+    acc = acc ^ (acc >> np.uint64(33))
+    acc = acc * _XXH64_P2
+    acc = acc ^ (acc >> np.uint64(29))
+    acc = acc * _XXH64_P3
+    acc = acc ^ (acc >> np.uint64(32))
+
+    if null_mask is not None:
+        acc[null_mask] = _NULL_SENTINEL
+
+    return acc
+
+
+def _string_hash_column(arr: pa.Array) -> np.ndarray:
+    """Per-element xxhash.xxh64 over utf8/binary bytes. No pandas.
+
+    v0.9.6a: no repr()/encode() wrapper — column is homogeneous type
+    (all str or all bytes), so no cross-type hash-collision concern.
+    Cross-batch consistency: same string → same xxh64 output.
+    Nulls → _NULL_SENTINEL (own group).
+    """
+    n = len(arr)
+    out = np.empty(n, dtype=np.uint64)
+    for i, v in enumerate(arr.to_pylist()):
+        if v is None:
+            out[i] = _NULL_SENTINEL
+        else:
+            data = v.encode("utf-8") if isinstance(v, str) else v
+            out[i] = xxhash.xxh64(data, seed=0).intdigest()
+    return out
+
+
+def _stable_bytes(v) -> bytes:
+    """Fallback serialization for exotic types (dictionary/struct/list)."""
     return repr(v).encode("utf-8")
 
 
-def _python_hash_column(arr: pa.Array) -> np.ndarray:
-    """Original per-value Python loop. Covers all dtypes. Slow (~32× pandas)."""
-    values = arr.to_pylist()
-    hashes = [xxhash.xxh64(_stable_bytes(v), seed=0).intdigest() for v in values]
-    return np.asarray(hashes, dtype=np.uint64)
-
-
-def _pandas_hash_column(
-    arr: pa.Array, *, strict: bool = False,
-) -> "np.ndarray | None":
-    """C-level pandas hashing (v0.8.1). Returns None if unsupported/failed.
-
-    **Types_mapper is REQUIRED for correctness** (not optimization):
-    `arr.to_pandas()` without mapper gives `int64` for a batch with no
-    nulls and `float64` (NaN) for a batch with nulls. The same value
-    (e.g., `1`) would then hash differently across batches → same key
-    goes to different partitions → partition-disjoint invariant broken
-    → silently wrong results. `types_mapper=Int64Dtype` forces a
-    nullable Int64 representation consistently.
-
-    uint64 is excluded (doesn't fit in Int64Dtype, >2^63 overflows).
-    """
-    import pandas as pd
-    t = arr.type
-    if pa.types.is_uint64(t):
-        return None
-    try:
-        def _mapper(pt):
-            if pa.types.is_integer(pt) and pt.bit_width <= 64:
-                # All int8/16/32/64 + uint8/16/32 fit in Int64Dtype.
-                return pd.Int64Dtype()
-            if pa.types.is_boolean(pt):
-                return pd.BooleanDtype()
-            return None
-        pd_series = arr.to_pandas(types_mapper=_mapper)
-        h = pd.util.hash_pandas_object(pd_series, index=False)
-        return h.to_numpy(dtype=np.uint64)
-    except Exception as exc:
-        if strict:
-            raise
-        # K1.2: silent fallback hid perf regressions (e.g. a pandas
-        # 4.x API change dropping types_mapper would route every batch
-        # to the ~30x slower Python loop with no signal). Warn once
-        # per call site; behaviour unchanged (still returns None).
-        logger.warning(
-            "_pandas_hash_column: pandas fast path failed for type "
-            "%s (%r); falling back to Python hash loop",
-            t, exc,
-        )
-        return None
-
-
 def _hash_column(arr: pa.Array) -> np.ndarray:
-    """Best-effort: pandas C-hash for numeric/timestamp; Python for strings.
+    """Dispatch: vectorized XXH64 for fixed-width; per-element for strings.
 
-    v0.8.1-fix3: strings → Python. Bench v0.8.1:
-        int64    39.2 → 2.02 ms  (19.4×)  (pandas)
-        float64  39.2 → 0.99 ms  (39.6×)  (pandas)
-        string   39.2 → 50.44 ms (0.78×)  (pandas, REGRESSION)
-    pd.util.hash_pandas_object for object dtype uses per-element Cython
-    (hash_object_array) + categorical detection — ~500 ns/string vs Python
-    repr().encode() + xxhash ~390 ns/string. No faster path in pandas 3.x.
-    → route strings to Python, keep pandas for numeric/timestamp.
-
-    v0.8.9 (P-SH2): uint64 → bitcast to int64 (XOR 2^63, bijection) then
-    pandas hash. Prior code routed uint64 to Python `_python_hash_column`
-    (whole shuffle silently slow). Bitcast preserves partition-disjoint:
-    same uint64 value always yields same int64 → same hash.
+    v0.9.6a: no pandas. Covers all first-class Arrow dtypes
+    (int/float/bool/timestamp/date/time/string/binary). Exotic
+    (dictionary/struct/list) → Python loop, rare (not a partition key
+    column type in practice).
     """
     t = arr.type
-    # String → Python path (no benefit from pandas; slight regression)
-    if pa.types.is_string(t) or pa.types.is_large_string(t):
-        return _python_hash_column(arr)
-    # v0.8.9-fix2 (P-SH2): uint64 → int64 via `pc.cast(safe=False)` (bitcast),
-    # then pandas C-hash. Prior v0.8.9-fix used XOR-2^63-then-cast, which
-    # raised ArrowInvalid: pc.cast(safe=True) rejects values >= 2^63, and
-    # XOR with sign bit pushes EVERY uint64 value into [2^63, 2^64) —
-    # guaranteed raise → silent fallback to Python (invariant preserved
-    # but 19× slower; the failure was hidden from tests by the spy).
-    #
-    # REPL check (§13.4/139 — fix adding/changing a library call must
-    # document its boundary via a runnable snippet):
-    #   >>> pc.cast(pa.array([2**63+1], type=pa.uint64()), pa.int64())
-    #   ArrowInvalid: Integer value 9223372036854775809 not in range
-    #   >>> pc.cast(pa.array([2**63+1], type=pa.uint64()), pa.int64(), safe=False)
-    #   <pyarrow.Int64Array>[-9223372036854775807]
-    # safe=False is a bitcast (two's-complement reinterpretation) — bijection
-    # over uint64 ↔ int64, so same uint64 value → same int64 → same hash
-    # (partition-disjoint invariant preserved). Nulls propagate unchanged
-    # through pc.cast (no numpy roundtrip, no cast warning).
-    if pa.types.is_uint64(t):
-        import pyarrow.compute as _pc
-        try:
-            signed = _pc.cast(arr, pa.int64(), safe=False)
-            h = _pandas_hash_column(signed)
-            if h is not None:
-                return h
-            # _pandas_hash_column already warned (K1.2)
-        except Exception as exc:
-            # v0.9.5b (P-SH2): silence hid 30x perf fallback.
-            # Same class as K1.2 (K1.2._pandas_hash_column).
-            logger.warning(
-                '_hash_column: uint64 bitcast failed (%r); '
-                'falling back to Python hash loop (30x slower)',
-                exc,
-            )
-        # extreme fallback: Python loop
-        logger.warning(
-            '_hash_column: uint64 Python hash fallback '
-            '(slow path); check pyarrow cast/pandas API'
-        )
-        return _python_hash_column(arr)
-    # Numeric / bool / timestamp / date / time → pandas C-hash (19-39×)
+    if (pa.types.is_string(t) or pa.types.is_large_string(t)
+            or pa.types.is_binary(t) or pa.types.is_large_binary(t)):
+        return _string_hash_column(arr)
     if (pa.types.is_integer(t) or pa.types.is_floating(t)
             or pa.types.is_boolean(t)
             or pa.types.is_timestamp(t) or pa.types.is_date(t)
             or pa.types.is_time(t)):
-        h = _pandas_hash_column(arr)
-        if h is not None:
-            return h
-    # Fallback: struct/list/dict, or pandas API mismatch.
-    return _python_hash_column(arr)
+        return _vectorized_hash_numeric(arr)
+    # Exotic fallback (dictionary/struct/list)
+    values = arr.to_pylist()
+    hashes = [xxhash.xxh64(_stable_bytes(v), seed=0).intdigest()
+              for v in values]
+    return np.asarray(hashes, dtype=np.uint64)
 
 
 def compute_hashes(
@@ -180,17 +182,16 @@ def compute_hashes(
     key_columns: Sequence[str],
     seed: int = 0,
 ) -> pa.Array:
-    """Детерминированный uint64-хэш ключа (boost::hash_combine через NumPy).
+    """Deterministic uint64 hash of key (boost-combine + splitmix64).
 
-    v0.8.1: for numeric/bool/string/timestamp — pandas C-hash (32× faster).
-    Fallback: Python loop + xxhash. Seed applied via XOR at the end
-    (uniform across dtypes; deterministic; no collision added — XOR is
-    a bijection).
+    v0.9.6a: own XXH64-based hash for numeric/string columns; no pandas.
+    Seed applied via XOR before final splitmix64 avalanche (uniform
+    across dtypes; deterministic; XOR is bijection — no collision added).
 
-    Hash values differ from pre-v0.8.1 (xxhash(repr) vs pandas SipHash).
-    Partitions are ephemeral per-call; no persisted spill compatibility
-    needed. Partition-disjoint invariant preserved (same value → same hash
-    within a call, nulls → same fixed hash).
+    Partition-disjoint invariant: same value → same hash within a call;
+    nulls → same fixed sentinel. Splitmix64 avalanche ensures uniform
+    low bits for partition assignment (v0.8.1-fix2: pandas string hash
+    had even low bits, wasting half the partitions).
     """
     if not key_columns:
         raise ValueError("key_columns must be non-empty")
@@ -202,7 +203,7 @@ def compute_hashes(
         if h_np is None:
             h_np = ch
         else:
-            # boost::hash_combine (64-битная версия) с wrap-around
+            # boost::hash_combine (64-bit) with wrap-around
             mixed = (
                 ch
                 + np.uint64(0x9E3779B97F4A7C15)
@@ -212,13 +213,7 @@ def compute_hashes(
             h_np = h_np ^ mixed
 
     assert h_np is not None
-    # v0.8.1-fix2: splitmix64 avalanche (ALWAYS, not only when seed).
-    # pd.util.hash_pandas_object for object/string dtype shifts << 1
-    # (reserves 0 for NA), so all string hashes are EVEN: h & 1 = 0.
-    # For P=4 (h & 3) only partitions {0, 2} would be used → 2-way split
-    # (not 4-way) → recursion never converges. Avalanche spreads low bits,
-    # removing structure. Seed applied via XOR BEFORE avalanche — diffuses
-    # cleanly through the finalizer.
+    # Splitmix64 avalanche — uniform low bits for partition assignment.
     if seed:
         h_np = h_np ^ np.uint64(seed)
     h_np = (h_np ^ (h_np >> np.uint64(30))) * np.uint64(0xbf58476d1ce4e5b9)

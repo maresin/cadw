@@ -23,11 +23,11 @@ import pytest
 CADW_OPS = Path(__file__).resolve().parent.parent / "cadw" / "ops"
 
 # Modules that may import pandas, with rationale.
-ALLOWED_PANDAS_MODULES = {
-    # §9.2.20: pd.util.hash_pandas_object is the fastest hash for
-    # int/float/timestamp (19-40× Python fallback). Bounded per-batch
-    # by caller's check_batch(extra_factor=3.0).
-    "shuffle.py": "pd.util.hash_pandas_object — §9.2.20 perf exception",
+ALLOWED_PANDAS_MODULES: dict[str, str] = {
+    # v0.9.6a: shuffle.py no longer imports pandas (own XXH64 hash).
+    # Every other module in cadw/ops/ was already pandas-free
+    # (v0.8.11a P-D1 Arrow-native dedup). Empty by design —
+    # any new entry requires explicit rationale + review.
 }
 
 

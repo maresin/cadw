@@ -60,12 +60,6 @@ WHITELISTED_FUNCS = {
         "first batch only; to_pandas on ≤sample rows",
     "cadw/ops/groupby.py:_estimate_k_sample":
         "first batch only; to_pandas on ≤sample rows",
-    "cadw/ops/shuffle.py:_pandas_hash_column":
-        "per-batch, caller has check_batch(extra_factor=3.0)",
-    "cadw/ops/shuffle.py:_python_hash_column":
-        "per-batch Python loop, caller check_batch'd",
-    "cadw/ops/shuffle.py:_hash_column":
-        "per-batch dispatch to one of the above",
     "cadw/ops/groupby.py:_merge_partials":
         "small group_by after full partition check",
     "cadw/ops/groupby.py:_accumulate_heavy":

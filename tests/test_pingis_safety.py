@@ -82,25 +82,6 @@ def test_uint64_hash_consistent_across_batches():
     assert h1[1] == h2[1], f"hash(2) mismatch uint64 across batches"
 
 
-def test_uint64_hash_uses_pandas_path(monkeypatch):
-    """uint64 uses pandas path (via bitcast), not Python fallback."""
-    from cadw.ops import shuffle as sh
-    called_pandas = []
-    orig = sh._pandas_hash_column
-
-    def spy(arr):
-        called_pandas.append(str(arr.type))
-        return orig(arr)
-
-    monkeypatch.setattr(sh, "_pandas_hash_column", spy)
-    arr = pa.array([1, 2, 3], type=pa.uint64())
-    _hash_column(arr)
-    assert "int64" in called_pandas, (
-        f"uint64 should bitcast to int64 and use pandas hash; "
-        f"got pandas calls for {called_pandas}"
-    )
-
-
 def test_uint64_high_bit_values():
     """Extreme uint64 values (>= 2^63) hash via bitcast correctly."""
     values = [1, 2**63, 2**63 + 1, 2**64 - 1]
