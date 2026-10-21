@@ -714,3 +714,97 @@ def test_run_verify_in_subprocess_has_cadw_fresh():
         g = MemoryGuard(max_memory_mb=10)
         assert g.budget_bytes == 10 * 1024 * 1024
     run_verify_in_subprocess(dogfood_import_cadw)
+
+# ============ v0.9.10 (T2.1): apply_or_fail / verify_anchors ============
+
+
+def test_apply_or_fail_basic(tmp_path):
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.py'
+    p.write_text('x = 1\n')
+    applied = apply_or_fail(str(p), 'x = 1', 'x = 2', label='t')
+    assert applied is True
+    assert p.read_text() == 'x = 2\n'
+
+
+def test_apply_or_fail_idempotent(tmp_path):
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.py'
+    p.write_text('x = 2\n')
+    applied = apply_or_fail(str(p), 'x = 1', 'x = 2', label='t')
+    assert applied is False
+    assert p.read_text() == 'x = 2\n'
+
+
+def test_apply_or_fail_raises_on_miss(tmp_path):
+    import pytest
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.py'
+    p.write_text('y = 1\n')
+    with pytest.raises(SystemExit):
+        apply_or_fail(str(p), 'x = 1', 'x = 2', label='t')
+
+
+def test_apply_or_fail_prints_context_on_miss(tmp_path, capsys):
+    import pytest
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.py'
+    p.write_text('unique_marker_line = 1\nother = 2\n')
+    with pytest.raises(SystemExit):
+        apply_or_fail(
+            str(p), 'unique_marker_line = 1\nwrong_next',
+            'never', label='t',
+        )
+    captured = capsys.readouterr()
+    assert 'unique_marker_line' in captured.out
+
+
+def test_verify_anchors_ok(tmp_path):
+    from cadw.patch_utils import verify_anchors
+    p = tmp_path / 'f.py'
+    p.write_text('x = 1\n')
+    misses = verify_anchors([(str(p), 'x = 1')])
+    assert misses == []
+
+
+def test_verify_anchors_miss_raises(tmp_path):
+    import pytest
+    from cadw.patch_utils import verify_anchors
+    p = tmp_path / 'f.py'
+    p.write_text('x = 1\n')
+    with pytest.raises(SystemExit):
+        verify_anchors([(str(p), 'y = 2')])
+
+
+def test_verify_anchors_miss_no_fail_fast(tmp_path):
+    from cadw.patch_utils import verify_anchors
+    p = tmp_path / 'f.py'
+    p.write_text('x = 1\n')
+    misses = verify_anchors([(str(p), 'y = 2')], fail_fast=False)
+    assert len(misses) == 1
+    assert misses[0][0] == str(p)
+
+def test_apply_or_fail_no_write_on_compile_fail(tmp_path):
+    """v0.9.10-fix3/fix5 (§13.4/211/214): no write on compile fail.
+
+    Prior (fix3): apply_or_fail wrote file, then assert_compiles →
+    corrupt file on bad anchor. Fix (fix3): compile in memory, only
+    write on success.
+
+    Test data (fix5): `old` and `new` MUST NOT be substrings of each
+    other (§13.4/214). Prior test used old='    x = 1\n',
+    new='x = 1\n' — new is substring of old (inside original
+    'def f():\n    x = 1\n'). apply_or_fail's idempotency check
+    `if new in s` returned False (assumed already applied) → no
+    SystemExit. Now: old='x = 1', new='def broken(' — no substring
+    relation; replacement is syntactically broken → compile fail →
+    SystemExit before write.
+    """
+    import pytest
+    from cadw.patch_utils import apply_or_fail
+    p = tmp_path / 'f.py'
+    original = 'x = 1\n'
+    p.write_text(original)
+    with pytest.raises(SystemExit):
+        apply_or_fail(str(p), 'x = 1', 'def broken(', label='t')
+    assert p.read_text() == original

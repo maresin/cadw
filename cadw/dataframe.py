@@ -2867,6 +2867,43 @@ class CadwDataFrame:
                 writer_box[0].write_batch(b)
             buf_rows = []
 
+        def _maybe_upgrade_for_row(row: dict) -> None:
+            """v0.9.10 (C1): widen int->float64 on fractional float.
+
+            _build_out_schema infers from first group only. If first is
+            int, later is float, pa.Table.from_pylist(rows, schema=int64)
+            either truncates (silent corruption) or raises ArrowInvalid.
+            Widen to float64 before flush. Lossless for |v| < 2^53.
+
+            Limitation: only before first flush (BATCH_ROWS=1000).
+            If mixed appears after first flush, writer committed to
+            int64 -> ArrowInvalid. Workaround: return float(x) from fn().
+            """
+            if not out_schema_box:
+                return
+            schema = out_schema_box[0]
+            upgraded = []
+            needs = False
+            for field in schema:
+                val = row.get(field.name)
+                if pa.types.is_integer(field.type) and isinstance(val, float):
+                    if val != int(val):
+                        upgraded.append(pa.field(
+                            field.name, pa.float64(),
+                            nullable=field.nullable,
+                        ))
+                        needs = True
+                        continue
+                upgraded.append(field)
+            if needs:
+                out_schema_box[0] = pa.schema(upgraded)
+
+        def _emit_row(row: dict) -> None:
+            """Append a row, widening schema if C1 numeric conflict."""
+            nonlocal buf_rows
+            _maybe_upgrade_for_row(row)
+            buf_rows.append(row)
+
         def _emit_group(key: tuple, result):
             nonlocal buf_rows
 
@@ -2888,19 +2925,19 @@ class CadwDataFrame:
             if mode == "scalar":
                 row = {gc: v for gc, v in zip(group_cols, key)}
                 row[result_col] = _normalize_scalar(result)
-                buf_rows.append(row)
+                _emit_row(row)
             elif mode == "dict":
                 row = {gc: v for gc, v in zip(group_cols, key)}
                 for k, v in result.items():
                     row[str(k)] = _normalize_scalar(v)
-                buf_rows.append(row)
+                _emit_row(row)
             else:  # CadwDataFrame
                 for b in result._iter_filtered_batches():
                     for rec in b.to_pylist():
                         row = dict(rec)
                         for gc, v in zip(group_cols, key):
                             row.setdefault(gc, v)
-                        buf_rows.append(row)
+                        _emit_row(row)
             if len(buf_rows) >= BATCH_ROWS:
                 _flush_buf()
 
@@ -5226,7 +5263,16 @@ def concat(
 def _concat_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
     if len(batches) == 1:
         return batches[0]
-    return pa.Table.from_batches(batches).combine_chunks().to_batches()[0]
+    # v0.9.10 (U2): per-column concat_arrays (1x alloc per col)
+    # vs from_batches + combine_chunks + to_batches (3x alloc).
+    # Bounded by batch_size (10k rows in _iter_arrow_batches).
+    arrays = [
+        pa.concat_arrays([b.column(i) for b in batches])
+        for i in range(batches[0].num_columns)
+    ]
+    return pa.RecordBatch.from_arrays(
+        arrays, names=batches[0].schema.names,
+    )
 
 
 def _convert_batch(batch: pa.RecordBatch, format: str):

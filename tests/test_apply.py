@@ -317,3 +317,47 @@ def test_apply_cadwdf_group_col_embedded(tmp_path):
     assert t.schema.names.count("g") == 1
     assert "val" in t.schema.names
     assert t.num_rows == 3
+
+
+# ============ v0.9.10 (C1): _per_group_apply mixed int/float widen ============
+
+
+def test_apply_mixed_int_float_widens_schema(tmp_path):
+    """C1: first group int, later float — schema widens to float64.
+
+    Prior: pa.Table.from_pylist(rows, schema=int64) truncated
+    float(2.5) to int(2), silent corruption. Or raises ArrowInvalid.
+    """
+    import pyarrow.parquet as pq
+    df = make_df(tmp_path, {
+        'g': ['a', 'a', 'b', 'b'],
+        'v': [1, 2, 3, 4],
+    })
+    def fn(g):
+        if g['g'].to_list()[0] == 'a':
+            return 5  # int (first group)
+        return 2.5  # float (later)
+    result = df.groupby('g').apply(fn)
+    out = tmp_path / 'out.parquet'
+    result.write_parquet(out)
+    rows = {r['g']: r['apply_result'] for r in
+            pq.read_table(out).to_pylist()}
+    assert rows['a'] == 5.0
+    assert rows['b'] == 2.5
+
+
+def test_apply_all_int_stays_int(tmp_path):
+    """C1 regression: all-int → schema stays int64 (no widen)."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    df = make_df(tmp_path, {
+        'g': ['a', 'a', 'b', 'b'],
+        'v': [1, 2, 3, 4],
+    })
+    def fn(g):
+        return 5
+    result = df.groupby('g').apply(fn)
+    out = tmp_path / 'out.parquet'
+    result.write_parquet(out)
+    schema = pq.read_schema(out)
+    assert schema.field('apply_result').type == pa.int64()

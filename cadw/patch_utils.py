@@ -349,6 +349,68 @@ def grep_and_warn(
 #     → is_patched(fn, *markers) [inspect.getsource(fn)]
 
 
+# ============ v0.9.10 (T2.1): apply_or_fail + verify_anchors ============
+#
+# Promoted from v0.9.9-fix1a/1b ad-hoc helpers. In v0.9.9-fix1a/b/c/d
+# 4 consecutive anchor misses (F9 docstring, F2 anchor, F1 anchor,
+# test order). All §13.4/160 (silent no-op) and §13.4/161
+# (substring without context). Scaffold v3: fail-fast with context,
+# idempotent, no AST fallback that prints diagnostics without warning.
+
+
+def apply_or_fail(path, old, new, *, label, context=10):
+    """Replace old->new in path; return True if applied, False if already.
+
+    Fail-fast (SystemExit) if `old` anchor missing — no silent no-op.
+    Prints `context` lines around partial-match zone on miss (§13.4/160).
+    Idempotent: returns False if `new` already present (no write).
+    """
+    from pathlib import Path as _P
+    p = _P(path)
+    s = p.read_text()
+    if new in s:
+        return False
+    if old not in s:
+        print(f"  {label}: ANCHOR MISS in {path}")
+        first_line = old.split(chr(10))[0].strip()
+        lines = s.split(chr(10))
+        for i, line in enumerate(lines):
+            if first_line and first_line in line:
+                start = max(0, i - 1)
+                for j in range(start, min(len(lines), i + context)):
+                    print(f"    L{j + 1:4d}: {lines[j]}")
+                break
+        raise SystemExit(f"{label}: anchor missing in {path}")
+    new_s = s.replace(old, new, 1)
+    try:
+        compile(new_s, str(p), 'exec')
+    except SyntaxError as e:
+        print(f"  {label}: COMPILE FAIL for {path}: {e}")
+        raise SystemExit(1) from e
+    p.write_text(new_s)
+    return True
+
+
+def verify_anchors(checks, *, fail_fast=True):
+    """Verify [(path, anchor), ...] all present. Prints all misses.
+
+    Returns list of (path, anchor) misses. SystemExit(1) if any and
+    fail_fast. No write. Use after patches to confirm state before
+    dogfood/pytest (§13.4/206: anchor must be exact fragment of new).
+    """
+    import sys as _sys
+    from pathlib import Path as _P
+    misses = []
+    for path, anchor in checks:
+        if anchor not in _P(path).read_text():
+            misses.append((path, anchor))
+    if misses:
+        for path, anchor in misses:
+            print(f"  MISSING {path}: {anchor!r}")
+        if fail_fast:
+            _sys.exit(1)
+    return misses
+
 def _collect_call_linenos(tree):
     """Return {attr_or_name: [lineno, ...]} for all Call nodes.
 

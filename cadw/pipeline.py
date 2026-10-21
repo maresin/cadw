@@ -86,6 +86,16 @@ def _merge_fanout(dfs: list) -> "CadwDataFrame":
 
     v0.9.1b MVP: row-selection fan-in (where branches drop different rows)
     is NOT supported — raises RuntimeError with count mismatch. See §11.5.
+
+    v0.9.10 (§11.5): F5 duplicate-new-column guard fires only
+    for columns new relative to dfs[0] (base). If dfs[0]
+    produces a column with the same name as a sibling's NEW
+    column, dfs[0] silently wins (base_cols_set absorbs it).
+    Cannot distinguish "was in raw df" from "added by dfs[0]"
+    without explicit raw_columns. Fix (backlog v0.9.11):
+    optional raw_columns kwarg passed by Pipeline.transform.
+    Users hitting this: rename conflicting features, or wrap
+    in ColumnTransformer.
     """
     from cadw import CadwDataFrame
     from cadw.dataset import Dataset
