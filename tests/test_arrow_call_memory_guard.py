@@ -116,9 +116,9 @@ WHITELISTED_FUNCS = {
         "cleanup; NOT pa.Table.join; sampler bounded 10ms interval, "
         "2s timeout, daemon thread",
     # --- dataframe.py: bounded accumulators / per-batch conversions ---
-    "cadw/dataframe.py:_concat_batches":
+    "cadw/dataframe_helpers.py:_concat_batches":
         "bounded accum list (one group/window), not N",
-    "cadw/dataframe.py:_convert_batch":
+    "cadw/dataframe_helpers.py:_convert_batch":
         "per-batch, caller check_batch'd",
     "cadw/dataframe.py:CadwDataFrame.head":
         "≤ n rows accumulated before Table.from_batches",

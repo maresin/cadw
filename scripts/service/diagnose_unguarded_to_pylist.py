@@ -109,7 +109,7 @@ WHITELIST = {
     "cadw/viz/seaborn_adapter.py:line_plot":
         "K-row aggregate table; not O(N)",
     # Small bounded buffers.
-    "cadw/dataframe.py:_ArrowTail.push":
+    "cadw/dataframe_helpers.py:_ArrowTail.push":
         "K <= deque maxlen (per-column shift buffer, small)",
     # check_state-guarded (stricter than check_batch: 0.5xavail vs 1xavail).
     "cadw/dataframe.py:_ColumnProxy.to_list":
