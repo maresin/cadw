@@ -91,6 +91,179 @@ class _StrAccessor:
         else:
             fn = lambda arr: pc.replace_substring(arr, pat, repl)
         return self._feature("replaced", fn, pa.string())
+
+    def slice(
+        self, start: int, stop: "int | None" = None,
+    ) -> "CadwDataFrame":
+        """Slice string characters (v0.9.25k).
+
+        Args:
+            start: start index (0-based; negative → from end).
+            stop: stop index (exclusive; None → end of string).
+                Negative → from end (pandas str.slice parity).
+
+        Returns: augmented CadwDataFrame with `{col}_slice` string
+        column (nullable=True). Null input → null output. OOB
+        (start >= len) → empty string (matches pc.utf8_slice_codeunits).
+
+        Peak RAM = batch + O(batch). Independent of N.
+        """
+        import pyarrow.compute as _pc
+        if not isinstance(start, int) or isinstance(start, bool):
+            raise TypeError(
+                f"str.slice: start must be int; got "
+                f"{type(start).__name__}"
+            )
+        if stop is not None and (
+            not isinstance(stop, int) or isinstance(stop, bool)
+        ):
+            raise TypeError(
+                f"str.slice: stop must be int or None; got "
+                f"{type(stop).__name__}"
+            )
+
+        def _fn(arr):
+            # Cast to standard string for consistent output type
+            # (large_string cast down; binary rejected at _validate_string
+            # for len/lower; utf8 kernels may accept binary but we're
+            # conservative — cast to string).
+            arr_str = _pc.cast(arr, pa.string())
+            sliced = _pc.utf8_slice_codeunits(arr_str, start, stop)
+            return _pc.cast(sliced, pa.string())
+
+        return self._parent._apply_column_transform(
+            self._column, "slice", _fn, pa.string(), accessor="str",
+        )
+
+    def cat(self, other: str, *, sep: str = "") -> "CadwDataFrame":
+        """Concatenate with another string column (v0.9.25k).
+
+        Args:
+            other: another column name in the same DataFrame.
+            sep: separator string between values (default '').
+
+        Returns: augmented CadwDataFrame with `{col}_cat_{other}` string
+        column (nullable=True). Null in either side → null
+        (pc.binary_join_element_wise null propagation; pandas
+        `Series.str.cat` parity).
+
+        Both source columns must be string or large_string. Output is
+        standard `pa.string()` (large_string cast down).
+
+        Note: scalar concatenation (`str.cat('-suffix')`) NOT supported
+        — use `.replace('', '-suffix')` or custom transform. §11.5.
+
+        Peak RAM = batch × 2 (source + destination). Independent of N.
+        """
+        import pyarrow.compute as _pc
+        from cadw.dataset import Dataset
+
+        if not isinstance(other, str):
+            raise TypeError(
+                f"str.cat: other must be str; got "
+                f"{type(other).__name__}"
+            )
+        if not isinstance(sep, str):
+            raise TypeError(
+                f"str.cat: sep must be str; got {type(sep).__name__}"
+            )
+        if other not in self._parent._columns:
+            raise KeyError(
+                f"str.cat: other column {other!r} not in "
+                f"{self._parent._columns}"
+            )
+        if other == self._column:
+            raise ValueError(
+                "str.cat: cannot concatenate column with itself"
+            )
+
+        for c in (self._column, other):
+            t = self._parent._dataset.schema.field(c).type
+            if not (
+                pa.types.is_string(t) or pa.types.is_large_string(t)
+            ):
+                raise TypeError(
+                    f"str.cat: column {c!r} has type {t}; "
+                    f"string/large_string required"
+                )
+
+        out_col = f"{self._column}_cat_{other}"
+        if out_col in self._parent._columns:
+            raise KeyError(
+                f"str.cat: output column {out_col!r} already exists"
+            )
+
+        out_fields = [
+            self._parent._dataset.schema.field(c)
+            for c in self._parent._columns
+        ]
+        # §13.4/272: nullable=True (Dataset.from_batches singleton
+        # rebuild is nullable=True; mismatch → ArrowInvalid at runtime).
+        out_fields.append(pa.field(out_col, pa.string(), nullable=True))
+        out_schema = pa.schema(out_fields)
+
+        def _iter():
+            for b in self._parent._iter_arrow_batches():
+                self._parent._memory_guard.check_batch(
+                    b, name="str.cat.input", extra_factor=3.0,
+                )
+                a_arr = _pc.cast(b.column(self._column), pa.string())
+                o_arr = _pc.cast(b.column(other), pa.string())
+                joined = _pc.binary_join_element_wise(
+                    a_arr, o_arr, sep,
+                )
+                arrays = [
+                    b.column(c) for c in self._parent._columns
+                ]
+                arrays.append(joined)
+                yield pa.RecordBatch.from_arrays(
+                    arrays, schema=out_schema,
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter(), self._parent._new_dataset_dir(),
+        )
+        from cadw.dataframe import CadwDataFrame as _CDF
+        return _CDF(
+            new_ds,
+            memory_guard=self._parent._memory_guard,
+            spill_dir=self._parent._spill_dir,
+        )
+
+    def count(self, pat: str) -> "CadwDataFrame":
+        """Count non-overlapping occurrences of `pat` (v0.9.25k).
+
+        Args:
+            pat: non-empty literal pattern string (not regex).
+
+        Returns: augmented CadwDataFrame with `{col}_count` int64
+        column (nullable=True). Null input → null output.
+
+        For regex counting: use pc.count_substring_regex via custom
+        transform or backlog v0.9.26 `str.count_regex`. §11.5.
+
+        Peak RAM = batch + O(batch). Independent of N.
+        """
+        import pyarrow.compute as _pc
+        if not isinstance(pat, str):
+            raise TypeError(
+                f"str.count: pat must be str; got "
+                f"{type(pat).__name__}"
+            )
+        if not pat:
+            raise ValueError("str.count: pat must be non-empty")
+
+        def _fn(arr):
+            # Cast to string for consistent output; count_substring may
+            # return int32 (PyArrow 26) → cast to int64 (pandas parity).
+            arr_str = _pc.cast(arr, pa.string())
+            cnt = _pc.count_substring(arr_str, pat)
+            return _pc.cast(cnt, pa.int64())
+
+        return self._parent._apply_column_transform(
+            self._column, "count", _fn, pa.int64(), accessor="str",
+        )
+
     def contains(self, pat: str) -> "MaskFilter":
         """Substring match → MaskFilter (for `df[mask]`).
 
