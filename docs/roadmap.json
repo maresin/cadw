@@ -1,0 +1,735 @@
+{
+  "schema_version": "1",
+  "current_version": "0.9.25b",
+  "updated": "2026-10-22",
+  "principles": [
+    "Universality via recipes, not model zoo.",
+    "Every algorithm O(1)/O(d²) or sample+stream wrapper.",
+    "New model only if unreachable by composition.",
+    "Light NNs (<=5M) only for ensemble diversification.",
+    "Infrastructure refactor <= features."
+  ],
+  "phases": [
+    {
+      "id": "A",
+      "name": "Stabilization",
+      "version_range": "v0.9.25",
+      "status": "in_progress",
+      "description": "Fix critical bugs found by audits; no new functionality.",
+      "patches": [
+        "v0.9.25a",
+        "v0.9.25b",
+        "v0.9.25c",
+        "v0.9.25d",
+        "v0.9.25e"
+      ],
+      "items": [
+        {
+          "id": "A.1",
+          "name": "SARIMA integration order D->d",
+          "patch": "v0.9.25a",
+          "status": "done",
+          "complexity": "S",
+          "file": "cadw/ts/models.py"
+        },
+        {
+          "id": "A.2",
+          "name": "SARIMA Hannan-Rissanen intercept",
+          "patch": "v0.9.25a",
+          "status": "done",
+          "complexity": "S",
+          "file": "cadw/ts/models.py"
+        },
+        {
+          "id": "A.3",
+          "name": "SARIMA predict_in_sample contract",
+          "patch": "v0.9.25a",
+          "status": "done",
+          "complexity": "S",
+          "file": "cadw/ts/models.py"
+        },
+        {
+          "id": "A.3b",
+          "name": "_fit_one sigma2==0 accept",
+          "patch": "v0.9.25a-fix1",
+          "status": "done",
+          "complexity": "S",
+          "file": "cadw/ts/models.py"
+        },
+        {
+          "id": "A.8",
+          "name": "Missing TS tests (D>0, in_sample, ...)",
+          "patch": "v0.9.25a",
+          "status": "done",
+          "complexity": "S",
+          "file": "tests/test_ts_models.py"
+        },
+        {
+          "id": "A.4",
+          "name": "B1 refill linear concat",
+          "patch": "v0.9.25c",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/ops/sort.py"
+        },
+        {
+          "id": "A.5",
+          "name": "B2 encode_categorical K_est guard",
+          "patch": "v0.9.25c",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/dataframe.py"
+        },
+        {
+          "id": "A.7",
+          "name": "external_sort fan-in floor=8",
+          "patch": "v0.9.25c",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/ops/sort.py"
+        },
+        {
+          "id": "A.6",
+          "name": "18 to_pylist sites extra_factor",
+          "patch": "v0.9.25d",
+          "status": "planned",
+          "complexity": "M",
+          "file": "cadw/{dataframe,ops,ts}/*.py"
+        },
+        {
+          "id": "A.9",
+          "name": "B5 dead code _append_to_builders",
+          "patch": "v0.9.25e",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/ops/sort.py"
+        },
+        {
+          "id": "A.10",
+          "name": "B4 memory_guard fallback factor",
+          "patch": "v0.9.25e",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/core/memory_guard.py"
+        }
+      ]
+    },
+    {
+      "id": "B",
+      "name": "Infrastructure",
+      "version_range": "v0.9.26-v0.9.27",
+      "status": "planned",
+      "description": "Remove context-transfer pain and test-latency pain. No functional changes.",
+      "items": [
+        {
+          "id": "B.1",
+          "name": "dataframe.py split into 9 modules",
+          "patch": "v0.9.26",
+          "status": "planned",
+          "complexity": "L",
+          "file": "cadw/dataframe.py"
+        },
+        {
+          "id": "B.2",
+          "name": "DECISIONS.md split into docs/ tree",
+          "patch": "v0.9.27",
+          "status": "planned",
+          "complexity": "L",
+          "file": "DECISIONS.md"
+        },
+        {
+          "id": "B.3",
+          "name": "Pytest markers per module + xdist",
+          "patch": "v0.9.27",
+          "status": "planned",
+          "complexity": "M",
+          "file": "tests/, pyproject.toml"
+        },
+        {
+          "id": "B.4",
+          "name": "collect_project.py phase-aware",
+          "patch": "v0.9.25c",
+          "status": "planned",
+          "complexity": "M",
+          "file": "scripts/service/collect_project.py"
+        },
+        {
+          "id": "B.5",
+          "name": "scripts/ folder reorganization",
+          "patch": "v0.9.27",
+          "status": "planned",
+          "complexity": "S",
+          "file": "scripts/"
+        },
+        {
+          "id": "B.6",
+          "name": "Cleanup (backups, old patches, snapshots)",
+          "patch": "v0.9.25e",
+          "status": "planned",
+          "complexity": "S",
+          "file": ".gitignore, scripts/archive/"
+        },
+        {
+          "id": "B.7",
+          "name": "Recipes scaffold (docs/recipes/)",
+          "patch": "v0.9.25b",
+          "status": "done",
+          "complexity": "S",
+          "file": "docs/index.md"
+        },
+        {
+          "id": "B.8",
+          "name": "docs/roadmap.json manifest",
+          "patch": "v0.9.25b",
+          "status": "done",
+          "complexity": "S",
+          "file": "docs/roadmap.json"
+        }
+      ]
+    },
+    {
+      "id": "C",
+      "name": "Pandas P0 + ML essentials",
+      "version_range": "v0.9.28-v0.9.30",
+      "status": "planned",
+      "description": "Close last 2 P0 pandas + 2 ML essentials.",
+      "items": [
+        {
+          "id": "C.1",
+          "name": "df.assign(name, expr) streaming",
+          "patch": "v0.9.28",
+          "status": "planned",
+          "complexity": "M",
+          "file": "cadw/dataframe.py"
+        },
+        {
+          "id": "C.2",
+          "name": "encode_frequency(col)",
+          "patch": "v0.9.29",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/dataframe.py"
+        },
+        {
+          "id": "C.3",
+          "name": "encode_onehot(cols, prefix)",
+          "patch": "v0.9.29",
+          "status": "planned",
+          "complexity": "M",
+          "file": "cadw/dataframe.py"
+        },
+        {
+          "id": "C.4",
+          "name": "encode_target(col, y, n_splits) OOF",
+          "patch": "v0.9.30",
+          "status": "planned",
+          "complexity": "M",
+          "file": "cadw/dataframe.py"
+        },
+        {
+          "id": "C.5",
+          "name": "sample_weight in GBDT/Logistic/Linear",
+          "patch": "v0.9.30",
+          "status": "planned",
+          "complexity": "M",
+          "file": "cadw/ml/*.py"
+        },
+        {
+          "id": "C.6",
+          "name": "pinball loss in GBDT",
+          "patch": "v0.9.30",
+          "status": "planned",
+          "complexity": "M",
+          "file": "cadw/ml/gbdt.py"
+        },
+        {
+          "id": "C.7",
+          "name": "metrics(y_proba_cols=[...]) wrapper",
+          "patch": "v0.9.28",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/dataframe.py"
+        }
+      ]
+    },
+    {
+      "id": "D",
+      "name": "Algorithm coverage P1",
+      "version_range": "v0.9.31-v0.9.36",
+      "status": "planned",
+      "description": "Cover task types currently NEEDS. On primitives, state O(1..model).",
+      "items": [
+        {
+          "id": "D.1.1",
+          "name": "IForest on batches",
+          "patch": "v0.9.31",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.1.2",
+          "name": "Matrix Profile streaming",
+          "patch": "v0.9.31",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.1.3",
+          "name": "cost-sensitive GBDT + threshold tuning",
+          "patch": "v0.9.31",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.1.4",
+          "name": "fairness metrics DP/EO/TPR-gap",
+          "patch": "v0.9.31",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.2.1",
+          "name": "LambdaMART lambdarank objective",
+          "patch": "v0.9.32",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.2.2",
+          "name": "ALS (implicit) iterative Reduce",
+          "patch": "v0.9.32",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.2.3",
+          "name": "hybrid MF + content",
+          "patch": "v0.9.32",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.3.1",
+          "name": "CoxPH partial likelihood",
+          "patch": "v0.9.33",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.3.2",
+          "name": "T/S-learner + propensity",
+          "patch": "v0.9.33",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.3.3",
+          "name": "uplift trees (Qini)",
+          "patch": "v0.9.33",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.4.1",
+          "name": "MiniRocket streaming",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.4.2",
+          "name": "PELT online change-point",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.4.3",
+          "name": "ETS (Holt-Winters)",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.4.4",
+          "name": "Theta-method",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.4.5",
+          "name": "VAR(p)",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.4.6",
+          "name": "calibration Platt/isotonic",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.5.1",
+          "name": "ordinal logistic cumulative link",
+          "patch": "v0.9.35",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.5.2",
+          "name": "classifier chains",
+          "patch": "v0.9.35",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.5.3",
+          "name": "MiniBatchKMeans / GMM",
+          "patch": "v0.9.35",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.5.4",
+          "name": "BIRCH CF-tree streaming",
+          "patch": "v0.9.35",
+          "status": "planned",
+          "complexity": "L"
+        },
+        {
+          "id": "D.6.1",
+          "name": "mutual_info / var threshold / Boruta",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.6.2",
+          "name": "drift KS/PSI/Chi2, A/B t/MW/CUPED",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.6.3",
+          "name": "permutation importance",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.6.4",
+          "name": "randomized SVD",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "D.6.5",
+          "name": "geo-aggregations h3/hexbin",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.6.6",
+          "name": "LDA",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "L"
+        },
+        {
+          "id": "D.6.7",
+          "name": "LinUCB contextual bandit",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.6.8",
+          "name": "GMM density",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "D.6.9",
+          "name": "TF-IDF / text hashing on disk",
+          "patch": "v0.9.36",
+          "status": "planned",
+          "complexity": "M"
+        }
+      ]
+    },
+    {
+      "id": "E",
+      "name": "Recipes (docs)",
+      "version_range": "parallel with D",
+      "status": "planned",
+      "description": "Task-type recipes. Fills docs/recipes/.",
+      "items": [
+        {
+          "id": "E.1",
+          "name": "classification recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.2",
+          "name": "regression recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.3",
+          "name": "clustering recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.4",
+          "name": "anomaly recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.5",
+          "name": "timeseries recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "E.6",
+          "name": "ranking recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.7",
+          "name": "survival recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.8",
+          "name": "causal recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.9",
+          "name": "recsys recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.10",
+          "name": "text recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "E.11",
+          "name": "tabular-fe recipe",
+          "patch": "parallel",
+          "status": "planned",
+          "complexity": "M"
+        }
+      ]
+    },
+    {
+      "id": "F",
+      "name": "Light NNs",
+      "version_range": "v0.9.37",
+      "status": "planned",
+      "description": "Only where GBDT loses systematically. Batches via to_batches('torch').",
+      "items": [
+        {
+          "id": "F.1",
+          "name": "MLP tabular",
+          "patch": "v0.9.37",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "F.2",
+          "name": "N-BEATS blocks for TS",
+          "patch": "v0.9.37",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "F.3",
+          "name": "AE-reconstruction for anomaly",
+          "patch": "v0.9.37",
+          "status": "planned",
+          "complexity": "M"
+        }
+      ]
+    },
+    {
+      "id": "G",
+      "name": "Tech debt close",
+      "version_range": "v0.9.38",
+      "status": "planned",
+      "description": "Close §11.5/§11.6/AUDIT §3.5 items.",
+      "items": [
+        {
+          "id": "G.1",
+          "name": "kmeans++ reservoir",
+          "patch": "v0.9.38",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "G.2",
+          "name": "RobustScaler.fit single sort",
+          "patch": "v0.9.38",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "G.3",
+          "name": "silent hash fallback warning",
+          "patch": "v0.9.38",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "G.4",
+          "name": "Arrow-native rank null path",
+          "patch": "v0.9.38",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "G.5",
+          "name": "groupby.agg dict + rolling trailing",
+          "patch": "v0.9.38",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "G.6",
+          "name": ".cache('name') + _viz_cache",
+          "patch": "v0.9.38",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "G.7",
+          "name": "ML checkpoint",
+          "patch": "v0.9.38",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "G.8",
+          "name": "SumOp int64 overflow decimal128",
+          "patch": "v0.9.38",
+          "status": "planned",
+          "complexity": "M"
+        }
+      ]
+    },
+    {
+      "id": "H",
+      "name": "P2 / long-tail",
+      "version_range": "v0.9.39+",
+      "status": "planned",
+      "description": "Extended features, sample+stream wrappers for O(N^2) classes. Ongoing.",
+      "items": [
+        {
+          "id": "H.1",
+          "name": "lazy expression API",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "L"
+        },
+        {
+          "id": "H.2",
+          "name": "auto-memoize",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "H.3",
+          "name": "ACF/PACF/STL",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "L"
+        },
+        {
+          "id": "H.4",
+          "name": "to_csv / to_json streaming",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "H.5",
+          "name": "model pickle",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "M"
+        },
+        {
+          "id": "H.6",
+          "name": "T1 linkage recipe",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "H.7",
+          "name": "T2 t-SNE/UMAP recipe",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "H.8",
+          "name": "T3 HDBSCAN recipe",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "H.9",
+          "name": "T4 One-Class SVM recipe",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "S"
+        },
+        {
+          "id": "H.10",
+          "name": "T11 causal forest",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "L"
+        },
+        {
+          "id": "H.11",
+          "name": "T12 RSF",
+          "patch": "v0.9.39+",
+          "status": "planned",
+          "complexity": "L"
+        }
+      ]
+    }
+  ]
+}
