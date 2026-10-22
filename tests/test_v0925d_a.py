@@ -88,20 +88,19 @@ def test_all_sites_have_whitelist_reason():
 
 
 def test_categories_present_sanity():
-    """At least guarded / whitelisted / unguarded non-empty.
+    """At least guarded / whitelisted non-empty.
 
-    v0.9.25d-b1 closes low_factor (Tier B: all check_batch factors
-    >= 3.0). Remaining non-empty categories: guarded (already
-    sufficient), whitelisted (Tier A + helper-based), unguarded
-    (Tier C — v0.9.25d-b2 target).
+    v0.9.25d-b1 closed low_factor (Tier B).
+    v0.9.25d-b2 closed unguarded (Tier C: 4 inserted + 19 whitelisted).
+    Remaining non-empty categories: guarded (27 + 4 inserted = 31)
+    and whitelisted (33 + 19 = 52).
 
-    low_factor excluded from required list because b1's goal was
-    to make it empty. For explicit assertion low_factor==0, see
-    test_low_factor_zero_after_bumps.
+    For explicit assertion unguarded==0 and low_factor==0, see
+    test_no_unguarded_or_low_factor_to_pylist.
     """
     mod = _load_diagnostic()
     results = mod.scan()
-    for cat in ("guarded", "whitelisted", "unguarded"):
+    for cat in ("guarded", "whitelisted"):
         assert results.get(cat), (
             f"category {cat!r} unexpectedly empty — likely a classifier "
             f"bug or all sites fixed (check version)"
@@ -123,3 +122,30 @@ def test_low_factor_zero_after_bumps():
         f"want factor < 3.0 at one site, add it to WHITELIST with "
         f"rationale. Sites: {sites_str}"
     )
+
+
+def test_no_unguarded_or_low_factor_to_pylist():
+    """v0.9.25d-b2: Tier C closed — unguarded=0, low_factor=0.
+
+    Combined with whitelist (v0.9.25d-a + b2), all to_pylist sites in
+    cadw/ are guarded (check_batch extra_factor>=3.0) or whitelisted.
+    No unguarded or low-factor sites remain.
+    """
+    mod = _load_diagnostic()
+    results = mod.scan()
+    ung = results.get("unguarded", [])
+    lf = results.get("low_factor", [])
+    if ung or lf:
+        details = []
+        for s in ung:
+            details.append(
+                f"UNGUARDED {s['file']}:{s['line']} {s['qualname']}"
+            )
+        for s in lf:
+            details.append(
+                f"LOW_FACTOR {s['file']}:{s['line']} {s['qualname']}"
+            )
+        raise AssertionError(
+            f"unguarded={len(ung)}, low_factor={len(lf)}, "
+            f"expected both 0. Sites:\n" + "\n".join(details)
+        )

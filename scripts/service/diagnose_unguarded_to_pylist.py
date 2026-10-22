@@ -119,6 +119,26 @@ WHITELIST = {
         "check_state(n*elem_size) — 0.5*avail limit",
     "cadw/dataframe.py:_ColumnProxy.to_arrow":
         "check_state(n*elem_size) — 0.5*avail limit",
+    "cadw/dataframe.py:CadwDataFrame.encode_categorical":
+        "pc.value_counts per batch; K per batch (unique values), not N; per-batch check_state(|uniques| * 180)",
+    "cadw/dataframe.py:CadwDataFrame._per_group_apply._emit_group":
+        "per-group fn output; group bounded by _flush_group (0.3*avail); fn's own alloc = user responsibility (§3.9)",
+    "cadw/ops/metrics.py:MetricsOp.update":
+        "guarded via reduce().check_batch(extra_factor=batch_memory_factor()); MetricsOp overrides to 8.0 for classification (K+1 pylist cols)",
+    "cadw/ts/backtest.py:backtest_forecaster":
+        "guarded via _check(guard, batch, name, factor) helper (cadw/ts/features.py) or equivalent per-batch pattern",
+    "cadw/ts/features.py:_shift_stream.gen":
+        "guarded via _check(guard, batch, name, factor) helper (cadw/ts/features.py) or equivalent per-batch pattern",
+    "cadw/ts/features.py:diff_features.gen":
+        "guarded via _check(guard, batch, name, factor) helper (cadw/ts/features.py) or equivalent per-batch pattern",
+    "cadw/ts/models.py:_extract_series":
+        "guarded via _check(guard, batch, name, factor) helper (cadw/ts/features.py) or equivalent per-batch pattern",
+    "cadw/ts/stats.py:rolling_stats.gen":
+        "guarded via _check(guard, batch, name, factor) helper (cadw/ts/features.py) or equivalent per-batch pattern",
+    "cadw/ts/stats.py:rolling_crosscorr.gen":
+        "guarded via _check(guard, batch, name, factor) helper (cadw/ts/features.py) or equivalent per-batch pattern",
+    "cadw/ts/thf.py:TemporalHierarchy.fit":
+        "per-batch group discovery (batch_size=10_000 fixed); result K bounded by unique groups, not N",
 }
 
 

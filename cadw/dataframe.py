@@ -2171,6 +2171,7 @@ class CadwDataFrame:
                 c: deque(maxlen=k) for c in diff_cols
             }
             for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(b, name="diff.input", extra_factor=3.5)
                 n = b.num_rows
                 arrays = []
                 for c in self._columns:
@@ -2599,6 +2600,7 @@ class CadwDataFrame:
         def _iter_rolling():
             states = {c: _RollState(window, mp, agg) for c in cols}
             for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(b, name="rolling.input", extra_factor=3.5)
                 n = b.num_rows
                 out_arrays = []
                 for c in self._columns:
@@ -4454,6 +4456,7 @@ class CadwDataFrame:
         def _iter_expanding():
             states = {c: _ExpandingState(agg, min_periods) for c in cols}
             for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(b, name="expanding.input", extra_factor=3.5)
                 out_arrays = [b.column(c) for c in self._columns]
                 for c in cols:
                     state = states[c]
@@ -4575,6 +4578,7 @@ class CadwDataFrame:
         def _iter_ewm():
             states = {c: _EwmState(a, adjust, min_periods) for c in cols}
             for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(b, name="ewm.input", extra_factor=3.5)
                 out_arrays = [b.column(c) for c in self._columns]
                 for c in cols:
                     state = states[c]
