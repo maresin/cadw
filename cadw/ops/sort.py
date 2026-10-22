@@ -370,27 +370,39 @@ class _RunStream:
         return b, 0
 
     def refill(self, memory_guard) -> None:
-        """Read up to rbs rows into buffer. Marks exhausted on EOF."""
-        while len(self.buffer) < self.rbs:
+        """Read up to rbs rows into buffer. Marks exhausted on EOF.
+
+        v0.9.25c (part1_report B1): linear concat. Prior code did
+        `self.buffer = pa.concat_tables([self.buffer, chunk])` inside
+        the while loop — quadratic, each iteration copies the entire
+        accumulated buffer. Measured: 12.9 GB copied @ rbs=200k,
+        0.078s vs 0.0003s for list-collect + single concat. Now:
+        accumulate parts, one concat_tables(parts) at end.
+        """
+        parts: list = [self.buffer] if len(self.buffer) else []
+        have = len(self.buffer)
+        while have < self.rbs:
             r = self._next_batch(memory_guard)
             if r is None:
                 self.exhausted = True
-                return
+                break
             b, pos = r
-            need = self.rbs - len(self.buffer)
+            need = self.rbs - have
             avail = b.num_rows - pos
             take = min(need, avail)
             if take <= 0:
                 continue
-            chunk = pa.Table.from_batches([b.slice(pos, take)])
-            if len(self.buffer) == 0:
-                self.buffer = chunk
-            else:
-                self.buffer = pa.concat_tables([self.buffer, chunk])
+            parts.append(pa.Table.from_batches([b.slice(pos, take)]))
+            have += take
             self.cur_pos += take
             if self.cur_pos >= b.num_rows:
                 self.cur_batch = None
                 self.cur_pos = 0
+        if len(parts) == 1:
+            self.buffer = parts[0]
+        elif len(parts) > 1:
+            self.buffer = pa.concat_tables(parts)
+        # (parts empty + buffer empty = no-op; unchanged)
 
     def take(self, n: int) -> "pa.Table":
         """Remove and return first n rows from buffer."""
@@ -536,14 +548,32 @@ def _merge_keys(
 
 
 
-def compute_fan_in(available_bytes: int, read_batch_size: int, row_bytes: int) -> int:
-    """k (fan-in) для k-way merge: сколько run'ов держать открытыми одновременно.
+def compute_fan_in(
+    available_bytes: int,
+    read_batch_size: int,
+    row_bytes: int,
+    *,
+    max_k: int = 256,
+) -> int:
+    """k (fan-in) for Arrow-native k-way merge.
 
-    Ограничение: k * read_batch_size * row_bytes <= available_bytes.
-    Возвращает >= 2 (иначе merge невозможен).
+    v0.9.25c (audit §6.6): must match _merge_keys.check_state(3 * K * rbs
+    * row_bytes) <= available * state_safety (=0.5). The factor 3 =
+    buffers + merged + sorted (see _merge_keys docstring). Prior code
+    used `available // (rbs * row_bytes)` — 3x under-counted the actual
+    peak; and caller passed _WRITE_RUN_CHUNK (50000) while _merge_keys
+    uses rbs=1000, giving K=2 at 32 MB / 8 cols / 640 B/row — root
+    cause of 24.4s @ N=500k/8 cols / 32 MB (audit §6.6).
+
+    Now: state_limit // (3 * rbs * row_bytes), capped at max_k (file
+    handle / FD limit — 256 is conservative). Min 2 (merge impossible
+    with k < 2; caller (_merge_keys) will fire check_state if 2 runs
+    exceed state_limit — documented for wide schemas at tight budget).
     """
-    denom = max(1, read_batch_size * max(1, row_bytes))
-    return max(2, available_bytes // denom)
+    state_limit = int(available_bytes * 0.5)
+    per_run = 3 * max(1, read_batch_size) * max(1, row_bytes)
+    k = state_limit // per_run
+    return max(2, min(max_k, k))
 
 
 def external_sort(
@@ -623,8 +653,12 @@ def external_sort(
 
     # --- Фаза 2: k-way merge (при необходимости — многоуровневый) ---
     row_bytes = max(1, memory_guard.row_size_bytes)
+    # v0.9.25c: pass read_batch_size (the rbs that _merge_keys will
+    # use), NOT _WRITE_RUN_CHUNK (on-disk chunk, unrelated to merge
+    # memory). Prior mis-pass gave K=2 @ 32MB/8cols → 3-4x more merge
+    # passes → 60x wall (audit §6.6). Now: K=8 @ 32MB/8cols / 640 B/row.
     k = merge_fan_in or compute_fan_in(
-        memory_guard.available_bytes(), _WRITE_RUN_CHUNK, row_bytes
+        memory_guard.available_bytes(), read_batch_size, row_bytes
     )
 
     merge_idx = 0

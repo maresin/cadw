@@ -56,10 +56,17 @@ def test_hash_shuffle_uses_extra_factor(monkeypatch, tmp_path):
 # =================== п.4: compute_fan_in ===================
 
 def test_compute_fan_in_formula():
-    # 1_048_576 / (100*8) = 1310
-    assert compute_fan_in(1_048_576, 100, 8) == 1310
-    # 1_048_576 / (100*80) = 131
-    assert compute_fan_in(1_048_576, 100, 80) == 131
+    # v0.9.25c: formula = state_limit // (3 * rbs * row_bytes),
+    # state_limit = available * 0.5 (matches _merge_keys.check_state(
+    # 3 * K * rbs * row_bytes) <= state_limit). Prior formula (pre-
+    # v0.9.25c): available // (rbs * row_bytes) — 6x too permissive
+    # for actual merge memory (3x ignored temp buffers × 2 ignored
+    # state_safety=0.5). Fix surfaced by audit §6.6 (24s wall @
+    # 500k/8cols/32MB).
+    # (1_048_576, 100, 8):  524_288 // 2400   = 218 (was 1310)
+    # (1_048_576, 100, 80): 524_288 // 24000  = 21  (was 131)
+    assert compute_fan_in(1_048_576, 100, 8) == 218
+    assert compute_fan_in(1_048_576, 100, 80) == 21
     assert compute_fan_in(1_048_576, 100, 8) > compute_fan_in(1_048_576, 100, 80)
 
 

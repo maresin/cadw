@@ -1922,6 +1922,16 @@ class CadwDataFrame:
                 for v in values.to_pylist():  # K per batch, not N
                     if v is not None:
                         uniques.add(v)
+                # v0.9.25c (part1_report B2): in-loop guard. Prior code
+                # accumulated Python-set of all uniques with no bound;
+                # @ 10M unique strings ~600 MB invisible to MemoryGuard
+                # (batch.nbytes ~130 KB/batch). 180 B/entry = 50 (str)
+                # + ~40 (set slot) + ~90 (list copy margin for sorted()).
+                # Fail-fast at state_limit (=available*0.5).
+                self._memory_guard.check_state(
+                    len(uniques) * 180,
+                    name=f"encode_categorical({col})",
+                )
             try:
                 sorted_vals = sorted(uniques)
             except TypeError:

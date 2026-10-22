@@ -2,7 +2,7 @@
 
 **Document version:** 1.0
 **Last updated:** 2026-10-22
-**Current CADW version:** v0.9.25b
+**Current CADW version:** v0.9.25c
 **Phase:** A (Stabilization) — in progress
 **Source consolidation:** AUDIT_FULL_v0922 §7, part1_report.md,
 part2_taxonomy.md, part2_todo_roadmap.md, TS review, prior sessions.
@@ -92,18 +92,18 @@ back to OLS, already handled).
 Perfect linear training (d=1, D=1 → twice-differenced zeros) is valid
 perfect fit. Reject only sigma2<0. AIC uses log(max(sigma2, 1e-300)).
 
-### A.4 B1 refill linear — `v0.9.25c` — planned
+### A.4 B1 refill linear — `v0.9.25c` — **done**
 `ops/sort.py:_RunStream.refill` quadratic concat → linear list-append.
 12.9 GB copied @ rbs=200k → 0.13 GB.
 
-### A.5 B2 encode_categorical guard — `v0.9.25c` — planned
+### A.5 B2 encode_categorical guard — `v0.9.25c` — **done**
 K_est by sample + `check_state(K_est × (value_bytes + 50))` before Pass1.
 Currently O(K) Python-set is invisible to MemoryGuard.
 
 ### A.6 18 to_pylist sites without extra_factor — `v0.9.25d` — planned
 Table of file:line + factor (3.5–12). AST guard.
 
-### A.7 external_sort fan-in floor = 8 — `v0.9.25c` — planned
+### A.7 external_sort fan-in rbs (K=8 @ 32MB/8cols/640B) — `v0.9.25c` — **done**
 24.4s @ N=500k/8 cols / 32 MB budget → ~350 ms. See AUDIT §6.6.
 
 ### A.8 Missing TS tests — `v0.9.25a` — **done**

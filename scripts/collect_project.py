@@ -292,5 +292,290 @@ def main() -> int:
     return 0
 
 
+
+
+# ============================================================================
+# v0.9.25c: phase-aware / module-aware modes (B.4)
+# ============================================================================
+#
+# Runs AFTER main() above — new entry points that reuse the same file
+# collection primitives but with a manifest-driven filter.
+#
+#   --module cadw/ts/models.py
+#       collect module + matching tests. Default excludes core, interfaces.
+#       Use --with-interfaces to inline cadw/dataframe.py signatures.
+#   --phase A
+#       reads docs/roadmap.json, collects all phase-A items' files
+#       (best-effort glob expansion; warns on unresolvable composites).
+#   --doc docs/ROADMAP.md
+#       just that doc.
+#   --list-phases / --list-modules
+#       debug helpers.
+#
+# Output: ts_review_<mode>.md by default; override with --out.
+
+import json as _json
+import re as _re
+import subprocess
+import sys as _sys
+
+_DOCS_ROADMAP = Path("docs/roadmap.json")
+
+
+def _split_top_commas(s: str) -> list[str]:
+    """Split on commas at brace-depth 0.
+
+    v0.9.25c-fix4: prior _parse_file_spec did spec.split(",") before
+    brace-expansion. For 'cadw/ts/{a,b,c}.py' that produced
+    ['cadw/ts/{a', 'b', 'c}.py'] — none resolve → silent drop.
+    This helper preserves {...} blocks as single units (up to depth).
+    """
+    parts: list[str] = []
+    depth = 0
+    buf: list[str] = []
+    for c in s:
+        if c == "{":
+            depth += 1
+            buf.append(c)
+        elif c == "}":
+            depth = max(0, depth - 1)
+            buf.append(c)
+        elif c == "," and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(c)
+    if buf:
+        parts.append("".join(buf))
+    return parts
+
+
+def _parse_file_spec(spec: str) -> list[Path]:
+    """Parse file paths from a roadmap.json 'file' field.
+
+    Supported:
+      - 'cadw/ts/models.py'                 → [Path]
+      - 'cadw/{a,b,c}.py'                    → brace-expansion (one level)
+      - 'cadw/dataframe.py, cadw/ops/x.py'  → comma-separated top-level
+      - 'cadw/*.py'                          → glob
+      - 'tests/'                             → directory (rglob *.py)
+    Unknown / unresolvable → dropped silently (caller aggregates
+    warnings if ALL parts of a spec fail).
+
+    v0.9.25c-fix4: comma-split now respects braces via _split_top_commas.
+    Previously commas inside '{a,b,c}' split the brace block.
+    """
+    if not spec:
+        return []
+    out: list[Path] = []
+    for part in _split_top_commas(spec):
+        part = part.strip()
+        if not part:
+            continue
+        if "{" in part and "}" in part:
+            prefix, rest = part.split("{", 1)
+            options, suffix = rest.split("}", 1)
+            for opt in options.split(","):
+                for sub in _parse_file_spec(
+                    prefix + opt.strip() + suffix
+                ):
+                    out.append(sub)
+        elif "*" in part:
+            out.extend(Path(".").glob(part))
+        elif part.endswith("/"):
+            d = Path(part)
+            if d.is_dir():
+                out.extend(sorted(d.rglob("*.py")))
+        else:
+            p = Path(part)
+            if p.exists() and p.is_file():
+                out.append(p)
+    return out
+
+
+def _find_tests_for_module(mod_path: Path) -> list[Path]:
+    """Heuristic: tests/test_<parent>_<stem>*.py + tests/test_<stem>*.py."""
+    tests_dir = Path("tests")
+    if not tests_dir.exists():
+        return []
+    stem = mod_path.stem
+    parent = mod_path.parent.name
+    out: list[Path] = []
+    if parent and parent != "tests":
+        out.extend(sorted(tests_dir.glob(f"test_{parent}_{stem}*.py")))
+    out.extend(sorted(tests_dir.glob(f"test_{stem}*.py")))
+    # dedupe
+    seen = set()
+    unique = []
+    for p in out:
+        if p not in seen:
+            seen.add(p)
+            unique.append(p)
+    return unique
+
+
+def _load_roadmap() -> dict:
+    if not _DOCS_ROADMAP.exists():
+        print(f"ERROR: {_DOCS_ROADMAP} missing; run v0.9.25b first",
+              file=_sys.stderr)
+        raise SystemExit(2)
+    return _json.loads(_DOCS_ROADMAP.read_text())
+
+
+def _list_phases() -> None:
+    data = _load_roadmap()
+    print(f"Roadmap v{data['current_version']}, "
+          f"schema={data['schema_version']}")
+    for phase in data["phases"]:
+        n_done = sum(1 for i in phase["items"]
+                     if i["status"] == "done")
+        n_total = len(phase["items"])
+        print(f"  {phase['id']:2s} {phase['name']:30s} "
+              f"{n_done}/{n_total} done  ({phase['status']})")
+
+
+def _extract_phase_files(phase_id: str) -> tuple[list[Path], list[str]]:
+    """Return (files, warnings) for a phase."""
+    data = _load_roadmap()
+    phase = next(
+        (p for p in data["phases"] if p["id"] == phase_id), None,
+    )
+    if phase is None:
+        raise SystemExit(
+            f"phase {phase_id!r} not in roadmap; "
+            f"available: {[p['id'] for p in data['phases']]}"
+        )
+    files: set[Path] = set()
+    warnings: list[str] = []
+    for item in phase["items"]:
+        if item["status"] == "done":
+            continue  # already shipped, not current work
+        spec = item.get("file", "")
+        if not spec:
+            continue
+        parsed = _parse_file_spec(spec)
+        if not parsed and spec:
+            warnings.append(
+                f"item {item['id']}: could not resolve {spec!r} — "
+                f"manual include"
+            )
+            continue
+        for p in parsed:
+            files.add(p)
+    return sorted(files), warnings
+
+
+def _write_snapshot(
+    out_path: Path,
+    mode_label: str,
+    full_files: list[Path],
+    test_files: list[Path],
+    notes: list[str],
+) -> None:
+    SEP = "# " + "=" * 76
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(SEP + "\n")
+        f.write(f"# CADW SNAPSHOT ({mode_label})\n")
+        from datetime import datetime
+        f.write(f"# Generated: {datetime.now().isoformat(timespec='seconds')}\n")
+        r = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True,
+        )
+        f.write(f"# HEAD: {r.stdout.strip()}\n")
+        f.write(f"# Full files: {len(full_files)}\n")
+        f.write(f"# Test files: {len(test_files)}\n")
+        for n in notes:
+            f.write(f"# NOTE: {n}\n")
+        f.write(SEP + "\n\n")
+        for p in full_files + test_files:
+            f.write(SEP + f"\n# FILE: {p}\n" + SEP + "\n")
+            try:
+                content = p.read_text(encoding="utf-8", errors="replace")
+            except Exception as e:
+                f.write(f"# ERROR: {e}\n\n")
+                continue
+            if not content.endswith("\n"):
+                content += "\n"
+            f.write(content + "\n")
+    print(f"  wrote {out_path} "
+          f"({out_path.stat().st_size / 1024:.1f} KiB)")
+
+
+def _run_module_mode(args) -> int:
+    mod = Path(args.module)
+    if not mod.exists():
+        raise SystemExit(f"module {mod} does not exist")
+    tests = _find_tests_for_module(mod)
+    notes = []
+    if not tests:
+        notes.append(f"no matching tests for {mod.stem}")
+    out = Path(args.out or f"snapshot_module_{mod.stem}.md")
+    _write_snapshot(out, f"module={mod}", [mod], tests, notes)
+    return 0
+
+
+def _run_phase_mode(args) -> int:
+    files, warnings = _extract_phase_files(args.phase)
+    if not files:
+        print(f"ERROR: phase {args.phase!r} resolved to 0 files",
+              file=_sys.stderr)
+        for w in warnings:
+            print(f"  warning: {w}", file=_sys.stderr)
+        return 1
+    tests: list[Path] = []
+    for f in files:
+        if f.parts[0] == "cadw":
+            tests.extend(_find_tests_for_module(f))
+    tests = sorted(set(tests))
+    out = Path(args.out or f"snapshot_phase_{args.phase}.md")
+    _write_snapshot(
+        out, f"phase={args.phase}", files, tests, warnings,
+    )
+    return 0
+
+
+def _run_doc_mode(args) -> int:
+    doc = Path(args.doc)
+    if not doc.exists():
+        raise SystemExit(f"doc {doc} does not exist")
+    out = Path(args.out or f"snapshot_doc_{doc.stem}.md")
+    _write_snapshot(out, f"doc={doc}", [doc], [], [])
+    return 0
+
+
+# v0.9.25c entry point — recognized by scripts/patch_v0925c invocation.
+def _phase_aware_main(argv: list[str]) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(
+        prog="collect_project.py (v0.9.25c phase-aware)",
+    )
+    ap.add_argument("--module", help="collect one module + tests")
+    ap.add_argument("--phase", help="collect phase files from roadmap.json")
+    ap.add_argument("--doc", help="collect one doc")
+    ap.add_argument("--list-phases", action="store_true")
+    ap.add_argument("--out", default=None)
+    args = ap.parse_args(argv)
+    if args.list_phases:
+        _list_phases()
+        return 0
+    if args.module:
+        return _run_module_mode(args)
+    if args.phase:
+        return _run_phase_mode(args)
+    if args.doc:
+        return _run_doc_mode(args)
+    print(
+        "ERROR: use --module / --phase / --doc / --list-phases. "
+        "Full snapshot mode is --mode=smart (see --help).",
+        file=_sys.stderr,
+    )
+    return 2
+
+
 if __name__ == "__main__":
+    if any(a in _sys.argv[1:] for a in (
+        "--module", "--phase", "--doc", "--list-phases",
+    )):
+        raise SystemExit(_phase_aware_main(_sys.argv[1:]))
     raise SystemExit(main())

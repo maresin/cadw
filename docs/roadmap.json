@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.25b",
+  "current_version": "0.9.25c",
   "updated": "2026-10-22",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -68,7 +68,7 @@
           "id": "A.4",
           "name": "B1 refill linear concat",
           "patch": "v0.9.25c",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/ops/sort.py"
         },
@@ -76,7 +76,7 @@
           "id": "A.5",
           "name": "B2 encode_categorical K_est guard",
           "patch": "v0.9.25c",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/dataframe.py"
         },
@@ -84,7 +84,7 @@
           "id": "A.7",
           "name": "external_sort fan-in floor=8",
           "patch": "v0.9.25c",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/ops/sort.py"
         },
@@ -94,7 +94,7 @@
           "patch": "v0.9.25d",
           "status": "planned",
           "complexity": "M",
-          "file": "cadw/{dataframe,ops,ts}/*.py"
+          "file": "cadw/dataframe.py, cadw/ops/{shuffle,rank,metrics,pivot,resample,groupby}.py, cadw/ts/{features,stats,models,thf,backtest}.py"
         },
         {
           "id": "A.9",

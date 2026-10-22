@@ -28,9 +28,13 @@ def test_write_run_chunk_constant_exists():
     assert isinstance(_WRITE_RUN_CHUNK, int)
 
 
-def test_compute_fan_in_uses_write_run_chunk():
-    # AST: compute_fan_in second positional arg must be
-    # _WRITE_RUN_CHUNK (real on-disk chunk), not read_batch_size.
+def test_compute_fan_in_uses_read_batch_size():
+    # v0.9.25c (A.7): flipped from test_compute_fan_in_uses_write_run_chunk.
+    # v0.9.23c changed _merge_keys to use rbs=1000 (Arrow-native
+    # batched merge). compute_fan_in must use the SAME rbs, not
+    # _WRITE_RUN_CHUNK (which is on-disk chunk size, unrelated to
+    # merge memory). Prior mismatch: K=2 @ 32MB/8cols → 60x wall
+    # (audit §6.6). Audit "floor=8" was a proxy for this.
     import ast
     import inspect
     import textwrap
@@ -47,9 +51,14 @@ def test_compute_fan_in_uses_write_run_chunk():
             "compute_fan_in needs 2+ positional args"
         )
         arg1 = ast.unparse(node.args[1])
-        assert "_WRITE_RUN_CHUNK" in arg1, (
-            "compute_fan_in read_batch_size=" + arg1 +
-            " must be _WRITE_RUN_CHUNK (P-S1 fix)"
+        assert "read_batch_size" in arg1, (
+            f"compute_fan_in arg={arg1!r} — must use read_batch_size "
+            f"(v0.9.25c; _merge_keys uses rbs internally, not on-disk "
+            f"_WRITE_RUN_CHUNK)"
+        )
+        assert "_WRITE_RUN_CHUNK" not in arg1, (
+            f"compute_fan_in arg={arg1!r} — must NOT use _WRITE_RUN_CHUNK "
+            f"(root cause of 24s @ 500k/8cols/32MB)"
         )
         return
     raise AssertionError("compute_fan_in call not found")

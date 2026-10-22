@@ -1052,3 +1052,34 @@ def test_is_empty_input_error_other_error():
     from cadw.patch_utils import is_empty_input_error
     exc = ValueError("some other error")
     assert is_empty_input_error(exc) is False
+
+
+# ============ v0.9.25c-fix7: meta-meta-guard ============
+
+
+def test_no_substring_meta_guards_in_tests():
+    """Meta-meta-guard against substring meta-guards (§13.4/252).
+
+    Substring `if 'X' in line and '== N' in line` cannot distinguish
+    a real assertion from its own condition or from a docstring.
+    Burned CADW 4× (§13.4/161, /183, /213, /252).
+    Regex catches the exact anti-pattern shape.
+    """
+    import re as _re
+    from pathlib import Path as _P
+    pattern = _re.compile(
+        r'if\s+"[^"]+"\s+in\s+line\s+and\s+"==\s',
+    )
+    violations: list[str] = []
+    for py in _P("tests").glob("test_*.py"):
+        try:
+            src = py.read_text()
+        except Exception:
+            continue
+        for i, line in enumerate(src.split("\n"), 1):
+            if pattern.search(line):
+                violations.append(f"{py.name}:{i}: {line.strip()}")
+    assert not violations, (
+        "Substring meta-guard detected (§13.4/252). Use ast.parse + "
+        "ast.walk.\n" + "\n".join(violations)
+    )
