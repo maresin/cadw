@@ -2723,7 +2723,7 @@ class CadwDataFrame:
             for b in ArrowIPCBatchReader(str(sorted_path), None):
                 self._memory_guard.check_batch(
                     b, name="rolling_on.sorted_input"
-                )
+                , extra_factor=7.0)
                 rid_list = b.column("row_id").to_pylist()
                 arrays: list[pa.Array] = [
                     pa.array(rid_list, type=pa.uint64()),
@@ -3121,7 +3121,7 @@ class CadwDataFrame:
             for b in ArrowIPCBatchReader(str(sorted_path), None):
                 memory_guard.check_batch(
                     b, name="per_group_apply.sorted"
-                )
+                , extra_factor=7.0)
                 n = b.num_rows
                 if n == 0:
                     continue
@@ -3519,7 +3519,7 @@ class CadwDataFrame:
             for b in ArrowIPCBatchReader(str(sorted_path), None):
                 self._memory_guard.check_batch(
                     b, name="per_group_shift.sorted"
-                )
+                , extra_factor=7.0)
                 n = b.num_rows
                 if n == 0:
                     continue
@@ -3869,7 +3869,7 @@ class CadwDataFrame:
             for b in ArrowIPCBatchReader(str(sorted_path), None):
                 self._memory_guard.check_batch(
                     b, name="per_group_rolling.sorted"
-                )
+                , extra_factor=7.0)
                 n = b.num_rows
                 if n == 0:
                     continue

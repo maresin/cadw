@@ -88,14 +88,38 @@ def test_all_sites_have_whitelist_reason():
 
 
 def test_categories_present_sanity():
-    """At least guarded / whitelisted / unguarded / low_factor non-empty.
+    """At least guarded / whitelisted / unguarded non-empty.
 
-    v0.9.25d-a leaves unguarded=23, low_factor=12 (v0.9.25d-b targets).
+    v0.9.25d-b1 closes low_factor (Tier B: all check_batch factors
+    >= 3.0). Remaining non-empty categories: guarded (already
+    sufficient), whitelisted (Tier A + helper-based), unguarded
+    (Tier C — v0.9.25d-b2 target).
+
+    low_factor excluded from required list because b1's goal was
+    to make it empty. For explicit assertion low_factor==0, see
+    test_low_factor_zero_after_bumps.
     """
     mod = _load_diagnostic()
     results = mod.scan()
-    for cat in ("guarded", "whitelisted", "unguarded", "low_factor"):
+    for cat in ("guarded", "whitelisted", "unguarded"):
         assert results.get(cat), (
             f"category {cat!r} unexpectedly empty — likely a classifier "
             f"bug or all sites fixed (check version)"
         )
+
+
+def test_low_factor_zero_after_bumps():
+    """v0.9.25d-b1: all low_factor sites bumped to >= 3.0.
+
+    After v0.9.25d-b1, no site has check_batch with factor < 3.0
+    guarding to_pylist. Remaining unguarded (Tier C) — v0.9.25d-b2.
+    """
+    mod = _load_diagnostic()
+    results = mod.scan()
+    lf = results.get("low_factor", [])
+    sites_str = ", ".join(f"{s['file']}:{s['line']}" for s in lf[:5])
+    assert not lf, (
+        f"low_factor sites remain: {len(lf)}. If you legitimately "
+        f"want factor < 3.0 at one site, add it to WHITELIST with "
+        f"rationale. Sites: {sites_str}"
+    )

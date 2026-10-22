@@ -636,7 +636,7 @@ def _compute_roc_auc_binary(
             str(sorted_path), [y_proba_col, y_true_col]
         )
         for b in reader:
-            memory_guard.check_batch(b, name="roc_auc.stream")
+            memory_guard.check_batch(b, name="roc_auc.stream", extra_factor=7.0)
             probas = b.column(y_proba_col).to_pylist()
             ys = b.column(y_true_col).to_pylist()
             for s, y in zip(probas, ys):

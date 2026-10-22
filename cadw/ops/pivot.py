@@ -137,7 +137,7 @@ def pivot_to_disk(
 
     columns_seen: dict = {}
     for b in ArrowIPCBatchReader(str(sorted_path), [columns_col]):
-        memory_guard.check_batch(b, name="pivot.scan_columns")
+        memory_guard.check_batch(b, name="pivot.scan_columns", extra_factor=7.0)
         for v in b.column(columns_col).to_pylist():
             if v is not None and v not in columns_seen:
                 columns_seen[v] = len(columns_seen)
