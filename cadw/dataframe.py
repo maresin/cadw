@@ -5247,6 +5247,182 @@ class CadwDataFrame:
             for i in range(len(cols))
         }
 
+    # ---------------- sample (v0.9.23f) ----------------
+
+    def sample(
+        self,
+        n=None,
+        frac=None,
+        replace: bool = False,
+        weights: "str | None" = None,
+        random_state=None,
+    ) -> "CadwDataFrame":
+        """Random sample of rows. Streaming, bounded memory.
+
+        v0.9.23f (AUDIT_FULL_v0922 item 7.A.2, Top-10 gap #1).
+        Prototype validated (stratified_sample, RAM 1.01 MB @ 32 MB).
+
+        Args:
+            n: number of rows (int >= 0). Exactly one of n / frac.
+            frac: fraction of total rows [0, 1]. n = max(1,
+                round(N*frac)) for frac > 0; frac=0 -> empty.
+            replace: sample with replacement. Default False. n can
+                exceed N only if replace=True.
+            weights: name of a numeric weight column. Sampling is
+                proportional to weight (Efraimidis-Spirakis A-Res).
+                Not supported with replace=True (NotImplementedError).
+                Non-positive / null weights are skipped.
+            random_state: int seed; None -> 42 (deterministic).
+
+        Returns:
+            CadwDataFrame, rows in sample order (random).
+
+        Raises:
+            ValueError: exactly one of n/frac not given; n > N with
+                replace=False; frac out of [0, 1]; n < 0; both n and
+                frac; weights all-zero/null.
+            NotImplementedError: weights + replace=True.
+            KeyError: weights column missing.
+            TypeError: weights column non-numeric.
+            MemoryLimitExceeded: 4*n*row_bytes > state_limit.
+        """
+        import numpy as np
+        from cadw.core.memory_guard import MemoryLimitExceeded as _MLE
+        from cadw.dataset import Dataset as _DS
+
+        # ---- validation ----
+        if (n is None) == (frac is None):
+            raise ValueError(
+                "sample: exactly one of n or frac must be provided"
+            )
+        if frac is not None:
+            # v0.9.23f-fix2: [0, 1] (pandas-parity; frac=0 -> empty).
+            if not (0.0 <= float(frac) <= 1.0):
+                raise ValueError(
+                    f"sample: frac must be in [0, 1]; got {frac!r}"
+                )
+        if not isinstance(replace, bool):
+            raise TypeError(
+                f"sample: replace must be bool; got {type(replace).__name__}"
+            )
+
+        N = self.count()
+        if N == 0:
+            # Empty view
+            schema = pa.schema(
+                [self._dataset.schema.field(c) for c in self._columns]
+            )
+            empty_ds = _DS.from_batches(
+                schema, iter([]), self._new_dataset_dir(),
+            )
+            return CadwDataFrame(
+                empty_ds,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
+
+        if frac is not None:
+            if float(frac) == 0.0:
+                n = 0
+            else:
+                n = max(1, int(round(N * float(frac))))
+
+        if not isinstance(n, int):
+            raise TypeError(
+                f"sample: n must be int; got {type(n).__name__}"
+            )
+        if n < 0:
+            raise ValueError(f"sample: n must be >= 0; got {n}")
+
+        if weights is not None and replace:
+            raise NotImplementedError(
+                "sample: weights + replace=True is not supported "
+                "(would need O(N) full-weight materialization). "
+                "Use replace=False with weights, or use unweighted "
+                "sampling with replacement."
+            )
+
+        if weights is not None:
+            if weights not in self._columns:
+                raise KeyError(
+                    f"sample: weights column {weights!r} not in "
+                    f"{self._columns}"
+                )
+            t = self._dataset.schema.field(weights).type
+            if not (pa.types.is_integer(t) or pa.types.is_floating(t)):
+                raise TypeError(
+                    f"sample: weights column {weights!r} has type "
+                    f"{t}; numeric required"
+                )
+
+        if n == 0:
+            schema = pa.schema(
+                [self._dataset.schema.field(c) for c in self._columns]
+            )
+            empty_ds = _DS.from_batches(
+                schema, iter([]), self._new_dataset_dir(),
+            )
+            return CadwDataFrame(
+                empty_ds,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
+
+        if n > N and not replace:
+            raise ValueError(
+                f"sample: n={n} > N={N} with replace=False. "
+                f"Set replace=True or reduce n."
+            )
+
+        seed = 42 if random_state is None else int(random_state)
+        rng = np.random.default_rng(seed)
+
+        # ---- memory guard: 4*n*row_bytes for iloc materialize ----
+        from cadw.core.sampling import peek_first_batch
+        first_batch = peek_first_batch(self._iter_filtered_batches())
+        if first_batch is not None:
+            row_bytes_est = self._memory_guard.reestimate_from_batch(
+                first_batch,
+            )
+        else:
+            row_bytes_est = max(
+                1,
+                self._memory_guard.estimate_row_size_from_schema(
+                    pa.schema(
+                        [self._dataset.schema.field(c)
+                         for c in self._columns]
+                    )
+                ),
+            )
+        self._memory_guard.check_state(
+            4 * n * row_bytes_est,
+            name=f"sample(n={n})",
+        )
+
+        # ---- replace=True: vectorized positions ----
+        if replace:
+            positions = rng.integers(0, N, size=n).tolist()
+            return self.iloc[positions]
+
+        # ---- n == N without replacement: shuffle ----
+        if n == N:
+            perm = rng.permutation(N).tolist()
+            return self.iloc[perm]
+
+        # ---- n < N without replacement ----
+        if weights is None:
+            positions = _reservoir_positions(
+                self._iter_filtered_batches(), n, N, rng,
+                self._memory_guard,
+            )
+        else:
+            positions = _weighted_reservoir_positions(
+                self._iter_filtered_batches(), n, weights, rng,
+                self._memory_guard,
+            )
+
+        return self.iloc[positions]
+
     # ---------------- cumulative (v0.9.23e) ----------------
 
     def _cumulative_impl(
@@ -6192,6 +6368,105 @@ def concat(
         memory_guard=first._memory_guard,
         spill_dir=first._spill_dir,
     )
+
+# ============ v0.9.23f: reservoir sampling helpers ============
+
+
+def _reservoir_positions(batches, n, N, rng, memory_guard):
+    """Algorithm R reservoir sampling, vectorized per batch.
+
+    Returns list of n positions in [0, N) without replacement.
+    Positions are filtered-view 0-based (match iloc).
+
+    Algorithm: reservoir = [0, 1, ..., n-1]. For each row at position
+    i >= n, with probability n/(i+1) replace random reservoir slot
+    with i. Vectorized per batch: generate all random decisions at
+    once, only per-replacement Python loop (~n*log(N/n) iterations).
+    """
+    import numpy as np
+
+    positions = list(range(n))
+    if N <= n:
+        return positions
+
+    start = 0
+    for b in batches:
+        if memory_guard is not None and b.num_rows > 0:
+            memory_guard.check_batch(b, name="sample.reservoir_input")
+        m = b.num_rows
+        end = start + m
+        # Skip rows [0, n) — always in reservoir.
+        lo = max(start, n)
+        if lo >= end:
+            start = end
+            continue
+        row_indices = np.arange(lo, end, dtype=np.int64)
+        u = rng.random(len(row_indices))
+        # Probability for row i (0-indexed) = n / (i+1)
+        probs = n / (row_indices + 1.0)
+        replace_mask = u < probs
+        replace_rows = row_indices[replace_mask]
+        if len(replace_rows) > 0:
+            rand_slots = rng.integers(0, n, size=len(replace_rows))
+            for slot, row_pos in zip(rand_slots.tolist(),
+                                     replace_rows.tolist()):
+                positions[slot] = row_pos
+        start = end
+    return positions
+
+
+def _weighted_reservoir_positions(
+    batches, n, weights_col, rng, memory_guard,
+):
+    """Efraimidis-Spirakis A-Res weighted sampling without replacement.
+
+    For each row with weight w > 0, compute key = u^(1/w), u~U(0,1).
+    Keep top-n keys by value (min-heap of size n). Null / non-positive
+    weights are skipped. Peak O(n), time O(N log n).
+
+    Returns positions in filtered-view 0-based order.
+    """
+    import heapq
+    import numpy as np
+
+    heap: list = []  # min-heap of (key, position)
+    pos_offset = 0
+    for b in batches:
+        if memory_guard is not None and b.num_rows > 0:
+            memory_guard.check_batch(
+                b, name="sample.weighted_input", extra_factor=3.5,
+            )
+        w_col = b.column(weights_col)
+        w_np = w_col.to_numpy(zero_copy_only=False)
+        m = len(w_np)
+        if m == 0:
+            continue
+        # Valid = weight > 0 and not NaN (for float dtype).
+        if w_np.dtype.kind == "f":
+            valid = (w_np > 0) & ~np.isnan(w_np)
+        else:
+            valid = w_np > 0
+        idx = np.where(valid)[0]
+        if len(idx) == 0:
+            pos_offset += m
+            continue
+        # Vectorized key generation for valid rows.
+        u = rng.random(len(idx))
+        keys = u ** (1.0 / w_np[idx])
+        for i_local, k in zip(idx.tolist(), keys.tolist()):
+            pos = pos_offset + int(i_local)
+            if len(heap) < n:
+                heapq.heappush(heap, (float(k), pos))
+            elif float(k) > heap[0][0]:
+                heapq.heapreplace(heap, (float(k), pos))
+        pos_offset += m
+    if not heap:
+        raise ValueError(
+            "sample: no valid weights (all null or <= 0); cannot "
+            "draw a weighted sample"
+        )
+    return [pos for _, pos in heap]
+
 
 def _concat_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
     if len(batches) == 1:

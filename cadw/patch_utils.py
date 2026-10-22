@@ -678,15 +678,24 @@ def run_smoke_inline(script, *, timeout=60):
 
 
 def write_content_checked(path, lines):
-    """write_content + assert_compiles (§13.4/193).
+    """write_content + assert_compiles + check_no_invalid_escape.
 
     Use for any file write where syntax errors from escape/quote
     traps (multi-line templates, embedded backslashes) could slip
     through. assert_compiles raises SystemExit on syntax error
     BEFORE the file is imported or run by anything else.
+
+    v0.9.23f-fix4: also check_no_invalid_escape — py_compile
+    (used by assert_compiles) in Python 3.12 emits
+    SyntaxWarning for invalid escapes but does NOT raise.
+    Only pytest with -W error::SyntaxWarning catches.
+    check_no_invalid_escape makes this a hard failure at
+    write time.
     """
     write_content(path, lines)
     assert_compiles(path)
+    if str(path).endswith(".py"):
+        check_no_invalid_escape(path)
 
 
 def parse_method_source(fn):
@@ -932,3 +941,61 @@ def assert_no_stale_behavior(
         print("Fix tests or update allow-list before commit.")
         sys.exit(1)
 
+
+
+# ============ v0.9.23f-fix3: invalid-escape helper ============
+
+
+def check_no_invalid_escape(path):
+    """AST-parse `path` with -W error::SyntaxWarning; SystemExit on any.
+
+    v0.9.23f-fix3: `py_compile.compile` (used by `assert_compiles`) in
+    Python 3.12 emits SyntaxWarning for invalid escape sequences
+    (backslash-d in non-raw string, etc.) but does NOT raise. Only at pytest
+    collection (`ast.parse` under -W error::SyntaxWarning) does this
+    become SyntaxError. Two occurrences in v0.9.23f (fix1 and fix2) —
+    this helper closes the class.
+
+    Use from patch scripts after `write_content` / `write_text` for
+    .py files with string literals potentially containing backslashes
+    (regex matches especially):
+        check_no_invalid_escape("tests/test_foo.py")
+
+    Raises:
+        SystemExit(1) if file has any invalid escape sequence
+            (converted SyntaxWarning -> error). Message includes
+            file path and the specific warning line.
+    """
+    import ast as _ast
+    import warnings as _w
+    import sys as _sys
+    from pathlib import Path as _P
+
+    src = _P(path).read_text()
+    with _w.catch_warnings():
+        _w.simplefilter("error", SyntaxWarning)
+        try:
+            _ast.parse(src, filename=str(path))
+        except (SyntaxWarning, SyntaxError) as e:
+            # v0.9.23f-fix5: Python 3.12 quirk — ast.parse with
+            # warnings.simplefilter("error", SyntaxWarning) raises
+            # SyntaxError (NOT SyntaxWarning) for invalid escapes.
+            # The C compiler elevates the warning directly to
+            # SyntaxError with message "invalid escape sequence".
+            # Genuine syntax errors (e.g. "def f(") also raise
+            # SyntaxError — distinguish by message.
+            msg = str(e)
+            is_invalid_escape = (
+                isinstance(e, SyntaxWarning)
+                or "invalid escape sequence" in msg
+            )
+            if is_invalid_escape:
+                print(
+                    f"check_no_invalid_escape: {path}: {e}. "
+                    f"Fix: use raw string r'...' for regex "
+                    f"matches or escape backslashes."
+                )
+                _sys.exit(1)
+            # Genuine syntax error — re-raise (preserves
+            # test_check_no_invalid_escape_syntax_error contract).
+            raise
