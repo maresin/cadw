@@ -977,3 +977,78 @@ def test_no_inline_dedent_getsource_outside_helper():
         'patch_utils.dedent_method_source:'
         + chr(10) + chr(10).join(violations)
     )
+
+# ============ v0.9.23g-fix3: idempotency_check_by_def ============
+
+def test_idempotency_check_by_def_present(tmp_path):
+    """Function def -> True."""
+    from cadw.patch_utils import idempotency_check_by_def
+    p = tmp_path / "f.py"
+    p.write_text("def my_helper():\n    pass\n")
+    assert idempotency_check_by_def(p, "my_helper") is True
+
+
+def test_idempotency_check_by_def_name_only_call(tmp_path):
+    """Name appears only as call site (no def) -> False.
+
+    §13.4/182 whole-file-substring trap: prior code used
+    `if "name" in src`, which false-positived on call sites.
+    """
+    from cadw.patch_utils import idempotency_check_by_def
+    p = tmp_path / "f.py"
+    p.write_text(
+        "def other():\n"
+        "    return my_helper()\n"
+    )
+    assert idempotency_check_by_def(p, "my_helper") is False
+
+
+def test_idempotency_check_by_def_name_only_docstring(tmp_path):
+    """Name appears only in docstring -> False."""
+    from cadw.patch_utils import idempotency_check_by_def
+    p = tmp_path / "f.py"
+    p.write_text(
+        'def other():\n'
+        '    """Uses my_helper internally."""\n'
+        '    pass\n'
+    )
+    assert idempotency_check_by_def(p, "my_helper") is False
+
+
+def test_idempotency_check_by_def_call_and_def(tmp_path):
+    """Name in call site AND def -> True (def is what matters)."""
+    from cadw.patch_utils import idempotency_check_by_def
+    p = tmp_path / "f.py"
+    p.write_text(
+        "def my_helper():\n"
+        "    pass\n"
+        "def other():\n"
+        "    return my_helper()\n"
+    )
+    assert idempotency_check_by_def(p, "my_helper") is True
+
+
+# ============ v0.9.23g-fix4: is_empty_input_error ============
+
+def test_is_empty_input_error_english():
+    from cadw.patch_utils import is_empty_input_error
+    exc = ValueError("hash_shuffle: empty input")
+    assert is_empty_input_error(exc) is True
+
+
+def test_is_empty_input_error_russian():
+    """Prior bug: 'empty' check missed Russian 'пустой вход'."""
+    from cadw.patch_utils import is_empty_input_error
+    exc = ValueError("hash_shuffle: пустой вход. ...")
+    assert is_empty_input_error(exc) is True
+
+
+def test_is_empty_input_error_case_insensitive():
+    from cadw.patch_utils import is_empty_input_error
+    assert is_empty_input_error(ValueError("EMPTY INPUT")) is True
+
+
+def test_is_empty_input_error_other_error():
+    from cadw.patch_utils import is_empty_input_error
+    exc = ValueError("some other error")
+    assert is_empty_input_error(exc) is False

@@ -172,3 +172,42 @@ def test_state_size_checked():
 
     with pytest.raises(MemoryLimitExceeded):
         reduce(it(), CovarianceOp(cols), guard, log=False)
+
+# ============ v0.9.23g-fix6: NullCountOp ============
+
+def test_null_count_op_init_state_nbytes():
+    from cadw.ops.reduce import NullCountOp
+    op = NullCountOp("x")
+    st = op.init()
+    assert st == 0
+    assert op.state_nbytes(st) == 8
+    assert op.estimate_state_nbytes() == 8
+
+
+def test_null_count_op_update_merge():
+    from cadw.ops.reduce import NullCountOp
+    op = NullCountOp("x")
+    b1 = pa.RecordBatch.from_arrays(
+        [pa.array([1, None, 3, None], type=pa.int64())],
+        names=["x"],
+    )
+    b2 = pa.RecordBatch.from_arrays(
+        [pa.array([None, None], type=pa.int64())],
+        names=["x"],
+    )
+    s1 = op.update(op.init(), b1)
+    s2 = op.update(op.init(), b2)
+    assert s1 == 2
+    assert s2 == 2
+    assert op.merge(s1, s2) == 4
+    assert op.finalize(op.merge(s1, s2)) == 4
+
+
+def test_null_count_op_no_nulls():
+    from cadw.ops.reduce import NullCountOp
+    op = NullCountOp("x")
+    b = pa.RecordBatch.from_arrays(
+        [pa.array([1, 2, 3], type=pa.int64())],
+        names=["x"],
+    )
+    assert op.update(op.init(), b) == 0

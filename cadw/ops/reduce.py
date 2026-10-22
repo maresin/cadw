@@ -188,6 +188,43 @@ class SumOp(ReduceOp):
 
 
 # ---------------------------------------------------------------------------
+# null count (v0.9.23g-fix6)
+# ---------------------------------------------------------------------------
+
+class NullCountOp(ReduceOp):
+    """Count nulls in a single column.
+
+    `batch.column(c).null_count` — O(1) metadata (IPC-read batches
+    have it precomputed; pyarrow caches after first touch). No per-row
+    iteration, no pc.is_null, no cast, no sum. State = 1 int64.
+
+    Used by `CadwDataFrame.isna_sum()` — façade stays free of
+    `.as_py()` (test_facade_has_no_as_py AST guard).
+    """
+
+    def __init__(self, column: str) -> None:
+        self.column = column
+
+    def estimate_state_nbytes(self) -> int:
+        return 8
+
+    def init(self) -> State:
+        return 0
+
+    def update(self, state: State, batch: pa.RecordBatch) -> State:
+        return state + int(batch.column(self.column).null_count)
+
+    def merge(self, a: State, b: State) -> State:
+        return a + b
+
+    def finalize(self, state: State) -> int:
+        return int(state)
+
+    def state_nbytes(self, state: State) -> int:
+        return 8
+
+
+# ---------------------------------------------------------------------------
 # min / max
 # ---------------------------------------------------------------------------
 

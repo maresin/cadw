@@ -366,6 +366,15 @@ def apply_or_fail(path, old, new, *, label, context=10,
     Prints `context` lines around partial-match zone on miss (§13.4/160).
     Idempotent: returns False if `new` already present (no write).
 
+    v0.9.23g-fix5: do NOT wrap apply_or_fail in
+    `if "<marker>" in src: return` — whole-file substring
+    idempotency is broken (§13.4/182, 3rd occurrence in
+    v0.9.23g: value_counts marker bled into _nunique_one
+    check). apply_or_fail already scopes to the exact old/new
+    block; wrapping in custom guards is redundant + bug-prone.
+    Just call apply_or_fail directly; use its return value
+    (True=applied, False=already-present) as the signal.
+
     v0.9.12 (F12-3, §13.4/211): compile-before-write for
     Python files. `new_s` is compile()'d in memory BEFORE
     p.write_text(). On SyntaxError — SystemExit, file untouched.
@@ -999,3 +1008,61 @@ def check_no_invalid_escape(path):
             # Genuine syntax error — re-raise (preserves
             # test_check_no_invalid_escape_syntax_error contract).
             raise
+
+
+# ============ v0.9.23g-fix3: idempotency-by-def helper ============
+
+
+def idempotency_check_by_def(path, name):
+    """True iff file at `path` contains `def <name>(` or `def <name> (`.
+
+    v0.9.23g-fix3 (§13.4/182): whole-file `if "<name>" in src` for
+    idempotency guards false-positives when `<name>` appears as a
+    call site or docstring mention. Scoped form: check the function
+    DEFINITION, not just the name.
+
+    Use:
+        if idempotency_check_by_def("cadw/dataframe.py",
+                                    "_empty_value_counts_table"):
+            # already applied — skip
+        else:
+            # add helper
+
+    Args:
+        path: file path (str | Path).
+        name: function name to look for.
+
+    Returns:
+        True iff any of these substring patterns present:
+          - "def <name>("
+          - "def <name> ("
+          - "def <name>:" (rare — no params)
+    """
+    from pathlib import Path as _P
+    src = _P(path).read_text()
+    return any(p in src for p in (
+        f"def {name}(",
+        f"def {name} (",
+        f"def {name}:",
+    ))
+
+
+# ============ v0.9.23g-fix4: is_empty_input_error helper ============
+
+
+def is_empty_input_error(exc):
+    """True iff `exc` looks like the "empty input" ValueError from
+    hash_shuffle / groupby_aggregate.
+
+    v0.9.23g-fix4: prior code checked `"empty" in str(exc).lower()`,
+    but hash_shuffle emits Russian "пустой вход" -> check returned
+    False -> exception re-raised instead of caught.
+
+    Checks both English "empty" and Russian "пустой" (substring,
+    case-insensitive for English; Russian lowercased). Both strings
+    are hardcoded in cadw (not user-provided), so language coupling
+    is deliberate: if either message is reworded, update this helper.
+    """
+    msg = str(exc)
+    msg_lower = msg.lower()
+    return "empty" in msg_lower or "пустой" in msg_lower

@@ -13,6 +13,7 @@ from .io.batch_writer import ParquetBatchWriter, ArrowIPCBatchWriter
 from .ops.reduce import (
     reduce, ReduceOp,
     CountOp, SumOp, MinMaxOp, MeanOp, StdOp, CovarianceOp, HistogramOp,
+    NullCountOp,
 )
 from .ops.metrics import (
     MetricsOp, SUPPORTED_METRICS,
@@ -100,7 +101,7 @@ __all__ = [
     "ParquetBatchWriter", "ArrowIPCBatchWriter",
     "reduce", "ReduceOp",
     "CountOp", "SumOp", "MinMaxOp", "MeanOp", "StdOp",
-    "CovarianceOp", "HistogramOp",
+    "CovarianceOp", "HistogramOp", "NullCountOp",
     "hash_shuffle", "compute_hashes", "estimate_num_partitions",
     "read_partition_batches",
     "external_sort", "read_sorted",

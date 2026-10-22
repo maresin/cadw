@@ -1,6 +1,7 @@
 from .reduce import (
     reduce, ReduceOp,
     CountOp, SumOp, MinMaxOp, MeanOp, StdOp, CovarianceOp, HistogramOp,
+    NullCountOp,
 )
 from .shuffle import (
     hash_shuffle, compute_hashes, estimate_num_partitions, read_partition_batches,
@@ -16,7 +17,7 @@ from .resample import parse_freq, resample_to_disk
 __all__ = [
     "reduce", "ReduceOp",
     "CountOp", "SumOp", "MinMaxOp", "MeanOp", "StdOp",
-    "CovarianceOp", "HistogramOp",
+    "CovarianceOp", "HistogramOp", "NullCountOp",
     "hash_shuffle", "compute_hashes", "estimate_num_partitions",
     "read_partition_batches",
     "external_sort", "read_sorted", "compute_fan_in", "hash_join", "hash_join_streaming", "inner_join", "left_join",

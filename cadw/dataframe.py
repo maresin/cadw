@@ -5247,6 +5247,317 @@ class CadwDataFrame:
             for i in range(len(cols))
         }
 
+    # ---------------- EDA basics (v0.9.23g) ----------------
+
+    def isna(self) -> "CadwDataFrame":
+        """Null mask: same-shape CadwDataFrame with all-bool columns.
+
+        v0.9.23g (AUDIT_FULL_v0922 item 7.A.5). Per-batch `pc.is_null`
+        — no materialize, streaming. Column names preserved.
+        """
+        import pyarrow.compute as _pc
+        from cadw.dataset import Dataset as _DS
+
+        # v0.9.23g-fix1 (§13.4/169): nullable=True. Dataset.
+        # from_batches reconstructs per-column batches via
+        # RecordBatch.from_arrays([col]) which always sets
+        # nullable=True. nullable=False here would trigger
+        # ArrowInvalid: Tried to write record batch with
+        # different schema at write_batch.
+        out_fields = [
+            pa.field(c, pa.bool_(), nullable=True) for c in self._columns
+        ]
+        out_schema = pa.schema(out_fields)
+
+        def _iter_isna():
+            for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(b, name="isna.input")
+                arrays = [_pc.is_null(b.column(c)) for c in self._columns]
+                yield pa.RecordBatch.from_arrays(arrays, schema=out_schema)
+
+        new_ds = _DS.from_batches(
+            out_schema, _iter_isna(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def isna_sum(self) -> dict:
+        """Per-column null count: dict[col -> int]. One Reduce pass.
+
+        v0.9.23g. Each column is one CountOp pass (sums via `reduce`).
+        Total: d passes. For d > 20 use `info(compute_non_null=True)` if
+        per-batch `n_null = n - count` suffices — same cost.
+        """
+        from cadw.ops.reduce import NullCountOp, reduce
+
+        # v0.9.23g-fix6: NullCountOp (no .as_py in facade —
+        # test_facade_has_no_as_py AST guard). batch.column(c).
+        # null_count is O(1) metadata; d Reduce passes, same cost as
+        # prior per-batch sum approach.
+        out: dict = {}
+        for c in self._columns:
+            out[c] = reduce(
+                self._iter_filtered_batches(),
+                NullCountOp(c),
+                self._memory_guard,
+                log=False,
+            )
+        return out
+
+    def fillna(self, value, columns=None) -> "CadwDataFrame":
+        """Fill nulls with a scalar `value`. Streaming.
+
+        v0.9.23g (AUDIT_FULL_v0922 item 7.A.5). Per-batch `pc.fill_null`
+        — no materialize. `value` must be a scalar compatible with all
+        target columns' dtypes (Arrow will raise on incompatible fill
+        — no silent type coercion).
+
+        Args:
+            value: scalar fill value.
+            columns: None → all columns; str → one; Sequence[str] →
+                subset. Non-numeric columns fillable with matching-type
+                scalar (e.g. str fill on string column).
+
+        Returns: CadwDataFrame with nulls filled in target columns.
+        """
+        import pyarrow.compute as _pc
+        from cadw.dataset import Dataset as _DS
+
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        if not cols:
+            raise ValueError("fillna: columns must be non-empty")
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"fillna: column {c!r} not in {self._columns}"
+                )
+        fill_set = set(cols)
+
+        # All fields nullable=True except unchanged.
+        out_fields = []
+        for c in self._columns:
+            orig = self._dataset.schema.field(c)
+            if c in fill_set:
+                out_fields.append(pa.field(c, orig.type, nullable=True))
+            else:
+                out_fields.append(orig)
+        out_schema = pa.schema(out_fields)
+
+        # Pre-construct the Arrow fill scalar per column, so any type
+        # mismatch fails fast at function entry, not mid-iteration.
+        fill_scalars = {}
+        for c in cols:
+            t = self._dataset.schema.field(c).type
+            try:
+                fill_scalars[c] = pa.scalar(value, type=t)
+            except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
+                raise TypeError(
+                    f"fillna: fill value {value!r} incompatible with "
+                    f"column {c!r} type {t}: {e}"
+                ) from e
+
+        def _iter_filled():
+            for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(b, name="fillna.input")
+                arrays = []
+                for c in self._columns:
+                    if c in fill_set:
+                        arrays.append(
+                            _pc.fill_null(b.column(c), fill_scalars[c])
+                        )
+                    else:
+                        arrays.append(b.column(c))
+                yield pa.RecordBatch.from_arrays(
+                    arrays, schema=out_schema,
+                )
+
+        new_ds = _DS.from_batches(
+            out_schema, _iter_filled(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def value_counts(
+        self,
+        column: str,
+        *,
+        normalize: bool = False,
+        sort: bool = True,
+        dropna: bool = False,
+    ) -> pa.Table:
+        """Per-value counts (HashShuffle + groupby).
+
+        v0.9.23g (AUDIT_FULL_v0922 item 7.A.3, Top-10 gap #7).
+
+        Args:
+            column: column to count.
+            normalize: return `count` as float fraction of N (total
+                non-null + null rows = filtered row count).
+            sort: sort by count descending (default True). False →
+                partition-concat order (row order not stable).
+
+        Returns: `pa.Table` with columns `[column, "count"]` (or
+        `[column, "fraction"]` when normalize=True).
+        """
+        import pyarrow.compute as _pc
+        from cadw.ops.groupby import groupby_aggregate as _gba
+
+        if column not in self._columns:
+            raise KeyError(
+                f"value_counts: column {column!r} not in {self._columns}"
+            )
+
+        col_type = self._dataset.schema.field(column).type
+        # Empty-input fast path: groupby_aggregate raises ValueError
+        # on empty input (v0.9.23g-fix2).
+        if self.count() == 0:
+            return _empty_value_counts_table(
+                column, col_type, normalize=normalize,
+            )
+
+        # v0.9.23g-fix2: ones-sum, NOT count. groupby_aggregate(count)
+        # gives non-null count per group (CountOp skips nulls) -> null
+        # group gets 0. value_counts must count SIZE (every row,
+        # including nulls). Ones-sum: each row contributes 1.
+        def _with_one():
+            for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(
+                    b, name="value_counts.input",
+                )
+                if b.num_rows == 0:
+                    continue
+                if dropna:
+                    mask = _pc.is_valid(b.column(column))
+                    b = b.filter(mask)
+                    if b.num_rows == 0:
+                        continue
+                one = pa.array([1] * b.num_rows, type=pa.int64())
+                yield b.append_column("__vco", one)
+
+        try:
+            result = _gba(
+                _with_one(),
+                [column],
+                ["__vco"],
+                ["sum"],
+                self._memory_guard,
+                self._spill_dir / "value_counts",
+                log=False,
+            )
+        except ValueError as e:
+            # groupby_aggregate raises ValueError on empty input. With
+            # dropna=True and all-null column, filtered is empty ->
+            # gba sees empty -> ValueError. Return empty table.
+            # v0.9.23g-fix4: is_empty_input_error checks both
+            # languages ("empty" / "пустой") — prior was English-only
+            # and missed Russian message.
+            from cadw.patch_utils import is_empty_input_error
+            if is_empty_input_error(e):
+                return _empty_value_counts_table(
+                    column, col_type, normalize=normalize,
+                )
+            raise
+        result = result.rename_columns([column, "count"])
+        if sort:
+            order = _pc.sort_indices(
+                result, sort_keys=[("count", "descending")],
+            )
+            result = result.take(order)
+        if normalize:
+            n = self.count()
+            if n == 0:
+                # Shouldn't reach (empty handled above); defensive.
+                return _empty_value_counts_table(
+                    column, col_type, normalize=True,
+                )
+            frac = _pc.divide(
+                _pc.cast(result.column("count"), pa.float64()),
+                pa.scalar(float(n), type=pa.float64()),
+            )
+            # v0.9.23g-fix2: set_column replaces index 1 -> no .drop.
+            return result.set_column(1, "fraction", frac)
+        return result
+
+    def nunique(self, column=None, *, dropna: bool = False):
+        """Count distinct values. Int for one column, dict for all.
+
+        v0.9.23g (AUDIT_FULL_v0922 item 7.A.3, Top-10 gap #7).
+
+        Args:
+            column: str → int (nunique of that column); None → dict[str,
+                int] for all columns.
+            dropna: if True, null is NOT counted as a distinct value
+                (pandas-parity). Default False (CADW groupby default
+                per §13.4/218 — null-key preservation).
+        """
+        from cadw.ops.groupby import groupby_aggregate as _gba
+
+        # v0.9.23g-fix1: global nunique must use groupby_aggregate
+        # (HashShuffle + count). Prior implementation summed per-batch
+        # count_distinct -> WRONG on multi-batch (SILENT DATA
+        # CORRUPTION: sum of per-batch uniques != global unique).
+        # Example: [a, a] -> batch1=[a], batch2=[a] -> 1+1=2, actual=1.
+        def _nunique_one(col_name: str, dropna_inner: bool) -> int:
+            # groupby_aggregate over [col] → one row per unique value.
+            # Number of output rows = global unique count.
+            if dropna_inner:
+                import pyarrow.compute as _pc
+                def _filtered():
+                    for b in self._iter_filtered_batches():
+                        self._memory_guard.check_batch(
+                            b, name=f"nunique[{col_name}]",
+                        )
+                        mask = _pc.is_valid(b.column(col_name))
+                        f = b.filter(mask)
+                        if f.num_rows > 0:
+                            yield f
+                it = _filtered()
+            else:
+                it = self._iter_filtered_batches()
+            try:
+                result = _gba(
+                    it,
+                    [col_name],
+                    [col_name],
+                    ["count"],
+                    self._memory_guard,
+                    self._spill_dir / f"nunique_{col_name}",
+                    log=False,
+                )
+            except ValueError as e:
+                # groupby_aggregate raises on empty input. dropna=True
+                # + all-null column -> filtered is empty -> 0 uniques.
+                # v0.9.23g-fix5: is_empty_input_error (both languages).
+                from cadw.patch_utils import is_empty_input_error
+                if is_empty_input_error(e):
+                    return 0
+                raise
+            return result.num_rows
+
+        if column is not None:
+            if column not in self._columns:
+                raise KeyError(
+                    f"nunique: column {column!r} not in {self._columns}"
+                )
+            return _nunique_one(column, dropna)
+
+        # All columns: per-column groupby_aggregate.
+        out: dict = {}
+        for c in self._columns:
+            out[c] = _nunique_one(c, dropna)
+        return out
+
     # ---------------- sample (v0.9.23f) ----------------
 
     def sample(
@@ -6368,6 +6679,24 @@ def concat(
         memory_guard=first._memory_guard,
         spill_dir=first._spill_dir,
     )
+
+# ============ v0.9.23g-fix2: empty value_counts helper ============
+
+
+def _empty_value_counts_table(column, col_type, *, normalize: bool):
+    """Empty pa.Table with value_counts output schema (0 rows).
+
+    Schema: [column (col_type), "count" (int64)] or
+    [column (col_type), "fraction" (float64)].
+    """
+    import pyarrow as _pa
+
+    second_name = "fraction" if normalize else "count"
+    second_type = _pa.float64() if normalize else _pa.int64()
+    return _pa.Table.from_pylist([], schema=_pa.schema([
+        (column, col_type), (second_name, second_type),
+    ]))
+
 
 # ============ v0.9.23f: reservoir sampling helpers ============
 
