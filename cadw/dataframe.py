@@ -4539,6 +4539,7 @@ class CadwDataFrame:
         metrics: "Sequence[str] | str",
         y_pred: "str | None" = None,
         y_proba: "str | Sequence[str] | None" = None,
+        y_proba_cols: "Sequence[str] | None" = None,
         classes: "Sequence | None" = None,
         average: "str | None" = None,
         pos_label=None,
@@ -4556,7 +4557,14 @@ class CadwDataFrame:
             metrics: metric name(s) — scalar or list.
             y_pred: predicted values (float or labels — depends on
                 metric group).
-            y_proba: predicted probabilities (float in [0,1], binary).
+            y_proba: predicted probabilities. str for binary
+                (single column, float in [0,1]); list[str] for
+                multiclass (K columns, K classes — requires
+                `classes`).
+            y_proba_cols: alias for `y_proba` when passing a
+                list of columns. Both work; use whichever you
+                prefer (matches MetricsOp parameter name).
+                Passing both → ValueError.
             classes: explicit class list for classification. K=2 default
                 when classes=None.
             average: 'binary' | 'macro' | 'micro' | 'weighted' for
@@ -4616,6 +4624,33 @@ class CadwDataFrame:
                     f"metrics: K={K} → state {est} B > state_limit "
                     f"{state_limit} B. Reduce class count or increase "
                     f"budget. §13.4/164."
+                )
+
+        # v0.9.23b: y_proba_cols alias (matches MetricsOp param
+        # name; AUDIT_FULL_v0922 item 7.A.11.3 / c11 Jupyter
+        # gap). Existing `y_proba` (str|Sequence) and new
+        # `y_proba_cols` (Sequence[str]) both work; passing
+        # both → ValueError (ambiguous); str → TypeError (would
+        # iterate char-by-char — footgun).
+        if y_proba_cols is not None:
+            if y_proba is not None:
+                raise ValueError(
+                    "metrics: pass either y_proba= or "
+                    "y_proba_cols=, not both"
+                )
+            if isinstance(y_proba_cols, str):
+                raise TypeError(
+                    "metrics: y_proba_cols must be a "
+                    "sequence of column names; got single "
+                    f"string {y_proba_cols!r}. Use "
+                    "y_proba='col' for single-column "
+                    "proba, or y_proba_cols=['col'] for a "
+                    "list."
+                )
+            y_proba = list(y_proba_cols)
+            if not y_proba:
+                raise ValueError(
+                    "metrics: y_proba_cols must be non-empty"
                 )
 
         # v0.9.2c: y_proba normalization (str → [str], list → list).
