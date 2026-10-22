@@ -4626,10 +4626,10 @@ class CadwDataFrame:
           num_partitions / max_output_rows. Если
           False — runtime использует старые дефолты (0.3 * available / 256).
         """
-        if how not in ("inner", "left"):
+        if how not in ("inner", "left", "outer", "anti", "semi"):
             raise NotImplementedError(
-                f"merge: how={how!r}; only 'inner', 'left' supported in "
-                f"v0.2.x. 'right'/'outer' — v0.3."
+                f"merge: how={how!r}; supported: inner, left, "
+                f"outer, anti, semi. 'right' — v0.9.23j."
             )
         if not isinstance(right, CadwDataFrame):
             raise TypeError("merge: right must be CadwDataFrame")
@@ -4664,9 +4664,20 @@ class CadwDataFrame:
                     right_sample, right._dataset.total_rows,
                     on_list, self._memory_guard,
                 )
+                # v0.9.23i-fix2: JoinMemoryModel.solve supports only
+                # 'inner'|'left'. Map anti/semi/outer -> 'left' for
+                # planning (planner build=right, probe=left; same class).
+                # Actual execution dispatches to anti_join_streaming /
+                # hash_join_streaming(how='left') appropriately.
+                _planner_how = (
+                    "inner" if how == "inner" else "left"
+                )
                 params = self._memory_guard.plan(
                     "join", left_chars,
-                    op_context={"right_chars": right_chars, "how": how},
+                    op_context={
+                        "right_chars": right_chars,
+                        "how": _planner_how,
+                    },
                 )
                 if num_partitions is None:
                     num_partitions = params.num_partitions
@@ -4684,11 +4695,27 @@ class CadwDataFrame:
                     _JOIN_FIXED_OVERHEAD_BYTES,
                     _JOIN_STRICT_BUDGET_THRESHOLD_BYTES,
                 )
-                predicted_output = (
-                    left_chars.n_rows
-                    * params.avg_matches
-                    * params.output_row_size
-                )
+                # v0.9.23i-fix2: predicted_output per how.
+                # anti/semi: ≤ left_n (per-probe-batch guard sufficient,
+                # whole-op overhead only — 40 MB fixed).
+                # outer: left_join (left_n*avg_matches) + anti_right
+                # (≤ right_n) rows.
+                # inner/left: left_n*avg_matches (unchanged).
+                if how in ("anti", "semi"):
+                    predicted_output = 0
+                elif how == "outer":
+                    predicted_output = (
+                        left_chars.n_rows
+                        * params.avg_matches
+                        * params.output_row_size
+                        + right_chars.n_rows * params.output_row_size
+                    )
+                else:
+                    predicted_output = (
+                        left_chars.n_rows
+                        * params.avg_matches
+                        * params.output_row_size
+                    )
                 total_rss_estimate = (
                     _JOIN_FIXED_OVERHEAD_BYTES + 5 * predicted_output
                 )
@@ -4736,21 +4763,113 @@ class CadwDataFrame:
                 num_partitions = 8
 
         # v0.5.1 (P2): use streaming path — output written to disk
-        # batch-by-batch, never accumulated in RAM. Only the resulting
-        # Dataset is built from IPC reader (also streaming).
-        out_schema, out_path = hash_join_streaming(
-            self._iter_filtered_batches(),
-            right._iter_filtered_batches(),
-            left_schema,
-            right_schema,
-            on=on_list,
-            memory_guard=self._memory_guard,
-            spill_dir=self._spill_dir / "join",
-            how=how,
-            suffixes=suffixes,
-            num_partitions=num_partitions,
-            max_output_rows=max_output_rows,
-        )
+        # batch-by-batch, never accumulated in RAM.
+        # v0.9.23i: dispatch outer/anti/semi via dedicated functions.
+        # v0.9.23i-fix2: only anti (semi in v0.9.23j; outer via
+        # left+anti composition inside dispatch, no direct call).
+        from cadw.ops.join import anti_join_streaming as _anti
+        if how == "outer":
+            # v0.9.23i: outer = left_join(left, right) ∪ anti_join(
+            # right, left)_padded. Two passes (right is re-iterable via
+            # right._iter_filtered_batches()).
+            left_schema_out, left_path = hash_join_streaming(
+                self._iter_filtered_batches(),
+                right._iter_filtered_batches(),
+                left_schema, right_schema, on=on_list,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir / "join" / "outer_left",
+                how="left", suffixes=suffixes,
+                num_partitions=num_partitions,
+                max_output_rows=max_output_rows,
+            )
+            anti_schema, anti_path = _anti(
+                right._iter_filtered_batches(),
+                self._iter_filtered_batches(),
+                right_schema, left_schema, on=on_list,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir / "join" / "outer_anti",
+                num_partitions=num_partitions,
+            )
+            # Build final schema (left_join schema — superset of anti-
+            # right padded). Write concat: left_path rows as-is +
+            # anti_path rows with null left cols + right values.
+            out_schema = left_schema_out
+            out_path = self._spill_dir / "join" / "outer_output.arrow"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            from cadw.io.batch_writer import ArrowIPCBatchWriter as _W
+            writer = _W(str(out_path), out_schema)
+            on_set = set(on_list)
+            overlap = {
+                c for c in left_schema.names if c not in on_set
+            } & {
+                c for c in right_schema.names if c not in on_set
+            }
+            try:
+                # Left rows (from left join)
+                for b in ArrowIPCBatchReader(str(left_path), None):
+                    if b.num_rows > 0:
+                        writer.write_batch(b)
+                # Anti-right rows padded with null left cols
+                for b in ArrowIPCBatchReader(str(anti_path), None):
+                    n = b.num_rows
+                    if n == 0:
+                        continue
+                    arrays = []
+                    for c in on_list:
+                        arrays.append(b.column(c))
+                    for f in left_schema:
+                        if f.name in on_set:
+                            continue
+                        nm = (
+                            f.name + suffixes[0]
+                            if f.name in overlap else f.name
+                        )
+                        arrays.append(pa.nulls(n, type=f.type))
+                    for f in right_schema:
+                        if f.name in on_set:
+                            continue
+                        nm = (
+                            f.name + suffixes[1]
+                            if f.name in overlap else f.name
+                        )
+                        arrays.append(b.column(f.name))
+                    writer.write_batch(pa.RecordBatch.from_arrays(
+                        arrays, schema=out_schema,
+                    ))
+            finally:
+                writer.close()
+                left_path.unlink(missing_ok=True)
+                anti_path.unlink(missing_ok=True)
+        elif how == "anti":
+            # v0.9.23i: anti join = left rows without match in right.
+            out_schema, out_path = _anti(
+                self._iter_filtered_batches(),
+                right._iter_filtered_batches(),
+                left_schema, right_schema, on=on_list,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir / "join" / "anti",
+                num_partitions=num_partitions,
+            )
+        elif how == "semi":
+            # v0.9.23j placeholder — dispatch handled by CadwDataFrame
+            # extension in next patch.
+            raise NotImplementedError(
+                "merge(how='semi') is v0.9.23j; use anti + left for now."
+            )
+        else:
+            out_schema, out_path = hash_join_streaming(
+                self._iter_filtered_batches(),
+                right._iter_filtered_batches(),
+                left_schema,
+                right_schema,
+                on=on_list,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir / "join",
+                how=how,
+                suffixes=suffixes,
+                num_partitions=num_partitions,
+                max_output_rows=max_output_rows,
+            )
         try:
             new_ds = Dataset.from_batches(
                 out_schema,
