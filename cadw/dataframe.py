@@ -114,6 +114,96 @@ class _ColumnProxy:
             self._column, "between", (left, right, inclusive),
         )
 
+    def idxmax(self):
+        """Index label of first row with maximum value (v0.9.25h).
+
+        - Returns index LABEL (RangeIndex → int; MaterializedIndex →
+          original label; MultiIndex → tuple). Not positional.
+        - First occurrence in row_id order (pandas `idxmax` semantics).
+        - Nulls skipped. All-null column → ValueError.
+        - Empty filtered view → ValueError.
+
+        Two-pass: ReduceOp(MinMaxOp, 'max') for the max value, then
+        stream to find first matching position via pc.equal +
+        pc.indices_nonzero. Peak = batch + O(1) state.
+        """
+        from cadw.ops.reduce import MinMaxOp, reduce
+        import pyarrow.compute as _pc
+
+        max_val = reduce(
+            self._parent._iter_filtered_batches(),
+            MinMaxOp(self._column, "max"),
+            self._parent._memory_guard,
+            log=False,
+        )
+        if max_val is None:
+            raise ValueError(
+                f"idxmax: column {self._column!r} has no non-null values"
+            )
+        for batch, positions in (
+            self._parent._iter_filtered_batches_with_positions()
+        ):
+            arr = batch.column(self._column)
+            eq = _pc.equal(arr, pa.scalar(max_val, type=arr.type))
+            eq = _pc.fill_null(eq, pa.scalar(False, type=pa.bool_()))
+            nonzero = _pc.indices_nonzero(eq)
+            if len(nonzero) > 0:
+                local_pos = int(nonzero[0])
+                raw_pos = int(positions[local_pos])
+                return self._index_at_raw_pos(raw_pos)
+        raise RuntimeError("idxmax: value not found (unreachable)")
+
+    def idxmin(self):
+        """Index label of first row with minimum value (v0.9.25h).
+
+        Mirror of `idxmax` (see docstring). Nulls skipped.
+        """
+        from cadw.ops.reduce import MinMaxOp, reduce
+        import pyarrow.compute as _pc
+
+        min_val = reduce(
+            self._parent._iter_filtered_batches(),
+            MinMaxOp(self._column, "min"),
+            self._parent._memory_guard,
+            log=False,
+        )
+        if min_val is None:
+            raise ValueError(
+                f"idxmin: column {self._column!r} has no non-null values"
+            )
+        for batch, positions in (
+            self._parent._iter_filtered_batches_with_positions()
+        ):
+            arr = batch.column(self._column)
+            eq = _pc.equal(arr, pa.scalar(min_val, type=arr.type))
+            eq = _pc.fill_null(eq, pa.scalar(False, type=pa.bool_()))
+            nonzero = _pc.indices_nonzero(eq)
+            if len(nonzero) > 0:
+                local_pos = int(nonzero[0])
+                raw_pos = int(positions[local_pos])
+                return self._index_at_raw_pos(raw_pos)
+        raise RuntimeError("idxmin: value not found (unreachable)")
+
+    def _index_at_raw_pos(self, raw_pos: int):
+        """Look up index label at raw (unfiltered) position.
+
+        Delegates to MaterializedIndex.__getitem__ (in
+        cadw/dataset/index.py) — avoids .as_py() in facade (AST
+        guard test_facade_has_no_as_py).
+        """
+        if self._parent._index_kind == "range":
+            return self._parent._index_start + int(raw_pos)
+        if self._parent._index_kind == "materialized":
+            idx = MaterializedIndex(self._parent._index_values)
+            return idx[raw_pos]
+        if self._parent._index_kind == "multi":
+            idx = MaterializedMultiIndex(self._parent._index_levels)
+            return idx[raw_pos]
+        raise RuntimeError(
+            f"idxmax/idxmin: unknown index_kind "
+            f"{self._parent._index_kind!r}"
+        )
+
     @property
     def dt(self):
         """Datetime accessor. Requires timestamp or date column."""
@@ -938,6 +1028,118 @@ class CadwDataFrame:
                 f"available dtypes={self.dtypes()}"
             )
         return self[keep]
+
+    def pct_change(self, periods: int = 1, columns=None) -> "CadwDataFrame":
+        """Percent change between rows (v0.9.25h).
+
+        Formula: `(x / shift(x, periods)) - 1` per row. Composition
+        of `shift(periods)` + `pc.cast` to float64 + `pc.divide` +
+        `pc.subtract`.
+
+        - periods: int >= 1. Default 1 (adjacent rows).
+        - columns: None → all numeric (int/float). Else str or
+          Sequence[str]; non-numeric → TypeError.
+        - Output: original + `{col}_pct_change` (float64, nullable).
+        - First `periods` rows → null (no previous value).
+        - Null in current or shifted → null row (skipna).
+        - **Div-by-zero matches pandas**: `pc.divide` uses IEEE 754
+          float semantics → `x / 0` (x != 0) = `inf`; `0 / 0` = `nan`.
+          Then `inf - 1 = inf`, `nan - 1 = nan`. `pa.array` and Parquet
+          preserve inf/nan (IEEE 754 round-trip).
+          **CadwDataFrame.pct_change does NOT null-out inf/nan** — user
+          who wants null semantics should filter: `df[df.pct.is_finite()]`
+          or post-process. Rationale: pandas parity + honesty; changing
+          this to null-out-by-default would be a policy decision for
+          ALL float ops, not just pct_change (§11.5).
+        - Empty filtered view → empty CadwDataFrame with full schema.
+        - Original `{col}` columns preserved; new `{col}_pct_change`
+          appended.
+
+        Peak RAM = batch × (1 + #cols) × 8 B + _ArrowTail(k × 8 B) per
+        col (from shift) — O(batch + k × #cols). Independent of N.
+        """
+        import pyarrow.compute as _pc
+        from cadw.dataset import Dataset
+
+        if not isinstance(periods, int) or periods < 1:
+            raise ValueError(
+                f"pct_change: periods must be int >= 1; got {periods!r}"
+            )
+        if columns is None:
+            cols = [
+                c for c in self._columns
+                if pa.types.is_integer(
+                    self._dataset.schema.field(c).type
+                ) or pa.types.is_floating(
+                    self._dataset.schema.field(c).type
+                )
+            ]
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        if not cols:
+            raise ValueError(
+                "pct_change: no numeric columns selected "
+                "(pass columns=None for auto int/float, or explicit)"
+            )
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"pct_change: column {c!r} not in {self._columns}"
+                )
+            t = self._dataset.schema.field(c).type
+            if not (pa.types.is_integer(t) or pa.types.is_floating(t)):
+                raise TypeError(
+                    f"pct_change: column {c!r} has type {t}; numeric "
+                    f"required"
+                )
+
+        shifted = self.shift(periods, columns=cols)
+
+        out_fields = [
+            self._dataset.schema.field(c) for c in self._columns
+        ]
+        for c in cols:
+            out_fields.append(
+                pa.field(f"{c}_pct_change", pa.float64(), nullable=True)
+            )
+        out_schema = pa.schema(out_fields)
+
+        batch_size = 10_000
+
+        def _iter():
+            orig_it = self._iter_arrow_batches(batch_size=batch_size)
+            shifted_it = shifted._iter_arrow_batches(batch_size=batch_size)
+            for ob, sb in zip(orig_it, shifted_it):
+                if ob.num_rows != sb.num_rows:
+                    raise RuntimeError(
+                        f"pct_change: batch size mismatch "
+                        f"(orig={ob.num_rows}, shifted={sb.num_rows})"
+                    )
+                arrays = [ob.column(c) for c in self._columns]
+                for c in cols:
+                    curr_f = _pc.cast(ob.column(c), pa.float64())
+                    prev_f = _pc.cast(sb.column(c), pa.float64())
+                    # pc.divide uses IEEE 754 (inf for x/0, nan for 0/0)
+                    # — matches pandas. Nulls preserved (null/null = null).
+                    ratio = _pc.divide(curr_f, prev_f)
+                    pct = _pc.subtract(
+                        ratio, pa.scalar(1.0, type=pa.float64())
+                    )
+                    arrays.append(pct)
+                yield pa.RecordBatch.from_arrays(
+                    arrays, schema=out_schema,
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
 
     # ---------------- __getitem__ ----------------
 
