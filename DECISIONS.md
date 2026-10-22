@@ -5378,3 +5378,56 @@ v0.3 (GBDT, Linear, k-means, PCA, NB) на примитивах.
 **v0.1.4 (патч 10):** must-fix «materialize-before-check»: `_local_groupby`
 (stat до чтения) и `reduce` (estimate_state_size до init()). Добавлены
 AST guards + OOM E2E. §3.10 — новый принцип.
+
+
+---
+
+## §15. Time series (v0.9.24)
+
+### 15.1 Forecaster API
+
+Common `ForecasterBase`: fit(df, target_col, *, time_col=None,
+ group_col=None) / predict(steps) / predict_in_sample(). Predict before
+ fit raises RuntimeError; steps<1 raises ValueError. This is the
+ contract every forecaster satisfies; test_ts_models asserts method
+ presence and arity for all classes.
+
+### 15.2 GBDT default = direct, deferred training
+
+GBDTForecaster default mode='direct': h independent models, one per
+ horizon. Horizons are determined by predict(steps): fit(df) with no
+ horizons defers training; predict(10) trains exactly 10 horizon models
+ and caches them. No silent extrapolation (was: reuse last horizon model
+ — removed). 'recursive' mode is available but propagates errors
+ (feed-back); 'multi_output' is h-independent (CADW GBDT has no native
+ multi-target) — documented.
+
+### 15.3 SARIMA uses CSS, not MLE
+
+SARIMAForecaster fits via conditional sum of squares / Hannan-Rissanen
+(two-step AR-approx + OLS on ARMA), not full MLE. Auto-ARIMA grid is
+bounded: p,q in 0..2, d in 0..1; P,D,Q in 0..1 when seasonal. AIC can
+UNDER-DIFFERENCE trending series (level-stationary ARMA often wins by
+AIC on a random walk). Recommendation documented: set order=(p,1,q)
+explicitly for trending/unit-root data. Integration back from d,D
+uses L1=last observed y; L2+ levels default to 0.0 for d>=2 (CSS limit).
+
+### 15.4 MinT-WLS uses residual-variance weights
+
+THF reconciliation 'optimal_wls' is proper MinT with diagonal W where
+W[i] = in-sample residual variance of the level that position i belongs
+to. Residuals come from each level model's predict_in_sample over rows
+where the prediction is finite. A 1e-8 floor prevents zero weight on
+perfect in-sample fits. If ANY level has <2 finite residual pairs, the
+whole fit falls back to OLS and emits a one-time warning. This replaced
+an earlier heuristic (w[i]=1/m_k) that was NOT MinT. Reconciled y =
+S (S^T W^-1 S)^-1 S^T W^-1 y_all with np.linalg.pinv (rank-safe).
+
+### 15.5 sort_values ascending-list (pre-existing bug, fixed)
+
+df.sort_values(by=list, ascending=list) previously treated a non-empty
+list ascending as truthy -> all columns ascending. Silently broke mixed-
+direction sorts. Fixed in v0.9.24: ascending now accepts a per-column
+sequence, length-checked against by; both the in-memory fast path and
+external_sort use the resolved sequence. Not a breaking change for the
+scalar case.

@@ -66,6 +66,88 @@ result = groupby_aggregate(reader, ["cat"], ["val"], ["mean"], guard, "./spill")
 print(result)
 ```
 
+## Time series (v0.9.24)
+
+Comprehensive time-series toolkit built on the same out-of-core
+primitives. Import from `cadw.ts` or use the thin `df.ts.*` accessor.
+
+**Feature engineering** (`cadw.ts.features`): lag/lead, diff (regular +
+seasonal), calendar (year/month/day/weekday/hour/...), cyclical sin/cos,
+Fourier terms, holiday/weekend flags, and a `make_features` pipeline.
+All streaming, O(batch) state, MemoryGuard-checked, group-aware (per-entity
+lags, no cross-entity leakage).
+
+**Window statistics** (`cadw.ts.stats`): tsfresh-subset — mean/std/sum/
+min/max/median/skew/kurt, fixed quantiles q10..q90, abs_energy/energy/cid,
+crossings, slope, entropy, count_above_mean, autocorr_lagK, plus
+`rolling_crosscorr` between two series. One shared deque per group;
+explicit RAM formula per statistic.
+
+**Forecasters** (`cadw.ts.models`): `NaiveForecaster` (last/seasonal/
+drift), `SARIMAForecaster` (CSS/Hannan-Rissanen, bounded auto-AIC grid,
+seasonal orders), `GBDTForecaster` (default mode='direct' with deferred
+per-horizon training; 'recursive' and 'multi_output' also available).
+Common `ForecasterBase` API: fit / predict / predict_in_sample.
+
+**Backtesting** (`cadw.ts.backtest`): expanding and sliding-window CV,
+multi-series, metrics MAE/RMSE/MAPE/sMAPE/MASE (m=seasonal_period),
+optional pinball for quantile forecasters. Forecasters cloned per fold.
+
+**Temporal Hierarchical Forecasting** (`cadw.ts.thf`):
+`TemporalHierarchy` aggregates the base series to K temporal levels, fits
+a forecaster per level, and reconciles with bottom-up, top-down-proportional,
+optimal-OLS, or proper MinT-WLS (diagonal residual-variance weights,
+1e-8 floor, OLS fallback on insufficient residuals). Multi-series supported.
+
+### Examples
+
+```python
+import cadw
+from cadw.ts import (
+    lag_features, rolling_stats, make_features,
+    NaiveForecaster, GBDTForecaster, backtest_forecaster,
+    TemporalHierarchy,
+)
+
+# df has columns y, ts (timestamp), maybe g (group)
+# Features
+f = lag_features(df, "y", lags=(1, 7, 14), group_col="g", time_col="ts")
+# OR full pipeline (do not chain both):
+# f2 = make_features(df, target_col="y", ts_col="ts", group_col="g")
+
+# Window stats
+s = rolling_stats(df, "y", windows=(7, 14),
+                  stats=("mean", "std", "slope", "autocorr_lag1"))
+
+# Forecasters
+m = NaiveForecaster(strategy="seasonal", period=7).fit(df, "y")
+print(m.predict(7))
+
+g = GBDTForecaster(lags=(1, 2, 3)).fit(df, "y")
+print(g.predict(7))    # deferred: 7 horizon models trained on demand
+
+# Backtesting
+summary, folds = backtest_forecaster(
+    df, NaiveForecaster("last"),
+    target_col="y", time_col="ts",
+    horizon=7, n_folds=5, strategy="expanding",
+    metrics=("mae", "rmse", "mase"),
+)
+
+# Temporal hierarchy with MinT-WLS reconciliation
+th = TemporalHierarchy(
+    levels=[1, 7, 30],
+    forecaster_factory=lambda: NaiveForecaster("last"),
+    reconciliation="optimal_wls",
+).fit(df, "y", time_col="ts")
+print(th.predict(30))
+
+# Or via the accessor:
+f = df.ts.lag("y", lags=(1, 7), group="g", time_col="ts")
+f = f.ts.rolling_features("y", windows=(7,), stats=("mean", "std"))
+model = df.ts.fit_forecaster("gbdt", "y", time_col="ts")
+```
+
 ## ML и внешние библиотеки
 
 CADW **не является ML-фреймворком**. Он даёт `to_batches(format=...)` для

@@ -190,11 +190,18 @@ def test_merge_how_unsupported_raises(tmp_path):
         left.merge(right, on="k", how="right")
 
 
-def test_merge_how_semi_raises(tmp_path):
+def test_merge_how_semi_works(tmp_path):
+    """v0.9.23j: semi join now works (was NotImplementedError).
+
+    Rename from test_merge_how_semi_raises; test semantics
+    flipped: emit left rows with match in right.
+    """
     left = make_df(tmp_path, {"k": [1, 2]}, name="L")
     right = make_df(tmp_path, {"k": [1]}, name="R")
-    with pytest.raises(NotImplementedError, match="semi"):
-        left.merge(right, on="k", how="semi")
+    result = left.merge(right, on="k", how="semi")
+    rows = _rows(result)
+    assert len(rows) == 1
+    assert rows[0]["k"] == 1
 
 
 # ============ AST guards ============
@@ -271,14 +278,20 @@ def test_anti_whole_op_warning_skip():
     ), "anti/semi should skip predicted_output (per-batch guard sufficient)"
 
 
-def test_no_semi_join_streaming_import_yet():
-    """v0.9.23i-fix2: semi_join_streaming import removed (v0.9.23j)."""
+def test_semi_join_streaming_import_present():
+    """v0.9.23j: semi_join_streaming now implemented and dispatched.
+
+    Stale-test on enum extension (git-log §13.4 pattern): the previous
+    assertion "semi_join_streaming not in merge source" was valid only
+    while semi join was NotImplemented. Once v0.9.23j shipped the
+    implementation, the invariant flipped: merge MUST reference it.
+    """
     import inspect
     from cadw.dataframe import CadwDataFrame
     src = inspect.getsource(CadwDataFrame.merge)
-    assert "semi_join_streaming" not in src, (
-        "semi_join_streaming doesn't exist yet (v0.9.23j); "
-        "remove from dispatch import"
+    assert "semi_join_streaming" in src, (
+        "v0.9.23j: semi join is implemented; merge should dispatch to "
+        "semi_join_streaming"
     )
 
 

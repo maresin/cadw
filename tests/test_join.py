@@ -110,13 +110,12 @@ def test_merge_missing_on_raises(tmp_path):
 
 
 def test_merge_unsupported_how(tmp_path):
-    """v0.9.23i-fix5: 'outer' now supported; 'right'/'cross' still raise.
+    """v0.9.23j: how enum closed. Only 'right'/'cross' raise.
 
-    Prior test (v0.2.x) expected only inner/left. Enum extended in
-    v0.9.23i (outer/anti/semi) and v0.9.23j ('right'). Update:
-    - outer -> supported (no longer in bad_how)
-    - right, cross -> raise with updated message
-    - semi -> raises NotImplementedError (v0.9.23j placeholder)
+    Supported: inner, left, outer, anti, semi.
+    - right -> still NotImplementedError (deferred; SQL right
+      join = left join with sides swapped — not a v0.9.23 scope)
+    - cross -> still NotImplementedError (O(m*n) — out of scope)
     """
     left = make_df(tmp_path, "L", {"k": [1], "a": [10]})
     right = make_df(tmp_path, "R", {"k": [1], "b": [100]})
@@ -126,9 +125,9 @@ def test_merge_unsupported_how(tmp_path):
             match="supported: inner, left, outer, anti, semi",
         ):
             left.merge(right, on="k", how=bad_how)
-    # semi: explicit placeholder message
-    with pytest.raises(NotImplementedError, match="semi"):
-        left.merge(right, on="k", how="semi")
+    # semi now works (v0.9.23j) — regression: must not raise.
+    result = left.merge(right, on="k", how="semi")
+    assert result.count() == 1
 
 
 def test_merge_requires_cadwdataframe(tmp_path):

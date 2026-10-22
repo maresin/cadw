@@ -1163,6 +1163,204 @@ def inner_join(
     )
 
 
+
+
+def _process_partition_pair_semi(
+    left_path: Path,
+    right_path: Path,
+    left_schema: pa.Schema,
+    right_schema: pa.Schema,
+    on: list[str],
+    memory_guard: MemoryGuard,
+    spill_dir: Path,
+    *,
+    depth: int = 0,
+    max_depth: int = 5,
+):
+    """Generator: semi-join one partition pair (v0.9.23j).
+
+    Mirror of _process_partition_pair_anti with filter(matched) instead
+    of filter(unmatched). Emits left rows whose key IS matched in right.
+
+    SQL semantics: null left key never matches -> NOT emitted (opposite
+    of anti). Null right key never matches -> doesn't make any left row
+    matched.
+
+    Multi-column: composite key via _combine_join_keys (fix3 lesson —
+    never AND-of-per-column is_in, cross-product false positive).
+    """
+    import pyarrow.compute as _pc
+
+    lp_size = left_path.stat().st_size if left_path.exists() else 0
+    rp_size = right_path.stat().st_size if right_path.exists() else 0
+    if lp_size == 0:
+        return
+    limit = int(memory_guard.available_bytes() * 0.5)
+    need_split = (lp_size > limit) or (rp_size > limit)
+
+    if need_split:
+        if depth >= max_depth:
+            raise MemoryLimitExceeded(
+                f"semi_join: depth={depth} >= max_depth={max_depth}; "
+                f"lp={lp_size}, rp={rp_size}, limit={limit}."
+            )
+        sub_left_dir = spill_dir / f"semi_l_d{depth}_{left_path.stem}"
+        sub_right_dir = spill_dir / f"semi_r_d{depth}_{right_path.stem}"
+        sub_left_dir.mkdir(parents=True, exist_ok=True)
+        sub_right_dir.mkdir(parents=True, exist_ok=True)
+        left_rest = [c for c in left_schema.names if c not in on]
+        right_rest = [c for c in right_schema.names if c not in on]
+
+        def _iter_lp():
+            for b in ArrowIPCBatchReader(str(left_path), None):
+                keep = [c for c in list(on) + left_rest
+                        if c in b.schema.names]
+                yield b.select(keep)
+
+        def _iter_rp():
+            for b in ArrowIPCBatchReader(str(right_path), None):
+                keep = [c for c in list(on) + right_rest
+                        if c in b.schema.names]
+                yield b.select(keep)
+
+        sub_left = hash_shuffle(
+            _iter_lp(), list(on), left_rest, 4,
+            memory_guard, sub_left_dir, hash_seed=depth + 1, log=False,
+        )
+        sub_right = hash_shuffle(
+            _iter_rp(), list(on), right_rest, 4,
+            memory_guard, sub_right_dir, hash_seed=depth + 1, log=False,
+        )
+        for sub_l, sub_r in zip(sub_left, sub_right):
+            yield from _process_partition_pair_semi(
+                sub_l, sub_r, left_schema, right_schema, on,
+                memory_guard, spill_dir, depth=depth + 1,
+                max_depth=max_depth,
+            )
+        return
+
+    right_table = _safe_materialize_partition(right_path, memory_guard)
+    if right_table is None:
+        raise MemoryLimitExceeded(
+            f"semi_join: build partition {right_path.name} still too "
+            f"large after stat check."
+        )
+    right_table = _drop_null_keys_arrow(right_table, list(on))
+
+    for probe_batch in _iter_probe_batches(left_path):
+        memory_guard.check_batch(
+            probe_batch, name=f"semi_probe({left_path.name})"
+        )
+        # Composite key for multi-column (fix3 lesson).
+        if len(on) == 1:
+            m = _pc.is_in(
+                probe_batch.column(on[0]),
+                value_set=right_table.column(on[0]).combine_chunks(),
+            )
+        else:
+            probe_tbl = pa.Table.from_batches([probe_batch])
+            probe_key = _combine_join_keys(probe_tbl, list(on))
+            right_key = _combine_join_keys(right_table, list(on))
+            m = _pc.is_in(probe_key, value_set=right_key)
+        # Null left -> is_in returns null -> fill_null(False) treats as
+        # "not matched" -> NOT emitted (SQL semantics for semi).
+        m = _pc.fill_null(m, pa.scalar(False, type=pa.bool_()))
+        filtered = probe_batch.filter(m)
+        if filtered.num_rows > 0:
+            yield filtered
+
+
+def semi_join_streaming(
+    left_batches: Iterable[pa.RecordBatch],
+    right_batches: Iterable[pa.RecordBatch],
+    left_schema: pa.Schema,
+    right_schema: pa.Schema,
+    on: list[str],
+    memory_guard: MemoryGuard,
+    spill_dir: Path,
+    *,
+    num_partitions: int = 8,
+    hash_seed: int = 0,
+) -> tuple[pa.Schema, Path]:
+    """Semi join: left rows whose key IS present in right.
+
+    v0.9.23j (AUDIT_FULL_v0922 item 7.A.10, split 3/3 final).
+
+    Output schema = left_schema (no right columns). Streaming;
+    peak = per-partition build + probe batch. Mirror of
+    anti_join_streaming with filter(matched).
+
+    SQL semantics: null left key -> NOT emitted (null never matches).
+    """
+    if not on:
+        raise ValueError("semi_join: on must be non-empty")
+    for c in on:
+        if c not in left_schema.names:
+            raise KeyError(f"semi_join: on {c!r} not in left schema")
+        if c not in right_schema.names:
+            raise KeyError(f"semi_join: on {c!r} not in right schema")
+
+    left_rest = [c for c in left_schema.names if c not in on]
+    right_rest = [c for c in right_schema.names if c not in on]
+
+    left_it = iter(left_batches)
+    right_it = iter(right_batches)
+    try:
+        first_left = next(left_it)
+    except StopIteration:
+        out_schema = pa.schema(
+            [left_schema.field(c) for c in left_schema.names]
+        )
+        return out_schema, _write_empty_ipc(out_schema, spill_dir)
+    try:
+        first_right = next(right_it)
+    except StopIteration:
+        # No right rows -> semi = empty.
+        out_schema = pa.schema(
+            [left_schema.field(c) for c in left_schema.names]
+        )
+        return out_schema, _write_empty_ipc(out_schema, spill_dir)
+
+    left_batches = chain([first_left], left_it)
+    right_batches = chain([first_right], right_it)
+
+    spill_dir = Path(spill_dir)
+    spill_dir.mkdir(parents=True, exist_ok=True)
+    left_paths = hash_shuffle(
+        left_batches, list(on), left_rest, num_partitions,
+        memory_guard, spill_dir / "semi_left",
+        hash_seed=hash_seed, log=False,
+    )
+    right_paths = hash_shuffle(
+        right_batches, list(on), right_rest, num_partitions,
+        memory_guard, spill_dir / "semi_right",
+        hash_seed=hash_seed, log=False,
+    )
+
+    out_schema = pa.schema(
+        [left_schema.field(c) for c in left_schema.names]
+    )
+    out_path = spill_dir / "semi_output.arrow"
+    writer = ArrowIPCBatchWriter(str(out_path), out_schema)
+    try:
+        for p in range(num_partitions):
+            lp = left_paths[p] if left_paths[p].exists() else None
+            rp = right_paths[p] if right_paths[p].exists() else None
+            if lp is None:
+                continue
+            if rp is None:
+                # No right rows in partition -> no match -> skip (semi).
+                continue
+            for rb in _process_partition_pair_semi(
+                lp, rp, left_schema, right_schema, on,
+                memory_guard, spill_dir,
+            ):
+                if rb.num_rows > 0:
+                    writer.write_batch(rb)
+    finally:
+        writer.close()
+    return out_schema, out_path
+
 def left_join(
     left_batches: Iterable[pa.RecordBatch],
     right_batches: Iterable[pa.RecordBatch],

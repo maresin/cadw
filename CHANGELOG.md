@@ -1,5 +1,37 @@
 ## [Unreleased]
 
+### v0.9.24: time series toolkit + temporal hierarchical forecasting
+
+Comprehensive time-series extension. All new code lives in `cadw/ts/`
+and routes through the existing primitives + MemoryGuard.
+
+- **Features** (`cadw/ts/features.py`): lag/lead, diff (regular +
+  seasonal), calendar, cyclical sin/cos, Fourier, holiday/weekend,
+  `make_features` composite pipeline. Group-aware (per-entity, no
+  cross-entity leakage). O(batch) state, explicit extra_factor.
+- **Window statistics** (`cadw/ts/stats.py`): tsfresh-subset
+  (mean/std/min/max/median/skew/kurt, q10..q90, abs_energy/energy/
+  cid, crossings, slope, entropy, count_above_mean, autocorr_lagK) +
+  rolling_crosscorr. Shared per-group deque, RAM formula documented.
+- **Forecasters** (`cadw/ts/models.py`): NaiveForecaster, SARIMAForecaster
+  (CSS/Hannan-Rissanen, bounded auto-AIC grid, seasonal orders; AIC
+  may under-difference trending series — use explicit order=), 
+  GBDTForecaster (default mode='direct' with deferred per-horizon
+  training; recursive and multi_output modes). ForecasterBase API,
+  get_forecaster name registry ('naive'/'sarima'/'gbdt').
+- **Backtesting** (`cadw/ts/backtest.py`): expanding/sliding CV,
+  multi-series, MAE/RMSE/MAPE/sMAPE/MASE(m=seasonal_period), optional
+  pinball; forecaster cloned per fold via deepcopy.
+- **THF** (`cadw/ts/thf.py`): TemporalHierarchy with temporal
+  aggregation, bottom-up / top-down-proportional / optimal-OLS /
+  MinT-WLS (diagonal residual-variance weights, 1e-8 floor, OLS
+  fallback). Multi-series, predict_level.
+- **Accessor**: `CadwDataFrame.ts` thin wrappers matching the .dt/.str
+  pattern. `cadw.ts.__all__` sorted and complete (16 symbols).
+- **Bugfix** (pre-existing): `sort_values(by=list, ascending=list)`
+  silently treated list ascending as truthy → all columns ascending.
+  Fixed: per-column ascending sequence, length-checked.
+
 
 ### v0.9.15–v0.9.22: post-release v0.9.14 fixes + audit round 3
 

@@ -1554,14 +1554,28 @@ class CadwDataFrame:
         for c in by_cols:
             if c not in self._columns:
                 raise KeyError(f"sort_values: column {c!r} not in selection")
+        # v0.9.24: per-column ascending. A list/tuple ascending is
+        # interpreted positionally against by_cols (pandas semantics).
+        # Prior code did `"ascending" if ascending else "descending"`
+        # which treated any non-empty list as truthy -> all columns
+        # ascending. That silently broke mixed-direction sorts.
+        if isinstance(ascending, (list, tuple)):
+            if len(ascending) != len(by_cols):
+                raise ValueError(
+                    f"sort_values: ascending has {len(ascending)} "
+                    f"entries but by has {len(by_cols)} columns"
+                )
+            asc_seq = [bool(a) for a in ascending]
+        else:
+            asc_seq = [bool(ascending)] * len(by_cols)
         # in-memory fast path (v0.9.6b1): pa.Table.sort_by directly.
         # Avoids 1-5 ms external_sort overhead per small group —
         # critical for per-group apply (100k groups × 5 ms = 500 s).
         from cadw.dataset._in_memory import _InMemoryDataset
         if isinstance(self._dataset, _InMemoryDataset):
             sorted_table = self._dataset._table.select(self._columns).sort_by(
-                [(c, "ascending" if ascending else "descending")
-                 for c in by_cols],
+                [(c, "ascending" if a else "descending")
+                 for c, a in zip(by_cols, asc_seq)],
             )
             return CadwDataFrame.from_table(
                 sorted_table,
@@ -1574,7 +1588,7 @@ class CadwDataFrame:
             value_columns=self._columns,
             memory_guard=self._memory_guard,
             spill_dir=self._spill_dir / "sort",
-            ascending=ascending,
+            ascending=asc_seq,
             log=False,
         )
         schema = pa.schema([self._dataset.schema.field(c) for c in self._columns])
@@ -4613,11 +4627,18 @@ class CadwDataFrame:
         num_partitions: int | None = None,
         use_planner: bool = True,
     ) -> "CadwDataFrame":
-        """Hash join (v0.2.4). how ∈ {'inner', 'left'}.
+        """Hash join (v0.9.23j). how ∈ {'inner', 'left',
+        'outer', 'anti', 'semi'}.
 
-        - how='inner': только совпадающие ключи.
-        - how='left':  все строки self сохраняются; right-колонки -> NULL
-          при отсутствии совпадения.
+        - how='inner': совпадающие ключи (left ∪ right, on-coalesced).
+        - how='left':  все left + right-колонки (null при нет совпадения).
+        - how='outer': left ∪ right, обе стороны null-padded.
+        - how='anti':  left без совпадения в right (SQL anti join).
+        - how='semi':  left с совпадением в right (SQL semi join);
+                       output = left-колонки only.
+
+        NULL-семантика для anti/semi: null-ключ слева никогда
+        не совпадает (SQL); anti emit'ит, semi — нет.
         - on: имена общих колонок в обеих сторонах.
         - suffixes: для пересекающихся не-on колонок.
         - num_partitions: число партиций HashShuffle; None — из
@@ -4851,10 +4872,15 @@ class CadwDataFrame:
                 num_partitions=num_partitions,
             )
         elif how == "semi":
-            # v0.9.23j placeholder — dispatch handled by CadwDataFrame
-            # extension in next patch.
-            raise NotImplementedError(
-                "merge(how='semi') is v0.9.23j; use anti + left for now."
+            # v0.9.23j: semi join = left rows with match in right.
+            from cadw.ops.join import semi_join_streaming as _semi
+            out_schema, out_path = _semi(
+                self._iter_filtered_batches(),
+                right._iter_filtered_batches(),
+                left_schema, right_schema, on=on_list,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir / "join" / "semi",
+                num_partitions=num_partitions,
             )
         else:
             out_schema, out_path = hash_join_streaming(
@@ -6177,6 +6203,15 @@ class CadwDataFrame:
         """Plot accessor: df.plot.hist(col) / df.plot.plotly.hist(col)."""
         from cadw.plot_accessor import _PlotAccessor
         return _PlotAccessor(self)
+
+    @property
+    def ts(self):
+        """Time-series accessor (v0.9.24): df.ts.lag / .rolling_features / .fit_forecaster / ...
+
+        Thin wrappers over cadw.ts.*. No logic lives in the accessor.
+        """
+        from cadw.accessors._ts import _TsAccessor
+        return _TsAccessor(self)
 
 
 
