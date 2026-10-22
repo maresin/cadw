@@ -754,9 +754,22 @@ class MemoryGuard:
             return 8 + 8 * dim + 8 * dim * dim
         if name == "histogram":
             return 8 * bins + 16
-        logger.warning("estimate_state_size: неизвестная операция '%s', "
-                       "консервативно 1 MiB", op_name)
-        return 1024 * 1024
+        # v0.9.25e (A.10): fallback scales with state_limit, not fixed
+        # 1 MiB. Prior: fixed 1 MiB → false raise at tight budgets
+        # (1 MiB > 250 KB state_limit at 500 KB budget) and false pass
+        # at large budgets (1 MiB < 2% of state_limit at 100 MB).
+        # Scaled fallback: unknown op "moderate" relative to available
+        # memory. An op whose init() OOMs despite passing this fallback
+        # is the op's responsibility (§11.5 documented limitation) —
+        # override ReduceOp.estimate_state_nbytes() for exact bound.
+        fallback = int(self._state_limit() * 0.1)
+        logger.warning(
+            "estimate_state_size: unknown op %r, fallback = "
+            "10%% of state_limit (%d B). Override "
+            "ReduceOp.estimate_state_nbytes() on the op for exact bound.",
+            op_name, fallback,
+        )
+        return fallback
 
     # ---------- резервирование ----------
 

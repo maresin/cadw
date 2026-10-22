@@ -311,17 +311,6 @@ def _flush_builders(builders: dict, schema: pa.Schema) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(arrays, schema=schema)
 
 
-def _append_to_builders(builders: dict, batch: pa.RecordBatch, pos: int, schema: pa.Schema) -> None:
-    """Append one row (via per-column scalar) to builders."""
-    for f in schema:
-        val = batch.column(f.name)[pos].as_py()
-        b = builders[f.name]
-        if val is None:
-            b.append_null()
-        else:
-            b.append(val)
-
-
 class _RunStream:
     """Per-run buffered reader for Arrow-native k-way merge (v0.9.23c).
 

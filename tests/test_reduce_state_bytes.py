@@ -120,18 +120,28 @@ class LegacyOp(ReduceOp):
 
 
 def test_legacy_op_falls_back_to_estimate_state_size(tmp_path):
-    """Op without override uses estimate_state_size (1 MiB fallback)."""
-    guard = MemoryGuard(max_memory_mb=100)  # 1 MiB > 100 MB? No, 1 < 100, OK
+    """Op without override uses estimate_state_size (v0.9.25e: 10% scale)."""
+    # 100 MB budget → state_limit 50 MB, fallback 5 MB → passes
+    guard = MemoryGuard(max_memory_mb=100)
     op = LegacyOp()
     assert op.estimate_state_nbytes() is None
-    # reduce() should use 1 MiB fallback (fits under 100 MB budget)
     reduce(make_iter([1.0]*5), op, guard, log=False)
 
 
-def test_legacy_op_with_tight_budget_uses_1mib_fallback():
-    """Legacy op (no override) → 1 MiB fallback → fits under 2 MB but not 0.5 MB."""
-    # 500 KB budget → 1 MiB fallback > 500 KB * 0.5 = 250 KB → raise
-    guard = MemoryGuard(max_memory_bytes=500_000)  # 500 KB
+def test_legacy_op_fallback_scales_with_budget():
+    """Legacy op (no override) → v0.9.25e (A.10): fallback = 10% of
+    state_limit.
+
+    Prior (<=v0.9.25d-b2): fixed 1 MiB → false raise at 500 KB budget
+    (1 MiB > 250 KB state_limit). New: 10% of state_limit — proportional
+    at any scale. See test_memory_guard_v2.py::
+    test_estimate_state_size_unknown_scales for unit-level numeric checks.
+    """
+    # 500 KB budget → state_limit 250 KB, fallback 25 KB → passes
+    guard = MemoryGuard(max_memory_bytes=500_000)
     op = LegacyOp()
-    with pytest.raises(MemoryLimitExceeded):
-        reduce(make_iter([1.0]*5), op, guard, log=False)
+    reduce(make_iter([1.0]*5), op, guard, log=False)
+    # 100 KB budget → state_limit 50 KB, fallback 5 KB → passes
+    guard = MemoryGuard(max_memory_bytes=100_000)
+    op = LegacyOp()
+    reduce(make_iter([1.0]*5), op, guard, log=False)

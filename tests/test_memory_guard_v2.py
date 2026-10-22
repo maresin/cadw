@@ -163,9 +163,27 @@ def test_estimate_state_size_histogram():
     assert g.estimate_state_size("histogram", bins=255) == 8 * 255 + 16
 
 
-def test_estimate_state_size_unknown_is_conservative():
+def test_estimate_state_size_unknown_scales():
+    """v0.9.25e (A.10): fallback = 10% of state_limit, not fixed 1 MiB.
+
+    10 MB budget → state_limit 5,242,880 B; fallback = int(5,242,880 ×
+    0.1) = 524,288 B. Prior (<=v0.9.25d-b2): fixed 1,048,576 B —
+    false raise at 500 KB budget, false pass at 100 MB budget.
+    """
     g = MemoryGuard(max_memory_mb=10)
-    assert g.estimate_state_size("mystery_op") == 1024 * 1024
+    assert g.estimate_state_size("mystery_op") == 524_288
+
+
+def test_estimate_state_size_unknown_scales_small_budget():
+    """1 MB budget → state_limit 524,288 B; fallback 52,428 B."""
+    g = MemoryGuard(max_memory_mb=1)
+    assert g.estimate_state_size("mystery_op") == 52_428
+
+
+def test_estimate_state_size_unknown_scales_large_budget():
+    """100 MB budget → state_limit 52,428,800 B; fallback 5,242,880 B."""
+    g = MemoryGuard(max_memory_mb=100)
+    assert g.estimate_state_size("mystery_op") == 5_242_880
 
 
 # ---------- резервирование ----------
