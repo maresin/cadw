@@ -5318,6 +5318,23 @@ AST, не regex/string.
 **Связанные:** §13.4/232-240 (metric unit — без правильной metric findings неотличимы от noise), /228 (dogfood = happy path, edge cases = pytest).
 
 
+
+
+
+**Эпизод 246 (git add -A sweeps user-content dirs).** v0.9.22-fix1: `FOR_PINGIS/TASK_ML.md` (user attachment folder, no underscore) accidentally committed. `commit_with_guards` runs `git add -A`; only `_FOR_PINGIS/` (underscore) was .gitignored. Audit_ML_v0922 §6 flagged it as risk — commit still added it.
+
+**Правило (§13.4/246):** blanket `git add -A` requires directory audit BEFORE commit. Any user-content folder (`FOR_PINGIS/`, `temp/`, `notes/`, `docs/` unless gitignored) will be swept in. Rule: .gitignore every user-content dir BEFORE first patch on that branch, OR use `git add` with explicit paths in commit helper.
+
+**Связанные:** §13.4/222 (multi-step abort leaves partial state).
+
+
+**Эпизод 247 (extra_factor + comment, not just factor).** v0.9.22b (AUDIT_ML §1.6): 5 sites had `check_batch(batch)` with default extra_factor=1.0 while downstream did `to_pylist()` (~3.5× batch.nbytes per call). Fix: explicit extra_factor (3.0 or 5.0 by to_pylist count). **Comment** per site — WHY 5.0 vs 3.0 (N pylist × 28B/8B ≈ N × 3.5). Without comment, next audit bumps factor again without basis.
+
+**Правило (§13.4/247):** когда bump extra_factor — документируй в inline comment: (a) какие pylist calls, (b) N calls, (c) формула factor = N × 3.5. `check_batch(batch, extra_factor=5.0)` без comment — magic number. Audit finds it next time, cannot verify without re-measuring.
+
+**Связанные:** §13.4/240 (formula unit must match metric), /243 (batch_memory_factor override — inherited default wrong), /241 (formula components must be enumerated).
+
+
 ### 13.5. Открытые вопросы
 
 1. `unique` через `Reduce` при `K ≤ памяти` (порог калибруется бенчмарком).

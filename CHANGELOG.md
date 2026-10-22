@@ -51,9 +51,11 @@
 - **25 meta-lessons** documented (§13.4/178–245).
 
 **Deferred:**
-- **v0.9.22b** — `extra_factor=3.0-5.0` at 5 `to_pylist` call
-  sites (rank:269,345; groupby:581; resample:272; pivot:204).
-  Needs exact anchors per site.
+- ~~**v0.9.22b**~~ — **closed v0.9.22b**: extra_factor at 5
+  sites (rank.py _compute_streamable/_pass1/_pass2,
+  resample.py sorted_input, pivot.py stream_sorted);
+  groupby.py skew factor=3.0 deemed adequate
+  (grouped.to_pylist bounded by heavy_keys ≤ 20, not batch).
 - **v0.9.23** — kmeans++ reservoir (quality: +36.9% inertia on
   skewed data); `RobustScaler` O(d) sort batching.
 - **v0.9.24+** — A1 `dataframe.py` split; Pingis round 4;

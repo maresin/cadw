@@ -266,7 +266,11 @@ def resample_to_disk(
 
     try:
         for b in ArrowIPCBatchReader(str(sorted_path), None):
-            memory_guard.check_batch(b, name="resample.sorted_input")
+            # v0.9.22b (AUDIT_ML §1.6): extra_factor=5.0 —
+            # per-row to_pylist(ts) + per-col to_pylist.
+            memory_guard.check_batch(
+                b, name="resample.sorted_input", extra_factor=5.0,
+            )
             ts_seconds = _to_unix_seconds(b.column(on))
             ts_list = ts_seconds.to_pylist()  # per-batch (OK, matches _RollState)
             col_vals = {c: b.column(c).to_pylist() for c in cols}

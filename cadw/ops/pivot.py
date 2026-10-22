@@ -200,7 +200,11 @@ def pivot_to_disk(
 
     try:
         for b in ArrowIPCBatchReader(str(sorted_path), None):
-            memory_guard.check_batch(b, name="pivot.stream_sorted")
+            # v0.9.22b (AUDIT_ML §1.6): extra_factor=5.0 —
+            # per-row to_pylist on K_index cols + columns + values.
+            memory_guard.check_batch(
+                b, name="pivot.stream_sorted", extra_factor=5.0,
+            )
             idx_arrs = [b.column(c).to_pylist() for c in index_cols]
             col_arr = b.column(columns_col).to_pylist()
             v_arr = b.column(value_col_name).to_pylist()
