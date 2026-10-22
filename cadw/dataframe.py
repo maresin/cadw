@@ -4911,6 +4911,107 @@ class CadwDataFrame:
             reservoir_size=reservoir_size,
         )
 
+    # ---------------- corr ----------------
+
+    def corr(self, columns=None, *, method="pearson"):
+        """Correlation matrix (Pearson) between numeric columns.
+
+        v0.9.23d (AUDIT_FULL_v0922 item 7.A.4). Composition of existing
+        `CovarianceMeanOp` (one Reduce pass) + numpy normalization.
+        O(d²) state, independent of N. Fail-fast if state > state_limit.
+
+        Args:
+            columns: numeric column names. None → auto-detect int/float.
+                str → single column; Sequence[str] → those columns.
+            method: 'pearson' (default). 'spearman' → NotImplementedError
+                (needs per-column rank + Pearson on ranks; backlog P1).
+
+        Returns:
+            dict[str, dict[str, float]] — symmetric correlation matrix:
+            `corr[a][b] = r`. Diagonal = 1.0 (or NaN for degenerate
+            column). NaN for pairs involving a constant / all-null
+            column.
+
+        Raises:
+            NotImplementedError: method != 'pearson'.
+            ValueError: no numeric columns selected.
+            KeyError: missing column.
+            TypeError: non-numeric column requested explicitly.
+            MemoryLimitExceeded: d too large for budget (CovarianceOp
+                estimate 8+8d+8d² > state_limit).
+
+        Example:
+            >>> corr = df.corr()
+            >>> corr['x1']['x2']         # Pearson r between x1, x2
+            >>> corr['x1']['x1']         # == 1.0
+        """
+        from cadw.ops.reduce import CovarianceMeanOp, reduce
+
+        if method != "pearson":
+            raise NotImplementedError(
+                f"corr: method={method!r} not supported. Only "
+                f"'pearson' is implemented in v0.9.23d. 'spearman' "
+                f"needs per-column rank (backlog P1)."
+            )
+
+        # Auto-detect numeric columns (None) or normalize (str / Sequence).
+        if columns is None:
+            cols = []
+            for c in self._columns:
+                t = self._dataset.schema.field(c).type
+                if pa.types.is_integer(t) or pa.types.is_floating(t):
+                    cols.append(c)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+
+        if not cols:
+            raise ValueError(
+                "corr: no numeric columns selected (columns=None auto-"
+                "detects int/float; found none)"
+            )
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"corr: column {c!r} not in {self._columns}"
+                )
+            t = self._dataset.schema.field(c).type
+            if not (pa.types.is_integer(t) or pa.types.is_floating(t)):
+                raise TypeError(
+                    f"corr: column {c!r} has type {t}; numeric required"
+                )
+
+        # One Reduce pass (O(d²) state, guarded in reduce()).
+        op = CovarianceMeanOp(cols)
+        res = reduce(
+            self._iter_filtered_batches(), op, self._memory_guard, log=False,
+        )
+        cov = res["cov"]
+        n = res["n"]
+
+        nan = float("nan")
+        if n < 2:
+            # Not enough valid rows for any correlation.
+            return {c: {c2: nan for c2 in cols} for c in cols}
+
+        diag = np.diag(cov)
+        std = np.sqrt(np.maximum(diag, 0.0))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            denom = np.outer(std, std)
+            corr_mat = np.where(denom > 0, cov / denom, nan)
+        # Symmetrize (numerical noise) and clip to [-1, 1].
+        corr_mat = 0.5 * (corr_mat + corr_mat.T)
+        corr_mat = np.clip(corr_mat, -1.0, 1.0)
+        # Diagonal: 1.0 if var > 0, else NaN (constant / all-null).
+        for i in range(len(cols)):
+            corr_mat[i, i] = 1.0 if diag[i] > 0 else nan
+
+        return {
+            cols[i]: {cols[j]: float(corr_mat[i, j]) for j in range(len(cols))}
+            for i in range(len(cols))
+        }
+
     # ---------------- write ----------------
 
     def write_parquet(self, path: str | Path, *, compression: str = "snappy") -> Path:
