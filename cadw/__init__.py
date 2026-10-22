@@ -44,6 +44,7 @@ from .pipeline import (
 
 from .cv import (
     KFold,
+    GroupKFold,
     TimeSeriesSplit,
     cv_score,
 )
@@ -111,7 +112,7 @@ __all__ = [
     "ColumnTransformer", "Transformer", "Predictor",
     "register_step_type", "unregister_step_type", "list_step_types",
     # v0.9.2e cross-validation
-    "KFold", "TimeSeriesSplit", "cv_score",
+    "KFold", "GroupKFold", "TimeSeriesSplit", "cv_score",
     # v0.9.2f scalers
     "StandardScaler", "MinMaxScaler", "MaxAbsScaler", "RobustScaler",
 ]

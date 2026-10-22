@@ -48,6 +48,68 @@ def _fold_ids_from_row_ids(
     return (h % np.uint64(k)).astype(np.int32)
 
 
+
+
+# ============ v0.9.23h: stratify + group fold helpers ============
+
+
+def _stratified_fold_ids(
+    row_ids: np.ndarray,
+    batch: pa.RecordBatch,
+    stratify_col: str,
+    k: int,
+    seed: int,
+) -> np.ndarray:
+    """Keyed-PRNG fold_ids stratified by `stratify_col`.
+
+    fold_id = splitmix64(row_id * GOLDEN + hash(y, seed)) % k.
+
+    Same (y, row_id) -> same fold. Different y values -> independent
+    PRNG streams (uniform fold distribution per stratum, binomial
+    sizes — same design as KFold(shuffle=True) v0.9.3a; NOT exact-
+    balanced per stratum).
+
+    Null in y -> own stratum (compute_hashes maps nulls to fixed
+    sentinel; row_id mixing spreads them across folds — matches
+    groupby dropna=False semantics).
+    """
+    from cadw.ops.shuffle import compute_hashes
+
+    y_hashes = compute_hashes(
+        batch, [stratify_col], seed=seed,
+    ).to_numpy(zero_copy_only=False).astype(np.uint64, copy=False)
+    h = row_ids.astype(np.uint64) * _GOLDEN + y_hashes
+    h = (h ^ (h >> np.uint64(30))) * _M1
+    h = (h ^ (h >> np.uint64(27))) * _M2
+    h = h ^ (h >> np.uint64(31))
+    return (h % np.uint64(k)).astype(np.int32)
+
+
+def _group_fold_ids(
+    batch: pa.RecordBatch,
+    group_col: str,
+    k: int,
+    seed: int,
+) -> np.ndarray:
+    """Group-respecting fold_ids: same group -> same fold.
+
+    fold_id = splitmix64(hash(group_key, seed)) % k.
+
+    All rows of a group in same fold (single C++ hash pass per batch,
+    then splitmix64 avalanche for uniform assignment). Fold sizes
+    unbalanced by group sizes — correct by contract.
+    """
+    from cadw.ops.shuffle import compute_hashes
+
+    g_hashes = compute_hashes(
+        batch, [group_col], seed=seed,
+    ).to_numpy(zero_copy_only=False).astype(np.uint64, copy=False)
+    h = g_hashes
+    h = (h ^ (h >> np.uint64(30))) * _M1
+    h = (h ^ (h >> np.uint64(27))) * _M2
+    h = h ^ (h >> np.uint64(31))
+    return (h % np.uint64(k)).astype(np.int32)
+
 def _attach_column(
     df: CadwDataFrame, name: str, arrow_array: pa.Array,
 ) -> CadwDataFrame:
@@ -124,7 +186,10 @@ def _attach_column_with_fn(
         offset = 0
         for b in df._iter_filtered_batches():
             n_b = b.num_rows
-            col = fn(offset, n_b)
+            # v0.9.23h: pass batch (not just n_b) for stratify
+            # (needs y column per batch). Callers that only use
+            # offset/n can call b.num_rows themselves.
+            col = fn(offset, b)
             if len(col) != n_b:
                 raise RuntimeError(
                     f"_attach_column_with_fn: fn returned {len(col)} "
@@ -164,7 +229,8 @@ class KFold:
     Row order within each fold is preserved (filters don't reorder).
     """
 
-    __slots__ = ("n_splits", "shuffle", "random_state", "materialize")
+    __slots__ = ("n_splits", "shuffle", "random_state", "materialize",
+                 "stratify_by")
 
     def __init__(
         self,
@@ -173,6 +239,7 @@ class KFold:
         shuffle: bool = False,
         random_state: int | None = None,
         materialize: bool = False,
+        stratify_by: str | None = None,
     ) -> None:
         if not isinstance(n_splits, int) or n_splits < 1:
             raise ValueError(f"n_splits must be int >= 1; got {n_splits!r}")
@@ -189,6 +256,12 @@ class KFold:
         self.shuffle = shuffle
         self.random_state = random_state
         self.materialize = materialize
+        if stratify_by is not None and not isinstance(stratify_by, str):
+            raise TypeError(
+                f"KFold: stratify_by must be str | None; "
+                f"got {type(stratify_by).__name__}"
+            )
+        self.stratify_by = stratify_by
 
     def split(
         self, df: CadwDataFrame,
@@ -202,6 +275,45 @@ class KFold:
             raise ValueError(
                 f"KFold: n_splits={self.n_splits} > n={n}"
             )
+
+        # v0.9.23h: stratify_by dispatch. Streaming only; exact-
+        # balanced + stratify (materialize=True) deferred.
+        if self.stratify_by is not None:
+            if self.materialize:
+                raise NotImplementedError(
+                    "KFold: materialize=True + stratify_by is "
+                    "not supported (exact-balanced per stratum "
+                    "requires full y in memory; v0.9.23h uses "
+                    "streaming keyed-PRNG stratify instead). "
+                    "Use materialize=False + stratify_by, or "
+                    "materialize=True without stratify_by."
+                )
+            if self.stratify_by not in df.columns:
+                raise KeyError(
+                    f"KFold: stratify_by column "
+                    f"{self.stratify_by!r} not in {df.columns}"
+                )
+            k = self.n_splits
+            seed = (_DEFAULT_SEED if self.random_state is None
+                    else int(self.random_state))
+            strat_col = self.stratify_by
+            def _fn(offset: int, b: pa.RecordBatch) -> pa.Array:
+                n_b = b.num_rows
+                row_ids = np.arange(offset, offset + n_b,
+                                    dtype=np.uint64)
+                ids = _stratified_fold_ids(
+                    row_ids, b, strat_col, k, seed,
+                )
+                return pa.array(ids, type=pa.int32())
+            augmented = _attach_column_with_fn(
+                df, "__fold", pa.int32(), _fn,
+            )
+            base_cols = list(df.columns)
+            for i in range(self.n_splits):
+                train = augmented[augmented["__fold"] != i][base_cols]
+                test = augmented[augmented["__fold"] == i][base_cols]
+                yield i, train, test
+            return
 
         if self.materialize:
             # Opt-in exact-balanced shuffle. O(N) state, guarded.
@@ -229,14 +341,16 @@ class KFold:
                 seed = (_DEFAULT_SEED if self.random_state is None
                         else int(self.random_state))
                 k = self.n_splits
-                def _fn(offset: int, n_b: int) -> pa.Array:
+                def _fn(offset: int, b: pa.RecordBatch) -> pa.Array:
+                    n_b = b.num_rows
                     row_ids = np.arange(offset, offset + n_b,
                                         dtype=np.uint64)
                     ids = _fold_ids_from_row_ids(row_ids, k, seed)
                     return pa.array(ids, type=pa.int32())
             else:
                 k = self.n_splits
-                def _fn(offset: int, n_b: int) -> pa.Array:
+                def _fn(offset: int, b: pa.RecordBatch) -> pa.Array:
+                    n_b = b.num_rows
                     ids = (np.arange(offset, offset + n_b) % k).astype(
                         np.int32)
                     return pa.array(ids, type=pa.int32())
@@ -303,6 +417,95 @@ class TimeSeriesSplit:
             test = sorted_df.iloc[train_end:test_end]
             yield i, train, test
 
+
+
+
+
+class GroupKFold:
+    """Group-respecting K-fold cross-validator.
+
+    v0.9.23h (AUDIT_FULL_v0922 item 7.A.9). All rows of the same group
+    land in the same fold (no group split across train/test — prevents
+    leakage when group = subject/site/user).
+
+    Deterministic (random_state=None -> seed=42). Streaming O(batch):
+    fold_id = splitmix64(hash(group_key, seed)) % k per batch — no
+    O(N) arrays.
+
+    Fold sizes are UNBALANCED by construction (whole groups per fold).
+    If exact balance matters, GroupKFold is not the right tool —
+    use KFold + manual group-aware split.
+
+    Null in group_col -> ValueError (group identity requires non-null;
+    nulls do not form a "group" in a meaningful sense). dropna first.
+    """
+
+    __slots__ = ("n_splits", "group_col", "random_state")
+
+    def __init__(
+        self,
+        n_splits: int,
+        group_col: str,
+        *,
+        random_state: int | None = None,
+    ) -> None:
+        if not isinstance(n_splits, int) or n_splits < 1:
+            raise ValueError(
+                f"GroupKFold: n_splits must be int >= 1; got {n_splits!r}"
+            )
+        if not isinstance(group_col, str) or not group_col:
+            raise ValueError(
+                f"GroupKFold: group_col must be non-empty str; "
+                f"got {group_col!r}"
+            )
+        self.n_splits = n_splits
+        self.group_col = group_col
+        self.random_state = random_state
+
+    def split(
+        self, df: CadwDataFrame,
+    ) -> Iterator[tuple[int, CadwDataFrame, CadwDataFrame]]:
+        """Yield (fold_i, train_df, test_df) per fold. Groups preserved."""
+        if self.group_col not in df.columns:
+            raise KeyError(
+                f"GroupKFold: group_col {self.group_col!r} not in "
+                f"{df.columns}"
+            )
+
+        # Pre-check: group_col has no nulls (fail before iteration).
+        # v0.9.23h-fix1: _iter_filtered_batches() has no `columns`
+        # kwarg -> iterate all, select group_col per batch.
+        for b in df._iter_filtered_batches():
+            if b.column(self.group_col).null_count > 0:
+                raise ValueError(
+                    f"GroupKFold: group_col {self.group_col!r} has "
+                    f"nulls; groups must be non-null. Drop nulls "
+                    f"before split (df[df['{self.group_col}'].notnull()])."
+                )
+
+        n = df.count()
+        if self.n_splits > n:
+            raise ValueError(
+                f"GroupKFold: n_splits={self.n_splits} > n={n}"
+            )
+
+        seed = (_DEFAULT_SEED if self.random_state is None
+                else int(self.random_state))
+        k = self.n_splits
+        group_col = self.group_col
+
+        def _fn(offset: int, b: pa.RecordBatch) -> pa.Array:
+            ids = _group_fold_ids(b, group_col, k, seed)
+            return pa.array(ids, type=pa.int32())
+
+        augmented = _attach_column_with_fn(
+            df, "__fold", pa.int32(), _fn,
+        )
+        base_cols = list(df.columns)
+        for i in range(self.n_splits):
+            train = augmented[augmented["__fold"] != i][base_cols]
+            test = augmented[augmented["__fold"] == i][base_cols]
+            yield i, train, test
 
 def cv_score(
     df: CadwDataFrame,
