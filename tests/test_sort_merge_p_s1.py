@@ -56,15 +56,36 @@ def test_compute_fan_in_uses_write_run_chunk():
 
 
 def test_merge_keys_has_check_batch():
+    """v0.9.23c: check_batch moved into _RunStream._next_batch.
+
+    Prior (v0.5.2a): _merge_keys directly called check_batch on each
+    read batch. v0.9.23c (Arrow batched merge) delegates read + guard
+    to _RunStream.refill(memory_guard) -> _RunStream._next_batch,
+    which calls memory_guard.check_batch on each batch.
+    """
     import inspect
     from cadw.ops import sort as sort_mod
     src = inspect.getsource(sort_mod._merge_keys)
     assert "memory_guard" in src, (
         "_merge_keys must accept memory_guard param"
     )
-    assert "check_batch" in src, (
-        "_merge_keys must call check_batch on read batches"
+    # Either direct check_batch OR refill(memory_guard) delegating to
+    # _RunStream._next_batch (which has check_batch).
+    refill_with_guard = "refill(memory_guard)" in src
+    check_batch_direct = "check_batch" in src
+    assert refill_with_guard or check_batch_direct, (
+        "_merge_keys must guard read batches: either direct "
+        "check_batch or refill(memory_guard) (v0.9.23c: _RunStream "
+        "checks internally)"
     )
+    # Also verify _RunStream._next_batch has the actual check_batch call.
+    stream_src = inspect.getsource(sort_mod._RunStream)
+    assert "check_batch" in stream_src, (
+        "_RunStream._next_batch must call check_batch on read batches"
+    )
+    assert "check_batch" in inspect.getsource(
+        sort_mod._RunStream._next_batch
+    ), "_RunStream._next_batch must call check_batch directly"
 
 
 def test_external_sort_tight_budget_smoke(tmp_path):

@@ -322,6 +322,85 @@ def _append_to_builders(builders: dict, batch: pa.RecordBatch, pos: int, schema:
             b.append(val)
 
 
+class _RunStream:
+    """Per-run buffered reader for Arrow-native k-way merge (v0.9.23c).
+
+    Holds up to `rbs` rows in `buffer` (heap-allocated pa.Table).
+    Parent batch from the IPC reader is held as a mmap view — it does
+    NOT count toward RSS (pyarrow ipc.open_file is mmap-backed), so
+    peak RSS = K * rbs * row_bytes (buffers) + allocations during
+    sort. Rows are consumed from the front (sorted runs -> consumed
+    rows form a prefix). Refilled when buffer drops below rbs.
+
+    Invariant: for any non-exhausted stream, buffer is sorted by the
+    external sort keys (guaranteed by _write_run phase-1 sort).
+    """
+
+    __slots__ = (
+        "reader", "cur_batch", "cur_pos", "buffer",
+        "exhausted", "rbs", "name",
+    )
+
+    def __init__(self, path, rbs: int, name: str) -> None:
+        self.reader = ArrowIPCBatchReader(str(path), None)
+        self.cur_batch: "pa.RecordBatch | None" = None
+        self.cur_pos: int = 0
+        self.buffer = pa.Table.from_batches([], schema=self.reader.schema)
+        self.exhausted: bool = False
+        self.rbs: int = rbs
+        self.name: str = name
+
+    def _next_batch(self, memory_guard):
+        """Return (batch, pos) or None if reader exhausted."""
+        if (self.cur_batch is not None
+                and self.cur_pos < self.cur_batch.num_rows):
+            return self.cur_batch, self.cur_pos
+        try:
+            b = next(self.reader)
+        except StopIteration:
+            self.cur_batch = None
+            self.cur_pos = 0
+            return None
+        if memory_guard is not None and b.num_rows > 0:
+            memory_guard.check_batch(
+                b, name="sort.merge_read[%s]" % self.name,
+            )
+        self.cur_batch = b
+        self.cur_pos = 0
+        return b, 0
+
+    def refill(self, memory_guard) -> None:
+        """Read up to rbs rows into buffer. Marks exhausted on EOF."""
+        while len(self.buffer) < self.rbs:
+            r = self._next_batch(memory_guard)
+            if r is None:
+                self.exhausted = True
+                return
+            b, pos = r
+            need = self.rbs - len(self.buffer)
+            avail = b.num_rows - pos
+            take = min(need, avail)
+            if take <= 0:
+                continue
+            chunk = pa.Table.from_batches([b.slice(pos, take)])
+            if len(self.buffer) == 0:
+                self.buffer = chunk
+            else:
+                self.buffer = pa.concat_tables([self.buffer, chunk])
+            self.cur_pos += take
+            if self.cur_pos >= b.num_rows:
+                self.cur_batch = None
+                self.cur_pos = 0
+
+    def take(self, n: int) -> "pa.Table":
+        """Remove and return first n rows from buffer."""
+        n = min(n, len(self.buffer))
+        if n == 0:
+            return self.buffer.slice(0, 0)
+        head = self.buffer.slice(0, n)
+        self.buffer = self.buffer.slice(n)
+        return head
+
 def _merge_keys(
     run_paths: list[Path],
     all_columns: Sequence[str],
@@ -333,89 +412,124 @@ def _merge_keys(
     read_batch_size: int,
     memory_guard: "MemoryGuard | None" = None,
 ) -> Path:
-    """k-way merge. Читаем каждый run батчами, сливаем через heap."""
+    """k-way Arrow-native batched merge (v0.9.23c, AUDIT_FULL_v0922 7.A.1).
+
+    Replaces v0.5.2a per-row Python heapq with batched Arrow sort. Each
+    round:
+      1. Buffer up to `read_batch_size` rows from each non-exhausted run.
+      2. Concat buffers + `__run_idx` tag -> merged Arrow Table.
+      3. `pc.sort_indices` (C++) with per-column asc/desc + nulls_first,
+         plus `row_id` tie-break (matches heapq's (key, row_id) compare).
+      4. Take first `min(rbs, merged.num_rows)` rows -> write output.
+      5. Advance each run's buffer cursor by how many of its rows were
+         taken. Consumed rows always form a prefix (runs are sorted).
+
+    Semantics shift (v0.9.23c): `read_batch_size` now means "buffer rows
+    per run" (was: output flush size). Both give output batches of
+    <= read_batch_size rows, so downstream consumers see the same batch
+    shape. Callers that set read_batch_size large (e.g. 50000 to match
+    _WRITE_RUN_CHUNK) will see proportionally larger merge buffers; the
+    check_state at the top bounds peak = K * rbs * row_bytes * (buffers
+    + merged + sorted) <= available * state_safety.
+
+    Output identity (byte-for-byte same row order as v0.5.2a heapq):
+      - Same per-column asc/desc.
+      - Same global nulls_first (applies to all keys).
+      - Same row_id tie-break (row_id is monotonic with input order, so
+        stable within-run + row_id cross-run == Python stable sort by
+        (key..., row_id)).
+
+    Peak: 3 * K * rbs * row_bytes (buffers + merged + sorted). At K=8,
+    rbs=1000, row_bytes=640: ~15 MB. Parent IPC batches are mmap-backed
+    and don't count toward RSS (only touched pages, bounded by OS).
+
+    Raises ValueError on empty run_paths.
+    """
     if not run_paths:
         raise ValueError("_merge_keys: пустой список runs")
 
-    readers = [ArrowIPCBatchReader(str(p), None) for p in run_paths]
-    cur_batches: list[pa.RecordBatch | None] = [None] * len(run_paths)
-    cur_pos: list[int] = [0] * len(run_paths)
+    rbs = max(1, read_batch_size)
+    K = len(run_paths)
+    null_placement = "at_start" if nulls_first else "at_end"
 
-    def fetch(idx: int) -> tuple[pa.RecordBatch, int] | None:
-        while True:
-            b = cur_batches[idx]
-            if b is not None and cur_pos[idx] < b.num_rows:
-                pos = cur_pos[idx]
-                cur_pos[idx] += 1
-                return b, pos
-            try:
-                nb = next(readers[idx])
-                if memory_guard is not None:
-                    memory_guard.check_batch(
-                        nb, name="sort.merge_read[%d]" % idx
-                    )
-                cur_batches[idx] = nb
-                cur_pos[idx] = 0
-            except StopIteration:
-                return None
+    # Sort spec for pc.sort_indices: per-column order + global null_placement
+    # (matches _Key semantics in v0.5.2a), plus row_id tie-break.
+    sort_keys = [
+        (col, "ascending" if asc else "descending", null_placement)
+        for col, asc in zip(key_columns, ascending)
+    ] + [("row_id", "ascending", "at_end")]
 
-    def make_key(batch: pa.RecordBatch, pos: int) -> tuple:
-        return tuple(
-            _Key(batch.column(col)[pos].as_py(), desc, nulls_first)
-            for col, desc in zip(key_columns, [not a for a in ascending])
+    streams = [
+        _RunStream(p, rbs, name=str(i))
+        for i, p in enumerate(run_paths)
+    ]
+
+    # Pre-check: conservative upper bound for merge buffer
+    if memory_guard is not None:
+        row_bytes = max(1, memory_guard.row_size_bytes) + 16
+        memory_guard.check_state(
+            3 * K * rbs * row_bytes,
+            name="sort.merge_buffer(K=%d,rbs=%d)" % (K, rbs),
         )
 
-    heap: list[tuple] = []
-    for i in range(len(run_paths)):
-        r = fetch(i)
-        if r is not None:
-            b, pos = r
-            heapq.heappush(
-                heap,
-                (make_key(b, pos), int(b.column("row_id")[pos].as_py()), i, b, pos),
-            )
-
     out_columns = list(value_columns) + ["row_id"]
-    schema = pa.schema([pa.field(c, readers[0].schema.field(c).type) for c in out_columns])
-    writer = ArrowIPCBatchWriter(str(out_path), schema)
-
-    # v0.5.2a (P5): pa.Array.Builder вместо Python-list.
-    # Peak = read_batch_size × arrow-size (не ×28-80 per Python object).
-    builders: dict = {}
-    for f in schema:
-        b = _make_builder(f.type)
-        if b is None:
-            raise NotImplementedError(
-                f"external_sort: no Arrow Builder for column {f.name!r} "
-                f"type {f.type}; P5 fix covers int/uint/float/bool/string/"
-                f"binary/timestamp/date. File an issue for other types."
-            )
-        builders[f.name] = b
-
-    rows_in_buffer = [0]
-
-    def flush() -> None:
-        if rows_in_buffer[0] == 0:
-            return
-        batch = _flush_builders(builders, schema)
-        writer.write_batch(batch)
-        rows_in_buffer[0] = 0
+    out_schema = pa.schema([
+        pa.field(c, streams[0].reader.schema.field(c).type)
+        for c in out_columns
+    ])
+    writer = ArrowIPCBatchWriter(str(out_path), out_schema)
 
     try:
-        while heap:
-            _, _, run_idx, b, pos = heapq.heappop(heap)
-            _append_to_builders(builders, b, pos, schema)
-            rows_in_buffer[0] += 1
-            if rows_in_buffer[0] >= read_batch_size:
-                flush()
-            nxt = fetch(run_idx)
-            if nxt is not None:
-                nb, npos = nxt
-                heapq.heappush(
-                    heap,
-                    (make_key(nb, npos), int(nb.column("row_id")[npos].as_py()), run_idx, nb, npos),
+        while True:
+            for s in streams:
+                if not s.exhausted:
+                    s.refill(memory_guard)
+
+            active = [
+                (i, s) for i, s in enumerate(streams) if len(s.buffer) > 0
+            ]
+            if not active:
+                break
+
+            # Tag each row with its source run
+            tagged: list = []
+            for i, s in active:
+                run_idx_arr = pa.array(
+                    [i] * len(s.buffer), type=pa.int32(),
                 )
-        flush()
+                tagged.append(s.buffer.append_column("__run_idx", run_idx_arr))
+
+            merged = tagged[0] if len(tagged) == 1 else pa.concat_tables(tagged)
+
+            # Sort all buffered rows, take top rbs
+            order = pc.sort_indices(merged, sort_keys=sort_keys)
+            sorted_merged = merged.take(order)
+            take_n = min(rbs, sorted_merged.num_rows)
+            top = sorted_merged.slice(0, take_n)
+
+            # Write top (drop __run_idx)
+            if take_n > 0:
+                top_clean = top.select(out_columns)
+                for b in top_clean.to_batches():
+                    if b.num_rows > 0:
+                        writer.write_batch(b)
+
+            # Advance each run by how many of its rows were taken.
+            # Arrow-native via pc.value_counts (K = active runs,
+            # bounded by fan_in <= 8; safe per §9.2.13).
+            # v0.9.23c-fix1: prior np.unique failed because numpy
+            # is not imported at module level in sort.py (numpy
+            # imported lazily inside _NumpyBackedBuilder only).
+            vc = pc.value_counts(top.column("__run_idx"))
+            consumed = {
+                int(v): int(c)
+                for v, c in zip(
+                    vc.field("values").to_pylist(),
+                    vc.field("counts").to_pylist(),
+                )
+            }
+            for i, s in active:
+                s.take(consumed.get(i, 0))
     finally:
         writer.close()
     return out_path

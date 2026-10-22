@@ -195,12 +195,27 @@ def test_merge_keys_uses_arrow_builder_not_python_list():
 
 
 def test_merge_keys_uses_arrow_builder():
-    """_merge_keys must call _append_to_builders (P5 fix marker)."""
+    """v0.9.23c: _merge_keys uses pc.sort_indices (replaces P5 builder).
+
+    Prior v0.5.2a test asserted `_append_to_builders` (P5 marker).
+    v0.9.23c replaces per-row heapq with Arrow-native batched merge:
+    buffers -> pc.sort_indices (C++) -> take -> write. _append_to_builders
+    no longer in _merge_keys (builders remain in module for tests of
+    _NumpyBackedBuilder, but _merge_keys does not use them).
+    """
     import inspect
     from cadw.ops import sort as sort_mod
     src = inspect.getsource(sort_mod._merge_keys)
-    assert "_append_to_builders" in src, (
-        "P5 fix: _merge_keys must call _append_to_builders (Arrow Builder)"
+    assert "pc.sort_indices" in src, (
+        "v0.9.23c: _merge_keys must use pc.sort_indices (Arrow-native "
+        "batched merge, AUDIT_FULL_v0922 7.A.1)"
+    )
+    # v0.9.23c-fix2: heapq assertion removed. Substring `"heapq" not in
+    # src` false-positived on docstring ("Replaces per-row Python heapq
+    # ..."). AST-based check lives in test_merge_arrow.py::
+    # test_merge_keys_no_heapq (patch_utils.assert_no_call_in_source).
+    assert "_RunStream" in src, (
+        "v0.9.23c: _merge_keys must use _RunStream (buffered reader)"
     )
 
 def test_sort_string_with_builder(tmp_path):

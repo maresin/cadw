@@ -86,6 +86,19 @@ WHITELISTED_FUNCS = {
         "backward-compat wrapper, caller check_batch'd",
     "cadw/ops/sort.py:_write_run":
         "buf ≤ 0.2×avail; sort_indices per batch",
+    # v0.9.23c-fix3 (§13.4/138): Arrow-native merge internals.
+    # Both call pa.Table.from_batches on a bounded input; actual
+    # merge-buffer bound enforced by _merge_keys.check_state(
+    # 3*K*rbs*row_bytes) at function entry.
+    "cadw/ops/sort.py:_RunStream.__init__":
+        "from_batches([], schema) — empty table (0 rows), "
+        "O(1) allocation; real bound in _merge_keys.check_state "
+        "(3*K*rbs*row_bytes)",
+    "cadw/ops/sort.py:_RunStream.refill":
+        "from_batches([single_batch_slice]) — zero-copy from "
+        "mmap-backed ArrowIPCBatchReader (RSS held by OS page "
+        "cache, not heap); buffered rows <= rbs; bound in caller "
+        "_merge_keys.check_state",
     "cadw/ops/shuffle.py:_string_hash_column":
         "dict_encode O(K + batch) where K = uniques-in-batch; caller "
         "hash_shuffle._process check_batch(extra_factor=3.0) covers "

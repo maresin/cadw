@@ -196,8 +196,13 @@ def test_pivot_huge_k_columns_fails_fast(tmp_path):
     # 5k distinct cols × 32 B × 2 (dict) = 320 KB > state_limit (2 MB * 0.5 = 1 MB)
     # OK, that fits. Force smaller budget.
     df._memory_guard = MemoryGuard(max_memory_bytes=100_000)
-    # 5k × 32 × 2 = 320 KB > 50 KB state_limit → fail
-    with pytest.raises(MemoryLimitExceeded, match="pivot"):
+    # v0.9.23c: pivot.columns_est may pass (k_columns_est ~500 from chunk-
+    # sized sample), then sort.merge_buffer fires during external_sort
+    # BEFORE pivot.output_batch(K=5000). Both are fail-fast; new check
+    # fires earlier (during sort, before column scan). Test intent
+    # preserved: pivot_table with huge K_columns must fail-fast. The
+    # specific check is impl detail.
+    with pytest.raises(MemoryLimitExceeded, match="pivot|merge_buffer"):
         df.pivot_table(
             index=["row"], columns="col", values="v", aggfunc="mean",
         )
