@@ -90,7 +90,7 @@ def _compute_streamable(
             # null fallback does to_pylist(by) + to_pylist(row_id);
             # null-free uses numpy fast path (no pylist).
             memory_guard.check_batch(
-                batch, name="rank.streamable.input", extra_factor=5.0,
+                batch, name="rank.streamable.input", extra_factor=7.0,
             )
             vals_arr = batch.column(by)
             row_ids_arr = batch.column("row_id")
@@ -273,7 +273,7 @@ def _pass1_groups_to_disk(
             # v0.9.22b (AUDIT_ML §1.6): extra_factor=3.0 —
             # pass1 does to_pylist(by); ~3.5× batch.nbytes.
             memory_guard.check_batch(
-                batch, name="rank.pass1.input", extra_factor=3.0,
+                batch, name="rank.pass1.input", extra_factor=3.5,
             )
             vals = batch.column(by).to_pylist()
             for v in vals:
@@ -353,7 +353,7 @@ def _pass2_ranks_to_disk(
             # v0.9.22b (AUDIT_ML §1.6): extra_factor=5.0 —
             # pass2 does to_pylist(by) + to_pylist(row_id).
             memory_guard.check_batch(
-                batch, name="rank.pass2.input", extra_factor=5.0,
+                batch, name="rank.pass2.input", extra_factor=7.0,
             )
             vals = batch.column(by).to_pylist()
             row_ids = batch.column("row_id").to_pylist()

@@ -6,11 +6,11 @@ import pytest
 
 SITES = [
     ("cadw.ops.rank", "_compute_streamable",
-     "rank.streamable.input", 5.0),
+     "rank.streamable.input", 7.0),
     ("cadw.ops.rank", "_pass1_groups_to_disk",
-     "rank.pass1.input", 3.0),
+     "rank.pass1.input", 3.5),
     ("cadw.ops.rank", "_pass2_ranks_to_disk",
-     "rank.pass2.input", 5.0),
+     "rank.pass2.input", 7.0),
     ("cadw.ops.resample", "resample_to_disk",
      "resample.sorted_input", 5.0),
     ("cadw.ops.pivot", "pivot_to_disk",
