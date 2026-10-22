@@ -66,7 +66,11 @@ class PredicateFilter(MaskFilter):
     # specially in mask_for_batch (is_null/not_null/contains). Prior
     # code extended mask_for_batch but not __init__ validation → tests
     # for new ops raised "unsupported op". Both must stay in sync.
-    _OPS_NO_SCALAR = frozenset({"is_null", "not_null", "contains", "starts_with", "ends_with"})
+    _OPS_NO_SCALAR = frozenset({
+        "is_null", "not_null", "contains", "starts_with", "ends_with",
+        # v0.9.25g (Phase C C-1): set-based / range-based predicates.
+        "isin", "between",
+    })
 
     def __init__(self, column: str, op: str, value) -> None:
         if op not in self._OPS and op not in self._OPS_NO_SCALAR:
@@ -116,6 +120,36 @@ class PredicateFilter(MaskFilter):
         if self.op == "ends_with":
             m = pc.ends_with(arr, self.value)
             return pc.fill_null(m, pa.scalar(False))
+        # v0.9.25g: isin — set membership, null-safe (null matches only
+        # if None ∈ values). Empty list → all False.
+        if self.op == "isin":
+            values = list(self.value)
+            if not values:
+                return pa.array([False] * len(arr), type=pa.bool_())
+            try:
+                value_set = pa.array(values, type=arr.type)
+            except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
+                raise TypeError(
+                    f"isin: values {values[:5]!r} not coercible to "
+                    f"column type {arr.type}: {e}"
+                ) from e
+            return pc.is_in(arr, value_set=value_set)
+        # v0.9.25g: between — inclusive='both'|'neither'|'left'|'right',
+        # default 'both'. Kleene nulls dropped.
+        if self.op == "between":
+            lo, hi, inclusive = self.value
+            if inclusive not in ("both", "neither", "left", "right"):
+                raise ValueError(
+                    f"between: inclusive={inclusive!r} not in "
+                    f"'both'|'neither'|'left'|'right'"
+                )
+            lo_s = pa.scalar(lo, type=arr.type)
+            hi_s = pa.scalar(hi, type=arr.type)
+            lo_op = pc.greater_equal if inclusive in ("both", "left") \
+                else pc.greater
+            hi_op = pc.less_equal if inclusive in ("both", "right") \
+                else pc.less
+            return pc.and_(lo_op(arr, lo_s), hi_op(arr, hi_s))
         scalar = pa.scalar(self.value, type=arr.type)
         return self._OPS[self.op](arr, scalar)
 
