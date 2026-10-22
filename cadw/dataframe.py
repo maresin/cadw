@@ -1141,6 +1141,395 @@ class CadwDataFrame:
             spill_dir=self._spill_dir,
         )
 
+    def ffill(self, columns=None) -> "CadwDataFrame":
+        """Forward-fill nulls per column (v0.9.25i).
+
+        Streaming per-batch via pc.fill_null_forward + carry for
+        leading-null cross-batch fix. O(#cols) state, O(N) I/O.
+
+        - columns: None → all columns; str → one; Sequence[str] →
+          subset. Non-fillable columns pass through unchanged.
+        - Leading nulls stay null (no prior value).
+        - Null-safe across batches: last non-null carries forward.
+        - Original column types preserved (nullable=True forced).
+        - Int cols stay int (fill doesn't widen types).
+
+        Peak RAM = batch + #cols × 8 B (carry buffers).
+        """
+        import pyarrow.compute as _pc
+        from cadw.dataset import Dataset
+
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        if not cols:
+            raise ValueError("ffill: columns must be non-empty")
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"ffill: column {c!r} not in {self._columns}"
+                )
+
+        fill_set = set(cols)
+        out_fields = []
+        for c in self._columns:
+            orig = self._dataset.schema.field(c)
+            if c in fill_set:
+                out_fields.append(
+                    pa.field(c, orig.type, nullable=True)
+                )
+            else:
+                out_fields.append(orig)
+        out_schema = pa.schema(out_fields)
+
+        carry: dict = {c: None for c in cols}
+
+        def _iter():
+            for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(b, name="ffill.input")
+                n = b.num_rows
+                if n == 0:
+                    yield b.select(self._columns)
+                    continue
+                arrays = []
+                for c in self._columns:
+                    arr = b.column(c)
+                    if c not in fill_set:
+                        arrays.append(arr)
+                        continue
+                    car = carry[c]
+                    if car is not None:
+                        extended = pa.concat_arrays([car, arr])
+                        filled = _pc.fill_null_forward(extended).slice(1)
+                    else:
+                        filled = _pc.fill_null_forward(arr)
+                    if len(filled) > 0:
+                        last_slice = filled.slice(len(filled) - 1, 1)
+                        # v0.9.25i-fix2 (§13.4/269): null_count is
+                        # O(1) Arrow metadata — replaces
+                        # `is_valid(last_slice).to_pylist()[0]`
+                        # (1-element to_pylist still flagged by
+                        # diagnostic as low_factor since check_batch
+                        # factor<3.0). Semantically identical for
+                        # 1-element slice.
+                        if last_slice.null_count == 0:
+                            carry[c] = last_slice
+                    arrays.append(filled)
+                yield pa.RecordBatch.from_arrays(
+                    arrays, schema=out_schema,
+                )
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def bfill(self, columns=None) -> "CadwDataFrame":
+        """Backward-fill nulls per column (v0.9.25i).
+
+        Implementation: reverse-sort (__orig_rid descending) +
+        ffill-internal + re-sort (__orig_rid ascending). 2×
+        external_sort — O(N log N) I/O, O(batch) RAM. **Heavier than
+        ffill** (O(N) I/O). Documented.
+
+        - columns: None → all; str → one; Sequence[str] → subset.
+        - Trailing nulls stay null (no later value).
+        - Original order preserved (2× sort round-trip).
+        """
+        import pyarrow.compute as _pc
+        from cadw.dataset import Dataset
+        from cadw.io.batch_reader import ArrowIPCBatchReader
+        from cadw.io.batch_writer import ArrowIPCBatchWriter
+        from cadw.ops.sort import external_sort
+
+        if columns is None:
+            cols = list(self._columns)
+        elif isinstance(columns, str):
+            cols = [columns]
+        else:
+            cols = list(columns)
+        if not cols:
+            raise ValueError("bfill: columns must be non-empty")
+        for c in cols:
+            if c not in self._columns:
+                raise KeyError(
+                    f"bfill: column {c!r} not in {self._columns}"
+                )
+
+        fill_set = set(cols)
+        out_fields = []
+        for c in self._columns:
+            orig = self._dataset.schema.field(c)
+            if c in fill_set:
+                out_fields.append(
+                    pa.field(c, orig.type, nullable=True)
+                )
+            else:
+                out_fields.append(orig)
+        out_schema = pa.schema(out_fields)
+
+        if self.count() == 0:
+            empty_ds = Dataset.from_batches(
+                out_schema, iter([]), self._new_dataset_dir(),
+            )
+            return CadwDataFrame(
+                empty_ds,
+                memory_guard=self._memory_guard,
+                spill_dir=self._spill_dir,
+            )
+
+        # Step 1: add __orig_rid, external_sort descending
+        def _iter_with_rid():
+            offset = 0
+            for b in self._iter_filtered_batches():
+                self._memory_guard.check_batch(b, name="bfill.step1")
+                n = b.num_rows
+                rid = pa.array(
+                    range(offset, offset + n), type=pa.uint64(),
+                )
+                offset += n
+                yield b.append_column("__orig_rid", rid)
+
+        sorted_desc = external_sort(
+            _iter_with_rid(),
+            key_columns=["__orig_rid"],
+            value_columns=list(self._columns),
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "bfill" / "sort_desc",
+            ascending=False,
+            log=False,
+        )
+
+        # Step 2: ffill pass
+        filled_path = self._spill_dir / "bfill" / "filled.arrow"
+        filled_path.parent.mkdir(parents=True, exist_ok=True)
+        filled_schema = pa.schema(
+            [pa.field("__orig_rid", pa.uint64())]
+            + [
+                pa.field(c, self._dataset.schema.field(c).type,
+                         nullable=True)
+                for c in self._columns
+            ]
+        )
+        writer = ArrowIPCBatchWriter(str(filled_path), filled_schema)
+        carry: dict = {c: None for c in self._columns}
+        try:
+            for b in ArrowIPCBatchReader(str(sorted_desc), None):
+                self._memory_guard.check_batch(
+                    b, name="bfill.step2.read",
+                )
+                n = b.num_rows
+                if n == 0:
+                    continue
+                arrays = [b.column("__orig_rid")]
+                for c in self._columns:
+                    arr = b.column(c)
+                    # v0.9.25i-fix1 (§13.4/267): only fill columns in
+                    # fill_set. Prior code filled ALL columns
+                    # regardless of columns= — bug caught by
+                    # test_bfill_columns_subset. Mirror-symmetry with
+                    # ffill (which correctly has this guard).
+                    if c not in fill_set:
+                        arrays.append(arr)
+                        continue
+                    car = carry[c]
+                    if car is not None:
+                        extended = pa.concat_arrays([car, arr])
+                        filled = _pc.fill_null_forward(extended).slice(1)
+                    else:
+                        filled = _pc.fill_null_forward(arr)
+                    if len(filled) > 0:
+                        last_slice = filled.slice(len(filled) - 1, 1)
+                        # v0.9.25i-fix2 (§13.4/269): null_count O(1).
+                        if last_slice.null_count == 0:
+                            carry[c] = last_slice
+                    arrays.append(filled)
+                writer.write_batch(
+                    pa.RecordBatch.from_arrays(
+                        arrays, schema=filled_schema,
+                    )
+                )
+        finally:
+            writer.close()
+
+        # Step 3: external_sort ascending by __orig_rid
+        def _iter_filled():
+            for b in ArrowIPCBatchReader(str(filled_path), None):
+                yield b
+
+        sorted_asc = external_sort(
+            _iter_filled(),
+            key_columns=["__orig_rid"],
+            value_columns=list(self._columns),
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir / "bfill" / "sort_asc",
+            ascending=True,
+            log=False,
+        )
+
+        def _iter_out():
+            for b in ArrowIPCBatchReader(str(sorted_asc), None):
+                yield b.select(list(self._columns))
+
+        new_ds = Dataset.from_batches(
+            out_schema, _iter_out(), self._new_dataset_dir(),
+        )
+        return CadwDataFrame(
+            new_ds,
+            memory_guard=self._memory_guard,
+            spill_dir=self._spill_dir,
+        )
+
+    def reindex(self, labels) -> "CadwDataFrame":
+        """Row alignment to target labels (v0.9.25i).
+
+        For each label in `labels`:
+          - found in source index → source row
+          - not found → null-filled row
+
+        - labels: iterable of scalars.
+        - Returns CadwDataFrame with rows in `labels` order.
+        - Duplicate source labels: first occurrence wins.
+        - MultiIndex source: NotImplementedError.
+        - RangeIndex source: labels interpreted as ORIGINAL positional
+          ints (0-based). Filtered RangeIndex: labels are ORIGINAL
+          positions, not filtered-view enumeration.
+        - Filtered source: labels matched against filtered view's index
+          (via self.index property — MaterializedIndex with original
+          labels).
+
+        Memory: O(K × row_size) where K = len(labels). Requires
+        K × row_size ≤ state_limit.
+
+        Peak RAM = K × row_size + batch.
+        """
+        from cadw.dataset import Dataset
+        from cadw.dataset.index import MaterializedIndex
+        from cadw.core.memory_guard import MemoryLimitExceeded
+
+        labels = list(labels)
+        if not labels:
+            raise ValueError("reindex: labels must be non-empty")
+
+        if self._index_kind == "multi":
+            raise NotImplementedError(
+                "reindex: MultiIndex source not supported; use "
+                ".reset_index() first"
+            )
+
+        # Resolve each label → position in FILTERED view (which is
+        # what iloc[] expects).
+        positions: list = []
+        if self._index_kind == "range" and not self._row_filters:
+            # Unfiltered RangeIndex: labels are positional ints.
+            start = self._index_start
+            stop = self._index_stop
+            for lab in labels:
+                try:
+                    lab_int = int(lab)
+                except (TypeError, ValueError):
+                    positions.append(None)
+                    continue
+                if start <= lab_int < stop:
+                    positions.append(lab_int - start)
+                else:
+                    positions.append(None)
+        else:
+            # Filtered (any kind) OR materialized:
+            # self.index → MaterializedIndex with correct labels;
+            # get_positions_all returns filtered-view positions.
+            # Build label→pos map once (O(N + K) not O(K*N)).
+            idx = self.index
+            label_to_pos: dict = {}
+            for i, x in enumerate(idx):
+                try:
+                    if x not in label_to_pos:
+                        label_to_pos[x] = i
+                except TypeError:
+                    continue
+            for lab in labels:
+                try:
+                    positions.append(label_to_pos.get(lab, None))
+                except TypeError:
+                    positions.append(None)
+
+        valid_positions = [p for p in positions if p is not None]
+        k_valid = len(valid_positions)
+
+        # All-missing shortcut: null-filled table (avoid take-on-empty)
+        if k_valid == 0:
+            n = len(labels)
+            arrays = [
+                pa.nulls(n, type=self._dataset.schema.field(c).type)
+                for c in self._columns
+            ]
+            result_table = pa.Table.from_arrays(
+                arrays, names=self._columns,
+            )
+            return self._wrap_result_table(result_table)
+
+        # Memory check
+        first_batch = None
+        for b in self._iter_filtered_batches():
+            first_batch = b
+            break
+        if first_batch is None:
+            row_bytes = max(
+                1, self._memory_guard.estimate_row_size_from_schema(
+                    pa.schema([self._dataset.schema.field(c)
+                               for c in self._columns]),
+                )
+            )
+        else:
+            row_bytes = self._memory_guard.reestimate_from_batch(
+                first_batch,
+            )
+        est = k_valid * row_bytes
+        state_limit = self._memory_guard.state_limit_bytes
+        if est > state_limit:
+            raise MemoryLimitExceeded(
+                f"reindex: K={k_valid} × {row_bytes} B/row = "
+                f"{est} B > state_limit {state_limit} B. "
+                f"Reduce labels count or increase budget."
+            )
+        self._memory_guard.check_state(
+            est, name=f"reindex(K={k_valid})",
+        )
+
+        # Gather valid rows via iloc[list]
+        valid_df = self.iloc[valid_positions]
+        valid_table = valid_df.head(k_valid)
+
+        # Map: output[i] = valid_table[valid_idx_counter] if
+        # positions[i] is not None, else null.
+        valid_idx_arr: list = []
+        valid_idx_counter = 0
+        for pos in positions:
+            if pos is None:
+                valid_idx_arr.append(None)
+            else:
+                valid_idx_arr.append(valid_idx_counter)
+                valid_idx_counter += 1
+
+        try:
+            result_table = valid_table.take(
+                pa.array(valid_idx_arr, type=pa.int64())
+            )
+        except (pa.ArrowInvalid, pa.ArrowIndexError) as e:
+            raise RuntimeError(
+                f"reindex: Table.take with null indices failed: {e}. "
+                f"This PyArrow build may not support null-safe take."
+            ) from e
+
+        return self._wrap_result_table(result_table)
+
     # ---------------- __getitem__ ----------------
 
     def __getitem__(self, key):
