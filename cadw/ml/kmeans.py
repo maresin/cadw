@@ -342,6 +342,14 @@ def fit_kmeans(
             shift = float(np.max(np.abs(new_centers - centers)))
             centers = new_centers
 
+            # v0.9.31: uniform training log (opt-in via CADW_LOG=1).
+            try:
+                from cadw.ml._logging import log_fit
+                log_fit("kmeans", iter_i=n_iter, iter_n=max_iter,
+                        loss=float(inertia), state_bytes=int(k*centers.shape[1]*8))
+            except Exception:
+                pass
+
             if shift < tol:
                 converged = True
                 break

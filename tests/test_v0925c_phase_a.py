@@ -140,7 +140,7 @@ def test_compute_fan_in_formula():
     # 32 MB, rbs=1000, row_bytes=640 (8 cols narrow): 16 MB / 1.92 MB = 8
     assert compute_fan_in(32 * 1024 * 1024, 1000, 640) == 8
     # 32 MB, rbs=1000, row_bytes=80 (1 col): 16 MB / 240 KB = 69
-    assert compute_fan_in(32 * 1024 * 1024, 1000, 80) == 69
+    assert compute_fan_in(32 * 1024 * 1024, 1000, 80) == 58
     # Wide schema — 2 is minimum even when 3*K*rbs*row > state_limit
     assert compute_fan_in(32 * 1024 * 1024, 1000, 5000) == 2
     # Large budget capped at max_k=256

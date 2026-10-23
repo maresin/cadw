@@ -863,6 +863,13 @@ def _fit_boosting(
             "structure": dict(tree),
             "leaf_values": dict(leaf_values),
         })
+        # v0.9.31: uniform training log (opt-in via CADW_LOG=1).
+        try:
+            from cadw.ml._logging import log_fit
+            log_fit("gbdt", iter_i=round_i + 1, iter_n=n_estimators,
+                    state_bytes=len(trees) * 64 * max_depth)
+        except Exception:
+            pass
 
         if leaf_values:
             max_lid = max(leaf_values.keys())

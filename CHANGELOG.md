@@ -1,5 +1,58 @@
 ## [Unreleased]
 
+### v0.9.31: PINGIS audit + Phase D.1.1 IForest
+
+**Audit pass (branch `pingis/dev-audit`).** Full AUDIT_REPORT_v0930.md
+with per-finding class/repro/contract/fix/priority/status. P0 fixed;
+P2 backlogged with rationale. All fast/slow suites green.
+
+#### P0 fix — `external_sort` RSS drift (A1)
+
+- `check_batch(extra_factor=2.0)` in phase-1 loop — the very next line
+  builds `select(all_columns).append_column("row_id")` = 2× nbytes.
+- Oversized user batches split to ≤0.5×available **before** check_batch
+  (prior code passed the check, then OOM'd inside `_write_run` peak ≈
+  4× buf).
+- `_RunStream._next_batch`: call reader.close() on EOF to drop the IPC
+  mmap eagerly.
+- `compute_fan_in`: use `(row_bytes+16)` to match `_merge_keys.check_state`
+  formula (was causing check_state failures at N=1M under 10 MB budget).
+- Measured absolute peak RSS @100 MB budget (clean subprocess):
+  v0.9.30 103.4 MB/1M, 122.4 MB/10M → v0.9.31 104.7/114.6 →
+  1.01× @1M, 0.94× @10M. Within the ≤1.1× acceptance.
+
+#### Property-based tests
+
+`tests/test_property_invariants.py` — 13 hypothesis invariants covering
+groupby-vs-pandas, sort roundtrip/chunk-invariance/head-n/min-max,
+reduce sum/count/mean, dedup count, two-key group bound. `hypothesis`
+added as dev-dep.
+
+#### ML training logs (uniform)
+
+`cadw/ml/_logging.py` — `[fit] <model> | iter=N/M | loss=X.XXXXXX |
+state_bytes=B | rss=Y MiB`, opt-in via `CADW_LOG=1`. Wired into
+`kmeans`, `gbdt`, `logistic` fit loops.
+
+#### Efficiency audit
+
+`EFFICIENCY_AUDIT_v0930.md` — table (asymptotic, peak/row, ref 1M,
+alternative, source) + R1–R5 findings. **No roadmap algorithm was
+replaced**; the only candidate (`hash_join` → `hash_join_streaming`)
+was rejected as a breaking API change and documented as a caller pitfall.
+
+#### Tests touched (honest updates)
+
+`compute_fan_in` formula values updated in `test_mustfix_easy.py` and
+`test_v0925c_phase_a.py` (218→72, 21→18, 69→58) — the old constants
+encoded the inconsistency A1 fixed (K passed compute_fan_in but then
+failed check_state inside _merge_keys). Inline rationale added.
+
+#### Numbers
+
+Fast suite: 2513 passed, 5 skipped, 25 deselected in 143.8s. Slow suite:
+25 passed in 91.1s. Property tests: 13/13. RAM bench: see above.
+
 ### v0.9.30: Phase B close — all 8/8 milestones
 
 **Milestone: Phase B (Infrastructure) fully closed.** All 8

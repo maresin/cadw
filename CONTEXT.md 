@@ -1,6 +1,6 @@
 # CADW — Context Handoff
 
-**Version:** 0.9.30 (2026-10-23)
+**Version:** 0.9.31 (2026-10-23)
 **Goal:** out-of-core dataframe на Apache Arrow для данных, не
 влезающих в RAM, на слабых машинах.
 **Constraint:** ≤1 batch в RAM, всё тяжёлое через 3 примитива:
@@ -13,7 +13,7 @@ Reduce / HashShuffle / Sort.
 | A — Stabilization | ✅ completed | 11 items, A.6 → G |
 | B — Infrastructure | ✅ completed | 8/8 milestones (B.1 split, B.2 decisions, B.3 tests, B.5 scripts, B.6 cleanup) |
 | C — Pandas P0 | ✅ completed | 20/20 features (isin, between, idxmax, … , dropna, fillna) |
-| D — Algorithms P1 | 🚀 next | 29 items, v0.9.31–v0.9.36 |
+| D — Algorithms P1 | 🚀 in progress | v0.9.31: audit + IForest; 28 more items pending |
 | E — Recipes | planned | — |
 | F — Light NNs | planned | — |
 | G — Tech debt | planned | A.6 deferred here |

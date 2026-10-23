@@ -381,6 +381,14 @@ def fit_logistic(
         step_inf = float(np.max(np.abs(step)))
         beta = beta - step
 
+        # v0.9.31: uniform training log (opt-in via CADW_LOG=1).
+        try:
+            from cadw.ml._logging import log_fit
+            log_fit("logistic", iter_i=n_iter, iter_n=max_iter,
+                    loss=-float(ll), state_bytes=int((d*d + d) * 8))
+        except Exception:
+            pass
+
         if step_inf < tol:
             converged = True
             break

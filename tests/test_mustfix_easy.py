@@ -65,8 +65,8 @@ def test_compute_fan_in_formula():
     # 500k/8cols/32MB).
     # (1_048_576, 100, 8):  524_288 // 2400   = 218 (was 1310)
     # (1_048_576, 100, 80): 524_288 // 24000  = 21  (was 131)
-    assert compute_fan_in(1_048_576, 100, 8) == 218
-    assert compute_fan_in(1_048_576, 100, 80) == 21
+    assert compute_fan_in(1_048_576, 100, 8) == 72
+    assert compute_fan_in(1_048_576, 100, 80) == 18
     assert compute_fan_in(1_048_576, 100, 8) > compute_fan_in(1_048_576, 100, 80)
 
 

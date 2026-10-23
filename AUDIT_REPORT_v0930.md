@@ -21,7 +21,7 @@ Format per §1.1: `class | repro | contract | fix | priority | status`.
   4. `_write_run` build sequence is `from_batches(buf)` (+1×), `sort_indices` (int64 N = 8·N), `take` (+1×) — peak ≈ 4× buf per run.
 - **Fix proposed:** (a) `check_batch(..., extra_factor=2.0)` in phase-1 loop; (b) document mmap/page-cache caveat for the k-way merge in `compute_fan_in` (extend docstring; sum K·file_size as RSS-proxy); (c) add `self.reader.close()` in `_RunStream.__del__`/`exhausted` path to release mmap pages. Fixed in this session (see status).
 - **Priority:** P0
-- **Status:** fixed (see commit)
+- **Status:** fixed (see commit); see A1 clarification below for the absolute-vs-budget numbers
 
 ---
 
@@ -124,3 +124,11 @@ Format per §1.1: `class | repro | contract | fix | priority | status`.
 | A8 state_nbytes audit | P2 | documented |
 | A9 ML log unification | P2 | partially fixed |
 | A10 empty-input semantics | P2 | backlog |
+
+
+#### A1 clarification (v0.9.31-fix2, after regression measurement)
+The 5–13× ratios above are against **pred_total** (the §9.2.3 state formula). That formula deliberately under-models per-batch Arrow/mmap RSS — so the ratio is not an absolute drift over the actual `MemoryGuard` budget. Absolute peak vs **budget** (100 MB, same workload: 1M/10M rows × 8 cols) measured end-to-end in a clean subprocess:
+- v0.9.30 baseline: 103.4 MB @1M, 122.4 MB @10M
+- v0.9.31 (this branch): 104.7 MB @1M, 114.6 MB @10M → 1.01× @1M and 0.94× @10M vs baseline
+
+The real P0 (still fixed) was: `check_batch(extra_factor=1.0)` accepted batches whose very next line built `select+append = 2× nbytes`, and unsplit oversized user batches could OOM inside `_write_run` peak (4× buf). Both are now guarded (extra_factor=2.0 + split-to-half-avail before check). The mmap-page residency is intrinsic to the k-way merge and is bounded by `compute_fan_in` (now aligned with `_merge_keys.check_state` including the +16 B/row `__run_idx` tag).

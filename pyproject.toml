@@ -1,6 +1,6 @@
 [project]
 name = "cadw-framework"
-version = "0.9.30"
+version = "0.9.31"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -59,4 +59,5 @@ dev = [
     "ruff>=0.15.12",
     "pandas-stubs>=3.0.0.260204",
     "pytest-xdist>=3.8.0",
+    "hypothesis>=6.170.8",
 ]
