@@ -11,6 +11,7 @@ from .gbdt import (
     GBDTClassifier, fit_gbdt_classifier,
     GBDTMulticlassClassifier, fit_gbdt_multiclass,
 )
+from .iforest import IsolationForestModel, fit_isolation_forest
 from .naive_bayes import (
     GaussianNB, fit_gaussian_nb,
     MultinomialNB, fit_multinomial_nb,
@@ -29,4 +30,5 @@ __all__ = [
     "GaussianNB", "fit_gaussian_nb",
     "MultinomialNB", "fit_multinomial_nb",
     "BernoulliNB", "fit_bernoulli_nb",
+    "IsolationForestModel", "fit_isolation_forest",
 ]

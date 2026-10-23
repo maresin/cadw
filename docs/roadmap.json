@@ -290,8 +290,9 @@
           "id": "D.1.1",
           "name": "IForest on batches",
           "patch": "v0.9.31",
-          "status": "planned",
-          "complexity": "S"
+          "status": "done",
+          "complexity": "S",
+          "file": "cadw/ml/iforest.py"
         },
         {
           "id": "D.1.2",

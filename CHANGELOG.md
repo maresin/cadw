@@ -6,6 +6,12 @@
 with per-finding class/repro/contract/fix/priority/status. P0 fixed;
 P2 backlogged with rationale. All fast/slow suites green.
 
+#### Phase D.1.1 — Isolation Forest (v0.9.31)
+
+- `cadw/ml/iforest.py`: `IsolationForestModel` + `fit_isolation_forest(df, X_cols, n_trees=100, subsample_size=256, random_state, contamination, memory_guard)`. Reservoir sampling over the streaming batches (state independent of N); random-split isolation trees per Liu/Ting/Zhou 2008. Scoring is **per-batch** with `check_batch(extra_factor=3.0)` — no whole-dataset materialization. Design: `docs/decisions/d1_1_iforest.md`.
+- Bench (`scripts/bench_iforest.py`, N=1M, 5 features): fit 3.46 s, score 92.9 s, peak 17.9 MB, state 430 KB. sklearn ref: AUROC 0.999 vs 0.999, Spearman 0.95.
+- Tests: `tests/test_iforest.py` — 12 tests incl. ref-vs-sklearn, determinism, single-row, constant-feature, nulls, chunk-invariance, RAM independent of N.
+
 #### P0 fix — `external_sort` RSS drift (A1)
 
 - `check_batch(extra_factor=2.0)` in phase-1 loop — the very next line
