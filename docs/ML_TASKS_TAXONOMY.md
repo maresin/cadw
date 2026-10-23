@@ -256,7 +256,7 @@ Same as A6 (imbalanced) — rare events with labels.
 - **Ensemble:** MP + IForest + PELT (change-point)
 
 **CADW status:**
-- ⏳ Matrix Profile — D.1.2
+- ✓ Matrix Profile — v0.9.35 (D.1.2)
 - ⏳ PELT — D.4.2
 - ✓ IForest on lag features (via composition)
 
@@ -274,7 +274,7 @@ Same as A6 (imbalanced) — rare events with labels.
 - O6 Sampling: ✓ KFold, GroupKFold, TimeSeriesSplit
 - O7 Hyperparam: ⏳ external (Optuna) — via to_batches
 - O8 XAI: ✓ perm importance; ⏳ SHAP (sample, Phase H)
-- O9 Fairness: ⏳ fairness metrics — D.1.4
+- O9 Fairness: ✓ `df.fairness_metrics` — v0.9.35 (D.1.4)
 - O10 Drift: ⏳ KS/PSI/Chi2 — D.6.2
 - O11 A/B: ⏳ t/MW/CUPED — D.6.2
 
@@ -289,7 +289,7 @@ Same as A6 (imbalanced) — rare events with labels.
 - **D2** (multi TS) — D.4.5 VAR
 - **D5** (change-point) — D.4.2 PELT
 - **F1/F2** (recsys) — D.2.2 ALS, D.2.3 hybrid
-- **G1** (LTR) — D.2.1 LambdaMART
+- **G1** (LTR) — ✓ LambdaMART v0.9.35 (D.2.1)
 - **H1/H2** (causal/uplift) — D.3.2, D.3.3
 - **I1** (survival) — D.3.1 CoxPH
 - **J1/J3/J4** (text) — D.6.9 TF-IDF, N11

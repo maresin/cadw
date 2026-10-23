@@ -1,5 +1,36 @@
 ## [Unreleased]
 
+### v0.9.35 (2026-10-23) — Phase D algorithms, group 1/7
+
+First of seven algorithm patches (25 items total, no deferral).
+
+- **D.1.4 (S) — fairness metrics.** `cadw/ml/fairness.py` +
+  `df.fairness_metrics(...)`. DP difference, equal-opportunity
+  (TPR gap), FPR gap, disparate impact. Single streaming pass using
+  Arrow `group_by(sensitive).aggregate(sum)` over four 0/1 masks;
+  state is O(K) groups. Guarded via `check_state(K*160)`, raises
+  `MemoryLimitExceeded` at 20k groups under a 4 MB budget. 11 tests;
+  bench 1M rows in 0.098 s, state 1 280 B constant.
+- **D.1.2 (M) — streaming Matrix Profile.** `cadw/ml/matrix_profile.py`
+  + `df.fit_matrix_profile(...)`. z-normalized Euclidean profile over a
+  bounded reservoir sample with exact block STOMP on the sample; state
+  O(max_samples*window), independent of N. Documented as approximate
+  w.r.t. the full series (`sample_fraction_`) — the exact O(N) STAMP
+  variant cannot satisfy the <=1-batch RAM rule. 11 tests; bench
+  1M rows / 3.17 s, state 1 114 112 B identical at 10x N.
+- **D.2.1 (M) — LambdaMART.** `cadw/ml/lambdamart.py` +
+  `df.fit_lambdamart(...)`. LambdaRank gradients (vectorized, upper-
+  triangle NDCG delta weights), second-order tree leaves, quantile-
+  binned features. `ndcg_at_k` helper. Streaming pre-pass guarded by
+  `check_state`; 1M x 8 features raises `MemoryLimitExceeded` by
+  design, bench therefore at 400k. 10 tests; bench 400k rows: fit
+  33.5 s (sklearn pointwise ref 36.2 s), state 56 KB, NDCG@10 0.862.
+
+Docs: `docs/roadmap.json` D.1.4/D.1.2/D.2.1 -> done;
+`docs/ML_TASKS_TAXONOMY.md` O9, Matrix Profile, G1 -> available.
+Notes and benches under `.pingis/algorithm_notes/`,
+`.pingis/benches/`. Fast suite 2576 -> 2608 passed; slow 25 passed.
+
 ### v0.9.34-fix1 (2026-10-23) — baseline test whitelist fix
 
 Baseline check at HEAD 8ee3181 (clean tree) found 1 fast-suite failure

@@ -594,6 +594,77 @@ class _MLBindingsMixin:
         )
 
 
+    def fairness_metrics(
+        self,
+        *,
+        sensitive_col: str,
+        y_true_col: str,
+        y_pred_col: str,
+    ):
+        """Streaming group fairness metrics (v0.9.35, D.1.4).
+
+        DP / equal-opportunity (TPR gap) / FPR gap / disparate impact
+        from a single pass; state O(K) groups.
+
+        See cadw.ml.fairness.fairness_metrics.
+        """
+        from cadw.ml.fairness import fairness_metrics
+        return fairness_metrics(
+            self,
+            sensitive_col=sensitive_col,
+            y_true_col=y_true_col,
+            y_pred_col=y_pred_col,
+            memory_guard=self._memory_guard,
+        )
+
+    def fit_matrix_profile(
+        self,
+        value_col: str,
+        *,
+        window: int = 32,
+        max_samples: int = 4096,
+        random_state: "int | None" = 0,
+    ):
+        """Streaming Matrix Profile (v0.9.35, D.1.2).
+
+        Bounded reservoir sample of z-normalized subsequences + exact block
+        STOMP over the sample. State O(max_samples * window), independent
+        of N. Discord scores: 1 - mP/sqrt(2w).
+        """
+        from cadw.ml.matrix_profile import fit_matrix_profile
+        return fit_matrix_profile(
+            self, value_col, window=window, max_samples=max_samples,
+            random_state=random_state, memory_guard=self._memory_guard,
+        )
+
+
+    def fit_lambdamart(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        query_col: str,
+        *,
+        n_estimators: int = 100,
+        max_depth: int = 3,
+        learning_rate: float = 0.1,
+        bins: int = 32,
+        sigma: float = 1.0,
+        ndcg_k: int = 10,
+    ):
+        """Fit a LambdaMART ranker (v0.9.35, D.2.1).
+
+        y_col: graded relevance (int >= 0). query_col: query / group id.
+        Returns LambdaMARTModel with .predict(df) -> score column.
+        """
+        from cadw.ml.lambdamart import fit_lambdamart
+        return fit_lambdamart(
+            self, X_cols, y_col, query_col,
+            n_estimators=n_estimators, max_depth=max_depth,
+            learning_rate=learning_rate, bins=bins, sigma=sigma,
+            ndcg_k=ndcg_k, memory_guard=self._memory_guard,
+        )
+
+
     def fit_lasso(
         self,
         X_cols: "str | Sequence[str]",
