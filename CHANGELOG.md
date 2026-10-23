@@ -1,5 +1,60 @@
 ## [Unreleased]
 
+### v0.9.30: Phase B close — all 8/8 milestones
+
+**Milestone: Phase B (Infrastructure) fully closed.** All 8
+milestones done. **Context-transfer pain** — the phase's stated
+goal — measurably mitigated.
+
+#### Measured reductions
+
+- **−7.9 MB** filesystem — B.6 cleanup (`.backups/` 916 KB,
+  `ts_review_snapshot.md` 186 KB, `scripts/archive/` ~2.4 MB,
+  ~280 old patches ~4.7 MB)
+- **−288 KB** monolithic DECISIONS → `docs/decisions/` 24
+  per-topic files ≤ ~40 KB each — B.2
+- **−7872 LOC** `dataframe.py` monolith → 18 modules in
+  `cadw/dataframe/` — B.1
+- **`-m ts` = 103 tests** vs 2500 full (24× selective
+  reduction) — B.3 markers
+- **1.9× faster** parallel via `pytest -n auto` (opt-in) —
+  B.3 xdist
+- **75 scripts** grouped into phase subdirs — B.5
+
+#### Sub-versions
+
+- **v0.9.26** (B.1 + B.7 + B.8): `dataframe.py` split — 18
+  modules + `tail` feature (§13.4/314 backlog closed) + recipes
+  scaffold + `docs/roadmap.json` manifest. 20+ extraction
+  patches (v0.9.26g through y2).
+- **v0.9.27** (B.6): cleanup — 439 files deleted, 
+  `bench_v0919_calibration.py` restored (test-referenced,
+  §13.4/344)
+- **v0.9.28** (B.2): DECISIONS split — 24 per-topic files +
+  64-line index. §13.4 block → 15a-d (4 chunks, §13.4/347)
+- **v0.9.29** (B.3): pytest markers (`slow`/`ml`/`ts`/`ops`/
+  `viz`/`pipeline`/`e2e`) + xdist. Hook uses `item.nodeid`
+  (pytest 9 safe, §13.4/356)
+- **v0.9.30** (B.5): scripts reorg — 75 files grouped by phase
+
+#### Process notes
+
+- **14 patches** (v0.9.26z through v0.9.30), ~30 fix cycles,
+  **0 production bugs**, 0 logic change in extraction patches.
+- **60+ §13.4 lessons** (§13.4/278–360) — all tooling/test
+  (whitelist paths, AST discovery, import forms, pytest hooks).
+  Index in `docs/decisions/15a-d_13_4_уроки_part*.md`.
+- **Test count:** 2488 fast → **2500 fast** (+12: +9 tail,
+  +3 marker-related).
+
+#### Honest final state
+
+`A + B + C` phases all `completed`. Phase B sub-milestones B.1
+through B.8 all `done`. Roadmap `current_version=0.9.30`.
+Phase D (30+ P1 algorithms across D.1–D.6) remains `planned` —
+v0.9.31+ scope, separate large effort.
+
+
 ### v0.9.26: B.1 — dataframe.py split into 18 modules
 
 **Milestone: `CadwDataFrame` monolith (7872 LOC in a single

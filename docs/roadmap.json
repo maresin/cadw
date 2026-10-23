@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.26",
+  "current_version": "0.9.30",
   "updated": "2026-10-23",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -126,7 +126,7 @@
       "id": "B",
       "name": "Infrastructure",
       "version_range": "v0.9.26-v0.9.27",
-      "status": "in_progress",
+      "status": "completed",
       "description": "Remove context-transfer pain and test-latency pain. No functional changes.",
       "items": [
         {
@@ -143,17 +143,21 @@
           "id": "B.2",
           "name": "DECISIONS.md split into docs/ tree",
           "patch": "v0.9.27",
-          "status": "planned",
+          "status": "done",
           "complexity": "L",
-          "file": "DECISIONS.md"
+          "file": "DECISIONS.md",
+          "closed_at": "2026-10-23",
+          "completed_in": "v0.9.28 (DECISIONS split)"
         },
         {
           "id": "B.3",
           "name": "Pytest markers per module + xdist",
           "patch": "v0.9.27",
-          "status": "planned",
+          "status": "done",
           "complexity": "M",
-          "file": "tests/, pyproject.toml"
+          "file": "tests/, pyproject.toml",
+          "closed_at": "2026-10-23",
+          "completed_in": "v0.9.29 (pytest markers + xdist)"
         },
         {
           "id": "B.4",
@@ -168,17 +172,21 @@
           "id": "B.5",
           "name": "scripts/ folder reorganization",
           "patch": "v0.9.27",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
-          "file": "scripts/"
+          "file": "scripts/",
+          "closed_at": "2026-10-23",
+          "completed_in": "v0.9.30 (scripts reorg)"
         },
         {
           "id": "B.6",
           "name": "Cleanup (backups, old patches, snapshots)",
           "patch": "v0.9.25e",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
-          "file": ".gitignore, scripts/archive/"
+          "file": ".gitignore, scripts/archive/",
+          "closed_at": "2026-10-23",
+          "completed_in": "v0.9.27 (cleanup)"
         },
         {
           "id": "B.7",
@@ -200,7 +208,9 @@
       "started_at": "2026-10-23",
       "patches": [
         "v0.9.26b"
-      ]
+      ],
+      "completed_at": "2026-10-23",
+      "summary": "Phase B close (v0.9.30): 8/8 milestones done. B.1 dataframe split (18 modules, _core 7900→530 LOC, tail added), B.2 DECISIONS split (288 KB → 24 files), B.3 pytest markers + xdist (-m ts = 103 tests vs 2500, 1.9× parallel opt-in), B.4 collect_project phase-aware, B.5 scripts reorg (75 files), B.6 cleanup (-7.9 MB), B.7 recipes scaffold, B.8 roadmap.json. 0 production bugs, 0 logic change. 60+ §13.4 lessons (278–360). Context-transfer pain measurably mitigated."
     },
     {
       "id": "C",
