@@ -13,6 +13,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from cadw.core.logging import get_logger
+from cadw.dataframe_helpers import _convert_batch
 from cadw.core.memory_guard import MemoryGuard
 from cadw.dataset import Dataset
 from cadw.dataset._in_memory import _InMemoryDataset
@@ -47,7 +48,6 @@ class _ExportsMixin:
 
         batch_size=None — как в Dataset (stored boundaries); N — re-chunk.
         """
-        from ._core import _convert_batch
         if format not in ("arrow", "pandas", "numpy", "torch"):
             raise ValueError(
                 f"unsupported format {format!r}; "
