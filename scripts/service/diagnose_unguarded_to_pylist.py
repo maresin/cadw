@@ -119,7 +119,7 @@ WHITELIST = {
         "check_state(n*elem_size) — 0.5*avail limit",
     "cadw/dataframe/_column_proxy.py:_ColumnProxy.to_arrow":
         "check_state(n*elem_size) — 0.5*avail limit",
-    "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical":
+    "cadw/dataframe/_ml_bindings.py:_MLBindingsMixin.encode_categorical":
         "pc.value_counts per batch; K per batch (unique values), not N; per-batch check_state(|uniques| * 180)",
     "cadw/dataframe/_per_group.py:_PerGroupMixin._per_group_apply._emit_group":
         "per-group fn output; group bounded by _flush_group (0.3*avail); fn's own alloc = user responsibility (§3.9)",

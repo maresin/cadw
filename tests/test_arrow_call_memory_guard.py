@@ -122,9 +122,9 @@ WHITELISTED_FUNCS = {
         "per-batch, caller check_batch'd",
     "cadw/dataframe/_indexing.py:_IndexingMixin.head":
         "≤ n rows accumulated before Table.from_batches",
-    "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical":
+    "cadw/dataframe/_ml_bindings.py:_MLBindingsMixin.encode_categorical":
         "per-batch value_counts; K uniques, not N",
-    "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical._iter_encoded":
+    "cadw/dataframe/_ml_bindings.py:_MLBindingsMixin.encode_categorical._iter_encoded":
         "per-batch index_in against K-value dictionary",
     "cadw/dataframe/_per_group.py:_PerGroupMixin._shift_on._iter_zipped":
         "bounded accum list; guard in _shift_on",
