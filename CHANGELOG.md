@@ -12,6 +12,13 @@ P2 backlogged with rationale. All fast/slow suites green.
 - Bench (`scripts/bench_iforest.py`, N=1M, 5 features): fit 3.46 s, score 92.9 s, peak 17.9 MB, state 430 KB. sklearn ref: AUROC 0.999 vs 0.999, Spearman 0.95.
 - Tests: `tests/test_iforest.py` — 12 tests incl. ref-vs-sklearn, determinism, single-row, constant-feature, nulls, chunk-invariance, RAM independent of N.
 
+#### Phase D.6.3 — Permutation feature importance (v0.9.31)
+
+- `cadw/ml/importance.py`: `permutation_importance(model, df, X_cols, y_col=None, n_repeats=5, max_samples=1000, metric='auto'|'r2'|'accuracy'|'shift'|None, random_state, memory_guard)`. Model-agnostic: works with any `predict(np.ndarray) -> np.ndarray`. Reservoir samples `max_samples` rows over the streaming batches (state independent of N); shuffles one column at a time. Design: `docs/decisions/d6_3_permutation_importance.md`.
+- Bench (`scripts/bench_permutation_importance.py`): N=1M / 5 features, wall 3.2 s, peak 1.9 MB (sample cap 1000 rows). N=100k: 0.32 s, 8.5 MB.
+- Ref vs sklearn.inspection.permutation_importance: Spearman >= 0.7 on synthetic linear (test asserts).
+- Tests: `tests/test_permutation_importance.py` — 10 tests (smoke, ranking, repeats-stable, determinism, too-small, constant feature, sklearn ref, chunk invariance, accuracy mode, unsupervised shift mode).
+
 #### P0 fix — `external_sort` RSS drift (A1)
 
 - `check_batch(extra_factor=2.0)` in phase-1 loop — the very next line
