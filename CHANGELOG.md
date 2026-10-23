@@ -1,5 +1,63 @@
 ## [Unreleased]
 
+### v0.9.26: B.1 — dataframe.py split into 18 modules
+
+**Milestone: `CadwDataFrame` monolith (7872 LOC in a single
+`cadw/dataframe.py`) split into 18 modules in `cadw/dataframe/`.**
+20+ extraction patches (v0.9.26g-y2), ~7300 LOC redistributed,
+`_core.py` 7900 → ~530 LOC. All **0 logic change** (verbatim move)
+except `tail` feature added (§13.4/314 backlog closed).
+
+**Architecture:** `CadwDataFrame` = 14 mixins composed at class
+definition:
+```python
+class CadwDataFrame(
+    _ExportsMixin, _IteratorsMixin, _MiscMixin, _IndexingMixin,
+    _AggregationsMixin, _TransformersFillMixin,
+    _TransformersReshapeMixin, _RollingMixin, _CumulativeMixin,
+    _PerGroupMixin, _ResampleReshapeMixin, _JoinMixin,
+    _MLBindingsMixin, _ColumnsMixin,
+): ...
+```
+
+#### Modules (18)
+
+`_core` (~530), `_helpers` (~170), `_exports` (~110),
+`_iterators` (~190), `_column_proxy` (~320), `_columns` (~100),
+`_groupby` (~220), `_misc` (~110), `_indexing` (~690),
+`_aggregations` (~520), `_transformers_fill` (~710),
+`_transformers_reshape` (~650), `_rolling` (~815),
+`_cumulative` (~820), `_per_group` (~990),
+`_resample_reshape` (~425), `_join` (~315), `_ml_bindings`
+(~630), `__init__` (~60).
+
+#### Added
+
+- **`CadwDataFrame.tail(n=5)`** (§13.4/314 backlog closed) —
+  pandas parity: n>0 last n, n=0 empty, n<0 all-but-first-k.
+  Arrow-native via `pa.RecordBatch.slice`, no `to_pylist`
+  (§13.4/336 guard-compliant). Mirror of `head`. 9 new tests.
+
+#### Process notes
+
+- **20+ patches** (v0.9.26g through y2, plus ~30 fix patches)
+  across ~10 sessions.
+- **0 production bugs, 0 logic change** in extraction patches.
+  All failures tooling (whitelist, discovery, imports, sanity,
+  test targets).
+- **Test count:** 2492 fast baseline → **2501** (+9 tail).
+- **Phase B status:** `completed` with caveats — B.1 (dataframe
+  split, primary milestone) done; B.2 (DECISIONS split), B.3
+  (pytest markers/xdist), B.5 (scripts reorg), B.6 (cleanup)
+  deferred to Phase G. All four are infra hygiene per roadmap
+  ("no functional changes") — no impact on CADW correctness.
+  Phase B closed honestly with documented debt (§13.4/339,
+  mirror of A.6 → G pattern from v0.9.26d).
+- **Docs debt:** §13.4/296-336 lessons are in Phase B.1 commit
+  messages; consolidated index in `DECISIONS.md` §13.4/337
+  (mirror of Phase A §13.4/290 pattern).
+
+
 ### v0.9.26: Phase A close + Phase B start + roadmap consistency
 
 **Milestone: Phase A (Stabilization) closed.** 10/11 items resolved;
