@@ -30,22 +30,6 @@ def read_parquet_vals(path):
 
 # ---------- column selection ----------
 
-
-def _iter_dataframe_sources():
-    """v0.9.26h2 (§13.4/292): iterate all dataframe package sources.
-    Replaces single-file scans; new extracted modules auto-covered.
-    """
-    import pathlib as _p
-    pkg = _p.Path("cadw/dataframe")
-    if pkg.is_dir():
-        for f in sorted(pkg.rglob("*.py")):
-            yield f, f.read_text()
-    else:
-        # legacy single-file fallback (should not trigger post-v0.9.26g)
-        legacy = _p.Path("cadw/dataframe.py")
-        if legacy.exists():
-            yield legacy, legacy.read_text()
-
 def test_select_columns(tmp_path):
     df = make_df(tmp_path)
     sub = df[["val"]]
