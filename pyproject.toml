@@ -32,6 +32,12 @@ reportGeneralTypeIssues = "warning"   # не error
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (E2E, >1s)",
+    "ml: ML model tests (gbdt, linear, logistic, kmeans, pca, naive_bayes, metrics, cv, scalers)",
+    "ts: time-series tests (rolling, expanding, ewm, ts toolkit)",
+    "ops: ops primitive tests (groupby, join, dedup, sort, rank, quantile, resample, pivot, reduce, shuffle, topk)",
+    "viz: visualization adapter tests (matplotlib, plotly, seaborn)",
+    "pipeline: pipeline and DAG tests",
+    "e2e: end-to-end integration tests",
 ]
 testpaths = ["tests"]
 norecursedirs = ["_legacy", ".venv", "build", "dist"]
@@ -44,7 +50,7 @@ viz = [
 ]
 dev = [
     "matplotlib>=3.8",
-    "pandas>=3.0",          # v0.9.6e1: test reference helpers use pandas
+    "pandas>=3.0", # v0.9.6e1: test reference helpers use pandas
     "plotly>=5.18",
     "seaborn>=0.13",
     "pytest>=9.0.3",
@@ -52,4 +58,5 @@ dev = [
     "pyright>=1.1.409",
     "ruff>=0.15.12",
     "pandas-stubs>=3.0.0.260204",
+    "pytest-xdist>=3.8.0",
 ]
