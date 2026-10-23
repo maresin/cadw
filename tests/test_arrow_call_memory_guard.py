@@ -126,11 +126,11 @@ WHITELISTED_FUNCS = {
         "per-batch value_counts; K uniques, not N",
     "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical._iter_encoded":
         "per-batch index_in against K-value dictionary",
-    "cadw/dataframe/_core.py:CadwDataFrame._shift_on._iter_zipped":
+    "cadw/dataframe/_per_group.py:_PerGroupMixin._shift_on._iter_zipped":
         "bounded accum list; guard in _shift_on",
     "cadw/dataframe/_rolling.py:_RollingMixin._rolling_on._iter_zipped":
         "bounded accum list; guard in _rolling_on",
-    "cadw/dataframe/_core.py:CadwDataFrame._per_group_shift._iter_zipped":
+    "cadw/dataframe/_per_group.py:_PerGroupMixin._per_group_shift._iter_zipped":
         "bounded accum list; guard in _per_group_shift",
     "cadw/dataframe/_rolling.py:_RollingMixin._per_group_rolling._iter_zipped":
         "bounded accum list; guard in _per_group_rolling",
