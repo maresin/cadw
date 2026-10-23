@@ -167,7 +167,7 @@ WHITELISTED_FUNCS = {
     "cadw/scalers.py:RobustScaler.fit":
         "per-column df.quantile — quantile op self-guards (§9.2.N)",
     # --- dataframe.py qcut (v0.9.25j) ---
-    "cadw/dataframe/_core.py:CadwDataFrame.qcut":
+    "cadw/dataframe/_transformers_reshape.py:_TransformersReshapeMixin.qcut":
         "self.quantile delegates to CADW's own guarded quantile op "
         "(external_sort + streaming); quantile self-guards via its "
         "own MemoryGuard (§9.2.N). AST guard cannot distinguish "
