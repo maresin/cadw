@@ -126,7 +126,7 @@
       "id": "B",
       "name": "Infrastructure",
       "version_range": "v0.9.26-v0.9.27",
-      "status": "completed",
+      "status": "in_progress",
       "description": "Remove context-transfer pain and test-latency pain. No functional changes.",
       "items": [
         {
@@ -143,19 +143,17 @@
           "id": "B.2",
           "name": "DECISIONS.md split into docs/ tree",
           "patch": "v0.9.27",
-          "status": "deferred",
+          "status": "planned",
           "complexity": "L",
-          "file": "DECISIONS.md",
-          "deferred_to": "G"
+          "file": "DECISIONS.md"
         },
         {
           "id": "B.3",
           "name": "Pytest markers per module + xdist",
           "patch": "v0.9.27",
-          "status": "deferred",
+          "status": "planned",
           "complexity": "M",
-          "file": "tests/, pyproject.toml",
-          "deferred_to": "G"
+          "file": "tests/, pyproject.toml"
         },
         {
           "id": "B.4",
@@ -170,19 +168,17 @@
           "id": "B.5",
           "name": "scripts/ folder reorganization",
           "patch": "v0.9.27",
-          "status": "deferred",
+          "status": "planned",
           "complexity": "S",
-          "file": "scripts/",
-          "deferred_to": "G"
+          "file": "scripts/"
         },
         {
           "id": "B.6",
           "name": "Cleanup (backups, old patches, snapshots)",
           "patch": "v0.9.25e",
-          "status": "deferred",
+          "status": "planned",
           "complexity": "S",
-          "file": ".gitignore, scripts/archive/",
-          "deferred_to": "G"
+          "file": ".gitignore, scripts/archive/"
         },
         {
           "id": "B.7",
@@ -204,10 +200,6 @@
       "started_at": "2026-10-23",
       "patches": [
         "v0.9.26b"
-      ],
-      "completed_at": "2026-10-23",
-      "caveats": [
-        "B.2/B.3/B.5/B.6 deferred to Phase G — DECISIONS split, pytest markers/xdist, scripts reorg, cleanup. All infra hygiene per roadmap 'no functional changes'. B.1 (dataframe split) is the primary B milestone and is done."
       ]
     },
     {
