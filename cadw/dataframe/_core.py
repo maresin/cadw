@@ -19,14 +19,9 @@ from typing import Any, Iterator, Sequence
 import numpy as np
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from cadw.core.memory_guard import MemoryGuard
 from cadw.core.logging import get_logger
-from cadw.core.sampling import (
-    data_chars_for_join,
-    peek_first_batch,
-)
 from cadw.dataset import (
     Dataset,
     CadwIndex,
@@ -37,30 +32,6 @@ from cadw.dataset import (
     MaskFilter,
     PredicateFilter,
     SliceFilter,
-)
-from cadw.io.batch_reader import ArrowIPCBatchReader
-from cadw.io.batch_writer import ArrowIPCBatchWriter, ParquetBatchWriter
-from cadw.indexers import (
-    _ILocIndexer,
-    _LocIndexer,
-    _AtIndexer,
-    _IAtIndexer,
-)
-from cadw.ops.groupby import groupby_aggregate
-from cadw.ops.join import hash_join, hash_join_streaming
-from cadw.ops.sort import external_sort
-from cadw.ops.dedup import drop_duplicates as _ops_drop_duplicates
-from cadw.ops.rank import compute_ranks_to_disk, VALID_METHODS
-from cadw.ops.quantile import quantile as _ops_quantile
-from cadw.ops.resample import (
-    parse_freq as _parse_freq,
-    resample_to_disk as _resample_to_disk,
-)
-from cadw.dataframe_helpers import (  # v0.9.25f-a
-    _ArrowTail, _RollState, _ExpandingState, _EwmState,
-    _group_boundaries_arrow, _convert_batch, _concat_batches,
-    _empty_value_counts_table, _reservoir_positions,
-    _weighted_reservoir_positions,
 )
 
 logger = get_logger("dataframe")
