@@ -46,3 +46,9 @@ _verify_*.py
 # Hypothesis (pytest cache) — auto-regenerated
 .hypothesis/
 **/.hypothesis/
+
+# PINGIS tool artifacts (local only)
+.pingis/attachments/
+.pingis/patch.py
+.pingis/summary.md
+.pingis/plan.md
