@@ -112,12 +112,12 @@ WHITELIST = {
     "cadw/dataframe_helpers.py:_ArrowTail.push":
         "K <= deque maxlen (per-column shift buffer, small)",
     # check_state-guarded (stricter than check_batch: 0.5xavail vs 1xavail).
-    "cadw/dataframe/_core.py:_ColumnProxy.to_list":
+    "cadw/dataframe/_column_proxy.py:_ColumnProxy.to_list":
         "check_state(_estimate_materialize_bytes) — limit=0.5*avail, "
         "stricter than check_batch (limit=avail)",
-    "cadw/dataframe/_core.py:_ColumnProxy.to_numpy":
+    "cadw/dataframe/_column_proxy.py:_ColumnProxy.to_numpy":
         "check_state(n*elem_size) — 0.5*avail limit",
-    "cadw/dataframe/_core.py:_ColumnProxy.to_arrow":
+    "cadw/dataframe/_column_proxy.py:_ColumnProxy.to_arrow":
         "check_state(n*elem_size) — 0.5*avail limit",
     "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical":
         "pc.value_counts per batch; K per batch (unique values), not N; per-batch check_state(|uniques| * 180)",
