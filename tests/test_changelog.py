@@ -15,6 +15,16 @@ import pytest
 CHANGELOG = Path(__file__).parent.parent / "CHANGELOG.md"
 
 
+
+
+def _read_all_decisions():
+    """v0.9.28-fix3: DECISIONS.md split into docs/decisions/*.md.
+    Concatenate all topic files for tests asserting specific sections.
+    §13.4/349, §13.4/350 (local import — _P is per-test local)."""
+    from pathlib import Path as _P
+    _docs = _P(__file__).resolve().parent.parent / "docs" / "decisions"
+    return "\n".join(f.read_text() for f in sorted(_docs.glob("*.md")))
+
 def test_changelog_exists():
     assert CHANGELOG.exists(), f"{CHANGELOG} missing"
 
@@ -134,7 +144,7 @@ def test_decisions_226_232_order():
 def test_decisions_233_240_order():
     """v0.9.21: episodes 233-240 after 232, before §13.5."""
     from pathlib import Path as _P
-    text = (_P(__file__).resolve().parent.parent / "DECISIONS.md").read_text()
+    text = _read_all_decisions()
     if "**Эпизод 233 " not in text:
         pytest.skip("233 block not yet present")
     i_232 = text.index("**Эпизод 232 ")
@@ -154,7 +164,7 @@ def test_decisions_233_240_order():
 def test_decisions_v0922_sections():
     """v0.9.22: §9.2.20-22 present + §13.4/241-245 present + ordered."""
     from pathlib import Path as _P
-    text = (_P(__file__).resolve().parent.parent / "DECISIONS.md").read_text()
+    text = _read_all_decisions()
     # 9.2.20-22 (before §9.3)
     for h in ("### 9.2.20. GBDT top-level peak",
               "### 9.2.21. Pipeline.plan()",
