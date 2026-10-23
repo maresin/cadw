@@ -46,14 +46,14 @@ def test_collect_project_phase_mode(tmp_path):
 
     After v0.9.25c + fix3 bookkeeping:
       - A.4, A.5, A.7, A.8 done (skipped)
-      - A.6, A.9, A.10 planned
+      - A.6 deferred to Phase G (v0.9.26d); A.9/A.10 done (v0.9.26d)
 
     A.6 spec = cadw/dataframe.py + cadw/ops/{shuffle,rank,metrics,
     pivot,resample,groupby}.py + cadw/ts/{features,stats,models,thf,
     backtest}.py (12 files via brace-expansion). A.9 = cadw/ops/sort.py.
     A.10 = cadw/core/memory_guard.py.
 
-    Assert all 14 files present. No absence assertions: no done-only
+    Assert A.6 files present (deferred); A.9/A.10 files absent (done). No absence assertions: no done-only
     file exists (A.8's tests/test_ts_models.py is pulled back via A.6
     test-discovery on cadw/ts/models.py — legitimate).
     """
@@ -73,10 +73,10 @@ def test_collect_project_phase_mode(tmp_path):
         assert f"FILE: cadw/ts/{name}.py" in text, (
             f"A.6 brace-expansion missed cadw/ts/{name}.py"
         )
-    # A.9 planned.
-    assert "FILE: cadw/ops/sort.py" in text
+    # A.9 done (v0.9.26d) - sort.py excluded from phase A snapshot.
+    assert "FILE: cadw/ops/sort.py" not in text
     # A.10 planned.
-    assert "FILE: cadw/core/memory_guard.py" in text
+    assert "FILE: cadw/core/memory_guard.py" not in text
 
 
 def test_collect_project_doc_mode(tmp_path):

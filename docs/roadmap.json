@@ -14,7 +14,7 @@
       "id": "A",
       "name": "Stabilization",
       "version_range": "v0.9.25",
-      "status": "in_progress",
+      "status": "completed",
       "description": "Fix critical bugs found by audits; no new functionality.",
       "patches": [
         "v0.9.25a",
@@ -92,26 +92,34 @@
           "id": "A.6",
           "name": "18 to_pylist sites extra_factor",
           "patch": "v0.9.25d",
-          "status": "planned",
+          "status": "deferred",
           "complexity": "M",
-          "file": "cadw/dataframe.py, cadw/ops/{shuffle,rank,metrics,pivot,resample,groupby}.py, cadw/ts/{features,stats,models,thf,backtest}.py"
+          "file": "cadw/dataframe.py, cadw/ops/{shuffle,rank,metrics,pivot,resample,groupby}.py, cadw/ts/{features,stats,models,thf,backtest}.py",
+          "deferred_to": "G",
+          "resolution_note": "§13.4/283: _FOR_PINGIS/cadw_audit_report.md absent from repo state; specific 18 sites cannot be identified. extra_factor already applied to ~30 batches across 15 modules (v0.9.22b documented 5; v0.9.24/v0.9.25e others). Remaining work deferred to Phase G (Tech debt close) where audit report can be re-requested."
         },
         {
           "id": "A.9",
           "name": "B5 dead code _append_to_builders",
           "patch": "v0.9.25e",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
-          "file": "cadw/ops/sort.py"
+          "file": "cadw/ops/sort.py",
+          "resolution_note": "v0.9.26c-diagnostic: _append_to_builders absent from cadw/ — already removed in prior patch"
         },
         {
           "id": "A.10",
           "name": "B4 memory_guard fallback factor",
           "patch": "v0.9.25e",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
-          "file": "cadw/core/memory_guard.py"
+          "file": "cadw/core/memory_guard.py",
+          "resolution_note": "v0.9.26c-diagnostic: memory_guard.py:757 comment 'v0.9.25e (A.10): fallback scales with state_limit, not fixed' — already shipped in v0.9.25e"
         }
+      ],
+      "completed_at": "2026-10-23",
+      "caveats": [
+        "A.6 deferred to Phase G: audit report absent from repo state; specific 18 to_pylist sites cannot be identified without _FOR_PINGIS/cadw_audit_report.md"
       ]
     },
     {

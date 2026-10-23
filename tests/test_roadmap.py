@@ -37,7 +37,11 @@ def test_roadmap_json_items_have_required_fields():
                     f"phase {phase['id']} item {item.get('id')} "
                     f"missing field {field!r}"
                 )
-            assert item["status"] in ("done", "in_progress", "planned"), (
+            if item["status"] == "deferred":
+                assert "deferred_to" in item, (
+                    "deferred item missing deferred_to field"
+                )
+            assert item["status"] in ("done", "in_progress", "planned", "deferred"), (
                 f"bad status {item['status']!r} for {item['id']}"
             )
 

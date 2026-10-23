@@ -1,5 +1,64 @@
 ## [Unreleased]
 
+### v0.9.26: Phase A close + Phase B start + roadmap consistency
+
+**Milestone: Phase A (Stabilization) closed.** 10/11 items resolved;
+A.6 (`18 to_pylist sites extra_factor`) deferred to Phase G — audit
+report `_FOR_PINGIS/cadw_audit_report.md` absent from repo state;
+specific 18 sites cannot be identified (§13.4/283). Honest close
+over premature.
+
+Phase B (Infrastructure) started — B.1 = `dataframe.py` split into 9
+modules (v0.9.26, complexity L) queued after A closeout.
+
+#### Changed (metadata, no production code)
+
+- `docs/roadmap.json`: A.9→`done` (`_append_to_builders` absent from
+  `cadw/`, verified v0.9.26c-diagnostic); A.10→`done`
+  (`memory_guard.py:757` comment "v0.9.25e (A.10): fallback scales
+  with state_limit, not fixed" — already shipped); A.6→`deferred`
+  (audit absent, deferred to Phase G, §13.4/283). Phase A→`completed`
+  with `caveats=['A.6 deferred to Phase G: audit absent']`. Phase
+  B→`in_progress`.
+- `docs/ROADMAP.md`: Phase A marked COMPLETED with A.6-deferred
+  caveat.
+
+#### Patches
+
+- **v0.9.26a**: docs-debt sweep — §13.4/281 index consolidates Phase
+  C lessons §13.4/262–280 with commit refs; Phase C scope verified
+  complete (20 Pandas P0 + 6 ML families).
+- **v0.9.26b**: roadmap consistency — Phase B→`in_progress`
+  (corrected scope after first attempt aborted on A's 3 planned
+  items; Phase A left untouched).
+- **v0.9.26c**: diagnostic — A.6/A.9/A.10 actual code inspection
+  (read-only).
+- **v0.9.26d**: A closeout — A.9/A.10 `done`, A.6 `deferred`,
+  Phase A `completed` with caveats.
+
+#### §13.4/283 (NEW)
+
+When a roadmap item claims a **specific count** (e.g. "18 sites")
+backed by an audit report that is **absent from repo state**, the
+item cannot be closed by inference. Options: (a) defer to a phase
+where the audit can be re-requested; (b) reconstruct the count from
+code — 83 to_pylist sites × receiver-type classification, error-prone.
+**Choose (a): defer, document honestly.**
+
+#### §13.4/284 (NEW)
+
+Roadmap item names can be **mechanistically misleading**. A.6 says
+"to_pylist sites extra_factor" but `extra_factor` is a `check_batch`
+kwarg, not a `to_pylist` kwarg. Verify the mechanism, not just the
+name — otherwise diagnostics measure the wrong thing (initial count
+of "0 protected" was a false metric — `.to_pylist()` doesn't accept
+`extra_factor`, so of course 0 sites had it).
+
+#### Test counts
+
+Unchanged (~2488 fast) — metadata + CHANGELOG only.
+
+
 ### v0.9.25: Phase C — Pandas P0 API (20 features across 6 batches)
 
 **Milestone: Phase C closed.** All 20 Pandas P0 features implemented.

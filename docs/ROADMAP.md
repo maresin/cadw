@@ -74,6 +74,8 @@ Each phase has a status: `planned`, `in_progress`, `done`.
 
 ## §3 Phase A — Stabilization (v0.9.25)
 
+
+**Status:** COMPLETED (v0.9.26d, 2026-10-23) — 10/11 items done; A.6 deferred to Phase G (audit report absent).
 **Goal:** fix critical bugs found by audits; add no new functionality.
 
 ### A.1 SARIMA integration order (D→d) — `v0.9.25a` — **done**
