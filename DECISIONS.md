@@ -5431,3 +5431,81 @@ direction sorts. Fixed in v0.9.24: ascending now accepts a per-column
 sequence, length-checked against by; both the in-memory fast path and
 external_sort use the resolved sequence. Not a breaking change for the
 scalar case.
+
+#### §13.4/249 — hasattr reveal ≠ rebuild (Phase C close)
+
+*Also referenced as §13.4/279 in v0.9.25m-diagnostic commit
+message (Phase C lessons are recorded in commit messages
+§13.4/262–279; canonical DECISIONS.md backfill deferred to
+v0.9.26 docs-debt sweep).*
+
+**Context (v0.9.25m-diagnostic):** the "final batch" C-5 patch
+(`dropna` + `fillna`) had `verify_state` abort with
+`CadwDataFrame.dropna already present`. Both features shipped in
+v0.9.23g (EDA-basics batch, went through 6 fix-cycles — highest
+in the project). Diagnostic revealed:
+
+- `dropna(how="any", subset=None)` — lazy notnull() filter-compose.
+  API matches pandas parameter order (`how` before `subset`).
+- `fillna(value, columns=None)` — streaming `pc.fill_null`.
+  Scalar value only; no dict `{col: val}` variant. Dict is P2.
+- **12 tests** already cover both: `test_eda_basics.py`
+  (5 dropna + 7 fillna), `test_facade_transformers.py` (6 dropna),
+  `test_pipeline.py` (2 dropna).
+
+**Response:** diagnostic-only patch, 0 mutations. Do not rewrite
+working hardened code to match imagined spec. Do not add P2
+`fillna(dict)` to a 6-fix-cycle-hardened module for marginal
+benefit — `df.fillna(0).fillna({"s": "?"})` composes today.
+
+**§13.4/249 rule:** when `hasattr` verify (§13.4/278) reveals
+pre-existing implementation:
+
+1. **Diagnostic-only** first — `inspect.getsource` + signature +
+   tests + git log + CHANGELOG. No mutation.
+2. **Accept existing API as-is** — actual signature may differ from
+   speculative spec; matching actual is correct.
+3. **Assess genuine gaps** — P2 dict-fillna is real gap; compose
+   works today.
+4. **Don't touch hardened code** — 6 fix-cycles vs 0-mutation abort
+   is the cost signal.
+5. **Test-only extension** is safe middle path if coverage thin
+   (not needed here — 12 existing tests).
+
+**Cost model:** C-5 (v0.9.23g) took 6 fix-cycles + ongoing coverage
+vs v0.9.25m verify (0 attempts, 0 mutation). The 20/20 target was
+already met — v0.9.25m is a verification pass, not a feature patch.
+
+**Phase C close (v0.9.25n):** 20/20 Pandas P0 features. 12
+fix-cycle attempts across 6 batches. 1 production bug total
+(C-1 `type_alias`, §13.4/262). 92% churn in test-tooling.
+Defense layers that emerged: §13.4/264 (REPL-first),
+§13.4/266 (post-anchor re-verify), §13.4/278 (hasattr vs
+source-text), §13.4/249 (hasattr reveal ≠ rebuild).
+
+#### §13.4/280 — file-state assertions need REPL-first too
+
+**Context (v0.9.25n-corrected):** my first v0.9.25n attempt
+aborted in `verify_state` with "expected §13.4/270+, got 248."
+My assumption: "Phase C commit messages reference §13.4/262–279,
+therefore DECISIONS.md is at 270+." **Wrong.** Those numbers were
+only in commit message text; DECISIONS.md canonical was at 248
+(v0.9.22b era). The gap 249–279 = ~30 lessons of docs debt.
+
+**Root:** I applied §13.4/264 (REPL-first) to **library behavior**
+(`pc.divide` semantics) but not to **file state**. The same
+speculative-assumption anti-pattern, different domain.
+
+**§13.4/280 rule:** file-state assertions in `verify_state` use
+**actual inspection** (regex/regex-max/getsource), not inference
+from commit messages, git log, or sibling files. If actual differs
+from expectation → diagnostic, not assertion. Where "expected ≥ N"
+is speculative, downgrade to "abort only if < lower_bound or
+> upper_bound" (loose sanity, not target). Commit messages and
+git log are NOT authoritative for file contents.
+
+**Symmetric to §13.4/279:** hasattr reveal ≠ rebuild (state
+revealed is what actually runs). §13.4/280: file-state reveal ≠
+commit-message state (state read from file is what's actually
+there). Both require **accept actual, don't infer**.
+

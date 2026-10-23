@@ -1,5 +1,157 @@
 ## [Unreleased]
 
+### v0.9.25: Phase C — Pandas P0 API (20 features across 6 batches)
+
+**Milestone: Phase C closed.** All 20 Pandas P0 features implemented.
+Zero production bugs after C-1 (v0.9.25g); all downstream churn was
+test-tooling. Phase C-5 (`dropna`/`fillna`) was already shipped in
+v0.9.23g — `hasattr` verify (§13.4/279 in commit-message numbering,
+§13.4/249 in DECISIONS.md canonical) returned 0 mutations,
+confirming the 20/20 target was met without duplicate work.
+
+#### Added
+
+**C-1 (v0.9.25g) — `isin` / `between` / `select_dtypes`**
+
+- `_ColumnProxy.isin(values)` — null-safe membership via `pc.is_in`.
+  `None in values` → null row matches (Kleene). Empty values → all
+  False.
+- `_ColumnProxy.between(left, right, *, inclusive="both")` —
+  `pc.and_(ge/gt, le/lt)`. Null rows dropped (Kleene). `inclusive`
+  ∈ {`both`, `neither`, `left`, `right`}.
+- `CadwDataFrame.select_dtypes(include=, exclude=)` — category names
+  (`"number"`, `"int"`, `"string"`, `"bool"`, `"datetime"`, …) and
+  any `pa.type_for_alias`-resolvable type (`int64`, `Int64` case-
+  insensitive, `string`, `timestamp[ns]`). Bracket syntax
+  (`string[pyarrow]`) → ValueError.
+
+**C-2 (v0.9.25h) — `idxmax` / `idxmin` / `pct_change`**
+
+- `_ColumnProxy.idxmax()` / `.idxmin()` — index label of first
+  max/min (nulls skipped, first occurrence wins). RangeIndex → int;
+  Materialized → label; MultiIndex → tuple. All-null / empty filter
+  → ValueError.
+- `CadwDataFrame.pct_change(periods=1, columns=None)` — **pandas-
+  parity**: `pc.divide` uses IEEE 754 (inf for x/0, nan for 0/0).
+  Nulls propagate; first `periods` rows null. Output float64.
+
+**C-3a (v0.9.25i) — `ffill` / `bfill` / `reindex`**
+
+- `CadwDataFrame.ffill(columns=None)` — streaming per-batch
+  `pc.fill_null_forward` + carry Array[1] for cross-batch leading-
+  null fix. O(#cols) state, O(N) I/O.
+- `CadwDataFrame.bfill(columns=None)` — reverse-sort (`__orig_rid`
+  desc) + ffill-internal + re-sort (asc). 2× `external_sort`,
+  O(N log N) I/O. Heavier than ffill — documented.
+- `CadwDataFrame.reindex(labels)` — filtered-RangeIndex aware.
+  Labels are original positionals (not filtered enumeration).
+  Missing → null row via null-safe Arrow `take`. Bounded by
+  `K × row_size ≤ state_limit`.
+
+**C-3b (v0.9.25j) — `cut` / `qcut` / `duplicated`**
+
+- `CadwDataFrame.cut(x, bins, labels=, right=)` — external_sort +
+  `pc.bucketize` + bin edges. Returns int labels.
+- `CadwDataFrame.qcut(x, q, labels=)` — quantile + cut combination.
+- `CadwDataFrame.duplicated(subset=, keep='first'|'last'|False)` —
+  row_id-aware mask via HashShuffle + groupby, preserves order.
+
+**C-4a (v0.9.25k) — `str.slice` / `str.cat` / `str.count`**
+
+- `_StrAccessor.slice(start=, stop=)` — negative indices supported
+  (pandas parity).
+- `_StrAccessor.cat(others=, sep=)` — string concatenation; null
+  propagation per pandas.
+- `_StrAccessor.count(pat)` — non-overlapping matches via
+  `pc.count_substring`.
+
+**C-4b (v0.9.25l) — `dt.strftime` / `dt.tz_convert` / `str.split`**
+
+- `_DtAccessor.strftime(fmt)` — `pc.strftime`, naive + tz-aware.
+- `_DtAccessor.tz_convert(tz)` — `pc.cast` (naive → UTC first via
+  `pc.assume_timezone`).
+- `_StrAccessor.split(pat, max_splits=-1)` — list<string> output via
+  `pc.split_pattern`.
+
+**C-5 (pre-existing since v0.9.23g) — `dropna` / `fillna`**
+
+- `CadwDataFrame.dropna(how="any", subset=None)` — lazy, composes
+  notnull() filters. `how='any'` drops rows with any subset null;
+  `how='all'` drops rows where all subset nulls.
+- `CadwDataFrame.fillna(value, columns=None)` — streaming per-batch
+  `pc.fill_null`, scalar value type-coerced via `pa.scalar`.
+  **Not reimplemented in Phase C** — `hasattr` verify revealed
+  existing implementation with 12+ tests. 0 production changes in
+  v0.9.25m.
+
+#### Fixed (Phase C fix cycles)
+
+- **§13.4/262 (commit-message):** `select_dtypes` type matching —
+  `str(t) == s` failed on `str(pa.float32()) == "float"` (actual
+  `"float"`) and `str(pa.float64()) == "double"` (actual `"double"`).
+  Fix: `pa.type_for_alias(s)` first, fallback str-compare.
+- **§13.4/263 (commit-message):** `select_dtypes` accepts `"Int64"`
+  (case-insensitive via `type_for_alias`) but rejects
+  `"string[pyarrow]"` (bracket syntax, unparseable).
+- **§13.4/265 (commit-message):** v0.9.25h-fix1 — stray
+  `assert math.isinf(vals[2])` copy-pasted from sibling test.
+  Fix: `vals[2] == 3.0`.
+- **§13.4/277 (commit-message):** v0.9.25l-fix1 —
+  `test_tz_convert_non_temporal_raises` expected
+  `"timestamp required"` but `.dt` accessor `__init__` gate fires
+  first with `"expected timestamp or date"`. Test-only fix;
+  production correct.
+- **§13.4/278 (commit-message):** v0.9.25l-fix1-corrected —
+  `verify_state` source-text marker `"def split(self"`
+  false-negative (multi-line signature). Fix:
+  `hasattr(imported_class, "method")` — runtime attribute presence.
+
+#### Process — Phase C fix-cycle tally
+
+| Batch | Attempts | Prod bugs | Notes |
+|---|---|---|---|
+| C-1 (`v0.9.25g`) | 4 | 1 (`type_alias`) | 2 test-overreach |
+| C-2 (`v0.9.25h`) | 2 | 0 | REPL-first abort + fix1 stray assert |
+| C-3a (`v0.9.25i`) | 1 | 0 | anchor miss (0 mut) + reindex-filtered pre-ship fix |
+| C-3b (`v0.9.25j`) | 1 | 0 | — |
+| C-4a (`v0.9.25k`) | 1 | 0 | — |
+| C-4b (`v0.9.25l`) | 3 | 0 | REPL-first abort + fix1 + fix1-corrected |
+| C-5 (pre-existing) | 0 | 0 | `hasattr` reveal → skip |
+| **Total** | **12** | **1** | **92% test-tooling** |
+
+**Key learnings (§13.4/262–279 in Phase C commit messages;
+canonical `DECISIONS.md` backfill deferred to v0.9.26 docs-debt
+sweep):**
+- §13.4/264 — REPL-first (10–12 pre-mutation checks) saved 2 cycles
+  in v0.9.25h and prevented wrong `pc.divide` semantics (IEEE 754
+  inf/nan, not null-out).
+- §13.4/266 — post-anchor re-verify each feature; caught latent
+  reindex-filtered bug (v0.9.25i-corrected) pre-ship.
+- §13.4/278 — `hasattr` beats source-text for presence checks.
+- §13.4/279 — `hasattr` reveal ≠ rebuild; diagnostic-only response
+  when feature already exists.
+
+#### Version
+
+- `pyproject.toml`: `0.9.14` → `0.9.25` (was 11 versions
+  stale since v0.9.14 close-out).
+- `cadw.__version__`: `0.9.14` → `0.9.25` (aligned).
+
+#### Test counts
+
+- ~2314 fast at v0.9.25f-a
+- ~2488 fast at v0.9.25l (after Phase C)
+- **No new tests in v0.9.25n** (docs-only close-out)
+
+#### Docs debt (v0.9.26 backlog)
+
+- **§13.4 numbering drift**: DECISIONS.md canonical is at
+  §13.4/248 (actual file state); Phase C lessons
+  §13.4/262–279 exist only in commit messages. Backfill §13.4/249–
+  279 into DECISIONS.md as formal appends — tracked as v0.9.26
+  docs-debt sweep, not blocking Phase C close-out.
+
+
 ### v0.9.24: time series toolkit + temporal hierarchical forecasting
 
 Comprehensive time-series extension. All new code lives in `cadw/ts/`
