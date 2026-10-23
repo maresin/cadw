@@ -598,6 +598,11 @@ def external_sort(
     """
     Возвращает путь к финальному отсортированному run'у (Arrow IPC).
     Колонки результата: value_columns + row_id.
+
+    Empty-input contract (v0.9.34, A10): if `batch_iter` yields no
+    batches, raises ValueError("external_sort: пустой вход"). There
+    is no default empty output — pass explicit empty schema if needed
+    (see DECISIONS §6.7).
     """
     if not key_columns:
         raise ValueError("key_columns must be non-empty")

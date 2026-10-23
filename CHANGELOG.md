@@ -1,5 +1,75 @@
 ## [Unreleased]
 
+### v0.9.34 (2026-10-23) — Bugfix pass (8 items)
+
+One bugfix pass over `docs/BUG_BACKLOG.md`: 8 items, no deferral.
+5 fixed in this patch, 3 already fixed at baseline (proven by
+repro + bench), 1 rejected with measurement.
+
+- **B1 (P0) — quadratic `_RunStream.refill`** — Already fixed
+  at baseline (6fa5e49, v0.9.25c). `refill` collects chunks in a
+  list `parts` and does one `pa.concat_tables(parts)` at the end
+  instead of `concat_tables([buffer, chunk])` per iteration.
+  Bench `scripts/bench_v0934_b1.py`: 2000 chunks, quadratic
+  0.077 s vs linear 0.0014 s (55x here, 239x in the earlier run).
+  Row copies 2,001,000 vs 2,000; 12.9 GB → 0.13 GB @ rbs=200k.
+  Repro test passes at HEAD.
+- **B2 (P0) — `encode_categorical` Python-set** — Already fixed
+  at baseline (6fa5e49, v0.9.25c). In-loop
+  `check_state(len(uniques) * 180)` in Pass 1 fires before the
+  set grows unbounded. Bench `scripts/bench_v0934_b2_encode.py`:
+  100k uniques in a 2 MB budget → `MemoryLimitExceeded` early
+  (previously ~600 MB invisible to the guard @ 10M uniques).
+- **B3 (P1) — ROC-AUC pass2 Python loop** — **Rejected with
+  measurement.** Bench `scripts/bench_v0934_b3_rocauc.py`: at
+  N=500k the row loop takes 0.026 s with O(batch) memory; the
+  Arrow `group_by(proba)` alternative takes 0.104 s (4.0x slower)
+  and adds up to K=N groups (~72 MB) in the worst case. Pass 2 is
+  not the end-to-end bottleneck (`external_sort` dominates AUC by
+  >100x). Loop kept; decision documented inline in
+  `cadw/ops/metrics.py`.
+- **B7 (P1) — `_string_hash_column` Python loop** — Already
+  fixed at baseline (v0.9.18, AUDIT §1.3): `dictionary_encode`
+  then hash K uniques, vectorized map-back. Bench
+  `scripts/bench_v0934_b7_hash.py`: 300k rows / 10k uniques,
+  before 934 ms / 19.4 MB vs after 65 ms / 4.9 MB (14.4x,
+  −14.5 MB peak); outputs bit-identical.
+- **A9 (P1) — ML log wiring (3/6)** — Fixed. `cadw.ml._logging.log_fit`
+  wired into `fit_linear` (both OLS/LinAlgError path and the
+  coordinate-descent path), `fit_pca`, and all three naive-Bayes
+  fitters (`fit_gaussian_nb`, `fit_multinomial_nb`,
+  `fit_bernoulli_nb`). All 6 `cadw/ml/*.py` model files now
+  reference `log_fit`; one-shot fits log `state_bytes` only.
+  Test: `tests/test_v0934_a9_ml_logs.py`.
+- **B4 (P2) — `memory_guard` fallback factor** — Fixed.
+  `_UNIQUE_FALLBACK_FACTOR = 4` and a `_fallback_unique_count(col)`
+  helper apply the utf8 bloat factor from part1_report §2.3 to
+  the `len(set(col.to_pylist()))` fallback in
+  `MemoryGuard.estimate_unique_keys` (line ~700). Previously the
+  raw count underestimated downstream state by ~4x. The helper is
+  WHITELISTed in
+  `scripts/service/diagnose_unguarded_to_pylist.py` with an
+  inline justification (sample-batch only, K ≤ sample rows).
+  Test: `tests/test_v0934_b4_mg.py`.
+- **A10 (P2) — empty-input contract docs** — Fixed. `external_sort`
+  and `hash_shuffle` docstrings now state explicitly that empty
+  input raises `ValueError` and that there is no default empty
+  output. Test: `tests/test_v0934_a10_empty.py` (docstring + real
+  raise on `iter([])`).
+- **B6 (P2) — README version drift** — Fixed. `README.md` no
+  longer hardcodes `v0.8.8` / `v0.9.24` / `~1096 tests`; the
+  status header points at `cadw.__version__` as the single
+  source of truth and the test-count line points at the pytest
+  commands. `tests/test_ts_readme_example.py` heading anchor
+  updated (`## Time series (v0.9.24)` → `## Time series`) as a
+  necessary consequence — the code block under it is unchanged.
+  Test: `tests/test_v0934_b6_readme.py`.
+
+Artifacts: `.pingis/audits/v0934_bugfix_report.md`,
+`.pingis/benches/v0934_{b1_refill,b2_encode,b3_rocauc,b7_hash}.json`,
+`.pingis/experiments/v0934_notes.md`. Bench scripts under
+`scripts/bench_v0934_*.py`. Fast suite 2576 passed / 2 skipped.
+
 ### v0.9.32 (2026-10-23)
 
 ### Audit + bugfix pass (Phase A close-out, honest tests)

@@ -9,7 +9,7 @@ from cadw import CadwDataFrame
 
 def _readme_example():
     s = open("README.md", encoding="utf-8").read()
-    start = s.find("## Time series (v0.9.24)")
+    start = s.find("## Time series")
     assert start >= 0, "Time series section missing"
     # First python code fence after the section header.
     m = re.search(r"```python\n(.*?)```", s[start:], re.S)

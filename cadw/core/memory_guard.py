@@ -31,6 +31,14 @@ from cadw.core.models import DataChars, Params, get_model
 
 logger = get_logger("memory_guard")
 
+# v0.9.34 (B4): utf8 bloat factor for the len(set(...)) fallback.
+_UNIQUE_FALLBACK_FACTOR = 4
+
+
+def _fallback_unique_count(col) -> int:
+    """v0.9.34 (B4): utf8 bloat factor for the short-string set fallback."""
+    return len(set(col.to_pylist())) * _UNIQUE_FALLBACK_FACTOR
+
 
 class MemoryLimitExceeded(RuntimeError):
     """Превышен лимит памяти."""
@@ -697,7 +705,12 @@ class MemoryGuard:
                 try:
                     k_sample = int(pc.count_distinct(col).as_py())
                 except Exception:
-                    k_sample = len(set(col.to_pylist()))
+                    # v0.9.34 (B4): apply utf8 bloat factor (part1_report
+                    # §2.3). Python str objects + set slots ~4x raw bytes
+                    # for short strings; matches the encode_categorical
+                    # 180 B/entry heuristic. Prior code returned the raw
+                    # count, underestimating downstream state by ~4x.
+                    k_sample = _fallback_unique_count(col)
 
         if k_sample is None:
             # multi-column: binary_join → dict_encode, else product fallback

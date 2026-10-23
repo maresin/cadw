@@ -332,6 +332,11 @@ def hash_shuffle(
     """
     Возвращает список путей к P файлам партиций (Arrow IPC).
     Каждый файл содержит колонки key + value + row_id (uint64).
+
+    Empty-input contract (v0.9.34, A10): if `batch_iter` yields no
+    batches, raises ValueError ("hash_shuffle: пустой вход"). There
+    is no default empty output — pass schema explicitly if needed
+    (see DECISIONS §6.7).
     """
     if num_partitions < 1:
         raise ValueError("num_partitions must be >= 1")

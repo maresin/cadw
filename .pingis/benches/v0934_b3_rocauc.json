@@ -1,0 +1,12 @@
+{
+  "bug": "B3",
+  "status": "rejected-with-measurement",
+  "N": 500000,
+  "loop_s": 0.0258,
+  "arrow_s": 0.1036,
+  "slower_x": 4.01,
+  "arrow_groups": 500000,
+  "loop_mem": "O(batch)",
+  "arrow_extra_mb": 72,
+  "decision": "keep loop; pass2 not bottleneck (external_sort dominates)"
+}

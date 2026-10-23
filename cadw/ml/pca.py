@@ -319,6 +319,9 @@ def fit_pca(
     # singular_values_ = sqrt(eigenvalue × (n-1)) — sklearn convention
     singular_values = np.sqrt(np.maximum(explained_variance * (n_valid - 1), 0))
 
+    # v0.9.34 (A9): uniform ML log. PCA is one-shot (eigendecomp).
+    from cadw.ml._logging import log_fit
+    log_fit("pca", state_bytes=int(components.nbytes + explained_variance.nbytes))
     return PCA(
         components_=components,
         mean_=mean,

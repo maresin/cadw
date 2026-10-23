@@ -363,7 +363,7 @@ def fit_linear(
         except np.linalg.LinAlgError:
             beta = np.linalg.lstsq(xtx_reg, xty_aug, rcond=None)[0]
 
-        return LinearModel(
+        _model = LinearModel(
             coef_=beta[1:],
             intercept_=float(beta[0]),
             feature_names_=X_cols,
@@ -375,6 +375,9 @@ def fit_linear(
             n_iter_cd_=0,
             converged_=True,
         )
+        from cadw.ml._logging import log_fit
+        log_fit("linear", state_bytes=int(_model.coef_.nbytes + 8))
+        return _model
 
     # ---------- Lasso / ElasticNet: coordinate descent ----------
     lambda_l1 = float(alpha) * float(l1_ratio)
@@ -399,7 +402,7 @@ def fit_linear(
     )
     b0 = float(mu_y - mu_x @ b)
 
-    return LinearModel(
+    _model = LinearModel(
         coef_=b,
         intercept_=b0,
         feature_names_=X_cols,
@@ -411,6 +414,10 @@ def fit_linear(
         n_iter_cd_=int(n_iter),
         converged_=bool(converged),
     )
+    from cadw.ml._logging import log_fit
+    log_fit("linear", iter_i=int(n_iter), iter_n=int(max_iter),
+            state_bytes=int(_model.coef_.nbytes + 8))
+    return _model
 
 
 def fit_lasso(

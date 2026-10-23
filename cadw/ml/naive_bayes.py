@@ -616,6 +616,9 @@ def fit_gaussian_nb(
     max_var = float(var.max()) if var.size > 0 else 0.0
     epsilon = var_smoothing * (max_var if max_var > 0 else 1.0)
     var = var + epsilon
+    # v0.9.34 (A9): uniform ML log.
+    from cadw.ml._logging import log_fit
+    log_fit("naive_bayes.gaussian", state_bytes=int(mean.nbytes + var.nbytes + n_c.nbytes))
     return GaussianNB(
         classes_=classes,
         class_prior_=_class_prior(n_c),
@@ -649,6 +652,9 @@ def fit_multinomial_nb(
     smoothed = feature_sum + alpha
     denom = smoothed.sum(axis=1, keepdims=True)
     feature_log_prob = np.log(smoothed / denom)
+    # v0.9.34 (A9): uniform ML log.
+    from cadw.ml._logging import log_fit
+    log_fit("naive_bayes.multinomial", state_bytes=int(feature_sum.nbytes + n_c.nbytes))
     return MultinomialNB(
         classes_=classes,
         class_prior_=_class_prior(n_c),
@@ -682,6 +688,9 @@ def fit_bernoulli_nb(
     p = (count_ones + alpha) / denom
     feature_log_prob = np.log(p)
     feature_log_neg_prob = np.log(1.0 - p)
+    # v0.9.34 (A9): uniform ML log.
+    from cadw.ml._logging import log_fit
+    log_fit("naive_bayes.bernoulli", state_bytes=int(count_ones.nbytes + n_c.nbytes))
     return BernoulliNB(
         classes_=classes,
         class_prior_=_class_prior(n_c),

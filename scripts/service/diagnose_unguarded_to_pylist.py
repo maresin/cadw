@@ -139,6 +139,9 @@ WHITELIST = {
         "guarded via _check(guard, batch, name, factor) helper (cadw/ts/features.py) or equivalent per-batch pattern",
     "cadw/ts/thf.py:TemporalHierarchy.fit":
         "per-batch group discovery (batch_size=10_000 fixed); result K bounded by unique groups, not N",
+    # v0.9.34 (B4) justified: fallback in estimate_unique_keys, sample_batch only, K<=sample rows, no O(N)
+    "cadw/core/memory_guard.py:_fallback_unique_count":
+        "fallback in estimate_unique_keys; sample_batch only, K<=sample rows, no O(N)",
 }
 
 

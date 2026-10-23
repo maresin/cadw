@@ -1,0 +1,13 @@
+{
+  "bug": "B7",
+  "status": "already-fixed-at-baseline",
+  "commit": "v0.9.18 (AUDIT 1.3)",
+  "n_rows": 300000,
+  "k_uniques": 10000,
+  "before_ms": 934.1,
+  "after_ms": 64.7,
+  "speedup_x": 14.4,
+  "before_peak_mb": 19.4,
+  "after_peak_mb": 4.9,
+  "correctness_equal": true
+}

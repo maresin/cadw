@@ -1,0 +1,13 @@
+{
+  "bug": "B1",
+  "status": "already-fixed-at-baseline",
+  "commit": "6fa5e49 (v0.9.25c)",
+  "N_chunks": 2000,
+  "old_quadratic_s": 0.077315,
+  "new_linear_s": 0.001392,
+  "speedup_x": 55.5,
+  "row_copies_quadratic": 2001000,
+  "row_copies_linear": 2000,
+  "old_copies_gb_at_rbs200k": 12.9,
+  "new_copies_gb_at_rbs200k": 0.13
+}

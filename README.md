@@ -3,7 +3,7 @@
 Out-of-core фреймворк для табличных данных, не помещающихся в RAM, на слабых машинах.
 
 
-## Текущий статус (v0.8.8)
+## Текущий статус (версия — `cadw.__version__`)
 
 **7 слоёв:** Storage (Parquet/IPC) → Dataset → Access (RowFilter,
 MemoryGuard, Planner) → Primitives (Reduce, HashShuffle, Sort) →
@@ -23,7 +23,7 @@ adapters для matplotlib, plotly, seaborn.
 **Индексация:** `CadwIndex` (RangeIndex / MaterializedIndex /
 MaterializedMultiIndex), `iloc` / `loc` / `at` / `iat`, filter-compat.
 
-**Тесты:** ~1096 fast + 8 slow (E2E + OOM). См. §11.1 (DECISIONS.md).
+**Тесты:** см. `pytest -q -m "not slow"` (fast) и `pytest -q -m slow` (slow E2E + OOM). См. §11.1 (DECISIONS.md).
 
 **Известные limitations** — DECISIONS.md §11.5 (18 items, documented).
 **Backlog** — §11.6 (refactor/perf). Нет открытых багов (§13.4 closed).
@@ -66,7 +66,7 @@ result = groupby_aggregate(reader, ["cat"], ["val"], ["mean"], guard, "./spill")
 print(result)
 ```
 
-## Time series (v0.9.24)
+## Time series
 
 Comprehensive time-series toolkit built on the same out-of-core
 primitives. Import from `cadw.ts` or use the thin `df.ts.*` accessor.

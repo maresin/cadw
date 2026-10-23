@@ -1,0 +1,12 @@
+{
+  "bug": "B2",
+  "status": "already-fixed-at-baseline",
+  "commit": "6fa5e49 (v0.9.25c)",
+  "n_rows": 100000,
+  "budget_mb": 2,
+  "result_with_guard": "MemoryLimitExceeded",
+  "guard_before": "none (unbounded Python set)",
+  "guard_after": "check_state(len(uniques)*180) per batch",
+  "before_10M_uniq": "OOM ~600MB invisible",
+  "after_10M_uniq": "MemoryLimitExceeded early"
+}
