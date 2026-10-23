@@ -156,10 +156,11 @@
         {
           "id": "B.4",
           "name": "collect_project.py phase-aware",
-          "patch": "v0.9.25c",
-          "status": "planned",
+          "patch": "v0.9.25c-fix4",
+          "status": "done",
           "complexity": "M",
-          "file": "scripts/service/collect_project.py"
+          "file": "scripts/service/collect_project.py",
+          "resolution_note": "v0.9.26e: --phase mode shipped in v0.9.25c-fix4; test_collect_project_modes::test_collect_project_phase_mode passes as evidence"
         },
         {
           "id": "B.5",

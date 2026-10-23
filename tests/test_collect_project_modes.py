@@ -75,7 +75,7 @@ def test_collect_project_phase_mode(tmp_path):
         )
     # A.9 done (v0.9.26d) - sort.py excluded from phase A snapshot.
     assert "FILE: cadw/ops/sort.py" not in text
-    # A.10 planned.
+    # A.10 done (v0.9.26d) - memory_guard.py excluded from phase A snapshot.
     assert "FILE: cadw/core/memory_guard.py" not in text
 
 

@@ -5548,3 +5548,26 @@ docs-debt.
 v0.9.26) is resolved by this block. Future Phase D+ lessons append
 sequentially from §13.4/282 onward.
 
+#### §13.4/290 — Phase A closeout meta-lessons index (docs-debt backfill)
+
+**Context:** Phase A closeout (v0.9.26b-d) surfaced 8 new meta-lessons
+§13.4/282-289 in commit messages (some also in CHANGELOG v0.9.26).
+This block consolidates them into a single DECISIONS.md entry,
+mirroring how §13.4/281 indexed Phase C lessons §13.4/262-280.
+Same docs-debt pattern; closes for this batch.
+
+| # | Lesson (1-line) | Commit | Status |
+|---|---|---|---|
+| 282 | Phase completion checks iterate ALL items, not `patches` list (many-to-one) | v0.9.26b | applied |
+| 283 | Roadmap item with specific count + absent audit -> cannot close by inference; defer to later phase | v0.9.26d | applied |
+| 284 | Roadmap item names may be mechanistically misleading (`to_pylist` vs `check_batch` kwarg) - verify mechanism, not name | v0.9.26d | applied |
+| 285 | Post-mutation validators must match file type: `json.loads` for .json, `ast.parse` only for .py; `check_no_invalid_escape` on Markdown fails on em-dash | v0.9.26d | applied |
+| 286 | New state class requires BOTH whitelist extension AND field-consistency assertion (`deferred` -> `deferred_to` present) | v0.9.26d-fix2 | applied |
+| 287 | Test the script's own compilation (`ast.parse(open(f).read())`) BEFORE `uv run python` - catches Unicode/quote mangling pre-run | v0.9.26d-fix2-recovery | applied |
+| 288 | Discovery before patch: `str.find()` invariant marker, extract actual indent/context, print, then patch. Never hard-code surrounding whitespace | v0.9.26d-fix2-recovery2 | applied |
+| 289 | State mutation -> ALL downstream consumers stale, not just the obvious test (test_collect_project_modes vs test_roadmap); invariant lives in consumer | v0.9.26d-fix3 | applied |
+
+**Unified family:** §13.4/278, 280, 281, 282, 283, 284, 285, 286, 287, 288, 289 are one pattern - "assume a specific representation/summary matches semantics." New lessons continue from §13.4/291 onward.
+
+**Docs debt status:** Phase C lessons 262-280 indexed in §13.4/281 (v0.9.26a). Phase A closeout lessons 282-289 indexed here (§13.4/290, v0.9.26e). Baseline is now current through v0.9.26e.
+
