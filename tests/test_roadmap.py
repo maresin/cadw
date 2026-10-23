@@ -41,7 +41,9 @@ def test_roadmap_json_items_have_required_fields():
                 assert "deferred_to" in item, (
                     "deferred item missing deferred_to field"
                 )
-            assert item["status"] in ("done", "in_progress", "planned", "deferred"), (
+            # "rejected-with-measurement" is an intentional terminal status (I.3, v0.9.34,
+            # per TASK_v0934 rejection-with-measurement policy).
+            assert item["status"] in ("done", "in_progress", "planned", "deferred", "rejected-with-measurement"), (
                 f"bad status {item['status']!r} for {item['id']}"
             )
 

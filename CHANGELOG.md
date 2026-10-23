@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+### v0.9.34-fix1 (2026-10-23) — baseline test whitelist fix
+
+Baseline check at HEAD 8ee3181 (clean tree) found 1 fast-suite failure
+that predates this task: `docs/roadmap.json` item I.3 carries the
+intentional status `rejected-with-measurement` (B3 rejected with
+measurement, per TASK_v0934 rejection policy), but
+`tests/test_roadmap.py::test_roadmap_json_items_have_required_fields`
+still only allowed (done, in_progress, planned, deferred).
+
+- `tests/test_roadmap.py` — added `rejected-with-measurement` to the
+  allowed-status tuple with a comment citing I.3 / TASK_v0934. No other
+  assertion relaxed; roadmap data untouched.
+- Baseline HEAD recorded: 8ee3181 (expected 685409f or later — OK).
+- Fast suite after fix: 2576 passed, 2 skipped, 0 failed.
+- Slow suite at baseline: 25 passed.
+- WHITELISTED_FUNCS: 34 keys, verify_whitelist OK.
+
 ### v0.9.34 (2026-10-23) — Bugfix pass (8 items)
 
 One bugfix pass over `docs/BUG_BACKLOG.md`: 8 items, no deferral.
