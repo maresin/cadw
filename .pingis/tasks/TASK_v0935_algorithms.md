@@ -1,8 +1,8 @@
-# TASK v0.9.35+ — Algorithm implementation (24 items, no deferral)
+# TASK v0.9.35+ — Algorithm implementation (25 items, no deferral)
 
 **Branch:** `pingis/dev-audit`
 **Baseline:** HEAD = `v0.9.34` (after bug pass).
-**Patches:** 24 individual patches (D.1.2, D.1.4, D.2.1, ..., D.6.9).
+**Patches:** 25 individual patches (D.1.2, D.1.4, D.2.1, ..., D.6.9).
 Version bumps: v0.9.35 → v0.9.36+ (each patch +0.0.1).
 **Rejection/deferral:** Only for **explicitly out-of-scope** T5-T10
 (torch-only, listed in `docs/ALGORITHM_BACKLOG.md`). Everything else
@@ -10,7 +10,7 @@ must be implemented.
 
 ---
 
-## Algorithm list (24 items)
+## Algorithm list (25 items)
 
 Exact list from `docs/ALGORITHM_BACKLOG.md`. Full requirements
 (API, RAM, tests, bench, docs) — same file, "Universal requirements".
@@ -138,12 +138,12 @@ benchmarks — if no verified source, say "no verified citation".
 ├── algorithm_notes/
 │   ├── d1_2_matrix_profile.md
 │   ├── d1_4_fairness.md
-│   └── ... (24 files)
+│   └── ... (25 files)
 ├── benches/
 │   ├── d1_2_matrix_profile.json
-│   └── ... (24 files)
+│   └── ... (25 files)
 ├── experiments/
-│   ├── v0935_summary.md           ← 24-item progress table
+│   ├── v0935_summary.md           ← 25-item progress table
 │   └── <name>.md                  ← per-algorithm edge cases
 └── audits/
     └── v0935_algo_report.md       ← final summary (when all done)
@@ -201,9 +201,9 @@ Each patch:
 
 ## Acceptance (whole task)
 
-When all 24 items done:
+When all 25 items done:
 
-- Fast suite: 2557+ 24×8 = **~2750 passed**.
+- Fast suite: 2557+ 25×8 = **~2750 passed**.
 - Slow suite: 25+ passed.
 - All `D.x.y` items done in `docs/roadmap.json`.
 - `.pingis/audits/v0935_algo_report.md` complete.

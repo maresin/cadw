@@ -105,6 +105,6 @@ FOR_PINGIS: AUDIT_v0931.md (findings), algorithm_notes.md (D.1.3 sources + D.3.1
 ## Current state (v0.9.33)
 
 - Bugs backlog: 8 items → TASK_v0934 (bug pass, no deferral).
-- Algorithm backlog: 24 items → TASK_v0935 (algorithm pass, no
+- Algorithm backlog: 25 items → TASK_v0935 (algorithm pass, no
   deferral).
 - PINGIS workspace: `.pingis/` — all artifacts centralised.

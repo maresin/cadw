@@ -9,7 +9,7 @@ N1-N40, TODO T1-T12),
 GBDT v0.9.32, D.6.3 perm importance v0.9.31, D.6.8 GMM density
 v0.9.31).
 
-**Pending:** 24 items. All must be implemented — see
+**Pending:** 25 items. All must be implemented — see
 `.pingis/tasks/TASK_v0935_algorithms.md` for exact assignment.
 
 ---
@@ -103,7 +103,7 @@ v0.9.31).
 **Version:** each algorithm = 1 patch (or D.x.y-1 / D.x.y-2 if >500
 LOC). Version bumps +0.0.1.
 
-**No refusal:** PINGIS implements all 24 items. If a specific item
+**No refusal:** PINGIS implements all 25 items. If a specific item
 needs an external package > 10 MB (e.g. `h3`), PINGIS documents the
 requirement in the patch message + proposes dependency; user
 approves/rejects. But default: implement natively.

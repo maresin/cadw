@@ -771,82 +771,91 @@
       "id": "I",
       "name": "Bug backlog (part1_report §1)",
       "description": "Bug fixes from part1_report.md audit — no deferral allowed. Fix or reject with measurement.",
-      "status": "in_progress",
+      "status": "completed",
       "version_range": "v0.9.34",
       "items": [
         {
           "id": "I.1",
           "name": "B1 — _RunStream.refill quadratic concat",
           "patch": "v0.9.34",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/ops/sort.py",
-          "source": "part1_report.md B1 (P0)"
+          "source": "part1_report.md B1 (P0)",
+          "resolution": "B1 already-fixed-at-baseline (v0.9.25c); repro PASS + bench"
         },
         {
           "id": "I.2",
           "name": "B2 — encode_categorical O(K) Python-set",
           "patch": "v0.9.34",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/dataframe/_ml_bindings.py",
-          "source": "part1_report.md B2 (P0)"
+          "source": "part1_report.md B2 (P0)",
+          "resolution": "B2 already-fixed-at-baseline (v0.9.25c); repro PASS + bench"
         },
         {
           "id": "I.3",
           "name": "B3 — ROC-AUC pass2 Python loop",
           "patch": "v0.9.34",
-          "status": "planned",
+          "status": "rejected-with-measurement",
           "complexity": "S",
           "file": "cadw/ops/metrics.py",
-          "source": "part1_report.md B3 (P1)"
+          "source": "part1_report.md B3 (P1)",
+          "resolution": "B3: Python pass2 loop faster than Arrow group_by; O(batch) memory"
         },
         {
           "id": "I.4",
           "name": "B7 — _string_hash_column O(K) Python",
           "patch": "v0.9.34",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/ops/shuffle.py",
-          "source": "part1_report.md B7 (P1)"
+          "source": "part1_report.md B7 (P1)",
+          "resolution": "B7 already-fixed-at-baseline (v0.9.18); repro PASS + bench"
         },
         {
           "id": "I.5",
           "name": "A9 — ML log wiring (3 remaining)",
           "patch": "v0.9.34",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/ml/{linear,pca,naive_bayes}.py",
-          "source": "AUDIT_v0931 A9 (P1)"
+          "source": "AUDIT_v0931 A9 (P1)",
+          "resolution": "A9: log_fit wired into linear/pca/all 3 NB fitters"
         },
         {
           "id": "I.6",
           "name": "B4 — memory_guard fallback factor",
           "patch": "v0.9.34",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/core/memory_guard.py",
-          "source": "part1_report.md B4 (P2)"
+          "source": "part1_report.md B4 (P2)",
+          "resolution": "B4: _UNIQUE_FALLBACK_FACTOR=4 + justified WHITELIST entry"
         },
         {
           "id": "I.7",
           "name": "A10 — empty-input contract docs",
           "patch": "v0.9.34",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "docstrings",
-          "source": "AUDIT_v0930 A10 (P2)"
+          "source": "AUDIT_v0930 A10 (P2)",
+          "resolution": "A10: empty-input contract docstrings + tests"
         },
         {
           "id": "I.8",
           "name": "B6 — README version drift",
           "patch": "v0.9.34",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "README.md",
-          "source": "part1_report.md B6 (P2)"
+          "source": "part1_report.md B6 (P2)",
+          "resolution": "B6: README version drift removed"
         }
-      ]
+      ],
+      "completed_at": "2026-10-23"
     }
   ]
 }

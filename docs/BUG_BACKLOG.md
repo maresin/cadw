@@ -92,3 +92,22 @@ requires split → D.x.y-1, D.x.y-2 sub-patches, still no deferral.
   (single source).
 - **Test:** grep that README contains `__version__` string (no
   hardcoded number).
+
+---
+
+## Closure (v0.9.34)
+
+| ID | Final status | Evidence |
+|---|---|---|
+| B1 | already-fixed-at-baseline | `6fa5e49` v0.9.25c; repro PASS + bench |
+| B2 | already-fixed-at-baseline | `6fa5e49` v0.9.25c; repro PASS + bench |
+| B3 | rejected-with-measurement | Python loop 0.026s@500k vs Arrow 0.104s; +K=N memory |
+| B7 | already-fixed-at-baseline | v0.9.18; repro PASS + bench |
+| A9 | fixed | `log_fit` wired into linear/pca/all 3 NB fitters |
+| B4 | fixed | `_UNIQUE_FALLBACK_FACTOR=4` + WHITELIST justification |
+| A10 | fixed | empty-input contract docstrings + tests |
+| B6 | fixed | README version drift removed |
+
+Artifacts: `.pingis/audits/v0934_bugfix_report.md`,
+`.pingis/benches/v0934_*.json`, `.pingis/experiments/v0934_notes.md`.
+
