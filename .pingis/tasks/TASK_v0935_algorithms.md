@@ -189,7 +189,7 @@ benchmarks — if no verified source, say "no verified citation".
 Each patch:
 
 - All algorithm's tests pass.
-- Fast suite green (2557+ passed).
+- Fast suite green (2576+ passed).
 - Slow suite green (25+ passed).
 - Bench artifact under `.pingis/benches/`.
 - Algorithm_notes under `.pingis/algorithm_notes/`.
@@ -203,7 +203,7 @@ Each patch:
 
 When all 25 items done:
 
-- Fast suite: 2557+ 25×8 = **~2750 passed**.
+- Fast suite: 2576+ 25×8 = **~2776 passed**.
 - Slow suite: 25+ passed.
 - All `D.x.y` items done in `docs/roadmap.json`.
 - `.pingis/audits/v0935_algo_report.md` complete.

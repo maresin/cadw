@@ -91,7 +91,7 @@ FOR_PINGIS: AUDIT_v0931.md (findings), algorithm_notes.md (D.1.3 sources + D.3.1
   status. **Start here** when picking a model.
 - **`docs/BUG_BACKLOG.md`** — bug backlog (Phase I), 8 items, exact
   patches.
-- **`docs/ALGORITHM_BACKLOG.md`** — pending Phase D, 24 items, with
+- **`docs/ALGORITHM_BACKLOG.md`** — pending Phase D, 25 items, with
   universal test/bench requirements.
 - **`docs/ROADMAP.md`** — consolidated phase roadmap (A-I).
 - **`docs/roadmap_research/`** — PINGIS research (part1/part2/
