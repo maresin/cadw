@@ -5571,3 +5571,74 @@ Same docs-debt pattern; closes for this batch.
 
 **Docs debt status:** Phase C lessons 262-280 indexed in §13.4/281 (v0.9.26a). Phase A closeout lessons 282-289 indexed here (§13.4/290, v0.9.26e). Baseline is now current through v0.9.26e.
 
+#### §13.4/337 — Phase B.1 lessons index (docs-debt backfill)
+
+**Context:** B.1 `dataframe.py` split (20+ patches, v0.9.26g-y2)
+recorded 40 meta-lessons §13.4/296-336 in **commit messages only**.
+Same docs-debt pattern as Phase A closeout (§13.4/290) and Phase C
+lessons (§13.4/281). This block consolidates them into one
+DECISIONS entry. Individual sub-blocks not separately appended —
+this index is the canonical record.
+
+**Note on numbering:** §13.4/291-295 are unused (reserved/skipped).
+Phase B lessons continue from §13.4/296 (as referenced in commit
+messages). This index sits at §13.4/337 (past all Phase B
+lesson refs), mirroring Phase A closeout pattern (§13.4/290 = past
+§13.4/282-289 refs).
+
+| # | Lesson (1-line) | Patch | Status |
+|---|---|---|---|
+| 296 | Mixin extraction scope; `inspect.getsource(pkg)` reads `__init__.py`, not `_core.py` | v0.9.26g | applied |
+| 297 | Metadata composite fields (`"path1, path2"`) require substring, not value replacement | v0.9.26g | applied |
+| 298 | Same as 297 (dup tracking) | v0.9.26g | applied |
+| 299 | Lazy import for circular `_core<->_exports` (mixin needs helper from parent) | v0.9.26h | applied |
+| 300 | Off-by-one indent check (`< len(indent)+1`); fixed to `< len(indent)` | v0.9.26h2 | applied |
+| 301 | Guard (`assert X not in src`) vs assertion (`assert X in src`) — opposite semantics under glob | v0.9.26h2 | applied |
+| 302 | Already-extracted helpers in `dataframe_helpers.py`; discovery must not fail | v0.9.26i-corrected | applied |
+| 303 | `inspect.getsource` returns indented source; `ast.parse` needs `textwrap.dedent` | v0.9.26i-fix1 | applied |
+| 304 | Silent no-op exception (`except SyntaxError: return src`) hides failures | v0.9.26i-fix1 | applied |
+| 305 | Multi-line signatures: insert point = sig-end, not `def+1` | v0.9.26i-fix2 | applied |
+| 306 | Bootstrap lockout: recovery script must not `import cadw` on module level | v0.9.26i-fix3 | applied |
+| 307 | Extraction misses module-level helper deps (bare `_helper()` calls) | v0.9.26i-fix4 | applied |
+| 308 | `method_locals` needs nested `FunctionDef/ClassDef` names + nested args | v0.9.26i-fix4b | applied |
+| 309 | Discovery: no parent-scope subtraction (imports are scope-local) | v0.9.26j-corrected | applied |
+| 310 | `ImportFrom.asname` preserved in import map (`import X as Y`) | v0.9.26j-corrected | applied |
+| 311 | Extraction scope must include whitelist-grep (all candidates) | v0.9.26j-fix1 | applied |
+| 312 | Function-name typo → NameError before mutation; pre-execute grep check | v0.9.26l-fix1 | applied |
+| 313 | Sanity: `hasattr` only, no API guesses (`df['x'].unique` wrong) | v0.9.26l-fix2 | applied |
+| 314 | `TARGET_SYMBOLS` from diagnostic blueprint, not from Pandas API | v0.9.26m-fix1 | applied |
+| 315 | `method_locals` must catch all binding constructs (nested args, `ExceptHandler.name`) | v0.9.26m-fix1 | applied |
+| 316 | `python -c` with `for`/`try` needs newlines, not `;` | v0.9.26m-fix1 | applied |
+| 317 | Sanity runtime API probe = false abort; use tests as authoritative | v0.9.26m-fix2 | applied |
+| 318 | Whitelist keys class-qualified (`{file}:{Class}.{method}`) | v0.9.26m-fix3 | applied |
+| 319 | Relative imports: `ast.ImportFrom.level` = dots count; emit `from {'.'*level}{module}` | v0.9.26n-fix1 | applied |
+| 320 | `ImportFrom.asname` in emission (`from X import Y as Z`) | v0.9.26n-fix1 | applied |
+| 321 | Repeated bug: sanity `for` pattern from broken source (fixed source copied from failed) | v0.9.26n-fix1 | applied |
+| 322 | Extended lazy injection: handle all lazy names per method, not just `CadwDataFrame` | v0.9.26r | applied |
+| 323 | Monkeypatch target follows symbol after extraction (`_core` → `_join`) | v0.9.26u-fix1 | applied |
+| 324 | Nested whitelist keys need regex lookahead, not plain replace | v0.9.26v | applied |
+| 325 | Shared helper extraction needs `_core.py` re-export for lazy imports | v0.9.26w | applied |
+| 326 | Helpers > 100 LOC → extract; < 100 LOC → leave with re-export | v0.9.26w | applied |
+| 327 | Test-fix diagnostic prints actual matched pattern, not guessed | v0.9.26w-fix1 | applied |
+| 328 | Import cleanup = last step after all extractions | v0.9.26y | applied |
+| 329 | Append-to-existing-mixin: idempotency via class body names + import dedupe | v0.9.26x2 | applied |
+| 330 | Re-export reorganization: `__init__` imports from actual source module | v0.9.26y | applied |
+| 331 | Auto-generated `__init__.py` needs full rewrite post-split, not edit | v0.9.26y-fix1 | applied |
+| 332 | Sanity distinguishes `CadwDataFrame` methods vs `_ColumnProxy` (proxy accessor) methods | v0.9.26y-fix2 | applied |
+| 333 | Sanity method list from blueprint, not Pandas API (`tail` never existed) | v0.9.26y-fix3 | applied |
+| 334 | Backlog features in dedicated feature patch, not refactor patch | v0.9.26y2 | applied |
+| 335 | `sys.path.insert(0, str(ROOT))` after `os.chdir(ROOT)` — mandatory boilerplate | v0.9.26y2-fix1 | applied |
+| 336 | New methods in extraction-target modules: guard-compliant by construction (mirror existing pattern) | v0.9.26y2-fix1 | applied |
+
+**Unified pattern** (building on §13.4/278-290): *"assume a summary
+representation matches semantics."* Every lesson is a specialization
+of "the string/count/scope I assumed is not the actual runtime/scope
+semantics." Phase B extraction at scale (20 patches) forced
+incremental learning of: AST-vs-string, scope-vs-parent, whitelist
+patterns, import forms, monkeypatch targets, `python -c` syntax
+boundaries, guard invariants.
+
+**Docs debt status:** §13.4/291-295 unused; §13.4/296-336 referenced
+from Phase B commits; this index = §13.4/337. Future Phase D+
+lessons continue from §13.4/338.
+

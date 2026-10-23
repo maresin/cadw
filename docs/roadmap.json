@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.25",
+  "current_version": "0.9.26",
   "updated": "2026-10-23",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -133,9 +133,11 @@
           "id": "B.1",
           "name": "dataframe.py split into 9 modules",
           "patch": "v0.9.26",
-          "status": "planned",
+          "status": "done",
           "complexity": "L",
-          "file": "cadw/dataframe.py"
+          "file": "cadw/dataframe.py",
+          "closed_at": "2026-10-23",
+          "notes": "v0.9.26 B.1 milestone: dataframe.py split into 18 modules across 20+ patches (v0.9.26g-y2). Original spec was 9; actual 18 due to subsystem granularity. _core.py 7900 → ~530 LOC; ~7300 LOC redistributed to mixin modules. 40+ §13.4 lessons learned (296-336). 0 production bugs, 0 logic change."
         },
         {
           "id": "B.2",
