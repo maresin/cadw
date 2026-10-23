@@ -11,6 +11,7 @@ from .gbdt import (
     GBDTClassifier, fit_gbdt_classifier,
     GBDTMulticlassClassifier, fit_gbdt_multiclass,
 )
+from .gmm import GMMModel, fit_gmm
 from .importance import permutation_importance
 from .iforest import IsolationForestModel, fit_isolation_forest
 from .naive_bayes import (
@@ -33,4 +34,5 @@ __all__ = [
     "BernoulliNB", "fit_bernoulli_nb",
     "IsolationForestModel", "fit_isolation_forest",
     "permutation_importance",
+    "GMMModel", "fit_gmm",
 ]

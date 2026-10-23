@@ -480,9 +480,10 @@
         {
           "id": "D.6.8",
           "name": "GMM density",
-          "patch": "v0.9.36",
-          "status": "planned",
-          "complexity": "S"
+          "patch": "v0.9.31",
+          "status": "done",
+          "complexity": "S",
+          "file": "cadw/ml/gmm.py"
         },
         {
           "id": "D.6.9",

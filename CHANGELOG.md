@@ -19,6 +19,13 @@ P2 backlogged with rationale. All fast/slow suites green.
 - Ref vs sklearn.inspection.permutation_importance: Spearman >= 0.7 on synthetic linear (test asserts).
 - Tests: `tests/test_permutation_importance.py` — 10 tests (smoke, ranking, repeats-stable, determinism, too-small, constant feature, sklearn ref, chunk invariance, accuracy mode, unsupervised shift mode).
 
+#### Phase D.6.8 — GMM density estimation (v0.9.31)
+
+- `cadw/ml/gmm.py`: `GMMModel` + `fit_gmm(df, X_cols, n_components=3, max_iter=100, tol=1e-4, reg_covar=1e-6, max_samples=10_000, random_state, memory_guard)`. **Bounded-sample EM** — reservoir sample of `max_samples` rows (default 10k), then standard EM on the sample. State is `O(k*d)` (weights + means + diag cov), independent of N. Scoring/`predict` are per-batch with `check_batch(extra_factor=3.0)`. True per-batch streaming EM (paper's E-step sufficient statistics) is a **future D.6.x** item — honestly documented. Design: `docs/decisions/d6_8_gmm_density.md`.
+- Bench (`scripts/bench_gmm.py`, k=3, d=5): N=1M fit 3.27 s, score 0.47 s, peak 16.9 MB, state 264 B. N=100k: 0.41 s, 18.4 MB.
+- Ref vs sklearn.mixture.GaussianMixture (diag): mean log-likelihood within 1.0 nat per row.
+- Tests: `tests/test_gmm.py` — 10 tests (smoke, two-Gaussians recover centers, finite score, determinism, argmax labels, sklearn ref, too-few-rows, chunk invariance, state independent of N, unsupervised).
+
 #### P0 fix — `external_sort` RSS drift (A1)
 
 - `check_batch(extra_factor=2.0)` in phase-1 loop — the very next line
