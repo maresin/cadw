@@ -118,7 +118,7 @@
       "id": "B",
       "name": "Infrastructure",
       "version_range": "v0.9.26-v0.9.27",
-      "status": "planned",
+      "status": "in_progress",
       "description": "Remove context-transfer pain and test-latency pain. No functional changes.",
       "items": [
         {
@@ -185,6 +185,10 @@
           "complexity": "S",
           "file": "docs/roadmap.json"
         }
+      ],
+      "started_at": "2026-10-23",
+      "patches": [
+        "v0.9.26b"
       ]
     },
     {
