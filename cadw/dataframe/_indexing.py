@@ -636,3 +636,56 @@ class _IndexingMixin:
             new_ds, memory_guard=self._memory_guard, spill_dir=self._spill_dir
         )
 
+    def tail(self, n: int = 5) -> pa.Table:
+        """Return last n rows as pa.Table (v0.9.26y2, Pandas parity).
+
+        - n > 0: last n rows (or all if n >= len).
+        - n == 0: empty Table (same schema as df).
+        - n < 0: all rows except the first |n| (Pandas parity).
+        - n not int: TypeError.
+
+        Returns pa.Table (same as `head`). Arrow-native — no
+        to_pylist (guard-compliant, §13.4/336).
+
+        n > 0: two-pass (count then skip first total-n).
+        n < 0: one-pass (skip first |n|).
+        """
+        if not isinstance(n, int):
+            raise TypeError(
+                f"tail: n must be int; got {type(n).__name__}"
+            )
+
+        schema = pa.schema(
+            [self._dataset.schema.field(c) for c in self._columns]
+        )
+
+        if n == 0:
+            return pa.Table.from_batches([], schema=schema)
+
+        if n < 0:
+            skip = -n
+        else:
+            # n > 0: two-pass — count total rows, skip first total-n
+            total = self.count()
+            if n >= total:
+                skip = 0
+            else:
+                skip = total - n
+
+        batches: list[pa.RecordBatch] = []
+        rows_skipped = 0
+        for b in self._iter_filtered_batches():
+            if rows_skipped + b.num_rows <= skip:
+                rows_skipped += b.num_rows
+                continue
+            if rows_skipped < skip:
+                offset = skip - rows_skipped
+                b = b.slice(offset, b.num_rows - offset)
+                rows_skipped = skip
+            batches.append(b)
+
+        if not batches:
+            return pa.Table.from_batches([], schema=schema)
+        return pa.Table.from_batches(batches, schema=schema)
+
+
