@@ -162,6 +162,8 @@ old `scripts/patch_v09{0,1,2}*.py` → `archive/patches/`; move
 
 ## §5 Phase C — Pandas P0 + ML essentials (v0.9.28–v0.9.30)
 
+
+**Status:** COMPLETED (v0.9.25, 2026-10-23)
 **Goal:** close last 2 P0 pandas + 2 ML essentials from taxonomy (N1, N2).
 
 | ID | Item | Patch | Complexity | Task types |

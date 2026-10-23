@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.25c",
-  "updated": "2026-10-22",
+  "current_version": "0.9.25",
+  "updated": "2026-10-23",
   "principles": [
     "Universality via recipes, not model zoo.",
     "Every algorithm O(1)/O(d²) or sample+stream wrapper.",
@@ -191,7 +191,7 @@
       "id": "C",
       "name": "Pandas P0 + ML essentials",
       "version_range": "v0.9.28-v0.9.30",
-      "status": "planned",
+      "status": "completed",
       "description": "Close last 2 P0 pandas + 2 ML essentials.",
       "items": [
         {
@@ -250,7 +250,9 @@
           "complexity": "S",
           "file": "cadw/dataframe.py"
         }
-      ]
+      ],
+      "version": "0.9.25",
+      "completed_at": "2026-10-23"
     },
     {
       "id": "D",
