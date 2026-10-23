@@ -143,15 +143,12 @@ sweep):**
 - ~2488 fast at v0.9.25l (after Phase C)
 - **No new tests in v0.9.25n** (docs-only close-out)
 
-#### Docs debt (v0.9.26 backlog)
+#### Docs debt (resolved in v0.9.26a)
 
-- **§13.4 numbering drift**: DECISIONS.md canonical is at
-  §13.4/248 (actual file state); Phase C lessons
-  §13.4/262–279 exist only in commit messages. Backfill §13.4/249–
-  279 into DECISIONS.md as formal appends — tracked as v0.9.26
-  docs-debt sweep, not blocking Phase C close-out.
-
-
+- **§13.4 numbering drift**: Phase C lessons §13.4/262–280 existed
+  only in commit messages; consolidated §13.4/281 index in
+  DECISIONS.md now backfills them with commit references. Debt
+  closed in v0.9.26a. Future lessons append from §13.4/282 onward.
 ### v0.9.24: time series toolkit + temporal hierarchical forecasting
 
 Comprehensive time-series extension. All new code lives in `cadw/ts/`

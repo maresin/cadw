@@ -5509,3 +5509,42 @@ revealed is what actually runs). §13.4/280: file-state reveal ≠
 commit-message state (state read from file is what's actually
 there). Both require **accept actual, don't infer**.
 
+#### §13.4/281 — Phase C lessons index (docs-debt backfill)
+
+**Context:** Phase C (v0.9.25g–l) recorded meta-lessons §13.4/250–280
+in **commit messages only**, not DECISIONS.md. Users reading
+DECISIONS.md saw §13.4/249 (v0.9.22 era); users reading commit
+messages saw up to §13.4/280. This block consolidates the lessons
+with commit references so DECISIONS.md is self-contained.
+Individual lesson sub-blocks not separately appended — this index
+is the canonical record.
+
+| # | Lesson (1-line) | Commit | Status |
+|---|---|---|---|
+| 262 | PyArrow dtype string repr ≠ user-facing name → `pa.type_for_alias` first, `str(t)` fallback | v0.9.25g-fix1 | applied |
+| 263 | Foreign dtype vocabulary (pandas `string[pyarrow]`) → reject with clear ValueError | v0.9.25g-fix2 | applied |
+| 264 | REPL-first: 5-second `python -c` behavior check BEFORE writing test assumptions | v0.9.25g-fix3 | applied |
+| 265 | Inline `wait, X` comment = signal to STOP and delete nearby assert (stale copy-paste) | v0.9.25h-fix1 | applied |
+| 266 | Anchor fix (apply_or_fail miss) → re-verify each feature's assumptions, not just anchor | v0.9.25i-corrected | applied |
+| 277 | Accessor `__init__` gate fires before method body — match actual raising layer | v0.9.25l-fix1 | applied |
+| 278 | `hasattr(imported_class, 'method')` beats source-text markers for presence checks | v0.9.25l-fix1-corrected | applied |
+| 279 | `hasattr` reveal ≠ rebuild — diagnostic-only response when feature already shipped | v0.9.25m-diagnostic | applied |
+| 280 | File-state assertions: actual inspection, NOT inference from commit messages / git log | v0.9.25n-corrected | applied |
+| 281 | Commit-subject checks: exact version token, NOT substring of `--oneline` line | v0.9.25o-fix1 | applied |
+
+**Meta-lesson numbers 250–261 and 267–276:** not referenced in
+Phase C commit messages (may have been reserved for other lessons
+or skipped). If later lessons surface referencing those numbers,
+cross-reference this index.
+
+**Unified family:** §13.4/278, 280, 281 are one pattern —
+"string match as proxy for state → format-fragile". Prefer
+structured extraction (AST, `hasattr`, exact-token equality,
+regex-with-anchors) over substring `in`. Each was learned
+iteratively on a distinct miss; consolidated here to close the
+docs-debt.
+
+**Debt closure:** CHANGELOG v0.9.25 "docs debt" note (deferred to
+v0.9.26) is resolved by this block. Future Phase D+ lessons append
+sequentially from §13.4/282 onward.
+
