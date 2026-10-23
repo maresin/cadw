@@ -1,6 +1,6 @@
 # CADW — Context Handoff
 
-**Version:** 0.9.31 (2026-10-23)
+**Version:** 0.9.32 (2026-10-23)
 **Goal:** out-of-core dataframe на Apache Arrow для данных, не
 влезающих в RAM, на слабых машинах.
 **Constraint:** ≤1 batch в RAM, всё тяжёлое через 3 примитива:
@@ -13,7 +13,7 @@ Reduce / HashShuffle / Sort.
 | A — Stabilization | ✅ completed | 11 items, A.6 → G |
 | B — Infrastructure | ✅ completed | 8/8 milestones (B.1 split, B.2 decisions, B.3 tests, B.5 scripts, B.6 cleanup) |
 | C — Pandas P0 | ✅ completed | 20/20 features (isin, between, idxmax, … , dropna, fillna) |
-| D — Algorithms P1 | 🚀 in progress | v0.9.31: audit + IForest; 28 more items pending |
+| D — Algorithms P1 | 🚀 in progress | D.1.1 IForest, D.1.3 cost-sensitive GBDT done; D.3.1 CoxPH deferred |
 | E — Recipes | planned | — |
 | F — Light NNs | planned | — |
 | G — Tech debt | planned | A.6 deferred here |
@@ -80,5 +80,6 @@ git log --oneline -20
 
 ## Immediate next
 
-Phase D.1.1 IForest — first feature patch, S complexity.
-Also (deferred): context-tooling fix v0.9.30z1.
+v0.9.32 closed: F9 gbdt RAM gap (batch_memory_factor); D.1.3 scale_pos_weight + tests.
+Next: D.3.1 CoxPH (deferred), then D.1.2 Matrix Profile / D.1.4 fairness.
+FOR_PINGIS: AUDIT_v0931.md (findings), algorithm_notes.md (D.1.3 sources + D.3.1 deferral).

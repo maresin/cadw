@@ -191,7 +191,7 @@ O(1..model). Grouped by task type.
 ### D.1 Anomaly (v0.9.31)
 - D.1.1 IForest on batches (N5) — P0, S, state t·O(ψ)
 - D.1.2 Matrix Profile (STUMPY-like) streaming (N6) — P0, M, O(window)
-- D.1.3 cost-sensitive GBDT + threshold tuning (N22) — P1, S, O(model)
+- D.1.3 cost-sensitive GBDT + threshold tuning (N22) — P1, S, O(model) — **done v0.9.32**
 - D.1.4 fairness metrics DP/EO/TPR-gap (N28) — P1, S, O(K)
 
 ### D.2 Ranking / Recsys (v0.9.32)

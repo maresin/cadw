@@ -1,6 +1,57 @@
 ## [Unreleased]
 
-### v0.9.31: PINGIS audit + Phase D.1.1 IForest
+### v0.9.32 (2026-10-23)
+
+### Audit + bugfix pass (Phase A close-out, honest tests)
+
+- **F9 (P1, gbdt per-batch RAM gap)** — `_AllNodeHistOp` /
+  `_AssignLeavesOp` / `_LeafValuesOp` now override
+  `batch_memory_factor()` → 7.0 / 4.0 / 3.5. Their `update()`
+  peaks (stack_numeric + gradient/hessian/lf columns + per-node
+  slices) were up to 3x the yielded batch, previously unguarded
+  (extra_factor=1.0). Honest tests in
+  `tests/test_v0932_gbdt_memory_factor.py` — reject-at-peak,
+  accept-at-peak, factor values. See `_FOR_PINGIS/AUDIT_v0931.md`.
+- **AUDIT_v0931** — new full-tree AST scan of 160
+  `to_pylist/as_py/to_numpy` sites; only F9 was real. F1/F2
+  verified non-bugs. Summary table finalised.
+- **A.6 roadmap item closed** (was deferred from Phase A): the
+  audit covers the 18-site claim; remaining sites guarded/bounded/
+  by-design.
+
+### Phase D.1.3 — cost-sensitive GBDT (imbalanced classification)
+
+- `scale_pos_weight: float = 1.0` parameter added to
+  `fit_gbdt_classifier` (binary path), threaded through
+  `_fit_boosting` and `_grad_hess` — weights g,h for positives
+  (Friedman 2001). XGBoost-compatible meaning (`neg/pos`).
+  Validation: `scale_pos_weight <= 0` → ValueError.
+- `predict(X, threshold=...)` already existed (v0.9.31); confirmed
+  working on both ndarray and CadwDataFrame paths.
+- Honest tests: `tests/test_v0932_cost_sensitive_gbdt.py` —
+  weighted model predicts strictly more positives on imbalanced
+  data; threshold monotonic; validation. Sources in
+  `_FOR_PINGIS/algorithm_notes.md`.
+- D.3.1 CoxPH **deferred** (needs ~400-500 LOC + Sort risk-set
+  primitive); rationale + sources documented.
+
+### Test-isolation fixes (found during the audit run)
+
+- `tests/test_permutation_importance.py::test_chunk_invariance_ranking`
+  used `tempfile.mktemp()` + hardcoded `/tmp` base_dir — collides
+  across xdist workers. Now uses `tmp_path`.
+- `tests/test_collect_project_modes.py::test_collect_project_phase_mode`
+  hardcoded old Phase-A bookkeeping (A.6 deferred). Phase A is now
+  fully done, so `--phase A` correctly returns "0 files". Test
+  rewritten to exercise both sides: done phase → documented error;
+  Phase C → resolves real files via `cadw/ml/*.py`.
+
+### Test status
+
+- Full fast suite: **2557 passed, 2 skipped, 0 failed** (~67s @ -n4).
+- New tests: 5 (gbdt memory factor) + 4 (cost-sensitive gbdt).
+
+## v0.9.31: PINGIS audit + Phase D.1.1 IForest
 
 **Audit pass (branch `pingis/dev-audit`).** Full AUDIT_REPORT_v0930.md
 with per-finding class/repro/contract/fix/priority/status. P0 fixed;

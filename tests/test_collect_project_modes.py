@@ -42,42 +42,35 @@ def test_collect_project_module_mode(tmp_path):
 
 
 def test_collect_project_phase_mode(tmp_path):
-    """v0.9.25c-fix4: --phase A includes all planned-item files.
+    """v0.9.32: --phase A is now fully done → resolves to 0 files.
 
-    After v0.9.25c + fix3 bookkeeping:
-      - A.4, A.5, A.7, A.8 done (skipped)
-      - A.6 deferred to Phase G (v0.9.26d); A.9/A.10 done (v0.9.26d)
+    After v0.9.32 closed A.6 (was deferred to G), all Phase A items
+    have status=done. The collect_project --phase contract is:
+      - a fully-done phase → ERROR: '0 files', exit 1
+      - a phase with planned items → snapshot written, exit 0
 
-    A.6 spec = cadw/dataframe.py + cadw/ops/{shuffle,rank,metrics,
-    pivot,resample,groupby}.py + cadw/ts/{features,stats,models,thf,
-    backtest}.py (12 files via brace-expansion). A.9 = cadw/ops/sort.py.
-    A.10 = cadw/core/memory_guard.py.
-
-    Assert A.6 files present (deferred); A.9/A.10 files absent (done). No absence assertions: no done-only
-    file exists (A.8's tests/test_ts_models.py is pulled back via A.6
-    test-discovery on cadw/ts/models.py — legitimate).
+    This test exercises BOTH sides honestly:
+      (a) Phase A → 0 files → exit 1 with the documented message;
+      (b) Phase C → resolves real files via the C.5 `cadw/ml/*.py`
+          glob; assert the ml files are actually in the snapshot.
     """
-    out = tmp_path / "phase_a.md"
-    r = _run("--phase", "A", "--out", str(out))
-    assert r.returncode == 0, r.stderr
-    text = out.read_text()
+    # (a) Fully-done phase — expected ERROR.
+    out_a = tmp_path / "phase_a.md"
+    r_a = _run("--phase", "A", "--out", str(out_a))
+    assert r_a.returncode == 1, (
+        f"phase A should error (all done); got rc={r_a.returncode}, "
+        f"stdout={r_a.stdout!r}, stderr={r_a.stderr!r}"
+    )
+    assert "resolved to 0 files" in r_a.stderr
 
-    # A.6 planned (12 files, brace-expansion).
-    assert "FILE: cadw/dataframe/_core.py" in text
-    for name in ("shuffle", "rank", "metrics", "pivot", "resample",
-                 "groupby"):
-        assert f"FILE: cadw/ops/{name}.py" in text, (
-            f"A.6 brace-expansion missed cadw/ops/{name}.py"
-        )
-    for name in ("features", "stats", "models", "thf", "backtest"):
-        assert f"FILE: cadw/ts/{name}.py" in text, (
-            f"A.6 brace-expansion missed cadw/ts/{name}.py"
-        )
-    # A.9 done (v0.9.26d) - sort.py excluded from phase A snapshot.
-    assert "FILE: cadw/ops/sort.py" not in text
-    # A.10 done (v0.9.26d) - memory_guard.py excluded from phase A snapshot.
-    assert "FILE: cadw/core/memory_guard.py" not in text
-
+    # (b) Phase with planned items — expected success + real content.
+    out_c = tmp_path / "phase_c.md"
+    r_c = _run("--phase", "C", "--out", str(out_c))
+    assert r_c.returncode == 0, r_c.stderr
+    text = out_c.read_text()
+    assert "FILE: cadw/ml/gbdt.py" in text
+    assert "FILE: cadw/ml/linear.py" in text
+    assert "# Full files:" in text
 
 def test_collect_project_doc_mode(tmp_path):
     out = tmp_path / "doc.md"

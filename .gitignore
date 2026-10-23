@@ -32,14 +32,17 @@ snapshot_*.py
 main.py
 
 # others
-.pingis/*
-!.pingis/TASK.md
-_FOR_PINGIS/
 
 # v0.9.22-fix1: user attachment folder (no underscore),
-# distinct from _FOR_PINGIS/ (audit output, gitignored).
 FOR_PINGIS/
 ts_review_snapshot.md
 scripts/_tmp/
-_FOR_PINGIS/_scratch/
 _verify_*.py
+
+# PINGIS artifacts — tracked except _scratch/ and pycache
+.pingis/_scratch/
+.pingis/*/__pycache__/
+
+# Hypothesis (pytest cache) — auto-regenerated
+.hypothesis/
+**/.hypothesis/

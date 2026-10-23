@@ -53,13 +53,20 @@ _LOSSES = ("l2", "logloss_binary")
 
 def _grad_hess(
     pred: np.ndarray, y: np.ndarray, loss: str,
+    pos_weight: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Grad and hess per row for given loss."""
     if loss == "l2":
         return pred - y, np.ones_like(y, dtype=np.float64)
     if loss == "logloss_binary":
         p = _sigmoid(pred)
-        return p - y, np.maximum(p * (1.0 - p), 1e-16)
+        g = p - y
+        h = np.maximum(p * (1.0 - p), 1e-16)
+        if pos_weight != 1.0:
+            w = np.where(y > 0.5, pos_weight, 1.0)
+            g = g * w
+            h = h * w
+        return g, h
     raise ValueError(f"_grad_hess: unknown loss {loss!r}")
 
 
@@ -196,6 +203,10 @@ class _AllNodeHistOp(ReduceOp):
         per_slot = self.f * self.bins * 8 * 2 + 8 * 3
         return self.S * per_slot
 
+    def batch_memory_factor(self):
+        # v0.9.32 AUDIT_v0931 F9: update peaks ~3x yielded batch.nbytes.
+        return 7.0
+
     def finalize(self, state):
         gh, hh, gt, ht, nt = state
         return {
@@ -266,6 +277,10 @@ class _AssignLeavesOp(ReduceOp):
     def estimate_state_nbytes(self):
         return 0
 
+    def batch_memory_factor(self):
+        # v0.9.32 AUDIT_v0931 F9.
+        return 4.0
+
     def finalize(self, state):
         return np.concatenate(state) if state else np.array([], dtype=np.int64)
 
@@ -302,6 +317,10 @@ class _LeafValuesOp(ReduceOp):
 
     def estimate_state_nbytes(self):
         return 0
+
+    def batch_memory_factor(self):
+        # v0.9.32 AUDIT_v0931 F9.
+        return 3.5
 
     def finalize(self, state):
         return {
@@ -709,6 +728,7 @@ def _fit_boosting(
     reg_lambda: float,
     min_gain: float,
     memory_guard: Optional[MemoryGuard],
+    scale_pos_weight: float = 1.0,
 ):
     """Common level-wise boosting fit for l2 and logloss_binary."""
     if loss not in _LOSSES:
@@ -783,7 +803,7 @@ def _fit_boosting(
             p = pred[off:off + n]
             lf = cur_leaf[off:off + n]
             valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
-            g, h = _grad_hess(p, y, loss)
+            g, h = _grad_hess(p, y, loss, pos_weight=scale_pos_weight)
             g = np.where(valid, g, 0.0)
             h = np.where(valid, h, 0.0)
             cols = [b.column(c) for c in X_cols]
@@ -803,7 +823,7 @@ def _fit_boosting(
             p = pred[off:off + n]
             lf = cur_leaf[off:off + n]
             valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
-            g, h = _grad_hess(p, y, loss)
+            g, h = _grad_hess(p, y, loss, pos_weight=scale_pos_weight)
             g = np.where(valid, g, 0.0)
             h = np.where(valid, h, 0.0)
             yield pa.RecordBatch.from_arrays(
@@ -919,6 +939,7 @@ def fit_gbdt_classifier(
     min_child_weight: float = 1.0, reg_lambda: float = 1.0,
     min_gain: float = 0.0,
     n_classes: Optional[int] = None,
+    scale_pos_weight: float = 1.0,
     memory_guard: Optional[MemoryGuard] = None,
 ):
     """GBDT classification: binary (logloss) or multiclass (softmax) — v0.7.8.
@@ -957,6 +978,10 @@ def fit_gbdt_classifier(
     else:
         K = int(n_classes)
 
+    if scale_pos_weight <= 0:
+        raise ValueError(
+            f"scale_pos_weight must be > 0; got {scale_pos_weight}"
+        )
     if K < 2:
         raise ValueError(
             f"fit_gbdt_classifier: need >= 2 classes; got {K}"
@@ -970,6 +995,7 @@ def fit_gbdt_classifier(
             learning_rate=learning_rate, bins=bins,
             min_child_weight=min_child_weight, reg_lambda=reg_lambda,
             min_gain=min_gain, memory_guard=memory_guard,
+            scale_pos_weight=scale_pos_weight,
         )
         return GBDTClassifier(**out)
     else:

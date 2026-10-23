@@ -112,16 +112,18 @@ def test_ref_vs_sklearn_spearman():
     assert rho >= 0.7, f"Spearman {rho:.3f} < 0.7"
 
 
-def test_chunk_invariance_ranking():
+def test_chunk_invariance_ranking(tmp_path):
     import pyarrow.parquet as pq
     rng = np.random.RandomState(6)
     X = rng.normal(size=(300, 3))
     y = 4*X[:,0] + X[:,1]
     tbl = pa.table({**{f"x{i}": pa.array(X[:,i]) for i in range(3)}, "y": pa.array(y)})
-    path = tempfile.mktemp(suffix=".parquet")
+    # v0.9.32 (executor): shared tempfile.mktemp + hardcoded /tmp caused
+    # cross-worker collisions under xdist. Isolated per-test via tmp_path.
+    path = str(tmp_path / "chunk_inv.parquet")
     pq.write_table(tbl, path, row_group_size=1)
-    df1 = CadwDataFrame.from_parquet(path, base_dir="/tmp", chunk_size=1)
-    df2 = CadwDataFrame.from_parquet(path, base_dir="/tmp", chunk_size=1000)
+    df1 = CadwDataFrame.from_parquet(path, base_dir=str(tmp_path), chunk_size=1)
+    df2 = CadwDataFrame.from_parquet(path, base_dir=str(tmp_path), chunk_size=1000)
     m = _LinearModel([4, 1, 0])
     a = permutation_importance(m, df1, ["x0","x1","x2"], y_col="y",
                                n_repeats=2, max_samples=300, random_state=0)
