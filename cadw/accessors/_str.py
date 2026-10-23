@@ -264,6 +264,63 @@ class _StrAccessor:
             self._column, "count", _fn, pa.int64(), accessor="str",
         )
 
+    def split(
+        self, pat: str, *, max_splits: "int | None" = None,
+        reverse: bool = False,
+    ) -> "CadwDataFrame":
+        """Split string into list of substrings (v0.9.25l).
+
+        Args:
+            pat: non-empty literal separator (not regex).
+            max_splits: max splits per value (None → unlimited).
+            reverse: split from end (only with max_splits).
+
+        Returns: augmented CadwDataFrame with `{col}_split`
+        list<string> column (nullable=True). Null → null.
+        Empty string → [''] (one-element list, pandas Series.str.split
+        parity).
+
+        For regex split: use pc.split_pattern_regex via custom
+        transform (backlog `str.rsplit_regex`, v0.9.26, §11.5).
+
+        Peak RAM = batch × O(avg_parts). Independent of N.
+        """
+        import pyarrow.compute as _pc
+        if not isinstance(pat, str):
+            raise TypeError(
+                f"str.split: pat must be str; got {type(pat).__name__}"
+            )
+        if not pat:
+            raise ValueError("str.split: pat must be non-empty")
+        if max_splits is not None and (
+            not isinstance(max_splits, int)
+            or isinstance(max_splits, bool)
+            or max_splits < 1
+        ):
+            raise ValueError(
+                f"str.split: max_splits must be int >= 1 or None; got "
+                f"{max_splits!r}"
+            )
+        if not isinstance(reverse, bool):
+            raise TypeError(
+                f"str.split: reverse must be bool; got "
+                f"{type(reverse).__name__}"
+            )
+
+        def _fn(arr):
+            arr_str = _pc.cast(arr, pa.string())
+            return _pc.split_pattern(
+                arr_str,
+                pattern=pat,
+                max_splits=(max_splits if max_splits is not None else -1),
+                reverse=reverse,
+            )
+
+        return self._parent._apply_column_transform(
+            self._column, "split", _fn,
+            pa.list_(pa.string()), accessor="str",
+        )
+
     def contains(self, pat: str) -> "MaskFilter":
         """Substring match → MaskFilter (for `df[mask]`).
 

@@ -184,3 +184,136 @@ class _DtAccessor:
     @property
     def quarter(self) -> "CadwDataFrame":
         return self._feature("quarter")
+
+    def strftime(self, format: str) -> "CadwDataFrame":
+        """Format timestamp as string (v0.9.25l).
+
+        Args:
+            format: strftime format string (e.g. '%Y-%m-%d %H:%M').
+                Default pc.strftime format is '%Y-%m-%dT%H:%M:%S'
+                if not provided; we require explicit format for
+                readability.
+
+        Returns: augmented CadwDataFrame with `{col}_strftime` string
+        column (nullable=True). Null → null.
+
+        Naive timestamp → interpreted as UTC (PyArrow convention).
+        Timestamp with tz → formatted in that tz (pc.strftime uses
+        local wall clock of the tz).
+
+        Locale: 'C' (default). For other locales, use pc.strftime
+        directly. §11.5.
+        """
+        import pyarrow.compute as _pc
+        if not isinstance(format, str):
+            raise TypeError(
+                f"dt.strftime: format must be str; got "
+                f"{type(format).__name__}"
+            )
+        if not format:
+            raise ValueError("dt.strftime: format must be non-empty")
+
+        def _fn(arr):
+            return _pc.strftime(arr, format=format)
+
+        return self._parent._apply_column_transform(
+            self._column, "strftime", _fn, pa.string(), accessor="dt",
+        )
+
+    def tz_convert(self, tz: str) -> "CadwDataFrame":
+        """Convert tz-aware timestamp to target timezone (v0.9.25l).
+
+        Args:
+            tz: target timezone string (e.g. 'America/New_York').
+
+        Returns: augmented CadwDataFrame with `{col}_tz_convert`
+        timestamp-with-target-tz column (nullable=True). Null → null.
+
+        Requires source column to be tz-aware (timestamp with tz).
+        For naive → tz-aware, use pc.assume_timezone directly
+        (backlog `dt.tz_localize`, §11.5).
+
+        Implementation: pc.cast(tz-aware→tz-aware). If PyArrow 26
+        does not support this cast (verify_state REPL check #7),
+        raises NotImplementedError with clear message. Honest
+        limitation — no silent fallback to Python loop (violates
+        §3.10 out-of-core).
+        """
+        import pyarrow.compute as _pc
+        if not isinstance(tz, str):
+            raise TypeError(
+                f"dt.tz_convert: tz must be str; got {type(tz).__name__}"
+            )
+        if not tz:
+            raise ValueError("dt.tz_convert: tz must be non-empty")
+
+        src_type = self._parent._dataset.schema.field(
+            self._column
+        ).type
+        if not pa.types.is_timestamp(src_type):
+            raise TypeError(
+                f"dt.tz_convert: column {self._column!r} has type "
+                f"{src_type}; timestamp required"
+            )
+        if src_type.tz is None:
+            raise TypeError(
+                f"dt.tz_convert: column {self._column!r} is naive "
+                f"(no tz); use pc.assume_timezone directly for "
+                f"naive→tz-aware (backlog dt.tz_localize, §11.5)"
+            )
+
+        target_type = pa.timestamp(src_type.unit, tz=tz)
+
+        # Probe: is this cast supported by PyArrow?
+        try:
+            _probe = _pc.cast(
+                pa.array(
+                    [None], type=pa.timestamp(src_type.unit, tz="UTC"),
+                ),
+                target_type,
+            )
+        except (pa.ArrowNotImplementedError, pa.ArrowInvalid) as e:
+            raise NotImplementedError(
+                f"dt.tz_convert: pc.cast between tz-aware timestamps "
+                f"is not supported by this PyArrow build ({type(e).__name__}: "
+                f"{str(e)[:120]}). Backlog v0.9.26. Workaround: use "
+                f"pc.assume_timezone after converting to naive UTC via "
+                f"pc.cast(arr, pa.timestamp(unit)) — this yields UTC "
+                f"naive (not local), which is correct for the "
+                f"interpretation step."
+            ) from e
+
+        out_fields = [
+            self._parent._dataset.schema.field(c)
+            for c in self._parent._columns
+        ]
+        out_fields.append(
+            pa.field(f"{self._column}_tz_convert", target_type,
+                     nullable=True)
+        )
+        out_schema = pa.schema(out_fields)
+
+        def _iter():
+            for b in self._parent._iter_arrow_batches():
+                self._parent._memory_guard.check_batch(
+                    b, name="dt.tz_convert.input", extra_factor=2.0,
+                )
+                converted = _pc.cast(b.column(self._column), target_type)
+                arrays = [
+                    b.column(c) for c in self._parent._columns
+                ]
+                arrays.append(converted)
+                yield pa.RecordBatch.from_arrays(
+                    arrays, schema=out_schema,
+                )
+
+        from cadw.dataset import Dataset as _DS
+        from cadw.dataframe import CadwDataFrame as _CDF
+        new_ds = _DS.from_batches(
+            out_schema, _iter(), self._parent._new_dataset_dir(),
+        )
+        return _CDF(
+            new_ds,
+            memory_guard=self._parent._memory_guard,
+            spill_dir=self._parent._spill_dir,
+        )
