@@ -1,0 +1,44 @@
+[
+  {
+    "op": "groupby.sum",
+    "n": 100000,
+    "cadw_s": 0.48,
+    "ref_s": 0.0,
+    "peak_mb": 56.2
+  },
+  {
+    "op": "external_sort",
+    "n": 100000,
+    "cadw_s": 0.11,
+    "ref_s": 0.0,
+    "peak_mb": 8.2
+  },
+  {
+    "op": "hash_join",
+    "n": 100000,
+    "cadw_s": 0.21,
+    "ref_s": 0.01,
+    "peak_mb": 52.5
+  },
+  {
+    "op": "groupby.sum",
+    "n": 1000000,
+    "cadw_s": 1.11,
+    "ref_s": 0.03,
+    "peak_mb": 2.0
+  },
+  {
+    "op": "external_sort",
+    "n": 1000000,
+    "cadw_s": 1.06,
+    "ref_s": 0.04,
+    "peak_mb": 39.4
+  },
+  {
+    "op": "hash_join",
+    "n": 1000000,
+    "cadw_s": 2.81,
+    "ref_s": 0.09,
+    "peak_mb": 158.8
+  }
+]

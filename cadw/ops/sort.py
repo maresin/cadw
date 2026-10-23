@@ -349,6 +349,17 @@ class _RunStream:
         except StopIteration:
             self.cur_batch = None
             self.cur_pos = 0
+            # v0.9.31 (PINGIS AUDIT A1): release mmap'd pages eagerly.
+            # Previously the IPC reader (and its mmap) lived until the
+            # _RunStream object was garbage-collected — at N=1M with 30+
+            # runs, this kept ~30*file_size resident across the whole
+            # k-way merge (RSS drift 5-13x over pred_total).
+            close = getattr(self.reader, "close", None)
+            if close is not None:
+                try:
+                    close()
+                except Exception:
+                    pass
             return None
         if memory_guard is not None and b.num_rows > 0:
             memory_guard.check_batch(
@@ -559,8 +570,14 @@ def compute_fan_in(
     with k < 2; caller (_merge_keys) will fire check_state if 2 runs
     exceed state_limit — documented for wide schemas at tight budget).
     """
+    # v0.9.31 (PINGIS AUDIT A1): align with _merge_keys.check_state,
+    # which uses (row_bytes + 16) — the 16 B is the __run_idx tag
+    # (int32 padded) per row added during merge. Prior mismatch gave
+    # K that passed compute_fan_in but failed check_state inside
+    # _merge_keys (observed at N=1M: K=21 computed, 6.05 MB needed
+    # vs 5.24 MB state_limit → MemoryLimitExceeded).
     state_limit = int(available_bytes * 0.5)
-    per_run = 3 * max(1, read_batch_size) * max(1, row_bytes)
+    per_run = 3 * max(1, read_batch_size) * (max(1, row_bytes) + 16)
     k = state_limit // per_run
     return max(2, min(max_k, k))
 
@@ -613,8 +630,41 @@ def external_sort(
     # ~3×15MB → ~3×6MB (for 30 MB budget). More runs, but bounded.
     limit = max(1, int(memory_guard.available_bytes() * 0.2))
 
-    for batch in batch_iter:
-        memory_guard.check_batch(batch, name="external_sort.batch")
+    # v0.9.31 (PINGIS AUDIT A1): phase-1 peak = 4x buf (buf + from_batches
+    # + sort_indices-int64 + take). The old code accepted any user batch
+    # that fits in the raw budget, then immediately built select+append
+    # (2x) + _write_run peak (4x), causing 5-13x RSS drift over pred_total.
+    # Fix: (a) check_batch extra_factor=2.0 catches real OOM in the
+    # select+append step; (b) oversized input batches are split into
+    # sub-slices small enough to fit under limit//4, so _write_run never
+    # sees a batch bigger than its accounted-for buffer.
+    # v0.9.31-fix2 (A1): split threshold = avail//2 (matches the
+    # check_batch extra_factor=2.0 threshold); using limit//4 was too
+    # aggressive — a 6.29 MB batch split into 12 sub-chunks, creating
+    # 12x runs and blowing up the merge-phase mmap working set.
+    max_chunk_bytes = max(1, int(memory_guard.available_bytes() * 0.5))
+
+    def _iter_input():
+        for b in batch_iter:
+            if b.num_rows == 0:
+                continue
+            # Split oversized batches BEFORE check_batch so that the
+            # split sub-batch is what gets checked (v0.9.31-fix1).
+            if b.nbytes <= max_chunk_bytes:
+                memory_guard.check_batch(
+                    b, name="external_sort.batch", extra_factor=2.0,
+                )
+                yield b
+                continue
+            per = max(1, int(b.num_rows * max_chunk_bytes / b.nbytes))
+            for i in range(0, b.num_rows, per):
+                sub = b.slice(i, min(per, b.num_rows - i))
+                memory_guard.check_batch(
+                    sub, name="external_sort.batch", extra_factor=2.0,
+                )
+                yield sub
+
+    for batch in _iter_input():
         row_ids = pa.array(
             range(row_id_offset, row_id_offset + batch.num_rows), type=pa.uint64()
         )

@@ -67,17 +67,40 @@ class ArrowIPCBatchReader(BatchReader):
     def __init__(self, path: str, columns: Optional[List[str]], batch_size: Optional[int] = None):
         self.path = path
         self._columns = columns
-        self._reader = ipc.open_file(path)
+        # v0.9.31 (A1): revert mmap ownership — empirically worse.
+        self._mmap = None
+        self._reader = ipc.open_file(str(path))
         self._num_batches = self._reader.num_record_batches
         self._current = 0
         # batch_size в IPC игнорируется, так как RecordBatch уже предопределены
         # Если нужна разбивка, придётся дополнительно обрабатывать, но для простоты оставим
 
+    def close(self) -> None:
+        """Release underlying mmap and file reader eagerly.
+
+        v0.9.31 (PINGIS AUDIT A1): at N=1M with 20+ runs, keeping every
+        run's mmap open across the k-way merge keeps OS-mapped pages
+        resident (RSS drift 5-13x over pred_total; Arrow pool bytes
+        drop to 0 but RSS stays high — mmap pages are not pool-tracked).
+        Closing the mmap forces the kernel to unmap those pages.
+        Safe to call multiple times.
+        """
+        mm = getattr(self, "_mmap", None)
+        if mm is not None:
+            try:
+                mm.close()
+            except Exception:
+                pass
+            self._mmap = None
+        self._reader = None  # type: ignore[assignment]
+        self._num_batches = 0
+        self._current = 0
+
     def __iter__(self):
         return self
 
     def __next__(self):
-        if self._current >= self._num_batches:
+        if self._current >= self._num_batches or self._reader is None:
             raise StopIteration
         batch = self._reader.get_batch(self._current)
         if self._columns is not None:

@@ -1,0 +1,84 @@
+# CADW — Context Handoff
+
+**Version:** 0.9.30 (2026-10-23)
+**Goal:** out-of-core dataframe на Apache Arrow для данных, не
+влезающих в RAM, на слабых машинах.
+**Constraint:** ≤1 batch в RAM, всё тяжёлое через 3 примитива:
+Reduce / HashShuffle / Sort.
+
+## Phase Status
+
+| Phase | Status | Notes |
+|---|---|---|
+| A — Stabilization | ✅ completed | 11 items, A.6 → G |
+| B — Infrastructure | ✅ completed | 8/8 milestones (B.1 split, B.2 decisions, B.3 tests, B.5 scripts, B.6 cleanup) |
+| C — Pandas P0 | ✅ completed | 20/20 features (isin, between, idxmax, … , dropna, fillna) |
+| D — Algorithms P1 | 🚀 next | 29 items, v0.9.31–v0.9.36 |
+| E — Recipes | planned | — |
+| F — Light NNs | planned | — |
+| G — Tech debt | planned | A.6 deferred here |
+| H — P2 / long-tail | planned | — |
+
+## Where to look
+
+### Decisions & rules
+- `docs/decisions/00_index.md` — TOC + reading guide (начни здесь)
+- `docs/decisions/01_intro_principles.md` — philosophy, glossary
+- `docs/decisions/02_primitives.md` — Reduce, Shuffle, Sort, why 3
+- `docs/decisions/10_9_memoryguard*.md` — OOM safety, formulas
+- `docs/decisions/14-15a-d_*.md` — §13.4 lessons (60+ Phase B lessons)
+- `DECISIONS.md` — 64-line index (ссылки на всё выше)
+
+### Code (v0.9.30)
+- `cadw/core/memory_guard.py` (857) — planning, formulas
+- `cadw/core/sampling.py`, `models*.py` — memory model ops
+- `cadw/ops/` (15 modules) — primitives + groupby/join/dedup/rank/quantile/resample/pivot/topk/sort/shuffle/histogram/metrics
+- `cadw/ml/` (6 modules) — linear, logistic, kmeans, pca, gbdt, naive_bayes
+- `cadw/ts/` (6 modules) — features, stats, models, backtest, thf
+- **`cadw/dataframe/` (18 modules, B.1 split from 7872-LOC monolith)**:
+  - `_core.py` (~530 LOC) — class + `__init__`, `__getitem__`, props, `info`
+  - `_helpers.py` — 5 module-level helpers (build_out_schema, detect_mode, normalize_scalar, infer_arrow_type_from_value, apply_filter_with_positions)
+  - 12 mixins: `_exports`, `_iterators`, `_misc`, `_indexing`, `_aggregations`, `_transformers_fill`, `_transformers_reshape`, `_rolling`, `_cumulative`, `_per_group`, `_resample_reshape`, `_join`, `_ml_bindings`, `_columns`
+  - `_column_proxy.py` (~320) — `_ColumnProxy` class
+  - `_groupby.py` (~220) — `_GroupBy` class
+- `cadw/dataset/` — `Dataset`, `CadwIndex`, `MaterializedIndex`, `RowFilter`
+- `cadw/io/` — batch reader/writer
+- `cadw/cv.py`, `cadw/pipeline.py`, `cadw/scalers.py` — cross-cut
+
+### Tests
+- `tests/` — ~2500 fast tests (~145s single, ~74s parallel)
+- Selective: `pytest -m ts` (103), `-m ml` (406), `-m ops` (414), `-m viz` (52), `-m pipeline` (105)
+- Parallel: `pytest -n auto -m "not slow"` → 1.9× speedup
+- Slow: `pytest -m slow` (4 tests, E2E + OOM)
+
+## How to work
+
+```bash
+# Fast suite
+pytest -q -m "not slow"           # ~145s
+pytest -m "ts and not slow"       # ~5s
+pytest -n auto -m "not slow"      # ~74s
+
+# Find §13.4 lesson
+grep -rn "§13.4/274" docs/decisions/
+
+# Context snapshot
+uv run python scripts/collect_project.py --mode=tiny --output /tmp/tiny.md  # 141 KB manifest
+# (--phase B and --doc docs/decisions/ BUGGED post-B — see known gaps)
+
+# History
+git log --oneline -20
+```
+
+## Known gaps (v0.9.30)
+
+- ⚠️ **README.md stale** (says v0.8.8, pre-B.1) — not authoritative
+- ⚠️ **Phase C roadmap items show 0/7 done** — should be 20/20 (accounting drift, not code)
+- ⚠️ **Phase B items have stale `file` paths** — B.1 says `cadw/dataframe.py`, real: `cadw/dataframe/*.py`
+- ⚠️ **`collect_project --phase/--doc` broken** — parser not updated for `docs/decisions/` + split files
+- ✅ **`tail()` added v0.9.26y2** — was missing pre-B
+
+## Immediate next
+
+Phase D.1.1 IForest — first feature patch, S complexity.
+Also (deferred): context-tooling fix v0.9.30z1.
