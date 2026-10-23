@@ -18,6 +18,15 @@ def _df(n=20):
     }))
 
 
+
+
+def _read_all_decisions():
+    """v0.9.28-fix4 (§13.4/351): DECISIONS.md split → glob.
+    Concatenate all topic files for tests asserting specific sections."""
+    from pathlib import Path as _P
+    _docs = _P(__file__).resolve().parent.parent / "docs" / "decisions"
+    return "\n".join(f.read_text() for f in sorted(_docs.glob("*.md")))
+
 def test_ts_all_present():
     for name in ts.__all__:
         assert hasattr(ts, name), f"cadw.ts missing {name}"
@@ -96,5 +105,5 @@ def test_readme_and_changelog_contain_ts_terms():
     assert "forecaster" in readme
     changelog = open("CHANGELOG.md", encoding="utf-8").read().lower()
     assert "time series" in changelog or "time-series" in changelog
-    decisions = open("DECISIONS.md", encoding="utf-8").read().lower()
+    decisions = _read_all_decisions().lower()
     assert "mint" in decisions
