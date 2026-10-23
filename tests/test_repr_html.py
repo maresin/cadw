@@ -104,7 +104,7 @@ def test_no_pandas_import_in_dataframe():
     import ast
     import inspect
     from cadw import dataframe as df_mod
-    src = inspect.getsource(df_mod)
+    src = inspect.getsource(df_mod._core)
     tree = ast.parse(src)
     # Only check module-level nodes (top-level body), not nested.
     for node in tree.body:

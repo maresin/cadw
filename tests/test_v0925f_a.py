@@ -53,7 +53,7 @@ def test_helpers_not_defined_in_facade():
     reappear in cadw/dataframe.py (would double-define and defeat
     extraction)."""
     import cadw.dataframe as df_mod
-    src = _inspect.getsource(df_mod)
+    src = _inspect.getsource(df_mod._core)
     tree = _ast.parse(src)
     for name in HELPER_NAMES:
         if name in HELPER_CLASSES:

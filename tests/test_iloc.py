@@ -209,7 +209,7 @@ def test_iloc_indexer_is_separate_module():
     """_ILocIndexer живёт в cadw/indexers.py, не в dataframe.py."""
     import cadw.dataframe as df_mod
     import inspect
-    src = inspect.getsource(df_mod)
+    src = inspect.getsource(df_mod._core)
     assert "class _ILocIndexer" not in src, (
         "_ILocIndexer должен быть в cadw/indexers.py, не в facade"
     )

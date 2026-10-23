@@ -200,7 +200,7 @@ def test_filter_then_sort(tmp_path):
 
 def test_facade_has_no_as_py_ast():
     import ast
-    src = inspect.getsource(df_mod)
+    src = inspect.getsource(df_mod._core)
     tree = ast.parse(src)
     bad = [
         n for n in ast.walk(tree)
@@ -213,7 +213,7 @@ def test_facade_has_no_as_py_ast():
 
 def test_facade_has_no_row_loop_ast():
     import ast
-    src = inspect.getsource(df_mod)
+    src = inspect.getsource(df_mod._core)
     tree = ast.parse(src)
     offenders = []
     for node in ast.walk(tree):

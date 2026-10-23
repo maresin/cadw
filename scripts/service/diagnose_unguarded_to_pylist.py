@@ -47,7 +47,7 @@ WHITELIST = {
         "K = #targets (<= 2*len(q)); not O(N)",
     "cadw/ops/sort.py:_merge_keys":
         "K <= max_k=256 (fan-in); not O(N)",
-    "cadw/dataframe.py:CadwDataFrame._repr_html_":
+    "cadw/dataframe/_core.py:CadwDataFrame._repr_html_":
         "20-row sample via head(20); O(1)",
     "cadw/viz/_aggregate.py:line_agg":
         "K-row aggregate; not O(N)",
@@ -112,16 +112,16 @@ WHITELIST = {
     "cadw/dataframe_helpers.py:_ArrowTail.push":
         "K <= deque maxlen (per-column shift buffer, small)",
     # check_state-guarded (stricter than check_batch: 0.5xavail vs 1xavail).
-    "cadw/dataframe.py:_ColumnProxy.to_list":
+    "cadw/dataframe/_core.py:_ColumnProxy.to_list":
         "check_state(_estimate_materialize_bytes) — limit=0.5*avail, "
         "stricter than check_batch (limit=avail)",
-    "cadw/dataframe.py:_ColumnProxy.to_numpy":
+    "cadw/dataframe/_core.py:_ColumnProxy.to_numpy":
         "check_state(n*elem_size) — 0.5*avail limit",
-    "cadw/dataframe.py:_ColumnProxy.to_arrow":
+    "cadw/dataframe/_core.py:_ColumnProxy.to_arrow":
         "check_state(n*elem_size) — 0.5*avail limit",
-    "cadw/dataframe.py:CadwDataFrame.encode_categorical":
+    "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical":
         "pc.value_counts per batch; K per batch (unique values), not N; per-batch check_state(|uniques| * 180)",
-    "cadw/dataframe.py:CadwDataFrame._per_group_apply._emit_group":
+    "cadw/dataframe/_core.py:CadwDataFrame._per_group_apply._emit_group":
         "per-group fn output; group bounded by _flush_group (0.3*avail); fn's own alloc = user responsibility (§3.9)",
     "cadw/ops/metrics.py:MetricsOp.update":
         "guarded via reduce().check_batch(extra_factor=batch_memory_factor()); MetricsOp overrides to 8.0 for classification (K+1 pylist cols)",

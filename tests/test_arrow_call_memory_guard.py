@@ -120,28 +120,28 @@ WHITELISTED_FUNCS = {
         "bounded accum list (one group/window), not N",
     "cadw/dataframe_helpers.py:_convert_batch":
         "per-batch, caller check_batch'd",
-    "cadw/dataframe.py:CadwDataFrame.head":
+    "cadw/dataframe/_core.py:CadwDataFrame.head":
         "≤ n rows accumulated before Table.from_batches",
-    "cadw/dataframe.py:CadwDataFrame.encode_categorical":
+    "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical":
         "per-batch value_counts; K uniques, not N",
-    "cadw/dataframe.py:CadwDataFrame.encode_categorical._iter_encoded":
+    "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical._iter_encoded":
         "per-batch index_in against K-value dictionary",
-    "cadw/dataframe.py:CadwDataFrame._shift_on._iter_zipped":
+    "cadw/dataframe/_core.py:CadwDataFrame._shift_on._iter_zipped":
         "bounded accum list; guard in _shift_on",
-    "cadw/dataframe.py:CadwDataFrame._rolling_on._iter_zipped":
+    "cadw/dataframe/_core.py:CadwDataFrame._rolling_on._iter_zipped":
         "bounded accum list; guard in _rolling_on",
-    "cadw/dataframe.py:CadwDataFrame._per_group_shift._iter_zipped":
+    "cadw/dataframe/_core.py:CadwDataFrame._per_group_shift._iter_zipped":
         "bounded accum list; guard in _per_group_shift",
-    "cadw/dataframe.py:CadwDataFrame._per_group_rolling._iter_zipped":
+    "cadw/dataframe/_core.py:CadwDataFrame._per_group_rolling._iter_zipped":
         "bounded accum list; guard in _per_group_rolling",
-    "cadw/dataframe.py:CadwDataFrame._repr_html_":
+    "cadw/dataframe/_core.py:CadwDataFrame._repr_html_":
         "20-row head().to_pandas().to_html(), bounded sample",
     # v0.9.6b1: sort_values in-memory fast path (pa.Table.sort_by)
     # for group tables in per-group apply. Group already ≤ 0.3×
     # available (checked in _per_group_apply before fn() call);
     # sort_by allocates output × 1.5 in-memory (pa.Table.sort_by
     # internal peak §9.2.7 = 1.5× input + 6 MB).
-    "cadw/dataframe.py:CadwDataFrame.sort_values":
+    "cadw/dataframe/_core.py:CadwDataFrame.sort_values":
         "in-memory fast path: pa.Table.sort_by on group ≤ 0.3×avail",
     # v0.9.7a: topk_to_disk sort_indices on bounded P×n accum.
     # per-batch sort_indices bounded by check_batch on input;
@@ -167,7 +167,7 @@ WHITELISTED_FUNCS = {
     "cadw/scalers.py:RobustScaler.fit":
         "per-column df.quantile — quantile op self-guards (§9.2.N)",
     # --- dataframe.py qcut (v0.9.25j) ---
-    "cadw/dataframe.py:CadwDataFrame.qcut":
+    "cadw/dataframe/_core.py:CadwDataFrame.qcut":
         "self.quantile delegates to CADW's own guarded quantile op "
         "(external_sort + streaming); quantile self-guards via its "
         "own MemoryGuard (§9.2.N). AST guard cannot distinguish "
@@ -185,7 +185,7 @@ AUDITED_FILES = (
     list((CADW_ROOT / "ops").glob("*.py"))
     + list((CADW_ROOT / "ml").glob("*.py"))
     + [
-        CADW_ROOT / "dataframe.py",
+        CADW_ROOT / "dataframe" / "_core.py",
         CADW_ROOT / "indexers.py",
         CADW_ROOT / "scalers.py",
         CADW_ROOT / "pipeline.py",

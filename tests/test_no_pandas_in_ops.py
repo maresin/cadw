@@ -111,7 +111,7 @@ def test_no_pandas_in_dataframe_facade():
     that is a METHOD, not an import; addressed separately
     (v0.9.6c PivotOp).
     """
-    py = CADW_OPS.parent / "dataframe.py"
+    py = CADW_OPS.parent / "dataframe" / "_core.py"
     src = py.read_text()
     tree = ast.parse(src)
     assert not _uses_pandas_import(tree), (

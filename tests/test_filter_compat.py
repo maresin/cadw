@@ -165,7 +165,7 @@ def test_helper_is_defined_not_just_called():
     """
     import inspect
     from cadw import dataframe as df_mod
-    src = inspect.getsource(df_mod)
+    src = inspect.getsource(df_mod._core)
     assert "def _apply_filter_with_positions(" in src, (
         "helper _apply_filter_with_positions not defined (only called) — "
         "NameError at runtime. §13.4/60."

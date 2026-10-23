@@ -1022,7 +1022,7 @@ def idempotency_check_by_def(path, name):
     DEFINITION, not just the name.
 
     Use:
-        if idempotency_check_by_def("cadw/dataframe.py",
+        if idempotency_check_by_def("cadw/dataframe/_core.py",
                                     "_empty_value_counts_table"):
             # already applied — skip
         else:

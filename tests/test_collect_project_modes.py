@@ -63,7 +63,7 @@ def test_collect_project_phase_mode(tmp_path):
     text = out.read_text()
 
     # A.6 planned (12 files, brace-expansion).
-    assert "FILE: cadw/dataframe.py" in text
+    assert "FILE: cadw/dataframe/_core.py" in text
     for name in ("shuffle", "rank", "metrics", "pivot", "resample",
                  "groupby"):
         assert f"FILE: cadw/ops/{name}.py" in text, (
@@ -122,8 +122,8 @@ def test_collect_project_parse_file_spec_brace():
     spec_loader.loader.exec_module(mod)
 
     # (a) Single file
-    r = mod._parse_file_spec("cadw/dataframe.py")
-    assert [str(p) for p in r] == ["cadw/dataframe.py"], r
+    r = mod._parse_file_spec("cadw/dataframe/_core.py")
+    assert [str(p) for p in r] == ["cadw/dataframe/_core.py"], r
 
     # (b) Brace-expansion only (no top-level comma)
     r = mod._parse_file_spec("cadw/ops/{shuffle,rank,metrics}.py")
@@ -137,24 +137,24 @@ def test_collect_project_parse_file_spec_brace():
     # (c) Composite: comma + brace. THE BUG (comma inside brace
     # must not split the brace block).
     r = mod._parse_file_spec(
-        "cadw/dataframe.py, cadw/ops/{shuffle,rank}.py"
+        "cadw/dataframe/_core.py, cadw/ops/{shuffle,rank}.py"
     )
     names = sorted(str(p) for p in r)
     assert names == [
-        "cadw/dataframe.py",
+        "cadw/dataframe/_core.py",
         "cadw/ops/rank.py",
         "cadw/ops/shuffle.py",
     ], f"composite comma+brace failed: {names}"
 
     # (d) Two brace blocks (A.6 exact shape).
     r = mod._parse_file_spec(
-        "cadw/dataframe.py, "
+        "cadw/dataframe/_core.py, "
         "cadw/ops/{shuffle,rank}.py, "
         "cadw/ts/{features,stats}.py"
     )
     names = sorted(str(p) for p in r)
     assert names == [
-        "cadw/dataframe.py",
+        "cadw/dataframe/_core.py",
         "cadw/ops/rank.py",
         "cadw/ops/shuffle.py",
         "cadw/ts/features.py",

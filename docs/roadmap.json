@@ -94,7 +94,7 @@
           "patch": "v0.9.25d",
           "status": "deferred",
           "complexity": "M",
-          "file": "cadw/dataframe.py, cadw/ops/{shuffle,rank,metrics,pivot,resample,groupby}.py, cadw/ts/{features,stats,models,thf,backtest}.py",
+          "file": "cadw/dataframe/_core.py, cadw/ops/{shuffle,rank,metrics,pivot,resample,groupby}.py, cadw/ts/{features,stats,models,thf,backtest}.py",
           "deferred_to": "G",
           "resolution_note": "§13.4/283: _FOR_PINGIS/cadw_audit_report.md absent from repo state; specific 18 sites cannot be identified. extra_factor already applied to ~30 batches across 15 modules (v0.9.22b documented 5; v0.9.24/v0.9.25e others). Remaining work deferred to Phase G (Tech debt close) where audit report can be re-requested."
         },

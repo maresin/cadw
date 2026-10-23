@@ -199,7 +199,7 @@ def _call_attr_names(module: ast.Module) -> list[str]:
 
 def test_facade_has_no_as_py():
     """CadwDataFrame не должен вызывать .as_py() на данных (AST-level)."""
-    src = inspect.getsource(df_mod)
+    src = inspect.getsource(df_mod._core)
     tree = ast.parse(src)
     bad = [n for n in _call_attr_names(tree) if n == "as_py"]
     assert not bad, (
@@ -210,7 +210,7 @@ def test_facade_has_no_as_py():
 
 def test_facade_has_no_row_loops():
     """Не должно быть for-range с диапазоном batch.num_rows (AST-level)."""
-    src = inspect.getsource(df_mod)
+    src = inspect.getsource(df_mod._core)
     tree = ast.parse(src)
     offenders: list[str] = []
     for node in ast.walk(tree):
@@ -241,7 +241,7 @@ def test_facade_does_not_define_sampling_helpers():
     helpers для сэмплинга — в cadw/core/sampling.py; facade остаётся
     без as_py.
     """
-    src = inspect.getsource(df_mod)
+    src = inspect.getsource(df_mod._core)
     for name in ("_peek_first", "_data_chars_for_join"):
         assert f"def {name}(" not in src, (
             f"{name!r} must live in cadw/core/sampling.py, "
