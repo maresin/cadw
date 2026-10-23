@@ -129,7 +129,7 @@ def test_hash_join_returns_table(tmp_path):
 
 def test_merge_uses_streaming(tmp_path, monkeypatch):
     """CadwDataFrame.merge must call hash_join_streaming, not hash_join."""
-    from cadw.dataframe import _core as df_mod
+    from cadw.dataframe import _join as df_mod
 
     called_streaming = []
     called_collect = []
