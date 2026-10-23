@@ -120,7 +120,7 @@ WHITELISTED_FUNCS = {
         "bounded accum list (one group/window), not N",
     "cadw/dataframe_helpers.py:_convert_batch":
         "per-batch, caller check_batch'd",
-    "cadw/dataframe/_core.py:CadwDataFrame.head":
+    "cadw/dataframe/_indexing.py:_IndexingMixin.head":
         "≤ n rows accumulated before Table.from_batches",
     "cadw/dataframe/_core.py:CadwDataFrame.encode_categorical":
         "per-batch value_counts; K uniques, not N",
@@ -141,7 +141,7 @@ WHITELISTED_FUNCS = {
     # available (checked in _per_group_apply before fn() call);
     # sort_by allocates output × 1.5 in-memory (pa.Table.sort_by
     # internal peak §9.2.7 = 1.5× input + 6 MB).
-    "cadw/dataframe/_core.py:CadwDataFrame.sort_values":
+    "cadw/dataframe/_indexing.py:_IndexingMixin.sort_values":
         "in-memory fast path: pa.Table.sort_by on group ≤ 0.3×avail",
     # v0.9.7a: topk_to_disk sort_indices on bounded P×n accum.
     # per-batch sort_indices bounded by check_batch on input;
