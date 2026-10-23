@@ -551,3 +551,85 @@ class _MLBindingsMixin:
             memory_guard=self._memory_guard,
         )
 
+    def fit_naive_bayes(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        variant: str = "gaussian",
+        alpha: float = 1.0,
+        var_smoothing: float = 1e-9,
+    ):
+        """Fit Naive Bayes (v0.7.6).
+
+        - variant='gaussian'    : continuous X; params: var_smoothing.
+        - variant='multinomial' : X >= 0 counts; params: alpha.
+        - variant='bernoulli'   : X in {0,1}; params: alpha.
+
+        y must be numeric (int/float). For categorical target — encode.
+        Returns GaussianNB | MultinomialNB | BernoulliNB.
+        """
+        from cadw.ml.naive_bayes import (
+            _VARIANTS,
+            fit_gaussian_nb, fit_multinomial_nb, fit_bernoulli_nb,
+        )
+        if variant not in _VARIANTS:
+            raise ValueError(
+                f"fit_naive_bayes: variant must be one of {_VARIANTS}; "
+                f"got {variant!r}"
+            )
+        if variant == "gaussian":
+            return fit_gaussian_nb(
+                self, X_cols, y_col, var_smoothing=var_smoothing,
+                memory_guard=self._memory_guard,
+            )
+        if variant == "multinomial":
+            return fit_multinomial_nb(
+                self, X_cols, y_col, alpha=alpha,
+                memory_guard=self._memory_guard,
+            )
+        return fit_bernoulli_nb(
+            self, X_cols, y_col, alpha=alpha,
+            memory_guard=self._memory_guard,
+        )
+
+
+    def fit_lasso(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        alpha: float = 1.0,
+        max_iter: int = 1000,
+        tol: float = 1e-6,
+    ):
+        """Fit Lasso (L1). alpha is raw (additive to X^T X)."""
+        from cadw.ml.linear import fit_lasso
+        return fit_lasso(
+            self, X_cols, y_col,
+            alpha=alpha, max_iter=max_iter, tol=tol,
+            memory_guard=self._memory_guard,
+        )
+
+
+    def fit_elasticnet(
+        self,
+        X_cols: "str | Sequence[str]",
+        y_col: str,
+        *,
+        alpha: float = 1.0,
+        l1_ratio: float = 0.5,
+        max_iter: int = 1000,
+        tol: float = 1e-6,
+    ):
+        """Fit ElasticNet (L1+L2). l1_ratio=1 → Lasso, 0 → Ridge."""
+        from cadw.ml.linear import fit_elasticnet
+        return fit_elasticnet(
+            self, X_cols, y_col,
+            alpha=alpha, l1_ratio=l1_ratio,
+            max_iter=max_iter, tol=tol,
+            memory_guard=self._memory_guard,
+        )
+
+
+
