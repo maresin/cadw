@@ -21,7 +21,7 @@ wheels = [
 
 [[package]]
 name = "cadw-framework"
-version = "0.9.32"
+version = "0.9.33"
 source = { virtual = "." }
 dependencies = [
     { name = "numpy" },

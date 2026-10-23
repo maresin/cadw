@@ -284,7 +284,7 @@
       "id": "D",
       "name": "Algorithm coverage P1",
       "version_range": "v0.9.31-v0.9.36",
-      "status": "planned",
+      "status": "in_progress",
       "description": "Cover task types currently NEEDS. On primitives, state O(1..model).",
       "items": [
         {
@@ -497,7 +497,8 @@
           "status": "planned",
           "complexity": "M"
         }
-      ]
+      ],
+      "started_at": "2026-10-23"
     },
     {
       "id": "E",
@@ -763,6 +764,87 @@
           "patch": "v0.9.39+",
           "status": "planned",
           "complexity": "L"
+        }
+      ]
+    },
+    {
+      "id": "I",
+      "name": "Bug backlog (part1_report §1)",
+      "description": "Bug fixes from part1_report.md audit — no deferral allowed. Fix or reject with measurement.",
+      "status": "in_progress",
+      "version_range": "v0.9.34",
+      "items": [
+        {
+          "id": "I.1",
+          "name": "B1 — _RunStream.refill quadratic concat",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/ops/sort.py",
+          "source": "part1_report.md B1 (P0)"
+        },
+        {
+          "id": "I.2",
+          "name": "B2 — encode_categorical O(K) Python-set",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/dataframe/_ml_bindings.py",
+          "source": "part1_report.md B2 (P0)"
+        },
+        {
+          "id": "I.3",
+          "name": "B3 — ROC-AUC pass2 Python loop",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/ops/metrics.py",
+          "source": "part1_report.md B3 (P1)"
+        },
+        {
+          "id": "I.4",
+          "name": "B7 — _string_hash_column O(K) Python",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/ops/shuffle.py",
+          "source": "part1_report.md B7 (P1)"
+        },
+        {
+          "id": "I.5",
+          "name": "A9 — ML log wiring (3 remaining)",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/ml/{linear,pca,naive_bayes}.py",
+          "source": "AUDIT_v0931 A9 (P1)"
+        },
+        {
+          "id": "I.6",
+          "name": "B4 — memory_guard fallback factor",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/core/memory_guard.py",
+          "source": "part1_report.md B4 (P2)"
+        },
+        {
+          "id": "I.7",
+          "name": "A10 — empty-input contract docs",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S",
+          "file": "docstrings",
+          "source": "AUDIT_v0930 A10 (P2)"
+        },
+        {
+          "id": "I.8",
+          "name": "B6 — README version drift",
+          "patch": "v0.9.34",
+          "status": "planned",
+          "complexity": "S",
+          "file": "README.md",
+          "source": "part1_report.md B6 (P2)"
         }
       ]
     }

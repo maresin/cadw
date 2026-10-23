@@ -83,3 +83,28 @@ git log --oneline -20
 v0.9.32 closed: F9 gbdt RAM gap (batch_memory_factor); D.1.3 scale_pos_weight + tests.
 Next: D.3.1 CoxPH (deferred), then D.1.2 Matrix Profile / D.1.4 fairness.
 FOR_PINGIS: AUDIT_v0931.md (findings), algorithm_notes.md (D.1.3 sources + D.3.1 deferral).
+
+## Documentation navigation (v0.9.33)
+
+- **`docs/ML_TASKS_TAXONOMY.md`** — master navigator: 54 ML task
+  types → 3-tier algorithms (baseline / best / ensemble) + CADW
+  status. **Start here** when picking a model.
+- **`docs/BUG_BACKLOG.md`** — bug backlog (Phase I), 8 items, exact
+  patches.
+- **`docs/ALGORITHM_BACKLOG.md`** — pending Phase D, 24 items, with
+  universal test/bench requirements.
+- **`docs/ROADMAP.md`** — consolidated phase roadmap (A-I).
+- **`docs/roadmap_research/`** — PINGIS research (part1/part2/
+  consolidated roadmap).
+- **`.pingis/tasks/`** — PINGIS work assignments (TASK_v0934 bugs,
+  TASK_v0935 algorithms).
+- **`.pingis/audits/`** — PINGIS audit reports.
+- **`.pingis/algorithm_notes/`** — per-algorithm design notes.
+- **`.pingis/benches/`** — raw bench numbers.
+
+## Current state (v0.9.33)
+
+- Bugs backlog: 8 items → TASK_v0934 (bug pass, no deferral).
+- Algorithm backlog: 24 items → TASK_v0935 (algorithm pass, no
+  deferral).
+- PINGIS workspace: `.pingis/` — all artifacts centralised.
