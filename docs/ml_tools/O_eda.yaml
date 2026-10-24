@@ -1,0 +1,1326 @@
+section: O
+name: Data Science outside ML (EDA / cleaning / feature engineering / validation)
+subtypes:
+- id: O1
+  name: EDA / descriptive statistics
+  description: 'Summarize a dataset: per-column statistics, distributions, frequencies — aggregate-first, no row materialization.'
+  real_life:
+  - Quick profile of a new table
+  - Report-ready summary statistics
+  - Distribution sanity check before modeling
+  benchmarks:
+  - name: sklearn_reference
+    url: https://scikit-learn.org/stable/modules/
+    metrics:
+    - describe
+    - hist
+    - value_counts
+    note: Descriptive-statistics primitives; no cross-library accuracy leaderboard exists.
+  models:
+  - name: Describe
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - linear_signal
+    purpose: 'Per-column count/mean/std/min/max/quantiles computed by a Reduce over chunks. Inductive bias: none — pure descriptive summary; no model.'
+    real_life_examples:
+    - New-table profiling
+    - Feature sanity before fit
+    - Report tables
+    config:
+      quantiles: list
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/eda.json
+      algorithm: cadw.CadwDataFrame.describe
+      algorithm_source_url: cadw/dataframe/_aggregations.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: eda
+      n_datasets: 2
+      metric: fit_time_s
+      value: 9.2618
+      note: 'CADW-native: describe fit_time_s=0.4961 @n=10k, 9.2618 @n=100k (d=11, single-chunk; eda.json). NOT comparable to external.'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/eda.json
+      algorithm: cadw.CadwDataFrame.describe
+      algorithm_source_url: cadw/dataframe/_aggregations.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: eda
+      n_datasets: 2
+      metric: peak_rss_mb
+      value: 7.13
+      note: 'CADW-native: peak_mb=3.46 @n=10k, 7.13 @n=100k (eda.json). NOT comparable to external.'
+    cadw_module: cadw.dataframe
+    cadw_function: describe
+  - name: Hist
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - representation
+    purpose: 'Binned per-column histogram via a Shuffle+Reduce over chunk-wise partial counts. Inductive bias: fixed-width bins; no model.'
+    real_life_examples:
+    - Distribution plots
+    - Skew detection
+    - Report figures
+    config:
+      bins: int
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.KBinsDiscretizer.html
+      algorithm: sklearn.preprocessing.KBinsDiscretizer
+      algorithm_source_url: https://scikit-learn.org/stable/modules/preprocessing.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: eda
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: binning is a preprocessing primitive; no accuracy leaderboard applies.'
+    cadw_module: cadw.plot_accessor
+    cadw_function: hist
+  - name: ValueCounts
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - probabilistic
+    purpose: 'Per-category frequency via groupby+Reduce. Inductive bias: none — counts only.'
+    real_life_examples:
+    - Cardinality check
+    - Top-K category report
+    - Class imbalance look
+    config:
+      normalize: bool
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://scikit-learn.org/stable/modules/feature_selection.html
+      algorithm: pandas.Series.value_counts
+      algorithm_source_url: https://pandas.pydata.org/docs/reference/api/pandas.Series.value_counts.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: eda
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: frequency counting has no accuracy benchmark. CADW multi-chunk value_counts hits BUG-1 (see .pingis/audits/v0.9.48_bugs.md).'
+    cadw_module: cadw.dataframe
+    cadw_function: value_counts
+  - name: YDataProfiling
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - representation
+    purpose: Full dataset profile (missingness, cardinality, correlations, distributions) in one pass; external library, not shipped.
+    real_life_examples:
+    - Automatic EDA report
+    - Data-quality hand-off
+    - Notebook profiling
+    config:
+      minimal: bool
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://scikit-learn.org/stable/
+      algorithm: ydata-profiling.ProfileReport
+      algorithm_source_url: https://github.com/ydataai/ydata-profiling
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: eda
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: no EDA-profiling leaderboard exists. Official docs URL https://ydata-profiling.ydata.ai/docs/master/ returned status=404 (fetch_failed); the algorithm source is the GitHub repo.'
+  metrics:
+  - name: fit_time_s
+    combination: anchor
+    direction: lower
+    responsibility: Wall-clock for a full describe over the frame.
+    special: Chunk-size and d dependent; report n and d.
+  - name: peak_rss_mb
+    combination: diagnostic
+    direction: lower
+    responsibility: Peak resident memory during describe.
+    special: tracemalloc-based; single-chunk numbers only (see BUG-1).
+  ensemble_recommendation:
+  - roles:
+    - representation
+    models:
+    - Describe
+    - Hist
+    max_per_role: 3
+    note: Layer the external profiler on top of CADW primitives for a richer report while keeping compute in the frame.
+- id: O2
+  name: Data cleaning / imputation
+  description: Fill missing values without leaking information across the split; preserve distributional shape.
+  real_life:
+  - Sensor dropouts in telemetry
+  - Survey non-response
+  - Medical record gaps
+  benchmarks:
+  - name: sklearn_reference
+    url: https://scikit-learn.org/stable/modules/impute.html
+    metrics:
+    - rmse
+    - accuracy
+    note: Imputation primitives; no cross-library leaderboard. RMSE of imputed vs true values is the standard proxy.
+  models:
+  - name: SimpleImputer
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - linear_signal
+    purpose: 'Replace missing values with a column statistic (mean/median/mode) computed by Reduce. Inductive bias: missing-at-random per column; destroys inter-column correlation.'
+    real_life_examples:
+    - Filling numeric gaps quickly
+    - Pre-model baseline
+    - Survey mode fill
+    config:
+      strategy: string
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://scikit-learn.org/stable/modules/impute.html
+      algorithm: sklearn.impute.SimpleImputer
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.impute.SimpleImputer.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: imputation
+      n_datasets: null
+      metric: rmse
+      value: null
+      note: 'no_public_benchmark: SimpleImputer is a reference primitive; no published per-dataset RMSE table exists.'
+    cadw_module: cadw.dataframe
+    cadw_function: fillna
+  - name: KNNImputer
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+    roles:
+    - local_structure
+    purpose: 'Impute from k nearest neighbours in feature space. Inductive bias: local similarity predicts missing values; O(n²) naive, requires blocking.'
+    real_life_examples:
+    - Filling correlated sensor gaps
+    - Recommendation-style fill
+    - Small-n survey imputation
+    config:
+      n_neighbors: int
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://scikit-learn.org/stable/modules/impute.html
+      algorithm: sklearn.impute.KNNImputer
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.impute.KNNImputer.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: imputation
+      n_datasets: null
+      metric: rmse
+      value: null
+      note: 'no_public_benchmark: KNNImputer docs example numbers are illustrative, not a benchmark ranking.'
+  - name: IterativeImputer
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+    roles:
+    - linear_signal
+    - representation
+    purpose: 'Iteratively regress each feature on the others (MICE / EM-like). Inductive bias: linear cross-feature structure; captures correlations SimpleImputer loses.'
+    real_life_examples:
+    - Clinical multi-feature gaps
+    - Survey with correlated items
+    - Sensor fusion with redundancy
+    config:
+      max_iter: int
+      estimator: string
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://scikit-learn.org/stable/modules/impute.html
+      algorithm: sklearn.impute.IterativeImputer
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.impute.IterativeImputer.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: imputation
+      n_datasets: null
+      metric: rmse
+      value: null
+      note: 'no_public_benchmark: IterativeImputer ships no per-dataset RMSE table; it is the reference MICE implementation.'
+  metrics:
+  - name: rmse
+    combination: anchor
+    direction: lower
+    responsibility: RMSE of imputed vs held-out true values.
+    special: Only comparable within the same missingness mask and split; MCAR vs MAR matters.
+  - name: accuracy
+    combination: diagnostic
+    direction: higher
+    responsibility: Downstream classification accuracy after imputation.
+    special: Downstream-dependent; report the model used.
+  ensemble_recommendation:
+  - roles:
+    - linear_signal
+    - local_structure
+    models:
+    - SimpleImputer
+    max_per_role: 2
+    note: Use SimpleImputer as the fast fallback; escalate to KNNImputer only for small-n correlated gaps.
+- id: O3
+  name: Feature engineering / encoding
+  description: 'Transform raw columns into model-ready features: categorical encoders, binning, polynomial expansions.'
+  real_life:
+  - Categorical columns to one-hot
+  - Continuous variables to bins
+  - Interaction features for linear models
+  benchmarks:
+  - name: OpenML_Benchmarks
+    url: https://www.openml.org/search?type=benchmark
+    metrics:
+    - accuracy
+    note: Feature encoding is evaluated through downstream accuracy; OpenML suites (CC18/CTR23) provide the tabular tasks.
+  models:
+  - name: OneHotEncoder
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+    roles:
+    - representation
+    purpose: 'Expand a categorical column to one binary indicator per category. Inductive bias: categories are independent; high cardinality explodes dimensionality.'
+    real_life_examples:
+    - Small-cardinality categoricals
+    - Linear model preprocessing
+    - Tree-friendly encodings
+    config:
+      handle_unknown: string
+    benchmark_results:
+    - benchmark: OpenML_Benchmarks
+      benchmark_url: https://www.openml.org/search?type=benchmark
+      algorithm: sklearn.preprocessing.OneHotEncoder
+      algorithm_source_url: https://scikit-learn.org/stable/modules/preprocessing.html#encoding-categorical-features
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: tabular
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: encoding is a preprocessing step; OpenML leaderboards rank full pipelines, not encoders alone.'
+  - name: KBinsDiscretizer
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+    roles:
+    - representation
+    purpose: 'Bin a continuous column into k quantile/uniform bins. Inductive bias: piecewise-constant effect of the feature; can help non-linear models and regularize.'
+    real_life_examples:
+    - Age buckets
+    - Income deciles
+    - Monotone encoding for linear models
+    config:
+      n_bins: int
+      strategy: string
+    benchmark_results:
+    - benchmark: OpenML_Benchmarks
+      benchmark_url: https://www.openml.org/search?type=benchmark
+      algorithm: sklearn.preprocessing.KBinsDiscretizer
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.KBinsDiscretizer.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: tabular
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: binning has no standalone accuracy leaderboard.'
+  - name: PolynomialFeatures
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+    roles:
+    - nonlinear_interactions
+    - representation
+    purpose: 'Expand features to degree-k polynomial terms, adding cross-products. Inductive bias: interaction structure is multiplicative; explodes d^k without regularization.'
+    real_life_examples:
+    - Linear model with interactions
+    - Physics formula recovery
+    - Feature crosses for CTLs
+    config:
+      degree: int
+      interaction_only: bool
+    benchmark_results:
+    - benchmark: OpenML_Benchmarks
+      benchmark_url: https://www.openml.org/search?type=benchmark
+      algorithm: sklearn.preprocessing.PolynomialFeatures
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PolynomialFeatures.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: tabular
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: polynomial expansion is a preprocessing transform; no standalone leaderboard.'
+  metrics:
+  - name: accuracy
+    combination: anchor
+    direction: higher
+    responsibility: Downstream accuracy of the model trained on the transformed features.
+    special: Depends on the model and the split; report both.
+  ensemble_recommendation: []
+- id: O4
+  name: Feature selection
+  description: Rank and drop features by relevance, redundancy or stability before modeling.
+  real_life:
+  - High-dimensional genomics / wide tables
+  - Reducing training cost for GBDT
+  - Removing leakage / constant columns
+  benchmarks:
+  - name: OpenML_Benchmarks
+    url: https://www.openml.org/search?type=benchmark
+    metrics:
+    - accuracy
+    note: Feature selection is evaluated through downstream accuracy on tabular suites; no standalone leaderboard.
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+    metrics:
+    - fit_time_s
+    - peak_rss_mb
+    note: CADW measured fit time and peak RSS of the selection algorithms; NOT comparable to external accuracy.
+  models:
+  - name: MutualInfoSelect
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - linear_signal
+    - probabilistic
+    purpose: 'Rank features by mutual information to the target (binned for continuous). Inductive bias: any monotone or non-monotone dependence is detected; no assumption of linearity.'
+    real_life_examples:
+    - Genomic feature triage
+    - Text n-gram pruning
+    - Wide-table reduction
+    config:
+      k: int
+      n_bins: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/feature_select.json
+      algorithm: cadw.ml.feature_select.fit_feature_select (mutual_info)
+      algorithm_source_url: cadw/ml/feature_select.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: feature_selection
+      n_datasets: 2
+      metric: fit_time_s
+      value: 3.962
+      note: 'CADW-native: mutual_info fit_s=1.508 @n=10k, 3.962 @n=50k, d=20 (feature_select.json). NOT comparable to external.'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/feature_select.json
+      algorithm: cadw.ml.feature_select.fit_feature_select (mutual_info)
+      algorithm_source_url: cadw/ml/feature_select.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: feature_selection
+      n_datasets: 2
+      metric: peak_rss_mb
+      value: 13.7
+      note: 'CADW-native: mutual_info peak_mb=85.0 @n=10k, 13.7 @n=50k (feature_select.json; higher at small n due to fixed overheads). NOT comparable to external.'
+    - benchmark: OpenML_Benchmarks
+      benchmark_url: https://scikit-learn.org/stable/modules/feature_selection.html
+      algorithm: sklearn.feature_selection.mutual_info_classif
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.mutual_info_classif.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: feature_selection
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: sklearn docs describe mutual_info_classif but publish no cross-dataset accuracy leaderboard for the selector.'
+    cadw_module: cadw.ml.feature_select
+    cadw_function: fit_feature_select
+  - name: VarianceThreshold
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - linear_signal
+    purpose: 'Drop features whose variance is below a threshold. Inductive bias: low variance means low information; catches constants and near-constants cheaply.'
+    real_life_examples:
+    - Drop constant columns
+    - Cheap pre-filter
+    - Remove near-zero-variance sensors
+    config:
+      threshold: float
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/feature_select.json
+      algorithm: cadw.ml.feature_select.fit_feature_select (variance)
+      algorithm_source_url: cadw/ml/feature_select.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: feature_selection
+      n_datasets: 2
+      metric: fit_time_s
+      value: 0.032
+      note: 'CADW-native: variance fit_s=0.003 @n=10k, 0.032 @n=50k (feature_select.json). NOT comparable to external.'
+    cadw_module: cadw.ml.feature_select
+    cadw_function: fit_feature_select
+  - name: BorutaSelect
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - nonlinear_interactions
+    purpose: 'Shadow-feature wrapper: repeated GBDT fits compare real vs shuffled shadow features; selects only those that beat all shadows. Inductive bias: relevance detectable by tree ensembles; stable, expensive.'
+    real_life_examples:
+    - Tabular feature triage
+    - Genomic relevance
+    - Stable selection for production
+    config:
+      n_iter: int
+      max_depth: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/feature_select.json
+      algorithm: cadw.ml.feature_select.fit_feature_select (boruta)
+      algorithm_source_url: cadw/ml/feature_select.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: feature_selection
+      n_datasets: 3
+      metric: fit_time_s
+      value: 8.355
+      note: 'CADW-native: boruta fit_s=4.642 @n=2k, 5.394 @n=5k, 8.355 @n=10k; n_selected=2 of d=20 (feature_select.json). NOT comparable to external.'
+    cadw_module: cadw.ml.feature_select
+    cadw_function: fit_feature_select
+  metrics:
+  - name: accuracy
+    combination: anchor
+    direction: higher
+    responsibility: Downstream model accuracy after feature selection.
+    special: Model-dependent; report the downstream model.
+  - name: fit_time_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Selection wall-clock.
+  - name: peak_rss_mb
+    combination: diagnostic
+    direction: lower
+    responsibility: Selection peak memory.
+  ensemble_recommendation:
+  - roles:
+    - linear_signal
+    - nonlinear_interactions
+    models:
+    - VarianceThreshold
+    - MutualInfoSelect
+    max_per_role: 2
+    note: Always start with VarianceThreshold (near-free); layer MutualInfo on survivors.
+- id: O5
+  name: Validation / data quality
+  description: Assert schema and statistical contracts on incoming batches before fitting or scoring.
+  real_life:
+  - Pipeline entry validation
+  - Schema drift detection
+  - Data contract enforcement
+  benchmarks:
+  - name: sklearn_reference
+    url: https://scikit-learn.org/stable/modules/
+    metrics:
+    - validation_rate
+    note: Schema/contract libraries; no accuracy benchmark exists.
+  models:
+  - name: PanderaSchema
+    tier: baseline
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+    roles:
+    - calibration
+    purpose: 'Declarative dataframe schema (dtypes, ranges, unique, custom checks). Inductive bias: a fixed contract; no learning.'
+    real_life_examples:
+    - Parquet-load schema guard
+    - Statistical range asserts
+    - Pandas-style data contracts
+    config:
+      strict: bool
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://pandera.readthedocs.io/en/stable/
+      algorithm: pandera.DataFrameSchema
+      algorithm_source_url: https://github.com/unionai-oss/pandera
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: data_validation
+      n_datasets: null
+      metric: validation_rate
+      value: null
+      note: 'no_public_benchmark: schema validators have no accuracy benchmark; correctness is binary by construction.'
+  - name: GreatExpectationsSuite
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    purpose: 'Suite of declarative expectations over data (types, ranges, distributions) with data-docs generation. Inductive bias: fixed contract suite, no learning.'
+    real_life_examples:
+    - Batch pipeline contracts
+    - Data-doc generation
+    - Cross-team data SLAs
+    config:
+      run_name: string
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://docs.greatexpectations.io/docs/
+      algorithm: great_expectations.Validator
+      algorithm_source_url: https://github.com/great-expectations/great_expectations
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: data_validation
+      n_datasets: null
+      metric: validation_rate
+      value: null
+      note: 'no_public_benchmark: validator libraries publish no benchmark ranking; value is correctness of the contract.'
+  metrics:
+  - name: validation_rate
+    combination: anchor
+    direction: higher
+    responsibility: Fraction of batches that pass all assertions.
+    special: Contract-specific; report the contract version.
+  ensemble_recommendation: []
+- id: O6
+  name: Sampling / splitting / resampling
+  description: Split, stratify, reservoir-sample, or resample class imbalance.
+  real_life:
+  - Train/test split with class balance
+  - Reservoir sampling from a stream
+  - SMOTE on rare events
+  benchmarks:
+  - name: sklearn_reference
+    url: https://scikit-learn.org/stable/modules/
+    metrics:
+    - accuracy
+    - auc
+    note: Split/resample primitives; downstream metric is the standard proxy.
+  models:
+  - name: StratifiedSplit
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_by_agent: true
+      described_only: true
+    roles:
+    - probabilistic
+    purpose: 'Split preserving class proportions in each fold. Inductive bias: class is the stratifier; correct when the target is the source of imbalance.'
+    real_life_examples:
+    - Cross-val on imbalanced target
+    - Holdout with matching priors
+    - Grouped CV by class
+    config:
+      test_size: float
+      random_state: int
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.train_test_split.html
+      algorithm: sklearn.model_selection.StratifiedKFold
+      algorithm_source_url: https://scikit-learn.org/stable/modules/cross_validation.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: sampling
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: splitter is not a model; accuracy depends entirely on the downstream estimator.'
+  - name: ReservoirSample
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_by_agent: true
+      described_only: true
+    roles:
+    - probabilistic
+    purpose: 'Uniform sample of k items from a stream in one pass, O(k) state. Inductive bias: uniform inclusion; unbiased but ignores strata.'
+    real_life_examples:
+    - Sample from a log stream
+    - Streaming EDA
+    - Online quality monitoring
+    config:
+      k: int
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://en.wikipedia.org/wiki/Reservoir_sampling
+      algorithm: Vitter reservoir sampling (Algorithm R)
+      algorithm_source_url: https://en.wikipedia.org/wiki/Reservoir_sampling
+      algorithm_source_kind: description
+      attribution: literature
+      task_type: sampling
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: sampling scheme has no accuracy benchmark; correctness is proven analytically.'
+  - name: SMOTE
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - nonlinear_interactions
+    - probabilistic
+    purpose: 'Synthesize minority-class points along kNN segments. Inductive bias: minority manifold is locally linear; effective on low-dim dense features, harmful on high-dim sparse.'
+    real_life_examples:
+    - Rare-event classification
+    - Fraud oversampling
+    - Medical rare disease
+    config:
+      k_neighbors: int
+      sampling_strategy: string
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://imbalanced-learn.org/stable/references/generated/imblearn.over_sampling.SMOTE.html
+      algorithm: imblearn.over_sampling.SMOTE
+      algorithm_source_url: https://arxiv.org/abs/1106.1813
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: sampling
+      n_datasets: null
+      metric: auc
+      value: null
+      note: 'no_public_benchmark: imbalanced-learn docs page has usage examples but no cross-dataset AUC leaderboard for SMOTE.'
+  metrics:
+  - name: auc
+    combination: anchor
+    direction: higher
+    responsibility: ROC AUC of the downstream model on the minority class.
+    special: Sampling-scheme-dependent; report the downstream model and splitter.
+  - name: accuracy
+    combination: diagnostic
+    direction: higher
+    responsibility: Downstream accuracy (misleading under imbalance).
+    special: Report only alongside AUC; never alone.
+  ensemble_recommendation:
+  - roles:
+    - probabilistic
+    - nonlinear_interactions
+    models:
+    - StratifiedSplit
+    max_per_role: 2
+    note: Use StratifiedSplit for correct folds; apply SMOTE only inside the training fold (never on the test fold).
+- id: O7
+  name: Hyperparameter tuning / AutoML
+  description: Search a hyperparameter space under a CV budget; AutoML wraps the whole pipeline.
+  real_life:
+  - Tune GBDT depth/lr on tabular
+  - AutoML baseline for a new task
+  - Budgeted search for a Kaggle-like contest
+  benchmarks:
+  - name: OpenML_Benchmarks
+    url: https://www.openml.org/search?type=benchmark
+    metrics:
+    - accuracy
+    note: Hparam search is evaluated via downstream accuracy; the OpenML AutoML benchmark (AMLB) is the reference suite.
+  models:
+  - name: GridSearch
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+    roles:
+    - linear_signal
+    purpose: 'Exhaustive grid over a discrete parameter space with CV scoring. Inductive bias: none — it is a search strategy; guarantees finding the best grid point but scales exponentially.'
+    real_life_examples:
+    - Small discrete grids
+    - Reproducible baselines
+    - Grid for 2-3 params
+    config:
+      param_grid: dict
+    benchmark_results:
+    - benchmark: OpenML_Benchmarks
+      benchmark_url: https://scikit-learn.org/stable/modules/grid_search.html
+      algorithm: sklearn.model_selection.GridSearchCV
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GridSearchCV.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: hyperparameter_search
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: search strategy is not a model; accuracy is downstream.'
+  - name: RandomizedSearch
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+    roles:
+    - probabilistic
+    purpose: 'Sample N random parameter configurations from declared distributions. Inductive bias: random coverage of the space, best when only a few hyperparameters matter (Bergstra & Bengio 2012).'
+    real_life_examples:
+    - Large continuous spaces
+    - Budget-limited tuning
+    - Neural net hparam search
+    config:
+      n_iter: int
+      distributions: dict
+    benchmark_results:
+    - benchmark: OpenML_Benchmarks
+      benchmark_url: https://scikit-learn.org/stable/modules/grid_search.html#randomized-parameter-optimization
+      algorithm: sklearn.model_selection.RandomizedSearchCV
+      algorithm_source_url: https://arxiv.org/abs/1206.2944
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: hyperparameter_search
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: original Bergstra & Bengio paper reports per-experiment gains, not a cross-dataset accuracy table.'
+  - name: OptunaTPE
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    - representation
+    purpose: 'Sequential model-based search; Tree-structured Parzen Estimator models p(x|y) and proposes the next promising trial. Inductive bias: smooth response surface; sample-efficient but needs a budget.'
+    real_life_examples:
+    - Production AutoML
+    - Budgeted tuning
+    - Multi-objective tuning
+    config:
+      n_trials: int
+      sampler: string
+    benchmark_results:
+    - benchmark: OpenML_Benchmarks
+      benchmark_url: https://optuna.readthedocs.io/en/stable/
+      algorithm: optuna.samplers.TPESampler
+      algorithm_source_url: https://github.com/optuna/optuna
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: hyperparameter_search
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: Optuna docs do not publish a cross-dataset leaderboard; TPE is the standard reference for BO-based search.'
+  metrics:
+  - name: accuracy
+    combination: anchor
+    direction: higher
+    responsibility: Downstream CV accuracy of the best configuration found.
+    special: Budget-dependent; report n_trials and CV folds.
+  ensemble_recommendation: []
+- id: O8
+  name: Explainability (XAI)
+  description: Attribute a fitted model's prediction to its input features for debugging, trust, and compliance.
+  real_life:
+  - Feature importance for stakeholders
+  - Debugging model regressions
+  - Regulatory attribution
+  benchmarks:
+  - name: sklearn_reference
+    url: https://scikit-learn.org/stable/modules/permutation_importance.html
+    metrics:
+    - auc
+    - fidelity
+    note: XAI methods are evaluated on fidelity/sanity checks; no cross-dataset AUC leaderboard.
+  models:
+  - name: PermutationImportance
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - calibration
+    purpose: 'Shuffle one feature at a time and measure the drop in a chosen metric. Inductive bias: model-agnostic, captures any dependence; noisy under correlated features.'
+    real_life_examples:
+    - Model debug on tabular
+    - Feature triage
+    - Model card attributions
+    config:
+      n_repeats: int
+      scoring: string
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://scikit-learn.org/stable/modules/permutation_importance.html
+      algorithm: sklearn.inspection.permutation_importance
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.inspection.permutation_importance.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: xai
+      n_datasets: null
+      metric: auc
+      value: null
+      note: 'no_public_benchmark + cadw_measured_without_bench: sklearn docs page has usage but no cross-dataset fidelity leaderboard; CADW implements permutation_importance (cadw.ml.importance) but no .pingis/benches/importance.json exists — reproduce before ranking.'
+    cadw_module: cadw.ml.importance
+    cadw_function: permutation_importance
+  - name: SHAPTreeExplainer
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    - representation
+    purpose: 'Shapley-value attributions with the tree-exact algorithm for GBDT. Inductive bias: additive feature attribution; exact for trees, O(T·L) per row.'
+    real_life_examples:
+    - Explaining GBDT predictions
+    - Regulatory attribution
+    - Model debugging
+    config:
+      max_evals: int
+      model_output: string
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://arxiv.org/abs/1705.07874
+      algorithm: shap.TreeExplainer
+      algorithm_source_url: https://github.com/shap/shap
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: xai
+      n_datasets: null
+      metric: auc
+      value: null
+      note: 'no_public_benchmark: SHAP paper (Lundberg & Lee 2017) is a theoretical/methodological paper; no cross-dataset accuracy leaderboard.'
+  metrics:
+  - name: auc
+    combination: anchor
+    direction: higher
+    responsibility: Downstream model AUC (XAI is evaluated indirectly via model sanity).
+    special: XAI has no ground-truth metric; report fidelity against a held-out baseline where possible.
+  - name: fidelity
+    combination: diagnostic
+    direction: higher
+    responsibility: Agreement between attribution and a held-out black-box (for LIME-style local surrogates).
+  ensemble_recommendation:
+  - roles:
+    - calibration
+    models:
+    - PermutationImportance
+    max_per_role: 2
+    note: Permutation is model-agnostic and cheap; use SHAPTreeExplainer for exact per-row attributions on GBDT.
+- id: O9
+  name: Fairness / bias
+  description: Measure group-level disparity in model outcomes or errors; audit before deployment.
+  real_life:
+  - Credit/lending decision audit
+  - Hiring model parity check
+  - Healthcare outcome equity
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+    metrics:
+    - dp_diff
+    - eo_diff
+    - fit_time_s
+    note: CADW measured per-group DP and EO on synthetic frames; NOT comparable to external fairness rankings (which are dataset-specific).
+  - name: sklearn_reference
+    url: https://fairlearn.org/main/user_guide/fairness_in_machine_learning.html
+    metrics:
+    - dp_diff
+    - eo_diff
+    note: Fairness metrics have no universal leaderboard; Fairlearn docs define DP/EO but publish no cross-dataset ranking.
+  models:
+  - name: FairnessMetrics
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - calibration
+    purpose: 'Group-wise TPR/FPR and positive-rate disparities via Reduce. Inductive bias: sensitive groups are the audit unit; metrics are statistical, no model.'
+    real_life_examples:
+    - Loan-approval audit
+    - Hiring pipeline check
+    - Medical model equity
+    config:
+      group_col: string
+      y_true_col: string
+      y_pred_col: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/fairness.json
+      algorithm: cadw.ml.fairness.fairness_metrics
+      algorithm_source_url: cadw/ml/fairness.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: fairness
+      n_datasets: 2
+      metric: dp_diff
+      value: 0.0096
+      note: 'CADW-native: dp=0.0096 @n=100k (8 groups), 0.0052 @n=1M (fairness.json). NOT comparable to external.'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/fairness.json
+      algorithm: cadw.ml.fairness.fairness_metrics
+      algorithm_source_url: cadw/ml/fairness.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: fairness
+      n_datasets: 2
+      metric: eo_diff
+      value: 0.0166
+      note: 'CADW-native: eo=0.0166 @n=100k, 0.0085 @n=1M (fairness.json). NOT comparable to external.'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/fairness.json
+      algorithm: cadw.ml.fairness.fairness_metrics
+      algorithm_source_url: cadw/ml/fairness.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: fairness
+      n_datasets: 2
+      metric: fit_time_s
+      value: 0.098
+      note: 'CADW-native: fairness metrics time_s=0.029 @n=100k, 0.098 @n=1M (fairness.json). NOT comparable to external.'
+    cadw_module: cadw.ml.fairness
+    cadw_function: fairness_metrics
+  - name: FairlearnParity
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    purpose: 'Reductions to parity constraints on top of any estimator. Inductive bias: enforce group-parity by constrained optimization; trades accuracy for parity.'
+    real_life_examples:
+    - Constrained logistic regression
+    - Fair ranking
+    - Regulatory compliance
+    config:
+      constraint: string
+      eps: float
+    benchmark_results:
+    - benchmark: sklearn_reference
+      benchmark_url: https://fairlearn.org/main/user_guide/fairness_in_machine_learning.html
+      algorithm: fairlearn.reductions.ExponentiatedGradient
+      algorithm_source_url: https://github.com/fairlearn/fairlearn
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: fairness
+      n_datasets: null
+      metric: dp_diff
+      value: null
+      note: 'no_public_benchmark: Fairlearn docs define parity but publish no cross-dataset ranking; tradeoff accuracy-vs-parity is problem-specific.'
+  metrics:
+  - name: dp_diff
+    combination: anchor
+    direction: lower
+    responsibility: Difference in positive-prediction rate across groups (demographic parity).
+    special: Reporting-dependent; always report per-group counts.
+  - name: eo_diff
+    combination: diagnostic
+    direction: lower
+    responsibility: Difference in true-positive rate across groups (equalized odds).
+    special: Requires ground-truth labels in the audit set.
+  - name: fit_time_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock for the metrics pass.
+  ensemble_recommendation:
+  - roles:
+    - calibration
+    models:
+    - FairnessMetrics
+    max_per_role: 2
+    note: Audit with FairnessMetrics; if disparity is unacceptable, wrap with FairlearnParity (accepting the accuracy cost).
+- id: O10
+  name: Drift detection
+  description: Detect distribution shifts between a reference batch and a current batch, per feature.
+  real_life:
+  - Production model monitoring
+  - Post-deploy data-health check
+  - Feature drift in recommender
+  benchmarks:
+  - name: Evidently_Reference
+    url: https://docs.evidentlyai.com/
+    metrics:
+    - psi
+    - ks_p
+    - chi2_p
+    - drift_share
+    note: Evidently documentation; no cross-dataset accuracy benchmark for drift detectors exists.
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+    metrics:
+    - psi
+    - ks_p
+    - chi2_p
+    note: CADW measured PSI/KS/chi2 on synthetic frames; NOT comparable to external.
+  models:
+  - name: DriftStats
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - calibration
+    purpose: 'KS, chi2, PSI per feature computed with Reduce stats. Inductive bias: independent per-feature drift; misses multivariate drift.'
+    real_life_examples:
+    - Batch feature drift
+    - Pre-retrain check
+    - Production dashboard
+    config:
+      threshold: float
+      n_bins: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/drift.json
+      algorithm: cadw.ml.drift.fit_drift
+      algorithm_source_url: cadw/ml/drift.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: drift_detection
+      n_datasets: 3
+      metric: psi
+      value: 0.0856
+      note: 'CADW-native: psi=0.1079 @n=10k, 0.0888 @n=100k, 0.0856 @n=1M (drift.json). NOT comparable to external.'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/drift.json
+      algorithm: cadw.ml.drift.fit_drift
+      algorithm_source_url: cadw/ml/drift.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: drift_detection
+      n_datasets: 3
+      metric: ks_p
+      value: 0.0
+      note: 'CADW-native: ks_p=4.45e-82 @n=10k, 0.0 @n=100k and 1M (drift.json; synthetic shifted distribution). NOT comparable to external.'
+    cadw_module: cadw.ml.drift
+    cadw_function: fit_drift
+  - name: EvidentlyDrift
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    - representation
+    purpose: 'Suite of per-feature drift metrics (PSI/KS/Chi2/Wasserstein) with a reported share-of-drifted-columns. Inductive bias: univariate drift per column; aggregates to a dashboard.'
+    real_life_examples:
+    - Full observability suite
+    - Data + target drift
+    - Report generation
+    config:
+      tests: list
+    benchmark_results:
+    - benchmark: Evidently_Reference
+      benchmark_url: https://docs.evidentlyai.com/introduction
+      algorithm: evidently.report.Report
+      algorithm_source_url: https://github.com/evidentlyai/evidently
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: drift_detection
+      n_datasets: null
+      metric: psi
+      value: null
+      note: 'fetch_ok_no_number: https://docs.evidentlyai.com/introduction (Evidently docs); no cross-dataset drift-detector leaderboard published.'
+  metrics:
+  - name: psi
+    combination: anchor
+    direction: lower
+    responsibility: Population Stability Index between reference and current per-feature bins; <0.1 typically stable, >0.25 shifted.
+    special: Threshold is domain-specific; report the binning scheme.
+  - name: ks_p
+    combination: diagnostic
+    direction: lower
+    responsibility: Two-sample Kolmogorov-Smirnov p-value.
+  - name: chi2_p
+    combination: diagnostic
+    direction: lower
+    responsibility: Chi-square p-value for categorical features.
+  - name: drift_share
+    combination: diagnostic
+    direction: lower
+    responsibility: Fraction of drifted columns (Evidently convention).
+  ensemble_recommendation:
+  - roles:
+    - calibration
+    models:
+    - DriftStats
+    max_per_role: 2
+    note: Use DriftStats for lightweight in-process monitoring; EvidentlyDrift for a full dashboard with data-drift and target-drift reports.
+- id: O11
+  name: A/B testing / statistical tests
+  description: Compare two variants with correct uncertainty; decide when a difference is real.
+  real_life:
+  - A/B test on conversion
+  - CUPED adjustment for pre-period covariates
+  - Non-parametric test on skewed revenue
+  benchmarks:
+  - name: sklearn_reference
+    url: https://www.statsmodels.org/stable/
+    metrics:
+    - p_value
+    - power
+    - ci_width
+    note: A/B tests have no cross-dataset leaderboard; the reference implementations are statsmodels and scipy.stats.
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+    metrics:
+    - cuped_theta
+    - t_p
+    - mw_p
+    note: CADW measured A/B statistics on a synthetic DGP; NOT comparable to external.
+  models:
+  - name: ProportionsZTest
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - probabilistic
+    purpose: 'Two-proportion z-test on the conversion rate. Inductive bias: normal approximation to the binomial; valid when both groups have >5 successes and >5 failures.'
+    real_life_examples:
+    - Conversion A/B
+    - Click-through difference
+    - Signup-funnel test
+    config:
+      alternative: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/drift.json
+      algorithm: cadw.ml.drift.fit_ab_test (welch_t)
+      algorithm_source_url: cadw/ml/drift.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: ab_test
+      n_datasets: 3
+      metric: t_p
+      value: 0.0
+      note: 'CADW-native: welch_t p=1.1e-120 @n=10k, 0.0 @n=100k and 1M (drift.json). NOT comparable to external.'
+    - benchmark: sklearn_reference
+      benchmark_url: https://www.statsmodels.org/stable/generated/statsmodels.stats.proportion.proportions_ztest.html
+      algorithm: statsmodels.stats.proportion.proportions_ztest
+      algorithm_source_url: https://www.statsmodels.org/stable/generated/statsmodels.stats.proportion.proportions_ztest.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: ab_test
+      n_datasets: null
+      metric: p_value
+      value: null
+      note: 'no_public_benchmark: proportions_ztest is a reference implementation; no cross-dataset leaderboard exists.'
+    cadw_module: cadw.ml.drift
+    cadw_function: fit_ab_test
+  - name: MannWhitneyU
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - probabilistic
+    purpose: 'Rank-based two-sample test; robust to non-normal revenue/conversion distributions. Inductive bias: distributions differ in location; no normality assumption.'
+    real_life_examples:
+    - Skewed revenue test
+    - Ordinal rating A/B
+    - Small-sample test
+    config:
+      alternative: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/drift.json
+      algorithm: cadw.ml.drift.fit_ab_test (mann_whitney)
+      algorithm_source_url: cadw/ml/drift.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: ab_test
+      n_datasets: 3
+      metric: mw_p
+      value: 0.0
+      note: 'CADW-native: mw_p=1.22e-115 @n=10k, 0.0 @n=100k and 1M (drift.json). NOT comparable to external.'
+    - benchmark: sklearn_reference
+      benchmark_url: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.mannwhitneyu.html
+      algorithm: scipy.stats.mannwhitneyu
+      algorithm_source_url: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.mannwhitneyu.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: ab_test
+      n_datasets: null
+      metric: p_value
+      value: null
+      note: 'no_public_benchmark: scipy reference docs; no cross-dataset leaderboard.'
+    cadw_module: cadw.ml.drift
+    cadw_function: fit_ab_test
+  - name: CUPED
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - calibration
+    - probabilistic
+    purpose: 'Deng et al. 2013 — variance reduction via a pre-period covariate; regress out its correlation with the metric. Inductive bias: linear relation between pre- and post-period; gives tighter CIs at fixed sample size.'
+    real_life_examples:
+    - Pre/post A/B on revenue
+    - Variance reduction on CTR
+    - ML-platform experiments
+    config:
+      covariate: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/drift.json
+      algorithm: cadw.ml.drift.fit_ab_test (cuped)
+      algorithm_source_url: cadw/ml/drift.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: ab_test
+      n_datasets: 3
+      metric: cuped_theta
+      value: 0.8
+      note: 'CADW-native: cuped_theta=0.7978 @n=10k, 0.7999 @n=100k, 0.8 @n=1M (drift.json; synthetic covariate correlated with metric). NOT comparable to external.'
+    cadw_module: cadw.ml.drift
+    cadw_function: fit_ab_test
+  metrics:
+  - name: p_value
+    combination: anchor
+    direction: lower
+    responsibility: p-value of the two-sample test; lower means stronger evidence against the null.
+    special: Never compare p-values across experiments; the decision threshold is a design choice.
+  - name: power
+    combination: diagnostic
+    direction: higher
+    responsibility: Probability of detecting a true effect of the given size.
+  - name: ci_width
+    combination: diagnostic
+    direction: lower
+    responsibility: Width of the confidence interval on the effect; CUPED shrinks this.
+  - name: cuped_theta
+    combination: diagnostic
+    direction: target
+    responsibility: CUPED regression coefficient theta on the pre-period covariate.
+  ensemble_recommendation:
+  - roles:
+    - probabilistic
+    - calibration
+    models:
+    - ProportionsZTest
+    - CUPED
+    max_per_role: 2
+    note: Use CUPED on top of ProportionsZTest when a pre-period covariate is available; drop to MannWhitneyU when the metric is heavy-tailed.

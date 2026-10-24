@@ -1,0 +1,24 @@
+{
+  "algo": "O.1",
+  "note": "single-chunk; multi-chunk value_counts hits int64/double schema mismatch (discovered during O, filed for later)",
+  "runs": [
+    {
+      "n": 10000,
+      "d": 11,
+      "describe_s": 0.4961,
+      "value_counts_s": null,
+      "peak_mb": 3.46,
+      "describe_rows": null,
+      "vc_rows": null
+    },
+    {
+      "n": 100000,
+      "d": 11,
+      "describe_s": 9.2618,
+      "value_counts_s": null,
+      "peak_mb": 7.13,
+      "describe_rows": null,
+      "vc_rows": null
+    }
+  ]
+}

@@ -87,3 +87,33 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | N | N1 Unsupervised density | BIRCH | baseline | tier1_core | local_structure, representation | ✓ cadw, ✓ agent | mean_log_likelihood |
 | N | N1 Unsupervised density | HDBSCAN | sota | tier2_wrapper | local_structure | desc | mean_log_likelihood |
 | N | N1 Unsupervised density | NormalizingFlow | sota | tier3_export | representation, probabilistic | desc, export | mean_log_likelihood |
+| O | O1 EDA / descriptive statistics | Describe | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | fit_time_s |
+| O | O1 EDA / descriptive statistics | Hist | baseline | tier1_core | representation | ✓ cadw, ✓ agent | fit_time_s |
+| O | O1 EDA / descriptive statistics | ValueCounts | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | fit_time_s |
+| O | O1 EDA / descriptive statistics | YDataProfiling | sota | tier2_wrapper | representation | desc, export | fit_time_s |
+| O | O2 Data cleaning / imputation | SimpleImputer | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | rmse |
+| O | O2 Data cleaning / imputation | KNNImputer | baseline | tier1_core | local_structure | desc | rmse |
+| O | O2 Data cleaning / imputation | IterativeImputer | sota | tier2_wrapper | linear_signal, representation | desc | rmse |
+| O | O3 Feature engineering / encoding | OneHotEncoder | baseline | tier1_core | representation | desc | accuracy |
+| O | O3 Feature engineering / encoding | KBinsDiscretizer | baseline | tier1_core | representation | desc | accuracy |
+| O | O3 Feature engineering / encoding | PolynomialFeatures | sota | tier1_core | nonlinear_interactions, representation | desc | accuracy |
+| O | O4 Feature selection | MutualInfoSelect | baseline | tier1_core | linear_signal, probabilistic | ✓ cadw, ✓ agent | accuracy |
+| O | O4 Feature selection | VarianceThreshold | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | accuracy |
+| O | O4 Feature selection | BorutaSelect | sota | tier2_wrapper | nonlinear_interactions | ✓ cadw, ✓ agent | accuracy |
+| O | O5 Validation / data quality | PanderaSchema | baseline | tier2_wrapper | calibration | desc | validation_rate |
+| O | O5 Validation / data quality | GreatExpectationsSuite | sota | tier3_export | calibration | desc, export | validation_rate |
+| O | O6 Sampling / splitting / resampling | StratifiedSplit | baseline | tier1_core | probabilistic | ✓ agent, desc | auc |
+| O | O6 Sampling / splitting / resampling | ReservoirSample | baseline | tier1_core | probabilistic | ✓ agent, desc | auc |
+| O | O6 Sampling / splitting / resampling | SMOTE | sota | tier2_wrapper | nonlinear_interactions, probabilistic | desc, export | auc |
+| O | O7 Hyperparameter tuning / AutoML | GridSearch | baseline | tier1_core | linear_signal | desc | accuracy |
+| O | O7 Hyperparameter tuning / AutoML | RandomizedSearch | baseline | tier1_core | probabilistic | desc | accuracy |
+| O | O7 Hyperparameter tuning / AutoML | OptunaTPE | sota | tier2_wrapper | probabilistic, representation | desc, export | accuracy |
+| O | O8 Explainability (XAI) | PermutationImportance | baseline | tier1_core | calibration | ✓ cadw, ✓ agent | auc |
+| O | O8 Explainability (XAI) | SHAPTreeExplainer | sota | tier3_export | calibration, representation | desc, export | auc |
+| O | O9 Fairness / bias | FairnessMetrics | baseline | tier1_core | calibration | ✓ cadw, ✓ agent | dp_diff |
+| O | O9 Fairness / bias | FairlearnParity | sota | tier2_wrapper | calibration | desc, export | dp_diff |
+| O | O10 Drift detection | DriftStats | baseline | tier1_core | calibration | ✓ cadw, ✓ agent | psi |
+| O | O10 Drift detection | EvidentlyDrift | sota | tier3_export | calibration, representation | desc, export | psi |
+| O | O11 A/B testing / statistical tests | ProportionsZTest | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | p_value |
+| O | O11 A/B testing / statistical tests | MannWhitneyU | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | p_value |
+| O | O11 A/B testing / statistical tests | CUPED | sota | tier1_core | calibration, probabilistic | ✓ cadw, ✓ agent | p_value |

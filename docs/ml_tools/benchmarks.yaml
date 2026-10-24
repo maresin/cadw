@@ -174,3 +174,24 @@ benchmarks:
       (each arm's reward is deterministic per context). Cumulative reward
       depends on horizon and reward encoding; compare only within the same
       simulation."
+
+  OpenML_Benchmarks:
+    url: https://www.openml.org/search?type=benchmark
+    modality: tabular
+    metrics: [accuracy, auc, f1, logloss]
+    warning: "OpenML benchmark suites (CC18, CTR23, etc.). Different suites have
+      different datasets; numbers not comparable across suites or with AMLB."
+
+  sklearn_reference:
+    url: https://scikit-learn.org/stable/modules/
+    modality: reference_docs
+    metrics: [accuracy, auc, f1, rmse]
+    warning: "scikit-learn user guide. Reference documentation, not a leaderboard;
+      numbers in examples are illustrative, not benchmark rankings."
+
+  Evidently_Reference:
+    url: https://docs.evidentlyai.com/
+    modality: reference_docs
+    metrics: [psi, ks_p, chi2_p, drift_share]
+    warning: "Evidently documentation. No published leaderboard for drift
+      detector accuracy; PSI/KS thresholds are domain-specific."
