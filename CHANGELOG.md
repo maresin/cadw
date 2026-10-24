@@ -1,5 +1,40 @@
 ## [Unreleased]
 
+### v0.9.45 (2026-10-24) — M1 complete: E/F/G/H + render
+
+ML-tools matrix M1 is complete. 6 sections, 21 subtypes, 8 benchmarks.
+
+- **E_anomaly.yaml** — E1 unsupervised (zscore, IForest, LOF-export),
+  E2 supervised (composition A6). E3 (TS anomaly) covered by D3.1-D3.3.
+- **F_recsys.yaml** — F1 collaborative (ItemKNN-export, ALS),
+  F2 hybrid (ALS, Hybrid_MF_GBDT).
+- **G_learning_to_rank.yaml** — G1: PairwiseLogistic-export,
+  LambdaMART.
+- **H_causal.yaml** — H1 treatment effect (T/S-learners, DR-export),
+  H2 uplift (T_learner_uplift, CausalTree).
+- **benchmarks.yaml** — added LETOR.
+- **scripts/render_matrix.py** — deterministic renderer:
+  `docs/ml_tools/MATRIX.md` (one table) + `docs/tasks/<S><id>.md`
+  (one card per subtype). This is the Phase E substitute (recipes as
+  views over the matrix).
+- **tests/test_render_matrix.py** — byte-equality check; catches
+  drift between YAML and rendered Markdown.
+- Roadmap M1 → completed. current_version 0.9.44 → 0.9.45.
+- CONTEXT.md: M1 row → completed.
+
+**Matrix totals** (v0.9.45):
+- Sections: A, D, E, F, G, H (6)
+- Subtypes: 7 + 7 + 2 + 2 + 1 + 2 = 21
+- Models: ~50 cards
+- Benchmarks registered: 12 (AMLB, ODDS, ADBench, UCR_Classification,
+  UCR_Anomaly, TSB-AD, M4, M5, RCT_IHDP, CoxPH_Survival,
+  Amazon_Recsys, LETOR)
+
+**Next**: Phase F (Light NNs) and Phase H (Long-tail) — each new
+model must add a card to the matrix, else not `done`.
+
+## [Unreleased]
+
 ### v0.9.44 (2026-10-24) — M1 part 1: ml_tools schema + A/D
 
 Data + validator only. No production code change. Fills the first two

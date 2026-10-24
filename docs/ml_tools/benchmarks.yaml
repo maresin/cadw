@@ -81,6 +81,14 @@ benchmarks:
     warning: "Collection of small survival datasets. C-index depends on
       censoring rate; compare only within the same dataset."
 
+  LETOR:
+    url: https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/
+    modality: learning_to_rank
+    metrics: [ndcg_at_k, map_at_k]
+    warning: "LETOR datasets (MQ2007/MQ2008/MSLR-WEB10K) differ in query
+      count and relevance labels; NDCG@10 is standard. Not comparable to
+      recsys NDCG (different negative sampling)."
+
   Amazon_Recsys:
     url: https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
     modality: recsys

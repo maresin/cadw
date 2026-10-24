@@ -1,0 +1,62 @@
+# G — Learning to Rank
+# G1: pairwise/listwise ranking (NDCG@k).
+
+section: G
+name: "Learning to Rank"
+subtypes:
+  - id: G1
+    name: "Ranking (LTR)"
+    description: "Learn a scoring function that ranks items per query."
+    real_life:
+      - "Search ranking"
+      - "Recommendation re-rank"
+      - "Ad ranking"
+    benchmarks:
+      - name: LETOR
+        url: "https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/"
+        metrics: [ndcg_at_k, map_at_k]
+    models:
+      - name: PairwiseLogistic
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_by_agent: true, described_only: true}
+        roles: [linear_signal]
+        purpose: "Pairwise logistic on (item_a, item_b) preference pairs; simplest LTR baseline."
+        real_life_examples: ["Simple search re-rank"]
+        config: {alpha: float, max_iter: int}
+        benchmark_result:
+          source: LETOR
+          url: "https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/"
+          metric: ndcg_at_k
+          value: 0.42
+      - name: LambdaMART
+        tier: sota
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [nonlinear_interactions]
+        purpose: "GBDT with lambda gradients (Burges 2010); SOTA on LTR benchmarks."
+        real_life_examples: ["Bing search ranking", "Kaggle LTR competitions"]
+        config: {n_estimators: int, max_depth: int, learning_rate: float}
+        benchmark_result:
+          source: LETOR
+          url: "https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/"
+          metric: ndcg_at_k
+          value: 0.51
+        cadw_module: cadw.ml.lambdamart
+        cadw_function: fit_lambdamart
+    metrics:
+      - name: ndcg_at_k
+        combination: anchor
+        direction: higher
+        responsibility: "Position-weighted ranking quality in top-K."
+        special: "Report per-K; not comparable across K or across different relevance labels."
+      - name: map_at_k
+        combination: pareto_axis
+        direction: higher
+        responsibility: "Mean Average Precision in top-K."
+        special: "Binary-relevance variant of NDCG; do not combine into a scalar."
+    ensemble_recommendation:
+      - roles: [linear_signal, nonlinear_interactions]
+        models: [PairwiseLogistic, LambdaMART]
+        max_per_role: 1
+        note: "PairwiseLogistic is described_only; ensemble is a spec for Phase F/H."

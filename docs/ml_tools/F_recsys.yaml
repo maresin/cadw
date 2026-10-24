@@ -1,0 +1,120 @@
+# F — Recommender Systems
+# F1 collaborative, F2 hybrid.
+
+section: F
+name: "Recommender Systems"
+subtypes:
+  - id: F1
+    name: "Collaborative filtering"
+    description: "Predict user-item preference from interaction matrix alone."
+    real_life:
+      - "Movie recommendation"
+      - "Product recommendation"
+      - "Song/playlist"
+    benchmarks:
+      - name: Amazon_Recsys
+        url: "https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/"
+        metrics: [recall_at_k, ndcg_at_k]
+    models:
+      - name: ItemKNN
+        tier: baseline
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [local_structure]
+        purpose: "Item-item cosine similarity; classic non-personalized baseline."
+        real_life_examples: ["E-commerce 'you might also like'"]
+        config: {k: int, metric: str}
+        benchmark_result:
+          source: Amazon_Recsys
+          url: "https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/"
+          metric: ndcg_at_k
+          value: 0.18
+      - name: ALS
+        tier: sota
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [representation]
+        purpose: "Alternating Least Squares on implicit feedback; scalable to millions."
+        real_life_examples: ["Spotify-like playlist recommendation"]
+        config: {n_factors: int, n_iter: int, reg: float}
+        benchmark_result:
+          source: Amazon_Recsys
+          url: "https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/"
+          metric: ndcg_at_k
+          value: 0.23
+        cadw_module: cadw.ml.als
+        cadw_function: fit_als
+    metrics:
+      - name: ndcg_at_k
+        combination: anchor
+        direction: higher
+        responsibility: "Position-weighted ranking quality in top-K."
+        special: "Compare only within the same K and the same negative sampling."
+      - name: recall_at_k
+        combination: pareto_axis
+        direction: higher
+        responsibility: "Hit rate in top-K, unweighted."
+        special: "Higher when K grows; not comparable across K."
+    ensemble_recommendation:
+      - roles: [representation]
+        models: [ALS]
+        max_per_role: 1
+        note: "Single model — ItemKNN is tier3_export (reference only)."
+
+  - id: F2
+    name: "Hybrid recommendation"
+    description: "Combine collaborative signal with item/content features."
+    real_life:
+      - "Cold-start products with text descriptions"
+      - "Bundle recommendation"
+    benchmarks:
+      - name: Amazon_Recsys
+        url: "https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/"
+        metrics: [ndcg_at_k, recall_at_k]
+    models:
+      - name: ALS
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [representation]
+        purpose: "See F1; used as the collaborative tower of the hybrid."
+        real_life_examples: ["Collaborative baseline"]
+        config: {n_factors: int, n_iter: int, reg: float}
+        benchmark_result:
+          source: Amazon_Recsys
+          url: "https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/"
+          metric: ndcg_at_k
+          value: 0.23
+        cadw_module: cadw.ml.als
+        cadw_function: fit_als
+      - name: Hybrid_MF_GBDT
+        tier: sota
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [representation, nonlinear_interactions]
+        purpose: "ALS embeddings + content features fed to GBDT ranker."
+        real_life_examples: ["Amazon product recommendation with category features"]
+        config: {n_factors: int, n_estimators: int}
+        benchmark_result:
+          source: Amazon_Recsys
+          url: "https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/"
+          metric: ndcg_at_k
+          value: 0.27
+        cadw_module: cadw.ml.hybrid_mf
+        cadw_function: fit_hybrid_mf
+    metrics:
+      - name: ndcg_at_k
+        combination: anchor
+        direction: higher
+        responsibility: "Ranking quality in top-K."
+        special: "Report per-K; not comparable across K."
+      - name: coverage
+        combination: diagnostic
+        direction: higher
+        responsibility: "Fraction of catalog surfaced in top-K; diversity indicator."
+        special: "Do not combine with ndcg into a scalar; Pareto axis."
+    ensemble_recommendation:
+      - roles: [representation, nonlinear_interactions]
+        models: [ALS, Hybrid_MF_GBDT]
+        max_per_role: 2
+        note: "Hybrid subsumes ALS; use ALS only when content features are sparse."

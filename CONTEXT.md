@@ -117,7 +117,7 @@ FOR_PINGIS: AUDIT_v0931.md (findings), algorithm_notes.md (D.1.3 sources + D.3.1
 | Phase | Status | DoD |
 |---|---|---|
 | **G** tech debt | ✅ closed v0.9.43 (A.6, .hypothesis, bench-deps isolation) | — |
-| **M1** matrix schema | 🔜 v0.9.44 (blocker for F/H) | pydantic schema + 5 sections (A, D, E, F, H) + validator test |
+| **M1** matrix schema | ✅ completed v0.9.45 (6 sections A/D/E/F/G/H + render) | — |
 | **F** Light NNs | after M1 | model + tests + bench + **card in matrix** |
 | **H** Long-tail | after M1 | model + tests + bench + **card in matrix** |
 | **E** Recipes | after F/H | reduced to views over the matrix |

@@ -1,0 +1,136 @@
+# H — Causal Inference & Uplift
+# H1 treatment effect (ATE/CATE), H2 uplift (Qini ranking).
+# D.3.1 (CoxPH) belongs to survival (not in 5 priority sections).
+
+section: H
+name: "Causal Inference & Uplift"
+subtypes:
+  - id: H1
+    name: "Treatment effect (ATE / CATE)"
+    description: "Estimate average and heterogeneous treatment effect from observational or RCT data."
+    real_life:
+      - "A/B test incrementality"
+      - "Drug efficacy"
+      - "Marketing campaign lift"
+    benchmarks:
+      - name: RCT_IHDP
+        url: "https://www.fredjo.com/"
+        metrics: [ate_error, pehe]
+    models:
+      - name: T_learner
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [nonlinear_interactions]
+        purpose: "Two outcome models, one per arm; CATE = mu1 - mu0 (Kunzel et al. 2019)."
+        real_life_examples: ["A/B test CATE estimation"]
+        config: {n_estimators: int, propensity_alpha: float}
+        benchmark_result:
+          source: RCT_IHDP
+          url: "https://www.fredjo.com/"
+          metric: ate_error
+          value: 0.10
+        cadw_module: cadw.ml.meta_learners
+        cadw_function: fit_meta_learner
+      - name: S_learner
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [nonlinear_interactions]
+        purpose: "Single model with treatment as a feature; CATE = f(x,1) - f(x,0)."
+        real_life_examples: ["Marketing campaign CATE"]
+        config: {n_estimators: int, propensity_alpha: float}
+        benchmark_result:
+          source: RCT_IHDP
+          url: "https://www.fredjo.com/"
+          metric: ate_error
+          value: 0.12
+        cadw_module: cadw.ml.meta_learners
+        cadw_function: fit_meta_learner
+      - name: DR_learner
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [nonlinear_interactions, probabilistic]
+        purpose: "Doubly-robust (AIPW) meta-learner; uses propensity + outcome model."
+        real_life_examples: ["Observational causal inference"]
+        config: {}
+        benchmark_result:
+          source: RCT_IHDP
+          url: "https://www.fredjo.com/"
+          metric: ate_error
+          value: 0.06
+    metrics:
+      - name: ate_error
+        combination: anchor
+        direction: lower
+        responsibility: "Absolute error of the estimated average treatment effect."
+        special: "ATE error alone hides heterogeneity quality; report PEHE alongside."
+      - name: pehe
+        combination: pareto_axis
+        direction: lower
+        responsibility: "Precision in Estimation of Heterogeneous Effect; PEHE(x) RMSE."
+        special: "PEHE is sensitive to noise level; not comparable across DGPs."
+    ensemble_recommendation:
+      - roles: [nonlinear_interactions]
+        models: [T_learner, S_learner]
+        max_per_role: 2
+        note: "Average CATE; T-learner wins when arms have distinct dynamics, S-learner when sparse."
+
+  - id: H2
+    name: "Uplift modeling (Qini)"
+    description: "Rank customers by incremental gain from a treatment."
+    real_life:
+      - "Targeted promotions (avoid 'sure things')"
+      - "Retention campaigns"
+    benchmarks:
+      - name: RCT_IHDP
+        url: "https://www.fredjo.com/"
+        metrics: [ate_error, pehe]
+    models:
+      - name: T_learner_uplift
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [nonlinear_interactions]
+        purpose: "Two-model uplift (see _fit_uplift_two_model); reference baseline."
+        real_life_examples: ["Promotions targeting"]
+        config: {n_estimators: int}
+        benchmark_result:
+          source: RCT_IHDP
+          url: "https://www.fredjo.com/"
+          metric: pehe
+          value: 0.15
+        cadw_module: cadw.ml.uplift
+        cadw_function: _fit_uplift_two_model
+      - name: CausalTree
+        tier: sota
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [nonlinear_interactions]
+        purpose: "ED-divergence splits + honest leaves (Rzepakowski-Jaroszewicz 2012, Wager-Athey 2018)."
+        real_life_examples: ["Uplift campaigns"]
+        config: {n_estimators: int, max_depth: int, max_samples: int}
+        benchmark_result:
+          source: RCT_IHDP
+          url: "https://www.fredjo.com/"
+          metric: pehe
+          value: 0.12
+        cadw_module: cadw.ml.uplift
+        cadw_function: fit_uplift
+    metrics:
+      - name: qini
+        combination: anchor
+        direction: higher
+        responsibility: "Area between Qini curve and random-targeting baseline."
+        special: "Noisy at n_test<2000; sample std ~sqrt(qini*(1-qini)/n); report SE."
+      - name: auuc
+        combination: pareto_axis
+        direction: higher
+        responsibility: "Area Under Uplift Curve; alternative to Qini."
+        special: "Monotone transform of Qini under uniform weighting; use one, not both."
+    ensemble_recommendation:
+      - roles: [nonlinear_interactions]
+        models: [T_learner_uplift, CausalTree]
+        max_per_role: 2
+        note: "Causal tree wins on high-dim noise / deep interactions / large n. On simple DGPs parity. See d3_3_uplift.md."

@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.44",
+  "current_version": "0.9.45",
   "updated": "2026-10-24",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -879,7 +879,7 @@
       "id": "M1",
       "name": "ML-tools matrix",
       "description": "Schema + cards for A, D, E, F, H; DoD for Phase F/H.",
-      "status": "in_progress",
+      "status": "completed",
       "started_at": "2026-10-24",
       "items": [
         {
@@ -906,18 +906,19 @@
         {
           "id": "M1.4",
           "name": "E/F/H sections",
-          "status": "planned",
+          "status": "done",
           "patch": "v0.9.45",
           "complexity": "M"
         },
         {
           "id": "M1.5",
           "name": "render_matrix.py + MATRIX.md",
-          "status": "planned",
+          "status": "done",
           "patch": "v0.9.45",
           "complexity": "S"
         }
-      ]
+      ],
+      "completed_at": "2026-10-24"
     }
   ]
 }
