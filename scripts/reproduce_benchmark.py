@@ -268,11 +268,129 @@ def repro_coxph(seed: int = 0) -> ReproResult:
     )
 
 
+def repro_als(seed: int = 0) -> ReproResult:
+    """CADW ALS vs implicit.ALS on NDCG@10 over held-out interactions."""
+    from cadw.ml.als import fit_als
+    from implicit.als import AlternatingLeastSquares
+    from scipy.sparse import csr_matrix
+
+    users, items = samples.gen_recsys_like(seed=seed)
+    n_users = int(users.max()) + 1
+    n_items = int(items.max()) + 1
+
+    # Hold out 20% of (user, item) pairs per user.
+    rng = np.random.RandomState(seed + 1000)
+    train_u, train_i, test_u, test_i = [], [], [], []
+    for u in np.unique(users):
+        mask = users == u
+        u_items = items[mask]
+        perm = rng.permutation(len(u_items))
+        n_test = max(1, len(u_items) // 5)
+        test_items_u = u_items[perm[:n_test]]
+        train_items_u = u_items[perm[n_test:]]
+        train_u.extend([int(u)] * len(train_items_u))
+        train_i.extend(train_items_u.tolist())
+        test_u.extend([int(u)] * len(test_items_u))
+        test_i.extend(test_items_u.tolist())
+
+    train_u = np.array(train_u, dtype=np.int64)
+    train_i = np.array(train_i, dtype=np.int64)
+    test_u = np.array(test_u, dtype=np.int64)
+    test_i = np.array(test_i, dtype=np.int64)
+
+    # Ground truth: for each test user, set of held-out items.
+    truth: dict[int, set[int]] = {}
+    for u, it in zip(test_u, test_i):
+        truth.setdefault(int(u), set()).add(int(it))
+
+    # --- CADW ALS ---
+    cadw_df = CadwDataFrame.from_table(pa.table({
+        "user": pa.array(train_u, type=pa.int64()),
+        "item": pa.array(train_i, type=pa.int64()),
+    }))
+    mg = MemoryGuard(max_memory_mb=200)
+    t0 = time.time()
+    # Match implicit.als.AlternatingLeastSquares defaults (alpha=1.0);
+    # CADW default alpha=40 is stronger for production but not comparable.
+    cadw_model = fit_als(
+        cadw_df, "user", "item",
+        n_factors=16, n_iter=10, reg=0.1, alpha=1.0, seed=seed,
+        memory_guard=mg,
+    )
+    cadw_time = time.time() - t0
+
+    def _ndcg_at_k(scores_per_user: dict[int, np.ndarray], k: int = 10) -> float:
+        ndcgs = []
+        for u, scores in scores_per_user.items():
+            truth_u = truth.get(u, set())
+            if not truth_u:
+                continue
+            top_k = np.argsort(-scores)[:k]
+            dcg = 0.0
+            for rank, it in enumerate(top_k):
+                if int(it) in truth_u:
+                    dcg += 1.0 / np.log2(rank + 2)
+            ideal = sum(1.0 / np.log2(r + 2) for r in range(min(k, len(truth_u))))
+            ndcgs.append(dcg / ideal if ideal > 0 else 0.0)
+        return float(np.mean(ndcgs)) if ndcgs else 0.0
+
+    cadw_scores: dict[int, np.ndarray] = {}
+    for u in truth:
+        # score against all items; exclude train-seen items by setting -inf
+        seen = set(train_i[train_u == u].tolist())
+        s = np.asarray(cadw_model.scores(u, items=list(range(n_items))),
+                       dtype=np.float64)
+        for it in seen:
+            s[it] = -np.inf
+        cadw_scores[u] = s
+    cadw_ndcg = _ndcg_at_k(cadw_scores, k=10)
+
+    # --- implicit ALS ---
+    mat = csr_matrix(
+        (np.ones(train_u.size, dtype=np.float32), (train_u, train_i)),
+        shape=(n_users, n_items),
+    )
+    t0 = time.time()
+    ref_model = AlternatingLeastSquares(
+        factors=16, iterations=10, regularization=0.1,
+        alpha=1.0, random_state=seed, use_gpu=False,
+    )
+    ref_model.fit(mat)
+    ref_time = time.time() - t0
+
+    ref_scores: dict[int, np.ndarray] = {}
+    uf = ref_model.user_factors
+    itf = ref_model.item_factors
+    # user_factors: (n_users, factors), item_factors: (n_items, factors)
+    for u in truth:
+        s = np.asarray(uf[u] @ itf.T, dtype=np.float64).ravel()  # (n_items,)
+        seen = set(train_i[train_u == u].tolist())
+        for it in seen:
+            s[it] = -np.inf
+        ref_scores[u] = s
+    ref_ndcg = _ndcg_at_k(ref_scores, k=10)
+
+    return ReproResult(
+        model="ALS",
+        dataset_kind="synthetic_recsys_like",
+        reference_model="implicit.als.AlternatingLeastSquares",
+        cadw_metric=float(cadw_ndcg),
+        reference_metric=float(ref_ndcg),
+        cadw_peak_mb=0.0,
+        reference_peak_mb=0.0,
+        cadw_time_s=float(cadw_time),
+        reference_time_s=float(ref_time),
+        verdict=_verdict(cadw_ndcg, ref_ndcg, atol=0.10),
+        notes="NDCG@10 on 20% holdout; user-item matrix ~10% density.",
+    )
+
+
 REPRODUCERS: dict[str, Callable[[], ReproResult]] = {
     "iforest": repro_iforest,
     "gbdt_regressor": repro_gbdt_regressor,
     "var": repro_var,
     "coxph": repro_coxph,
+    "als": repro_als,
 }
 
 

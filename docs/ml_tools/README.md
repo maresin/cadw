@@ -104,4 +104,27 @@ automatically.
 **Reference packages**: only those in `requirements-bench.txt`
 (pyod, ruptures, lifelines, implicit, statsmodels, sklearn). AST-guard
 `test_no_bench_deps_in_core.py` prevents `cadw/` from importing them.
+## Debugging divergence (learn from v0.9.46 ALS)
+
+When a new reproducer reports `divergent`, do **not** start tuning
+parameters. Run this ladder in order; each step isolates a layer:
+
+1. **One-step on tiny synthetic** (5 users × 4 items, `n_iter=1`).
+   Compare `fit_als` output against the manual Hu-Koren-Volinsky
+   formula computed with `_solve_user`/`_gram`. Reveals: is the
+   formula correct? Is one update equivalent?
+2. **Multi-step (2–3 iter), same tiny synthetic.** Reveals: order of
+   updates? `_gram` cache invalidation?
+3. **Init equivalence.** If reference (e.g. implicit) uses a different
+   `seed→init` mapping, one-step comparisons are meaningless until X0/Y0
+   are aligned.
+4. **Parameter sweep** (init, alpha, reg) — only if 1–3 pass.
+5. **DGP coverage check.** `assert len(unique(train_items)) == n_items`
+   and `len(unique(train_users)) == n_users`. Sparse DGP with
+   `top-k` selection silently loses cold items — a bug in the sample,
+   not the model.
+6. **Metric comparison** (NDCG/RMSE) — final gate.
+
+The v0.9.46 ALS divergence was found at step 1, after 6 iterations
+spent on steps 4/5 first. Record in `.pingis/algorithm_notes/`.
 

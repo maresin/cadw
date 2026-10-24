@@ -1,5 +1,29 @@
 ## [Unreleased]
 
+### v0.9.46-fix2 (2026-10-24) — ALS item-sweep sort-key bug (production)
+
+D.2.2 (v0.9.36) had a production bug: `fit_als` sorted the item-sweep
+by `["i"]` (= user_pos in that view) instead of `["u"]` (= item_pos).
+Consequence: `Y[i]` was updated on one user per item instead of all
+users who interacted with item i — Y factors wrong from iteration 1.
+Lived 3 months, 11 D.2.2 tests + 6 audit passes missed it because none
+compared to ground truth.
+
+- **Fix**: one char, `_sorted_batches(False)` sort key `["i"] → ["u"]`.
+- **Regression**: `test_als_one_iter_matches_manual_hu_koren_volinsky`
+  (1-step CADW vs manual Hu-Koren-Volinsky, `atol=1e-12`).
+- **Verification**: `reproduce_benchmark.py --model als` now
+  `consistent` (CADW NDCG@10 0.3827 vs implicit 0.3673, was
+  0.14 vs 0.37).
+- **README**: debugging ladder for future reproducers — always start
+  with 1-step on tiny synthetic, not parameter tuning. Recorded after
+  this session spent 6 iterations on init/alpha/reg/DGP before
+  isolating the sort bug via one-step comparison.
+
+**Impact on prior releases**: any user of `fit_als` (D.2.2) got
+incorrect item factors. Recommendation: retrain. No other ML module
+affected (`_gram`/`_solve_user` verified separately).
+
 ### v0.9.46 (2026-10-24) — M2 first: reproduce_benchmark + 4 models
 
 Reproduction harness: CADW model vs reference (sklearn, statsmodels,

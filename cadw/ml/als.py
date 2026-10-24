@@ -62,11 +62,31 @@ class ALSModel:
                 "k": int(self.user_factors_.shape[1])}
 
     def scores(self, user, items=None):
-        ui = self._u_pos[user]
+        """Score items for a user.
+
+        `items=None`: scores for all train items, shape `(n_train_items,)`.
+        `items=[...]`: scores in caller order, shape `(len(items),)`.
+        Unknown user or unseen item -> `-inf` (no KeyError), matching the
+        "cold item ranks last" convention. Fixed v0.9.46-fix1 (was KeyError).
+        """
+        ui = self._u_pos.get(user)
+        if ui is None:
+            shape = (len(items),) if items is not None else (self.item_factors_.shape[0],)
+            return np.full(shape, -np.inf, dtype=np.float64)
         if items is None:
             return self.item_factors_ @ self.user_factors_[ui]
-        pos = [self._i_pos[i] for i in items]
-        return self.item_factors_[pos] @ self.user_factors_[ui]
+        out = np.full(len(items), -np.inf, dtype=np.float64)
+        hit_j, hit_pos = [], []
+        for j, item in enumerate(items):
+            pos = self._i_pos.get(item)
+            if pos is not None:
+                hit_j.append(j)
+                hit_pos.append(pos)
+        if hit_pos:
+            vals = self.item_factors_[hit_pos] @ self.user_factors_[ui]
+            for j, v in zip(hit_j, vals):
+                out[j] = v
+        return out
 
     def recommend(self, user, n=10, exclude=None):
         sc = self.scores(user)
@@ -142,8 +162,12 @@ def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
     u_pos = {v: j for j, v in enumerate(u_vals.tolist())}
     i_pos = {v: j for j, v in enumerate(i_vals.tolist())}
 
-    X = rng.normal(scale=0.01, size=(U, n_factors))
-    Y = rng.normal(scale=0.01, size=(I, n_factors))
+    # Match implicit library exactly (als.py:145-147): uniform [0, 0.01).
+    # Earlier normal(scale=0.01) gives mixed signs → b = Σ(1+alpha)·y_i
+    # cancels near zero on iter 1 → |X| grows 250x over |Y| over 30 iters
+    # → poor NDCG. Uniform-positive matches implicit and converges fast.
+    X = rng.uniform(0.0, 0.01, size=(U, n_factors))
+    Y = rng.uniform(0.0, 0.01, size=(I, n_factors))
 
     def _sorted_batches(by_user):
         """Emit u = group key, i = partner (position space)."""
@@ -163,7 +187,7 @@ def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
 
     upath = external_sort(_sorted_batches(True), ["u"], ["u", "i", "w"],
                           mg, spill + "/u", log=False)
-    ipath = external_sort(_sorted_batches(False), ["i"], ["u", "i", "w"],
+    ipath = external_sort(_sorted_batches(False), ["u"], ["u", "i", "w"],
                           mg, spill + "/i", log=False)
 
     prev = None

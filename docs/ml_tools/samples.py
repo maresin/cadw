@@ -66,3 +66,32 @@ def gen_survival_like(n=500, d=3, seed=0):
     event = (duration <= censor_time).astype(np.float64)
     observed = np.where(event == 1, duration, censor_time)
     return X, observed, event
+
+
+def gen_recsys_like(n_users=200, n_items=50, n_factors=5, density=0.10,
+                     seed=0):
+    """Implicit-feedback recsys sample: low-rank user/item factors.
+
+    Returns (users, items) arrays — interaction pairs at ~`density` fill.
+    Positive interaction iff latent dot product > 0.
+    """
+    rng = np.random.RandomState(seed)
+    U = rng.normal(size=(n_users, n_factors))
+    V = rng.normal(size=(n_items, n_factors))
+    affinity = U @ V.T  # (n_users, n_items)
+    # v0.9.46-fix2: add per-user noise to break the systematic top-k bias.
+    # Without it, items with small ||V[i]|| are never in any user's top-k,
+    # so after 20% per-user holdout they vanish from the train set entirely
+    # (CADW item_factors shape=(42, 16) instead of 50). Real recsys data is
+    # also skewed, but not this systematically — noise restores coverage.
+    # Noise scale 0.7 ~ std of affinity entries (V norm ~sqrt(k)=2.24, U ~1,
+    # so single dot-product ~N(0, k) with std sqrt(k)=2.24; 0.7 breaks bias
+    # without dominating signal).
+    users, items = [], []
+    k = max(1, int(n_items * density))
+    for u in range(n_users):
+        noisy = affinity[u] + 0.7 * rng.normal(size=n_items)
+        top = np.argsort(-noisy)[:k]
+        users.extend([u] * len(top))
+        items.extend(top.tolist())
+    return np.array(users, dtype=np.int64), np.array(items, dtype=np.int64)
