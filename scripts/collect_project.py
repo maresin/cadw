@@ -34,7 +34,7 @@ EXCLUDE_DIRS = {
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".so", ".dylib", ".pyd",
                     ".arrow", ".parquet", ".tar", ".gz"}
-ROOT_FILES_FULL = ["README.md", "pyproject.toml"]
+ROOT_FILES_FULL = ["README.md", "pyproject.toml", "METHODOLOGY.md"]
 SEP = "# " + "=" * 76
 
 

@@ -1,5 +1,26 @@
 ## [Unreleased]
 
+### v0.9.47 (2026-10-24) — METHODOLOGY.md + TASK_v0.9.47 (PINGIS discovery)
+
+Docs + tooling only. No production code.
+
+- **METHODOLOGY.md** (repo root, 133 lines) — bridge between chat
+  sessions and PINGIS. Discovery / Triage / Benchmark selection /
+  Verification / Registration / Debugging divergence ladder / PINGIS
+  vs human roles. Lives in root (not docs/) because
+  `collect_project --mode=tiny` only snapshots root README.md and
+  CHANGELOG.md fully — `docs/**` is STUB. Next chat session reads the
+  full file.
+- **scripts/collect_project.py** — `METHODOLOGY.md` added to
+  `ROOT_FILES_FULL` whitelist.
+- **.pingis/tasks/TASK_v0.9.47_ml_tools_discovery.md** — PINGIS
+  assignment: fill 7 remaining matrix sections (I/J/K/L/M/N/O).
+  Cards only, no code. Priority: already-in-CADW models first
+  (CoxPH, GMM, TF-IDF, LinUCB, describe/hist/fillna/fairness/drift).
+  Gates: schema validator + render_matrix; no new deps; no model code.
+
+## [Unreleased]
+
 ### v0.9.46-fix2 (2026-10-24) — ALS item-sweep sort-key bug (production)
 
 D.2.2 (v0.9.36) had a production bug: `fit_als` sorted the item-sweep
