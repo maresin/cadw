@@ -1,0 +1,38 @@
+{
+  "algo": "D.4.3",
+  "runs": [
+    {
+      "n": 500,
+      "seasonal_period": 12,
+      "fit_predict_s": 0.18,
+      "alpha": 0.1,
+      "beta": 0.05,
+      "gamma": 0.3,
+      "sigma": 0.61,
+      "peak_mb": 4.9,
+      "state_b": 8352
+    },
+    {
+      "n": 5000,
+      "seasonal_period": 12,
+      "fit_predict_s": 1.739,
+      "alpha": 0.1,
+      "beta": 0.01,
+      "gamma": 0.1,
+      "sigma": 0.5378,
+      "peak_mb": 0.1,
+      "state_b": 80352
+    },
+    {
+      "n": 50000,
+      "seasonal_period": 12,
+      "fit_predict_s": 17.153,
+      "alpha": 0.1,
+      "beta": 0.01,
+      "gamma": 0.05,
+      "sigma": 0.5225,
+      "peak_mb": 1.4,
+      "state_b": 800352
+    }
+  ]
+}

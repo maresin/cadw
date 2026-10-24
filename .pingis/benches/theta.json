@@ -1,0 +1,29 @@
+{
+  "algo": "D.4.4",
+  "runs": [
+    {
+      "n": 1000,
+      "fit_predict_s": 0.01,
+      "alpha": 0.65,
+      "sigma": 1.3533,
+      "peak_mb": 0.5,
+      "state_b": 16256
+    },
+    {
+      "n": 10000,
+      "fit_predict_s": 0.093,
+      "alpha": 0.65,
+      "sigma": 1.3485,
+      "peak_mb": 0.4,
+      "state_b": 160256
+    },
+    {
+      "n": 100000,
+      "fit_predict_s": 0.917,
+      "alpha": 0.65,
+      "sigma": 1.3604,
+      "peak_mb": 6.5,
+      "state_b": 1600256
+    }
+  ]
+}

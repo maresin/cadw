@@ -818,3 +818,62 @@ class _MLBindingsMixin:
             self, value_col, id_col=id_col, num_kernels=num_kernels,
             seed=seed, max_dilation=max_dilation,
         )
+
+    def fit_pelt(
+        self,
+        value_col: str,
+        *,
+        id_col: "str | None" = None,
+        penalty: float = 10.0,
+        min_size: int = 2,
+        max_window: "int | None" = None,
+    ):
+        """PELT change-point detection (v0.9.38, D.4.2)."""
+        from cadw.ml.pelt import fit_pelt as _f
+        return _f(self, value_col, id_col=id_col, penalty=penalty,
+                  min_size=min_size, max_window=max_window)
+
+    def fit_ets(
+        self,
+        target_col: str,
+        *,
+        time_col: "str | None" = None,
+        group_col: "str | None" = None,
+        seasonal_period: int = 1,
+        seasonal: str = "additive",
+        trend: bool = True,
+        damped: bool = False,
+    ):
+        """ETS / Holt-Winters forecaster (v0.9.38, D.4.3)."""
+        from cadw.ts.ets import ETSForecaster
+        return ETSForecaster(seasonal_period=seasonal_period, seasonal=seasonal,
+                             trend=trend, damped=damped).fit(
+            self, target_col, time_col=time_col, group_col=group_col)
+
+    def fit_theta(
+        self,
+        target_col: str,
+        *,
+        time_col: "str | None" = None,
+        group_col: "str | None" = None,
+        seasonal: bool = False,
+        seasonal_period: int = 1,
+    ):
+        """Theta-method forecaster (v0.9.38, D.4.4)."""
+        from cadw.ts.theta import ThetaForecaster
+        return ThetaForecaster(seasonal=seasonal,
+                               seasonal_period=seasonal_period).fit(
+            self, target_col, time_col=time_col, group_col=group_col)
+
+    def fit_var(
+        self,
+        target_col,
+        *,
+        time_col: "str | None" = None,
+        group_col: "str | None" = None,
+        p: int = 1,
+    ):
+        """VAR(p) vector autoregression (v0.9.38, D.4.5)."""
+        from cadw.ts.var import VARModel
+        return VARModel(p=p).fit(self, target_col,
+                                 time_col=time_col, group_col=group_col)

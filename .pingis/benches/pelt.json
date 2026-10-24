@@ -1,0 +1,50 @@
+{
+  "algo": "D.4.2",
+  "runs": [
+    {
+      "n": 1000,
+      "fit_detect_s": 0.005,
+      "ruptures_s": 0.144,
+      "cps": [
+        334,
+        666
+      ],
+      "ruptures": [
+        335,
+        665
+      ],
+      "peak_mb": 5.0,
+      "state_b": 256
+    },
+    {
+      "n": 5000,
+      "fit_detect_s": 0.021,
+      "ruptures_s": 4.134,
+      "cps": [
+        1666,
+        3332
+      ],
+      "ruptures": [
+        1665,
+        3335
+      ],
+      "peak_mb": 0.4,
+      "state_b": 256
+    },
+    {
+      "n": 20000,
+      "fit_detect_s": 0.101,
+      "ruptures_s": 73.572,
+      "cps": [
+        6666,
+        13332
+      ],
+      "ruptures": [
+        6665,
+        13330
+      ],
+      "peak_mb": 1.9,
+      "state_b": 256
+    }
+  ]
+}

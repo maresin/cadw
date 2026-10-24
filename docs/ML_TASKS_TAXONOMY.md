@@ -202,9 +202,9 @@ server load, web sessions.
 - ✓ `NaiveForecaster`, `SARIMAForecaster`, `GBDTForecaster`
 - ✓ `TemporalHierarchy` (MinT-WLS, D3)
 - ✓ `backtest_forecaster` (CV)
-- ⏳ ETS — D.4.3
-- ⏳ Theta-method — D.4.4
-- ⏳ VAR(p) — D.4.5
+- ✓ ETS — v0.9.38 (D.4.3)
+- ✓ Theta-method — v0.9.38 (D.4.4)
+- ✓ VAR(p) — v0.9.38 (D.4.5)
 
 ### D4. TS classification
 
@@ -257,7 +257,7 @@ Same as A6 (imbalanced) — rare events with labels.
 
 **CADW status:**
 - ✓ Matrix Profile — v0.9.35 (D.1.2)
-- ⏳ PELT — D.4.2
+- ✓ PELT — v0.9.38 (D.4.2)
 - ✓ IForest on lag features (via composition)
 
 ### O1-O11. Data Science (EDA / FE / validation)
@@ -286,8 +286,8 @@ Same as A6 (imbalanced) — rare events with labels.
 - **A7** (quantile reg) — GBDT pinball pending
 - **B2/B3** (hierarchical / BIRCH) — D.5.4, T1 recipe
 - **C2** (t-SNE/UMAP) — T2 recipe
-- **D2** (multi TS) — D.4.5 VAR
-- **D5** (change-point) — D.4.2 PELT
+- **D2** (multi TS) — ✓ VAR v0.9.38 (D.4.5)
+- **D5** (change-point) — ✓ PELT v0.9.38 (D.4.2)
 - **F1/F2** (recsys) — ✓ ALS v0.9.36 (D.2.2), ✓ hybrid MF v0.9.36 (D.2.3)
 - **G1** (LTR) — ✓ LambdaMART v0.9.35 (D.2.1)
 - **H1/H2** (causal/uplift) — ✓ T/S-learner v0.9.37 (D.3.2), ✓ uplift v0.9.37 (D.3.3)

@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.37",
+  "current_version": "0.9.38",
   "updated": "2026-10-24",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -380,30 +380,34 @@
         {
           "id": "D.4.2",
           "name": "PELT online change-point",
-          "patch": "v0.9.34",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.38",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/pelt.py"
         },
         {
           "id": "D.4.3",
           "name": "ETS (Holt-Winters)",
-          "patch": "v0.9.34",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.38",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ts/ets.py"
         },
         {
           "id": "D.4.4",
           "name": "Theta-method",
-          "patch": "v0.9.34",
-          "status": "planned",
-          "complexity": "S"
+          "patch": "v0.9.38",
+          "status": "done",
+          "complexity": "S",
+          "file": "cadw/ts/theta.py"
         },
         {
           "id": "D.4.5",
           "name": "VAR(p)",
-          "patch": "v0.9.34",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.38",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ts/var.py"
         },
         {
           "id": "D.4.6",

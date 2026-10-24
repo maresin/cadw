@@ -11,10 +11,10 @@
 | D.3.2 | v0.9.37 | done | 9 | 100k rows: 4.25 s / 20.2 MB / 1 210 624 B | vs true ATE 1.0: T 1.0204, S 0.9747; overlap diagnostics always returned |
 | D.3.3 | v0.9.37 | done | 10 | 100k rows: 9.43 s / 12.7 MB / 820 224 B | Qini vs random baseline; 100k Qini 0.00019, 200k 0.00971 (reported honestly) |
 | D.4.1 | v0.9.37 | done | 11 | 1000x500: 3.13 s / 15.3 MB / 7 744 B | PPV vs direct convolution (closed form); ~320 series/s |
-| D.4.2 | v0.9.38 | pending | — | — | — |
-| D.4.3 | v0.9.38 | pending | — | — | — |
-| D.4.4 | v0.9.38 | pending | — | — | — |
-| D.4.5 | v0.9.38 | pending | — | — | — |
+| D.4.2 | v0.9.38 | done | 11 | 20k rows: 0.101 s / 1.9 MB / 256 B | ruptures.Pelt(l2): 73.572 s, same cps within ties |
+| D.4.3 | v0.9.38 | done | 11 | 50k rows: 17.15 s / 1.4 MB / 800 352 B | statsmodels ETS: MASE 0.298 vs 0.338 |
+| D.4.4 | v0.9.38 | done | 9 | 100k rows: 0.92 s / 6.5 MB / 1 600 256 B | statsmodels Theta: MASE 2.18 vs 1.99 |
+| D.4.5 | v0.9.38 | done | 11 | 50k x k=4 p=2: 0.039 s / 12.3 MB / 1 600 544 B | statsmodels VAR: max fc diff 2.8e-17 |
 | D.4.6 | v0.9.39 | pending | — | — | — |
 | D.5.1 | v0.9.39 | pending | — | — | — |
 | D.5.2 | v0.9.39 | pending | — | — | — |
@@ -28,4 +28,4 @@
 | D.6.7 | v0.9.41 | pending | — | — | — |
 | D.6.9 | v0.9.41 | pending | — | — | — |
 
-Done: 9/25. Fast suite 2669 passed, 2 skipped. Slow 25 passed.
+Done: 13/25. Fast suite 2711 passed, 2 skipped. Slow 25 passed.

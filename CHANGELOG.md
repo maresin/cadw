@@ -1,5 +1,38 @@
 ## [Unreleased]
 
+### v0.9.38 (2026-10-24) — Phase D algorithms, group 4/7
+
+- **D.4.2 (M) — PELT change-point detection.** `cadw/ml/pelt.py` +
+  `df.fit_pelt(...)`. Exact PELT with the L2 mean-shift cost computed in O(1)
+  from cumsums, Killick et al. 2012 pruning. `max_window` bounds the recursion
+  -> O(window) state (the "online" reading); `max_window=None` is exact
+  full-series PELT. 11 tests; vs ruptures.Pelt(l2): same segmentations within
+  boundary ties, 0.101 s vs 73.572 s at n=20 000. State 256 B.
+- **D.4.3 (M) — ETS / Holt-Winters.** `cadw/ts/ets.py` +
+  `df.fit_ets(...)`. Additive-error ETS(A,N,N)/(A,A,N)/(A,A,A) with optional
+  damping; deterministic coordinate grid over (alpha,beta,gamma,phi);
+  classical-decomposition seasonal init; `prediction_interval`. 11 tests;
+  MASE 0.298 vs statsmodels 0.338 on held-out 12 points. 50 000 rows in 17.15 s.
+- **D.4.4 (S) — Theta method.** `cadw/ts/theta.py` +
+  `df.fit_theta(...)`. OLS theta=0 line + SES-smoothed theta=2 curve, combined
+  0.5/0.5 (Assimakopoulos-Nikolopoulos). 9 tests; MASE 2.18 vs statsmodels
+  ThetaModel 1.99 on a strong linear trend. 100 000 rows in 0.92 s.
+- **D.4.5 (M) — VAR(p).** `cadw/ts/var.py` + `df.fit_var(...)`.
+  Equation-by-equation OLS on a stacked lag design, companion-matrix stability
+  check, `forecast_vector(steps)` and ForecasterBase `predict`. 11 tests; vs
+  statsmodels VAR max abs forecast diff 2.8e-17 (exact). 50 000 x 4 x p=2 in
+  0.039 s.
+
+Dev dependency added (test-side only, `[dependency-groups] dev`):
+`ruptures>=1.1.9` as a reference implementation in `tests/test_pelt.py`.
+Nothing under `cadw/` imports it.
+
+Docs: `docs/roadmap.json` D.4.2/D.4.3/D.4.4/D.4.5 -> done,
+`docs/ML_TASKS_TAXONOMY.md` ETS/Theta/VAR/PELT -> available. Notes and benches
+under `.pingis/algorithm_notes/`, `.pingis/benches/`. Fast suite 2669 -> 2711
+passed; slow 25 passed. `.pingis/session.log` untracked and added to
+`.gitignore` (it was accidentally committed in 2c30326).
+
 ### v0.9.37 (2026-10-24) — Phase D algorithms, group 3/7
 
 - **D.3.2 (M) — T-learner / S-learner + propensity.** `cadw/ml/meta_learners.py` + `df.fit_meta_learner(...)`. Two outcome models on the in-tree GBDT regressor (T-learner: one per arm; S-learner: treatment as an extra feature). Propensity from `fit_logistic` with `overlap_diagnostics` (n, min, max, share outside [0.05, 0.95]) always reported. Exposes `cate`, `ate`, `cate_table`, `ipw_ate`. `log_fit` per arm; `check_batch(extra_factor=2.0)` on every pass. 9 tests; bench 100 000 rows in 4.25 s / 20.2 MB, state 1.2 MB, ATE 1.02 vs true 1.0.

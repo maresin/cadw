@@ -1,0 +1,32 @@
+{
+  "algo": "D.4.5",
+  "runs": [
+    {
+      "n": 1000,
+      "k": 2,
+      "p": 1,
+      "fit_forecast_s": 0.001,
+      "stable": true,
+      "peak_mb": 0.1,
+      "state_b": 16304
+    },
+    {
+      "n": 10000,
+      "k": 4,
+      "p": 2,
+      "fit_forecast_s": 0.007,
+      "stable": true,
+      "peak_mb": 2.4,
+      "state_b": 320544
+    },
+    {
+      "n": 50000,
+      "k": 4,
+      "p": 2,
+      "fit_forecast_s": 0.039,
+      "stable": true,
+      "peak_mb": 12.3,
+      "state_b": 1600544
+    }
+  ]
+}

@@ -14,6 +14,9 @@ from .models import (
 )
 from .backtest import backtest_forecaster
 from .thf import TemporalHierarchy
+from .ets import ETSForecaster
+from .theta import ThetaForecaster
+from .var import VARModel
 
 __all__ = sorted([
     # features
@@ -29,4 +32,5 @@ __all__ = sorted([
     "backtest_forecaster",
     # temporal hierarchy
     "TemporalHierarchy",
+    "ETSForecaster", "ThetaForecaster", "VARModel",
 ])

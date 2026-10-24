@@ -52,3 +52,4 @@ _verify_*.py
 .pingis/patch.py
 .pingis/summary.md
 .pingis/plan.md
+.pingis/session.log
