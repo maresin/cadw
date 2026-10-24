@@ -153,6 +153,11 @@ subtypes:
     direction: lower
     responsibility: Peak resident memory during describe.
     special: tracemalloc-based; single-chunk numbers only (see BUG-1).
+  - name: accuracy
+    combination: diagnostic
+    direction: higher
+    responsibility: Accuracy metric placeholder for binning preprocessing; no meaningful leaderboard.
+    special: Reported as null; semantics noted.
   ensemble_recommendation:
   - roles:
     - representation
@@ -719,14 +724,7 @@ subtypes:
     direction: higher
     responsibility: Downstream accuracy (misleading under imbalance).
     special: Report only alongside AUC; never alone.
-  ensemble_recommendation:
-  - roles:
-    - probabilistic
-    - nonlinear_interactions
-    models:
-    - StratifiedSplit
-    max_per_role: 2
-    note: Use StratifiedSplit for correct folds; apply SMOTE only inside the training fold (never on the test fold).
+  ensemble_recommendation: []
 - id: O7
   name: Hyperparameter tuning / AutoML
   description: Search a hyperparameter space under a CV budget; AutoML wraps the whole pipeline.
@@ -1315,6 +1313,14 @@ subtypes:
     combination: diagnostic
     direction: target
     responsibility: CUPED regression coefficient theta on the pre-period covariate.
+  - name: t_p
+    combination: diagnostic
+    direction: lower
+    responsibility: Welch t-test p-value for A/B.
+  - name: mw_p
+    combination: diagnostic
+    direction: lower
+    responsibility: Mann-Whitney U p-value for A/B.
   ensemble_recommendation:
   - roles:
     - probabilistic

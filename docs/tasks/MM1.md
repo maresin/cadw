@@ -151,7 +151,10 @@
 - **cumulative_reward** (pareto_axis, higher)
   - Total reward over the horizon in simulated bandits (Mushroom).
   - *special:* Horizon- and reward-encoding-dependent.
+- **peak_rss_mb** (diagnostic, lower)
+  - CADW measured peak RSS during fit; not comparable to external.
+  - *special:* tracemalloc-based.
 
 ## Ensemble rules
-- **[linear_signal, probabilistic]** → LinUCB + ThompsonSampling (max_per_role=2)
+- **[linear_signal, probabilistic]** → LinUCB (max_per_role=2)
   - LinUCB (linear UCB) and Thompson Sampling (Bayesian posterior sampling) are the two canonical exploration strategies; combine by mixing their action distributions when both verified in cadw.

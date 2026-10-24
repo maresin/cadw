@@ -84,7 +84,3 @@
 - **accuracy** (diagnostic, higher)
   - Downstream accuracy (misleading under imbalance).
   - *special:* Report only alongside AUC; never alone.
-
-## Ensemble rules
-- **[probabilistic, nonlinear_interactions]** → StratifiedSplit (max_per_role=2)
-  - Use StratifiedSplit for correct folds; apply SMOTE only inside the training fold (never on the test fold).

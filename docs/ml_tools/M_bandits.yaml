@@ -1,97 +1,234 @@
-# M — Contextual bandits
-# Subtype M1: contextual bandit (online policy selection).
-# v0.9.48.4: discovery pass. Cards only — no code in cadw/ml/.
-#
-# Benchmark reality (2026-10-25): no single public leaderboard ranks
-# contextual-bandit algorithms. Two authoritative published evaluations
-# are used instead:
-#   * Li et al. 2010 (Yahoo! R6A) — Table 1 CTRs on one-week evaluation.
-#   * Saito et al. 2020 (Open Bandit Dataset) — relative CTR vs random.
-# NeuralUCB publishes cumulative reward on Mushroom/Yahoo but the HTML
-# does not expose a numeric table we could extract; value:null.
-
 section: M
 name: Contextual bandits
 subtypes:
-  - id: M1
-    name: "Contextual bandit (online policy selection)"
-    description: "Sequentially choose an arm given context and observed reward; balance exploration vs exploitation under delayed feedback."
-    real_life:
-      - "News / content recommendation with per-article CTR"
-      - "Ad placement with per-user context"
-      - "Clinical trial adaptive randomization"
-    benchmarks:
-      - name: Yahoo_R6A
-        url: "https://webscope.sandbox.yahoo.com/catalog.php?datatype=r&did=1"
-        metrics: [ctr, ctr_lift_pct]
-        note: "Li et al. 2010 evaluation set. CTRs from Table 1 of arXiv:1003.0146; no cross-paper leaderboard exists — this is the canonical published comparison."
-      - name: Open_Bandit_Dataset
-        url: "https://github.com/st-tech/zr-obp"
-        metrics: [ctr, relative_ctr]
-        note: "Saito et al. 2020 (ZOZO). Fashion e-commerce with logged Bernoulli-TS and random policies. Not comparable to Yahoo R6A."
-    models:
-      - name: LinUCB
-        tier: baseline
-        tier_level: tier1_core
-        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
-        roles: [linear_signal]
-        purpose: "Li et al. 2010 — per-arm ridge regression on context with an upper-confidence exploration bonus. Inductive bias: reward is a linear function of context per arm, with a disjoint or hybrid parameterization; strong when contexts are low-dimensional and reward is roughly linear."
-        real_life_examples: ["News recommendation with article features", "Ad slot allocation with user context", "Dynamic pricing with linear demand"]
-        config: {alpha: float, l2: float}
-        benchmark_results:
-          - {benchmark: Yahoo_R6A, benchmark_url: 'https://arxiv.org/html/1003.0146v2', algorithm: 'LinUCB (Li et al. 2010, disjoint)', algorithm_source_url: 'https://github.com/david-cortes/contextualbandits', algorithm_source_kind: code, attribution: literature, task_type: contextual_bandit, n_datasets: 1, metric: ctr, value: 1.795, note: "fetched 2026-10-25 from arXiv:1003.0146 Table 1 (one-week eval set, 100% data): 'linucb (disjoint) 1.795' in deploy bucket. Same page also reports +12.5% lift over epsilon-greedy."}
-          - {benchmark: Yahoo_R6A, benchmark_url: 'https://arxiv.org/html/1003.0146v2', algorithm: 'LinUCB (Li et al. 2010, disjoint)', algorithm_source_url: 'https://github.com/david-cortes/contextualbandits', algorithm_source_kind: code, attribution: literature, task_type: contextual_bandit, n_datasets: 1, metric: ctr_lift_pct, value: 12.5, note: "fetched 2026-10-25 from arXiv:1003.0146 Table 1: 'linucb (disjoint) ... 12.5%' lift over epsilon-greedy at 100% data."}
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/linucb.json', algorithm: 'cadw.ml.linucb.fit_linucb', algorithm_source_url: 'cadw/ml/linucb.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: contextual_bandit, n_datasets: 3, metric: peak_rss_mb, value: 51.1, std: null, note: "CADW-native: peak_mb=4.7 @n=10k, 19.4 @n=50k, 51.1 @n=150k (linucb.json); fit_s=0.04 @n=150k, 5 arms. NOT comparable to external CTR numbers."}
-        cadw_module: cadw.ml.linucb
-        cadw_function: fit_linucb
-      - name: EpsilonGreedy
-        tier: baseline
-        tier_level: tier1_core
-        implementation_status: {verified_by_agent: true, described_only: true}
-        roles: [linear_signal]
-        purpose: "Epsilon-greedy exploration over per-arm reward estimates. Inductive bias: no structural assumption — uniform random exploration with rate epsilon, then exploit the empirical mean. Canonical baseline; weak when rewards are context-dependent."
-        real_life_examples: ["A/B test with fixed explore rate", "Cold-start content display", "Bandit baseline in production stacks"]
-        config: {epsilon: float}
-        benchmark_results:
-          - {benchmark: Yahoo_R6A, benchmark_url: 'https://arxiv.org/html/1003.0146v2', algorithm: 'epsilon-greedy (Li et al. 2010 baseline)', algorithm_source_url: 'https://github.com/st-tech/zr-obp', algorithm_source_kind: code, attribution: literature, task_type: contextual_bandit, n_datasets: 1, metric: ctr, value: 1.596, note: "fetched 2026-10-25 from arXiv:1003.0146 Table 1: 'epsilon-greedy 1.596'. Reference baseline (0% lift by construction)."}
-      - name: UCB1
-        tier: baseline
-        tier_level: tier1_core
-        implementation_status: {verified_by_agent: true, described_only: true}
-        roles: [probabilistic]
-        purpose: "Auer et al. 2002 UCB1 — non-contextual optimism under uncertainty with an O(sqrt(log T / n_a)) bonus. Inductive bias: stationary arm means with no context; outperforms epsilon-greedy on stationary problems but not context-dependent ones."
-        real_life_examples: ["Non-contextual slot selection", "Bandit baseline without features", "Multi-armed test allocation"]
-        config: {confidence: float}
-        benchmark_results:
-          - {benchmark: Yahoo_R6A, benchmark_url: 'https://arxiv.org/html/1003.0146v2', algorithm: 'UCB1 (Li et al. 2010 baseline)', algorithm_source_url: 'https://github.com/david-cortes/contextualbandits', algorithm_source_kind: code, attribution: literature, task_type: contextual_bandit, n_datasets: 1, metric: ctr, value: 1.594, note: "fetched 2026-10-25 from arXiv:1003.0146 Table 1: 'ucb 1.594' in deploy bucket."}
-      - name: ThompsonSampling
-        tier: sota
-        tier_level: tier2_wrapper
-        implementation_status: {verified_by_agent: true, described_only: true}
-        roles: [probabilistic]
-        purpose: "Chapelle & Li 2011 — Beta-Bernoulli posterior sampling per arm; plays an arm with probability proportional to its posterior probability of being optimal. Inductive bias: conjugate Bayesian per-arm model; naturally balances exploration and exploitation and is empirically strong on CTR data."
-        real_life_examples: ["News recommendation with Thompson sampling", "Ad CTR optimization", "Adaptive clinical allocation"]
-        config: {prior_alpha: float, prior_beta: float}
-        benchmark_results:
-          - {benchmark: Open_Bandit_Dataset, benchmark_url: 'https://arxiv.org/html/2008.07146', algorithm: 'Bernoulli Thompson Sampling (ZOZO logger)', algorithm_source_url: 'https://papers.nips.cc/paper_files/paper/2011/hash/e53a0a2978c28872a4505bdb51db06dc-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: contextual_bandit, n_datasets: 3, metric: relative_ctr, value: 1.43, note: "fetched 2026-10-25 from arXiv:2008.07146 Table 1 (ALL campaign): 'Bernoulli TS 12,168,084 0.50% ± 0.004 1.43' — relative CTR vs uniform-random. Same table gives 1.94 on Men's and 1.84 on Women's."}
-          - {benchmark: Open_Bandit_Dataset, benchmark_url: 'https://arxiv.org/html/2008.07146', algorithm: 'Bernoulli Thompson Sampling (ZOZO logger)', algorithm_source_url: 'https://papers.nips.cc/paper_files/paper/2011/hash/e53a0a2978c28872a4505bdb51db06dc-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: contextual_bandit, n_datasets: 3, metric: ctr, value: 0.5, note: "fetched 2026-10-25 from arXiv:2008.07146 Table 1 (ALL campaign): 'Bernoulli TS ... 0.50% ± 0.004'. Value is percent CTR (0.5% = 0.005 fraction)."}
-      - name: NeuralUCB
-        tier: sota
-        tier_level: tier3_export
-        implementation_status: {described_only: true, not_implemented_in_cadw: true}
-        roles: [nonlinear_interactions, representation]
-        purpose: "Zhou et al. 2020 — UCB exploration on top of a neural-network reward surrogate, using the network's gradient as a feature map. Inductive bias: arbitrary nonlinear reward function learnable by an MLP; strong on high-dimensional context (image/text) but needs torch."
-        real_life_examples: ["Image-content recommendation", "High-dimensional ad creatives", "Neural bandits in RLHF"]
-        config: {hidden_sizes: list, lr: float, lambda_: float}
-        benchmark_results:
-          - {benchmark: Mushroom, benchmark_url: 'https://archive.ics.uci.edu/dataset/73/mushroom', algorithm: 'NeuralUCB (Zhou et al. 2020)', algorithm_source_url: 'https://arxiv.org/abs/1911.04462', algorithm_source_kind: paper, attribution: literature, task_type: contextual_bandit, n_datasets: 1, metric: cumulative_reward, value: null, note: "fetch_ok_no_number: https://archive.ics.uci.edu/dataset/73/mushroom is the dataset page only; NeuralUCB's own Mushroom results are in figures (arXiv:1911.04462) with no extractable numeric table."}
+- id: M1
+  name: Contextual bandit (online policy selection)
+  description: Sequentially choose an arm given context and observed reward; balance exploration vs exploitation under delayed feedback.
+  real_life:
+  - News / content recommendation with per-article CTR
+  - Ad placement with per-user context
+  - Clinical trial adaptive randomization
+  benchmarks:
+  - name: Yahoo_R6A
+    url: https://webscope.sandbox.yahoo.com/catalog.php?datatype=r&did=1
     metrics:
-      - {name: ctr, combination: anchor, direction: higher, responsibility: 'Click-through rate on a held-out evaluation set; the primary online-bandit metric.', special: 'Depends on the arm set and the logging policy; only compare within the same dataset. Report relative CTR vs baseline alongside.'}
-      - {name: ctr_lift_pct, combination: diagnostic, direction: higher, responsibility: 'Relative CTR lift versus the epsilon-greedy baseline.', special: 'Baseline-specific; do not compare across papers with different baselines.'}
-      - {name: relative_ctr, combination: diagnostic, direction: higher, responsibility: 'Relative CTR versus uniform-random logging policy (ZOZO convention).', special: 'Different baseline than ctr_lift_pct; do not mix.'}
-      - {name: cumulative_reward, combination: pareto_axis, direction: higher, responsibility: 'Total reward over the horizon in simulated bandits (Mushroom).', special: 'Horizon- and reward-encoding-dependent.'}
-    ensemble_recommendation:
-      - roles: [linear_signal, probabilistic]
-        models: [LinUCB, ThompsonSampling]
-        max_per_role: 2
-        note: "LinUCB (linear UCB) and Thompson Sampling (Bayesian posterior sampling) are the two canonical exploration strategies; combine by mixing their action distributions when both verified in cadw."
+    - ctr
+    - ctr_lift_pct
+    note: Li et al. 2010 evaluation set. CTRs from Table 1 of arXiv:1003.0146; no cross-paper leaderboard exists — this is the canonical published comparison.
+  - name: Open_Bandit_Dataset
+    url: https://github.com/st-tech/zr-obp
+    metrics:
+    - ctr
+    - relative_ctr
+    note: Saito et al. 2020 (ZOZO). Fashion e-commerce with logged Bernoulli-TS and random policies. Not comparable to Yahoo R6A.
+  models:
+  - name: LinUCB
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - linear_signal
+    purpose: 'Li et al. 2010 — per-arm ridge regression on context with an upper-confidence exploration bonus. Inductive bias: reward is a linear function of context per arm, with a disjoint or hybrid parameterization; strong when contexts are low-dimensional and reward is roughly linear.'
+    real_life_examples:
+    - News recommendation with article features
+    - Ad slot allocation with user context
+    - Dynamic pricing with linear demand
+    config:
+      alpha: float
+      l2: float
+    benchmark_results:
+    - benchmark: Yahoo_R6A
+      benchmark_url: https://arxiv.org/html/1003.0146v2
+      algorithm: LinUCB (Li et al. 2010, disjoint)
+      algorithm_source_url: https://github.com/david-cortes/contextualbandits
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: contextual_bandit
+      n_datasets: 1
+      metric: ctr
+      value: 1.795
+      note: 'fetched 2026-10-25 from arXiv:1003.0146 Table 1 (one-week eval set, 100% data): ''linucb (disjoint) 1.795'' in deploy bucket. Same page also reports +12.5% lift over epsilon-greedy.'
+    - benchmark: Yahoo_R6A
+      benchmark_url: https://arxiv.org/html/1003.0146v2
+      algorithm: LinUCB (Li et al. 2010, disjoint)
+      algorithm_source_url: https://github.com/david-cortes/contextualbandits
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: contextual_bandit
+      n_datasets: 1
+      metric: ctr_lift_pct
+      value: 12.5
+      note: 'fetched 2026-10-25 from arXiv:1003.0146 Table 1: ''linucb (disjoint) ... 12.5%'' lift over epsilon-greedy at 100% data.'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/linucb.json
+      algorithm: cadw.ml.linucb.fit_linucb
+      algorithm_source_url: cadw/ml/linucb.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: contextual_bandit
+      n_datasets: 3
+      metric: peak_rss_mb
+      value: 51.1
+      std: null
+      note: 'CADW-native: peak_mb=4.7 @n=10k, 19.4 @n=50k, 51.1 @n=150k (linucb.json); fit_s=0.04 @n=150k, 5 arms. NOT comparable to external CTR numbers.'
+    cadw_module: cadw.ml.linucb
+    cadw_function: fit_linucb
+  - name: EpsilonGreedy
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_by_agent: true
+      described_only: true
+    roles:
+    - linear_signal
+    purpose: 'Epsilon-greedy exploration over per-arm reward estimates. Inductive bias: no structural assumption — uniform random exploration with rate epsilon, then exploit the empirical mean. Canonical baseline; weak when rewards are context-dependent.'
+    real_life_examples:
+    - A/B test with fixed explore rate
+    - Cold-start content display
+    - Bandit baseline in production stacks
+    config:
+      epsilon: float
+    benchmark_results:
+    - benchmark: Yahoo_R6A
+      benchmark_url: https://arxiv.org/html/1003.0146v2
+      algorithm: epsilon-greedy (Li et al. 2010 baseline)
+      algorithm_source_url: https://github.com/st-tech/zr-obp
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: contextual_bandit
+      n_datasets: 1
+      metric: ctr
+      value: 1.596
+      note: 'fetched 2026-10-25 from arXiv:1003.0146 Table 1: ''epsilon-greedy 1.596''. Reference baseline (0% lift by construction).'
+  - name: UCB1
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_by_agent: true
+      described_only: true
+    roles:
+    - probabilistic
+    purpose: 'Auer et al. 2002 UCB1 — non-contextual optimism under uncertainty with an O(sqrt(log T / n_a)) bonus. Inductive bias: stationary arm means with no context; outperforms epsilon-greedy on stationary problems but not context-dependent ones.'
+    real_life_examples:
+    - Non-contextual slot selection
+    - Bandit baseline without features
+    - Multi-armed test allocation
+    config:
+      confidence: float
+    benchmark_results:
+    - benchmark: Yahoo_R6A
+      benchmark_url: https://arxiv.org/html/1003.0146v2
+      algorithm: UCB1 (Li et al. 2010 baseline)
+      algorithm_source_url: https://github.com/david-cortes/contextualbandits
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: contextual_bandit
+      n_datasets: 1
+      metric: ctr
+      value: 1.594
+      note: 'fetched 2026-10-25 from arXiv:1003.0146 Table 1: ''ucb 1.594'' in deploy bucket.'
+  - name: ThompsonSampling
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      verified_by_agent: true
+      described_only: true
+    roles:
+    - probabilistic
+    purpose: 'Chapelle & Li 2011 — Beta-Bernoulli posterior sampling per arm; plays an arm with probability proportional to its posterior probability of being optimal. Inductive bias: conjugate Bayesian per-arm model; naturally balances exploration and exploitation and is empirically strong on CTR data.'
+    real_life_examples:
+    - News recommendation with Thompson sampling
+    - Ad CTR optimization
+    - Adaptive clinical allocation
+    config:
+      prior_alpha: float
+      prior_beta: float
+    benchmark_results:
+    - benchmark: Open_Bandit_Dataset
+      benchmark_url: https://arxiv.org/html/2008.07146
+      algorithm: Bernoulli Thompson Sampling (ZOZO logger)
+      algorithm_source_url: https://papers.nips.cc/paper_files/paper/2011/hash/e53a0a2978c28872a4505bdb51db06dc-Abstract.html
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: contextual_bandit
+      n_datasets: 3
+      metric: relative_ctr
+      value: 1.43
+      note: 'fetched 2026-10-25 from arXiv:2008.07146 Table 1 (ALL campaign): ''Bernoulli TS 12,168,084 0.50% ± 0.004 1.43'' — relative CTR vs uniform-random. Same table gives 1.94 on Men''s and 1.84 on Women''s.'
+    - benchmark: Open_Bandit_Dataset
+      benchmark_url: https://arxiv.org/html/2008.07146
+      algorithm: Bernoulli Thompson Sampling (ZOZO logger)
+      algorithm_source_url: https://papers.nips.cc/paper_files/paper/2011/hash/e53a0a2978c28872a4505bdb51db06dc-Abstract.html
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: contextual_bandit
+      n_datasets: 3
+      metric: ctr
+      value: 0.5
+      note: 'fetched 2026-10-25 from arXiv:2008.07146 Table 1 (ALL campaign): ''Bernoulli TS ... 0.50% ± 0.004''. Value is percent CTR (0.5% = 0.005 fraction).'
+  - name: NeuralUCB
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - nonlinear_interactions
+    - representation
+    purpose: 'Zhou et al. 2020 — UCB exploration on top of a neural-network reward surrogate, using the network''s gradient as a feature map. Inductive bias: arbitrary nonlinear reward function learnable by an MLP; strong on high-dimensional context (image/text) but needs torch.'
+    real_life_examples:
+    - Image-content recommendation
+    - High-dimensional ad creatives
+    - Neural bandits in RLHF
+    config:
+      hidden_sizes: list
+      lr: float
+      lambda_: float
+    benchmark_results:
+    - benchmark: Mushroom
+      benchmark_url: https://archive.ics.uci.edu/dataset/73/mushroom
+      algorithm: NeuralUCB (Zhou et al. 2020)
+      algorithm_source_url: https://arxiv.org/abs/1911.04462
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: contextual_bandit
+      n_datasets: 1
+      metric: cumulative_reward
+      value: null
+      note: 'fetch_ok_no_number: https://archive.ics.uci.edu/dataset/73/mushroom is the dataset page only; NeuralUCB''s own Mushroom results are in figures (arXiv:1911.04462) with no extractable numeric table.'
+  metrics:
+  - name: ctr
+    combination: anchor
+    direction: higher
+    responsibility: Click-through rate on a held-out evaluation set; the primary online-bandit metric.
+    special: Depends on the arm set and the logging policy; only compare within the same dataset. Report relative CTR vs baseline alongside.
+  - name: ctr_lift_pct
+    combination: diagnostic
+    direction: higher
+    responsibility: Relative CTR lift versus the epsilon-greedy baseline.
+    special: Baseline-specific; do not compare across papers with different baselines.
+  - name: relative_ctr
+    combination: diagnostic
+    direction: higher
+    responsibility: Relative CTR versus uniform-random logging policy (ZOZO convention).
+    special: Different baseline than ctr_lift_pct; do not mix.
+  - name: cumulative_reward
+    combination: pareto_axis
+    direction: higher
+    responsibility: Total reward over the horizon in simulated bandits (Mushroom).
+    special: Horizon- and reward-encoding-dependent.
+  - name: peak_rss_mb
+    combination: diagnostic
+    direction: lower
+    responsibility: CADW measured peak RSS during fit; not comparable to external.
+    special: tracemalloc-based.
+  ensemble_recommendation:
+  - roles:
+    - linear_signal
+    - probabilistic
+    models:
+    - LinUCB
+    max_per_role: 2
+    note: LinUCB (linear UCB) and Thompson Sampling (Bayesian posterior sampling) are the two canonical exploration strategies; combine by mixing their action distributions when both verified in cadw.

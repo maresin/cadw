@@ -51,3 +51,47 @@ def test_subtype_md_in_sync(section_yaml):
             f"{path.relative_to(ROOT)} out of sync with YAML. "
             f"Run: python scripts/render_matrix.py"
         )
+
+
+# ============================================================
+# v0.9.48.8: per-subtype render coverage (fine-grained stale-file detection).
+# ============================================================
+
+
+def _all_subtypes():
+    out = []
+    for section_yaml in sorted(ML_TOOLS.glob("[A-Z]_*.yaml")):
+        sec = render.load_section(section_yaml)
+        for st in sec.subtypes:
+            out.append((section_yaml, sec, st))
+    return out
+
+
+@pytest.mark.parametrize(
+    "section_yaml,sec,subtype",
+    _all_subtypes(),
+    ids=lambda x: (x.id if hasattr(x, 'id') else (x.stem if hasattr(x, 'stem') else str(x))),
+)
+def test_subtype_md_exists_nonempty_and_in_sync(section_yaml, sec, subtype):
+    """Each docs/tasks/<Section><subtype>.md file must (a) exist, (b) be
+    non-empty, (c) start with the subtype header, (d) be byte-identical to
+    render_subtype_md(). Catches a stale or truncated task file for one
+    subtype without failing the whole section."""
+    if not TASKS.exists():
+        pytest.skip("docs/tasks/ not generated; run scripts/render_matrix.py")
+    fname = f"{sec.section}{subtype.id.replace('.', '_')}.md"
+    path = TASKS / fname
+    assert path.exists(), f"missing {path.relative_to(ROOT)}"
+    actual = path.read_text()
+    assert actual, f"{path.relative_to(ROOT)} is empty"
+    expected_header = f"# {subtype.id} — {subtype.name}"
+    first_line = actual.splitlines()[0] if actual.splitlines() else ""
+    assert first_line == expected_header, (
+        f"{path.relative_to(ROOT)}: header mismatch; "
+        f"got {first_line!r}, expected {expected_header!r}"
+    )
+    expected = render.render_subtype_md(sec, subtype)
+    assert actual == expected, (
+        f"{path.relative_to(ROOT)} out of sync with YAML. "
+        f"Run: python scripts/render_matrix.py"
+    )

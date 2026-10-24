@@ -170,5 +170,5 @@
   - *special:* Requires pre-specified horizons; not summed across time.
 
 ## Ensemble rules
-- **[linear_signal, probabilistic]** → CoxPH + WeibullAFT (max_per_role=2)
+- **[linear_signal, probabilistic]** → CoxPH (max_per_role=2)
   - CoxPH (semi-parametric PH) and WeibullAFT (parametric AFT) give complementary hazard parameterizations; average the predicted risk ranking when both verified in cadw.

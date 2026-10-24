@@ -122,7 +122,10 @@
 - **fit_time_s** (diagnostic, lower)
   - Wall-clock fit time.
   - *special:* Hardware-specific.
+- **peak_rss_mb** (diagnostic, lower)
+  - CADW measured peak RSS during fit; not comparable to external.
+  - *special:* tracemalloc-based.
 
 ## Ensemble rules
-- **[linear_signal, probabilistic]** → TFIDF_LogReg + ComplementNB (max_per_role=1)
+- **[linear_signal, probabilistic]** → TFIDF_LogReg (max_per_role=1)
   - LogReg (margin-based) and ComplementNB (generative) give complementary lexical priors; average predicted probabilities on the same TF-IDF matrix.

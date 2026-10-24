@@ -96,6 +96,9 @@
 - **fit_time_s** (diagnostic, lower)
   - Wall-clock fit/encode time.
   - *special:* Hardware-specific.
+- **main_score** (diagnostic, higher)
+  - MTEB aggregate main score; leaderboard-defined.
+  - *special:* Task-subset dependent.
 
 ## Ensemble rules
 - **[representation]** → LSA_TFIDF_SVD (max_per_role=1)

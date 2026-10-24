@@ -116,6 +116,9 @@
 - **peak_rss_mb** (diagnostic, lower)
   - Peak resident memory during describe.
   - *special:* tracemalloc-based; single-chunk numbers only (see BUG-1).
+- **accuracy** (diagnostic, higher)
+  - Accuracy metric placeholder for binning preprocessing; no meaningful leaderboard.
+  - *special:* Reported as null; semantics noted.
 
 ## Ensemble rules
 - **[representation]** → Describe + Hist (max_per_role=3)
