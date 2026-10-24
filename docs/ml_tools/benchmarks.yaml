@@ -95,3 +95,14 @@ benchmarks:
     metrics: [recall_at_k, ndcg_at_k]
     warning: "Implicit-feedback split; NDCG@10 varies with negative
       sampling. Compare only within the same split."
+
+  cadw_internal:
+    url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches"
+    modality: internal
+    metrics: ["peak_rss_mb", "fit_time_s", "qini", "ndcg_at_k", "auprc", "rmse"]
+    warning: "CADW-native measurement. NOT comparable to external
+      leaderboards. Use only when (a) no public leaderboard exists for
+      the metric (memory, runtime), or (b) as evidence in a
+      cadw_reproduced pair. Never alone for cross-framework ranking.
+      Also: metrics list is illustrative — schema accepts any string
+      when benchmark=cadw_internal."
