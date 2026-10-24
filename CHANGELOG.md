@@ -1,23 +1,46 @@
 ## [Unreleased]
 
-### v0.9.47 (2026-10-24) — METHODOLOGY.md + TASK_v0.9.47 (PINGIS discovery)
+### v0.9.47 (2026-10-24) — METHODOLOGY + schema v3 + PINGIS TASK
 
-Docs + tooling only. No production code.
+Docs + tooling only. No production ML code.
 
-- **METHODOLOGY.md** (repo root, 133 lines) — bridge between chat
-  sessions and PINGIS. Discovery / Triage / Benchmark selection /
-  Verification / Registration / Debugging divergence ladder / PINGIS
-  vs human roles. Lives in root (not docs/) because
-  `collect_project --mode=tiny` only snapshots root README.md and
-  CHANGELOG.md fully — `docs/**` is STUB. Next chat session reads the
-  full file.
-- **scripts/collect_project.py** — `METHODOLOGY.md` added to
-  `ROOT_FILES_FULL` whitelist.
-- **.pingis/tasks/TASK_v0.9.47_ml_tools_discovery.md** — PINGIS
-  assignment: fill 7 remaining matrix sections (I/J/K/L/M/N/O).
-  Cards only, no code. Priority: already-in-CADW models first
-  (CoxPH, GMM, TF-IDF, LinUCB, describe/hist/fillna/fairness/drift).
-  Gates: schema validator + render_matrix; no new deps; no model code.
+**v0.9.47a — METHODOLOGY.md + collect_project whitelist**
+- METHODOLOGY.md in repo root (~170 lines): Discovery / Triage /
+  multi-benchmark selection / two-source verification / Registration /
+  Debugging divergence ladder / PINGIS vs human roles. In root so that
+  `collect_project --mode=tiny` snapshots it fully (docs/** is STUB).
+- `scripts/collect_project.py`: METHODOLOGY.md added to ROOT_FILES_FULL.
+
+**v0.9.47b — schema v3 + audit_url_log**
+- `docs/ml_tools/enums.py`: ATTRIBUTIONS (literature | cadw_reproduced |
+  cadw_measured), SOURCE_KINDS (paper | code | docs | pseudocode |
+  description).
+- `docs/ml_tools/schema.py`: BenchmarkResult v3 — benchmark/benchmark_url
+  (WHERE the number comes from) + algorithm/algorithm_source_url/
+  algorithm_source_kind (WHERE the algorithm is documented) + attribution
+  + reproduces + task_type + n_datasets + metric + value + std + note.
+  ModelCard.benchmark_results: list. Backward-compat shim keeps old
+  singular `benchmark_result` parseable.
+- `scripts/audit_url_log.py` (new): gate for v0.9.48. For literature
+  entries, BOTH benchmark_url and algorithm_source_url need url_log
+  entries with status=200. cadw_reproduced requires `.pingis` JSON with
+  verdict=consistent. cadw_measured requires both URLs exist.
+  LEGACY v2 cards emit warning, not error.
+- `scripts/render_matrix.py`: renders benchmark_results list; docs/tasks/*
+  regenerated.
+- `tests/test_audit_url_log.py` (9 tests).
+
+**v0.9.47c — TASK_v0.9.48 + METHODOLOGY refinement**
+- METHODOLOGY §3 rewritten: multi-benchmark per subtype (AMLB + OpenML_CC18
+  + Kaggle, etc.), n_datasets + std, per-dataset stories as prose.
+- METHODOLOGY §4 rewritten: two sources per number (benchmark_url +
+  algorithm_source_url), attribution tiers.
+- `TASK_v0.9.48_ml_tools_discovery.md`: single task for 7 remaining
+  sections (I/N/J/M/O/L/K) with resume protocol, url_log gate, per-
+  algorithm rows, anti-hallucination discipline.
+- Old TASK_v0.9.47 archived to `.pingis/tasks/archive/`.
+
+**Version:** 0.9.46 → 0.9.47. Fast suite: 2978 passed, 2 skipped. WL 34 OK.
 
 ## [Unreleased]
 

@@ -42,37 +42,96 @@ verifiable from a public benchmark; no usable `roles` slot.
 `linear_signal`, `nonlinear_interactions`, `local_structure`,
 `probabilistic`, `temporal_dynamics`, `representation`, `calibration`.
 
-## 3. Benchmark selection — one primary + 1-2 secondary
+## 3. Benchmark selection — multi-benchmark per subtype
 
-| Task | Primary | Secondary |
+A **benchmark** defines a canonical dataset set and a protocol for
+aggregation (typically mean ± std across N datasets). A **leaderboard**
+ranks models by the aggregate. `task_type` names the benchmark's task
+family subset (AMLB covers binary / multiclass / regression; the
+`n_datasets` count differs per task).
+
+For each subtype, collect **every benchmark** with published results in
+papers from 2022+:
+
+| Task family | Typical benchmarks | Count |
 |---|---|---|
-| Binary / multiclass / regression | AMLB | Kaggle (different splits!) |
-| Unsupervised anomaly | ODDS | ADBench |
-| Supervised anomaly | AMLB | — |
-| TS forecast | M4 | M5 (hierarchical only) |
-| TS classification | UCR | UEA |
-| TS anomaly | UCR_Anomaly | TSB-AD |
-| Recsys | Amazon_Recsys | MovieLens |
-| Uplift / causal | RCT_IHDP | — |
-| LTR | LETOR | — |
-| Survival | CoxPH_Survival | — |
+| Binary / multiclass / regression | AMLB, OpenML_CC18, Kaggle (1-2 recent) | 2-4 |
+| Unsupervised anomaly | ODDS, ADBench, PyOD benchmark | 2-3 |
+| Supervised anomaly | AMLB | 1 |
+| TS forecast | M4, M5, M3, tourism | 2-4 |
+| TS classification | UCR, UEA | 2 |
+| TS anomaly | UCR_Anomaly, TSB-AD | 1-2 |
+| Recsys | Amazon_Recsys, MovieLens-1M, Yelp | 2-3 |
+| Uplift / causal | RCT_IHDP, ACIC, Lalonde | 2-3 |
+| LTR | LETOR, MSLR-WEB30K | 1-2 |
+| Survival | CoxPH_Survival, SUPPORT2, METABRIC | 2-3 |
+| Density | sklearn density benchmark, UCI (1-2) | 1-2 |
+| Bandits | MovieLens for bandits, synthetic Yahoo R6 | 1-2 |
+| NLP | SST-2, AG News, 20 Newsgroups, Reuters | 2-4 |
 
-**Rule:** each benchmark in `benchmarks.yaml` MUST have a `warning`
-field stating the comparability caveat. Cross-benchmark numbers are
-never comparable. A new benchmark is added only if it is used by
->= 3 papers from 2022+ and has a public split.
+**Minimum:** 1 benchmark (niche subtype). **Mainstream:** 2-3.
 
-## 4. Verification — three levels
+**Metrics per benchmark:** anchor + 1-2 diagnostics. Include **every**
+metric the public leaderboard publishes. If leaderboard gives AUC and
+F1 — both go in.
 
-| Level | What | Where |
+**Per-dataset stories** (highest/lowest value) go in `note` as prose,
+not as a structured field. Benchmarks define the canonical dataset
+set; enumerating it per card is duplication.
+
+**Special case `cadw_internal`:** for models whose only verified number
+is CADW's own measurement (memory, runtime, synthetic DGP). Registered
+in `benchmarks.yaml` with `warning: "CADW-native measurement, NOT
+comparable to external leaderboards"`.
+
+## 4. Verification — two sources per number + 3 attribution tiers
+
+Every `BenchmarkResult` records **two URLs**:
+
+| Field | What | Example |
 |---|---|---|
-| **literature** | number from paper / leaderboard | `benchmark_result.source + url + value` |
-| **reference** | run in isolated env (`requirements-bench.txt`) | `.pingis/benches/reproduction/<name>.json` |
-| **discrepancy** | if literature != reference — prefer reference, document | `notes: "lit=0.53, ref=0.48 (different split)"` |
+| `benchmark_url` | WHERE the number comes from | leaderboard page, or `.pingis/benches/<name>.json` |
+| `algorithm_source_url` | WHERE the algorithm is documented | paper DOI, arXiv, GitHub, official docs |
 
-Never substitute one number for another without an explicit `notes`.
-`tests/test_ml_tools_schema.py` enforces that `source` is in the
-registry.
+These URLs are often on **different domains** and are **never the same
+URL** for a literature entry. `algorithm_source_kind` ∈
+{`paper`, `code`, `docs`, `pseudocode`, `description`} labels what kind
+of source it is.
+
+### Attribution tiers (3)
+
+| `attribution` | Meaning | When set |
+|---|---|---|
+| `literature` | Number from external publication | PINGIS fetched page, quoted number |
+| `cadw_reproduced` | CADW matched the original within tolerance | M2 `reproduce_benchmark.py` verdict=consistent |
+| `cadw_measured` | CADW measured, no external reference (memory/runtime/synthetic DGP) | `.pingis/benches/<name>.json` |
+
+**Rule:** before a `cadw_reproduced` exists, source = `literature` (with
+`algorithm` naming the external implementation and `algorithm_source_url`
+pointing to its paper/code). When CADW matches it, **add** a second
+`cadw_reproduced` entry — do not replace the literature one. Both stay,
+so the matrix shows "CADW at parity with LightGBM on AMLB".
+
+`reproduces` field is required iff `attribution == "cadw_reproduced"`.
+It names the **literature algorithm** (must match an `algorithm` in a
+sibling literature entry for the same `benchmark` + `metric`).
+
+### Discrepancy
+
+If literature value differs from reference reproduction: prefer the
+reference, document in `note: "lit=0.53, ref=0.48 (different split)"`.
+Never overwrite the literature value with the reproduction value — they
+are separate rows.
+
+### Enforced by
+
+- `tests/test_ml_tools_schema.py` — attribution-specific rules
+  (literature ≠ cadw.*, reproduces required iff cadw_reproduced,
+  note required when value set, std requires n_datasets >= 2).
+- `scripts/audit_url_log.py` — every literature entry needs a
+  `url_log.jsonl` entry with `status=200` for BOTH `benchmark_url` and
+  `algorithm_source_url`; cadw_reproduced needs a `.pingis` JSON with
+  `verdict=consistent`; cadw_measured needs both paths to exist.
 
 ## 5. Registration — how to add a model
 
