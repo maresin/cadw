@@ -61,3 +61,9 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | H | H1 Treatment effect (ATE / CATE) | DR_learner | sota | tier3_export | nonlinear_interactions, probabilistic | desc, export | ate_error |
 | H | H2 Uplift modeling (Qini) | T_learner_uplift | baseline | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | qini |
 | H | H2 Uplift modeling (Qini) | CausalTree | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | qini |
+| I | I1 Time-to-event (Cox / AFT / deep) | CoxPH | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | c_index |
+| I | I1 Time-to-event (Cox / AFT / deep) | KaplanMeier | baseline | tier1_core | probabilistic | ✓ agent, desc | c_index |
+| I | I1 Time-to-event (Cox / AFT / deep) | WeibullAFT | baseline | tier1_core | linear_signal, probabilistic | ✓ agent, desc | c_index |
+| I | I1 Time-to-event (Cox / AFT / deep) | RandomSurvivalForest | sota | tier3_export | nonlinear_interactions | desc, export | c_index |
+| I | I1 Time-to-event (Cox / AFT / deep) | DeepSurv | sota | tier3_export | nonlinear_interactions, representation | desc, export | c_index |
+| I | I1 Time-to-event (Cox / AFT / deep) | DeepHit | sota | tier3_export | nonlinear_interactions, representation | desc, export | c_index |

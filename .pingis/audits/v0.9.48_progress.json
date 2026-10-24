@@ -1,0 +1,12 @@
+{
+  "last_completed": "I",
+  "in_progress": "N",
+  "completed_cards": [
+    "I1.CoxPH",
+    "I1.KaplanMeier",
+    "I1.WeibullAFT",
+    "I1.RandomSurvivalForest",
+    "I1.DeepSurv",
+    "I1.DeepHit"
+  ]
+}
