@@ -1,0 +1,13 @@
+{
+  "model": "CoxPH",
+  "dataset_kind": "synthetic_survival_like",
+  "reference_model": "lifelines.CoxPHFitter",
+  "cadw_metric": 0.6754508760878187,
+  "reference_metric": 0.6754508760878187,
+  "cadw_peak_mb": 0.0,
+  "reference_peak_mb": 0.0,
+  "cadw_time_s": 0.007526874542236328,
+  "reference_time_s": 0.07767605781555176,
+  "verdict": "consistent",
+  "notes": ""
+}

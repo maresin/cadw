@@ -1,0 +1,13 @@
+{
+  "model": "VAR",
+  "dataset_kind": "synthetic_m4_like_multivariate",
+  "reference_model": "statsmodels.VAR",
+  "cadw_metric": 5.83672798857639e-18,
+  "reference_metric": 0.0,
+  "cadw_peak_mb": 0.0,
+  "reference_peak_mb": 0.0,
+  "cadw_time_s": 0.0008962154388427734,
+  "reference_time_s": 0.0023064613342285156,
+  "verdict": "consistent",
+  "notes": "cadw_metric = RMSE(cadw_forecast, statsmodels_forecast); 0.0 = perfect match; threshold 0.5 is generous."
+}

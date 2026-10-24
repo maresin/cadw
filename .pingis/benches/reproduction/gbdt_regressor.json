@@ -1,0 +1,13 @@
+{
+  "model": "GBDT_regressor",
+  "dataset_kind": "synthetic_amlb_regression_like",
+  "reference_model": "sklearn.GradientBoostingRegressor",
+  "cadw_metric": 1.0970246900316962,
+  "reference_metric": 1.0497748147874377,
+  "cadw_peak_mb": 0.0,
+  "reference_peak_mb": 0.0,
+  "cadw_time_s": 0.23102784156799316,
+  "reference_time_s": 0.07793927192687988,
+  "verdict": "consistent",
+  "notes": ""
+}

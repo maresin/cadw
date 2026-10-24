@@ -1,0 +1,13 @@
+{
+  "model": "IForest",
+  "dataset_kind": "synthetic_odds_like",
+  "reference_model": "sklearn.IsolationForest",
+  "cadw_metric": 0.9987789473684211,
+  "reference_metric": 0.9992,
+  "cadw_peak_mb": 0.0,
+  "reference_peak_mb": 0.0,
+  "cadw_time_s": 0.24639344215393066,
+  "reference_time_s": 0.13376808166503906,
+  "verdict": "consistent",
+  "notes": ""
+}

@@ -919,6 +919,43 @@
         }
       ],
       "completed_at": "2026-10-24"
+    },
+    {
+      "id": "M2",
+      "name": "ML-tools matrix: reproduction",
+      "description": "Run each CADW model against a reference on a synthetic benchmark-like DGP; record verdict in .pingis/benches/reproduction/.",
+      "status": "in_progress",
+      "started_at": "2026-10-24",
+      "items": [
+        {
+          "id": "M2.1",
+          "name": "reproduce_benchmark.py skeleton + 4 models (IForest, GBDT-reg, VAR, CoxPH)",
+          "status": "done",
+          "patch": "v0.9.46",
+          "complexity": "M"
+        },
+        {
+          "id": "M2.2",
+          "name": "Add pyod-based reproducers (LOF, OCSVM)",
+          "status": "planned",
+          "patch": "v0.9.47",
+          "complexity": "S"
+        },
+        {
+          "id": "M2.3",
+          "name": "Add implicit-based ALS reproducer",
+          "status": "planned",
+          "patch": "v0.9.47",
+          "complexity": "S"
+        },
+        {
+          "id": "M2.4",
+          "name": "Real benchmark data mode (--data=<path>)",
+          "status": "planned",
+          "patch": "v0.9.48",
+          "complexity": "M"
+        }
+      ]
     }
   ]
 }

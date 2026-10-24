@@ -73,3 +73,35 @@ datasets, different protocols, different metric definitions. Read
 - `not_implemented_in_cadw: true` — reached only via `to_batches`
 
 If both `verified_*` are false → **not eligible for ensembles**.
+
+## Reproduction (M2)
+
+`scripts/reproduce_benchmark.py` runs each CADW model alongside a
+reference implementation (sklearn, statsmodels, lifelines) on a
+**synthetic benchmark-like DGP** (see `samples.py`), and records:
+
+- `cadw_metric` vs `reference_metric` on the primary metric
+- `verdict`: `consistent` (within tolerance) / `divergent` / `cadw_error`
+- time and peak RSS per side
+
+Run:
+```bash
+python scripts/reproduce_benchmark.py --all --write
+```
+
+Artifacts land in `.pingis/benches/reproduction/<model>.json`.
+
+**What this is NOT**: not a leaderboard reproduction. Synthetic DGPs
+mimic task structure (e.g. "5% shifted anomalies"), not the actual
+benchmark dataset. `benchmark_result` in the YAML is still the
+literature number; reproduction numbers are separate.
+
+**Registering a new reproducer**: add a `repro_<name>` function to
+`scripts/reproduce_benchmark.py` (returns `ReproResult`) and add it to
+`REPRODUCERS`. `tests/test_reproduction_smoke.py` picks it up
+automatically.
+
+**Reference packages**: only those in `requirements-bench.txt`
+(pyod, ruptures, lifelines, implicit, statsmodels, sklearn). AST-guard
+`test_no_bench_deps_in_core.py` prevents `cadw/` from importing them.
+

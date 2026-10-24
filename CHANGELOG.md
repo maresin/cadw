@@ -1,5 +1,34 @@
 ## [Unreleased]
 
+### v0.9.46 (2026-10-24) — M2 first: reproduce_benchmark + 4 models
+
+Reproduction harness: CADW model vs reference (sklearn, statsmodels,
+lifelines) on synthetic benchmark-like DGP. Not a leaderboard
+reproduction.
+
+- **scripts/reproduce_benchmark.py** — 4 reproducers, all references
+  already in dev group (no install): IForest, GBDT-reg, VAR, CoxPH.
+  Uses model-specific APIs: GBDT.predict(np.ndarray) via _predict_np,
+  IForest.score_samples(df), CoxPH.predict_risk(df) -> pa.Table,
+  VARModel(p).fit(target_col=list) + forecast_vector(steps).
+- **docs/ml_tools/samples.py** — deterministic DGP generators
+  (gen_odds_like, gen_amlb_{binary,regression}_like, gen_m4_like,
+  gen_survival_like).
+- **tests/test_reproduction_smoke.py** — 5 tests (4 reproducers,
+  1 artifact); skip on missing reference; fail on divergent/cadw_error.
+- **Artifacts** `.pingis/benches/reproduction/<model>.json`.
+- **README.md** M2 section; roadmap M2 in_progress; CONTEXT.md M2 row.
+
+Measured (synthetic, seed=0):
+- IForest 0.9988 AUROC vs sklearn 0.9992
+- GBDT-reg 1.0970 RMSE vs sklearn 1.0498
+- CoxPH 0.6755 c-index vs lifelines 0.6755
+- VAR RMSE(cadw, statsmodels) = 0.0000 (OLS deterministic)
+
+Version 0.9.45 -> 0.9.46.
+
+## [Unreleased]
+
 ### v0.9.45 (2026-10-24) — M1 complete: E/F/G/H + render
 
 ML-tools matrix M1 is complete. 6 sections, 21 subtypes, 8 benchmarks.
