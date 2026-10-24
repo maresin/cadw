@@ -28,7 +28,11 @@
 
 **CADW:** `cadw.ml.logistic.fit_logistic`
 
-**Benchmark:** AMLB → pr_auc=0.42 (AMLB imbalance subset)
+**Benchmarks:**
+- **[literature]** AMLB → pr_auc=0.42
+  - algorithm: `Logistic_balanced` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: AMLB imbalance subset [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GBDT_scale_pos_weight — sota / tier1_core
 
@@ -45,7 +49,11 @@
 
 **CADW:** `cadw.ml.gbdt.fit_gbdt_classifier`
 
-**Benchmark:** AMLB → pr_auc=0.51
+**Benchmarks:**
+- **[literature]** AMLB → pr_auc=0.51
+  - algorithm: `GBDT_scale_pos_weight` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **pr_auc** (anchor, higher)

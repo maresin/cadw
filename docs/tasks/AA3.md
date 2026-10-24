@@ -28,7 +28,11 @@
 
 **CADW:** `cadw.ml.linear.fit_linear`
 
-**Benchmark:** AMLB → rmse=0.42 (normalised RMSE median across AMLB regression tasks)
+**Benchmarks:**
+- **[literature]** AMLB → rmse=0.42
+  - algorithm: `Ridge` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: normalised RMSE median across AMLB regression tasks [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### Lasso — baseline / tier1_core
 
@@ -44,7 +48,11 @@
 
 **CADW:** `cadw.ml.linear.fit_lasso`
 
-**Benchmark:** AMLB → rmse=0.43
+**Benchmarks:**
+- **[literature]** AMLB → rmse=0.43
+  - algorithm: `Lasso` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GBDT_L2 — sota / tier1_core
 
@@ -60,7 +68,11 @@
 
 **CADW:** `cadw.ml.gbdt.fit_gbdt_regressor`
 
-**Benchmark:** AMLB → rmse=0.36
+**Benchmarks:**
+- **[literature]** AMLB → rmse=0.36
+  - algorithm: `GBDT_L2` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **rmse** (anchor, lower)

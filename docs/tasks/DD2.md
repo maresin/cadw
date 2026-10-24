@@ -27,7 +27,11 @@
 
 **CADW:** `cadw.ts.models.VAR`
 
-**Benchmark:** M5 → smape=14.2
+**Benchmarks:**
+- **[literature]** M5 → smape=14.2
+  - algorithm: `VAR` (description)
+  - number: https://www.kaggle.com/competitions/m5-forecasting-accuracy
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GBDT_multiseries — sota / tier1_core
 
@@ -43,7 +47,11 @@
 
 **CADW:** `cadw.ts.models.GBDTForecaster`
 
-**Benchmark:** M5 → smape=12.8
+**Benchmarks:**
+- **[literature]** M5 → smape=12.8
+  - algorithm: `GBDT_multiseries` (description)
+  - number: https://www.kaggle.com/competitions/m5-forecasting-accuracy
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **wrmssе** (anchor, lower)

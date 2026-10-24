@@ -43,3 +43,27 @@ COMBINATION = (
 
 TIERS = ("baseline", "sota", "ensemble")
 DIRECTIONS = ("higher", "lower", "target")
+
+# === Attribution (3) — WHO produced the number ===
+# literature:     number comes from external paper / leaderboard (fetched).
+# cadw_reproduced: CADW reproduced it, parity with literature proven via M2.
+# cadw_measured:  CADW measured it, no external reference (memory/runtime/synthetic).
+ATTRIBUTIONS = (
+    "literature",
+    "cadw_reproduced",
+    "cadw_measured",
+)
+
+# === Algorithm source kind (5) — WHERE the algorithm is documented ===
+# paper:       peer-reviewed paper (arxiv, JMLR, NeurIPS, ...).
+# code:        source code (github, cadw/ml/*.py).
+# docs:        official documentation (sklearn, PyOD, lifelines, ...).
+# pseudocode:  algorithm box in a paper, no full code.
+# description: prose only (blog, review, manual).
+SOURCE_KINDS = (
+    "paper",
+    "code",
+    "docs",
+    "pseudocode",
+    "description",
+)

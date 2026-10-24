@@ -27,7 +27,11 @@
 
 **CADW:** `cadw.ml.als.fit_als`
 
-**Benchmark:** Amazon_Recsys → ndcg_at_k=0.23
+**Benchmarks:**
+- **[literature]** Amazon_Recsys → ndcg_at_k=0.23
+  - algorithm: `ALS` (description)
+  - number: https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### Hybrid_MF_GBDT — sota / tier1_core
 
@@ -43,7 +47,11 @@
 
 **CADW:** `cadw.ml.hybrid_mf.fit_hybrid_mf`
 
-**Benchmark:** Amazon_Recsys → ndcg_at_k=0.27
+**Benchmarks:**
+- **[literature]** Amazon_Recsys → ndcg_at_k=0.27
+  - algorithm: `Hybrid_MF_GBDT` (description)
+  - number: https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **ndcg_at_k** (anchor, higher)

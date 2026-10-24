@@ -28,7 +28,11 @@
 
 **CADW:** `cadw.ts.models.NaiveForecaster`
 
-**Benchmark:** M4 → smape=14.35 (naive2 M4 benchmark)
+**Benchmarks:**
+- **[literature]** M4 → smape=14.35
+  - algorithm: `NaiveForecaster` (description)
+  - number: https://github.com/Mcompetitions/M4-methods
+  - note: naive2 M4 benchmark [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### ETS — baseline / tier1_core
 
@@ -42,7 +46,11 @@
 
 **Config:** `{'trend': 'str', 'seasonal': 'str'}`
 
-**Benchmark:** M4 → smape=13.52
+**Benchmarks:**
+- **[literature]** M4 → smape=13.52
+  - algorithm: `ETS` (description)
+  - number: https://github.com/Mcompetitions/M4-methods
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### SARIMA — sota / tier1_core
 
@@ -58,7 +66,11 @@
 
 **CADW:** `cadw.ts.models.SARIMAForecaster`
 
-**Benchmark:** M4 → smape=12.84
+**Benchmarks:**
+- **[literature]** M4 → smape=12.84
+  - algorithm: `SARIMA` (description)
+  - number: https://github.com/Mcompetitions/M4-methods
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GBDTForecaster — sota / tier1_core
 
@@ -74,7 +86,11 @@
 
 **CADW:** `cadw.ts.models.GBDTForecaster`
 
-**Benchmark:** M4 → smape=12.3
+**Benchmarks:**
+- **[literature]** M4 → smape=12.3
+  - algorithm: `GBDTForecaster` (description)
+  - number: https://github.com/Mcompetitions/M4-methods
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **mase** (anchor, lower)

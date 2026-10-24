@@ -24,7 +24,11 @@
 
 **Config:** `{'n_bkps': 'int'}`
 
-**Benchmark:** UCR_Anomaly → auprc=0.38
+**Benchmarks:**
+- **[literature]** UCR_Anomaly → auprc=0.38
+  - algorithm: `BinarySegmentation` (description)
+  - number: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### PELT — sota / tier1_core
 
@@ -40,7 +44,11 @@
 
 **CADW:** `cadw.ml.pelt.fit_pelt`
 
-**Benchmark:** UCR_Anomaly → auprc=0.51
+**Benchmarks:**
+- **[literature]** UCR_Anomaly → auprc=0.51
+  - algorithm: `PELT` (description)
+  - number: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **auprc** (anchor, higher)

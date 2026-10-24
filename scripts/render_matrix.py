@@ -117,12 +117,29 @@ def render_subtype_md(sec, st) -> str:
             lines.append("")
             lines.append(f"**CADW:** `{m.cadw_module}.{m.cadw_function}`")
         lines.append("")
-        br = m.benchmark_result
-        lines.append(
-            f"**Benchmark:** {br.source} → {br.metric}={br.value}"
-            + (f" ({br.note})" if br.note else "")
-        )
-        lines.append("")
+        if not m.benchmark_results:
+            lines.append("**Benchmarks:** —")
+            lines.append("")
+        else:
+            lines.append("**Benchmarks:**")
+            for br in m.benchmark_results:
+                val = "null" if br.value is None else f"{br.value}"
+                std = f" ± {br.std}" if br.std is not None else ""
+                n = f" (n={br.n_datasets})" if br.n_datasets else ""
+                lines.append(
+                    f"- **[{br.attribution}]** {br.benchmark} → "
+                    f"{br.metric}={val}{std}{n}"
+                )
+                lines.append(f"  - algorithm: `{br.algorithm}` "
+                             f"({br.algorithm_source_kind})")
+                if br.reproduces:
+                    lines.append(f"  - reproduces: `{br.reproduces}`")
+                lines.append(f"  - number: {br.benchmark_url}")
+                if br.algorithm_source_url:
+                    lines.append(f"  - code/paper: {br.algorithm_source_url}")
+                if br.note:
+                    lines.append(f"  - note: {br.note}")
+            lines.append("")
 
     if st.metrics:
         lines.append("## Metrics")

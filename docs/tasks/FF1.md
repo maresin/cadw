@@ -26,7 +26,11 @@
 
 **Config:** `{'k': 'int', 'metric': 'str'}`
 
-**Benchmark:** Amazon_Recsys → ndcg_at_k=0.18
+**Benchmarks:**
+- **[literature]** Amazon_Recsys → ndcg_at_k=0.18
+  - algorithm: `ItemKNN` (description)
+  - number: https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### ALS — sota / tier1_core
 
@@ -42,7 +46,11 @@
 
 **CADW:** `cadw.ml.als.fit_als`
 
-**Benchmark:** Amazon_Recsys → ndcg_at_k=0.23
+**Benchmarks:**
+- **[literature]** Amazon_Recsys → ndcg_at_k=0.23
+  - algorithm: `ALS` (description)
+  - number: https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **ndcg_at_k** (anchor, higher)

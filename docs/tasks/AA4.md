@@ -27,7 +27,11 @@
 
 **CADW:** `cadw.ml.chains.fit_classifier_chains`
 
-**Benchmark:** AMLB → accuracy=0.62 (subset accuracy)
+**Benchmarks:**
+- **[literature]** AMLB → accuracy=0.62
+  - algorithm: `OneVsRest_Logistic` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: subset accuracy [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### ClassifierChains — sota / tier1_core
 
@@ -43,7 +47,11 @@
 
 **CADW:** `cadw.ml.chains.fit_classifier_chains`
 
-**Benchmark:** AMLB → accuracy=0.66
+**Benchmarks:**
+- **[literature]** AMLB → accuracy=0.66
+  - algorithm: `ClassifierChains` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **subset_accuracy** (anchor, higher)

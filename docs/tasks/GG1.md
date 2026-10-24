@@ -26,7 +26,11 @@
 
 **Config:** `{'alpha': 'float', 'max_iter': 'int'}`
 
-**Benchmark:** LETOR → ndcg_at_k=0.42
+**Benchmarks:**
+- **[literature]** LETOR → ndcg_at_k=0.42
+  - algorithm: `PairwiseLogistic` (description)
+  - number: https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### LambdaMART — sota / tier1_core
 
@@ -43,7 +47,11 @@
 
 **CADW:** `cadw.ml.lambdamart.fit_lambdamart`
 
-**Benchmark:** LETOR → ndcg_at_k=0.51
+**Benchmarks:**
+- **[literature]** LETOR → ndcg_at_k=0.51
+  - algorithm: `LambdaMART` (description)
+  - number: https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **ndcg_at_k** (anchor, higher)

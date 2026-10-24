@@ -27,7 +27,11 @@
 
 **CADW:** `cadw.ml.logistic.fit_logistic`
 
-**Benchmark:** AMLB → accuracy=0.74
+**Benchmarks:**
+- **[literature]** AMLB → accuracy=0.74
+  - algorithm: `LogisticRegression_multinomial` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GBDT_multiclass — sota / tier1_core
 
@@ -43,7 +47,11 @@
 
 **CADW:** `cadw.ml.gbdt.fit_gbdt_classifier`
 
-**Benchmark:** AMLB → accuracy=0.81
+**Benchmarks:**
+- **[literature]** AMLB → accuracy=0.81
+  - algorithm: `GBDT_multiclass` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GaussianNB — baseline / tier1_core
 
@@ -59,7 +67,11 @@
 
 **CADW:** `cadw.ml.naive_bayes.fit_gaussian_nb`
 
-**Benchmark:** AMLB → accuracy=0.68
+**Benchmarks:**
+- **[literature]** AMLB → accuracy=0.68
+  - algorithm: `GaussianNB` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **accuracy** (anchor, higher)

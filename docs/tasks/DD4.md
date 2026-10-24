@@ -27,7 +27,11 @@
 
 **CADW:** `cadw.ts.stats.rolling_stats`
 
-**Benchmark:** UCR_Classification → accuracy=0.82
+**Benchmarks:**
+- **[literature]** UCR_Classification → accuracy=0.82
+  - algorithm: `IntervalFeatures_GBDT` (description)
+  - number: https://www.timeseriesclassification.com/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### MiniRocket — sota / tier1_core
 
@@ -43,7 +47,11 @@
 
 **CADW:** `cadw.ml.minirocket.fit_minirocket`
 
-**Benchmark:** UCR_Classification → accuracy=0.89
+**Benchmarks:**
+- **[literature]** UCR_Classification → accuracy=0.89
+  - algorithm: `MiniRocket` (description)
+  - number: https://www.timeseriesclassification.com/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### HIVE-COTE — sota / tier3_export
 
@@ -55,7 +63,11 @@
 **Use cases:**
 - UCR leaderboard
 
-**Benchmark:** UCR_Classification → accuracy=0.93
+**Benchmarks:**
+- **[literature]** UCR_Classification → accuracy=0.93
+  - algorithm: `HIVE-COTE` (description)
+  - number: https://www.timeseriesclassification.com/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **accuracy** (anchor, higher)

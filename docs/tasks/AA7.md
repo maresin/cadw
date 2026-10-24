@@ -26,7 +26,11 @@
 
 **Config:** `{'quantiles': 'list', 'alpha': 'float'}`
 
-**Benchmark:** AMLB → rmse=0.5 (pinball loss, not rmse; use for ranking only)
+**Benchmarks:**
+- **[literature]** AMLB → rmse=0.5
+  - algorithm: `LinearQuantReg` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: pinball loss, not rmse; use for ranking only [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GBDT_pinball — sota / tier1_core
 
@@ -40,7 +44,11 @@
 
 **Config:** `{'quantiles': 'list', 'n_estimators': 'int'}`
 
-**Benchmark:** AMLB → rmse=0.46
+**Benchmarks:**
+- **[literature]** AMLB → rmse=0.46
+  - algorithm: `GBDT_pinball` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **pinball_loss** (anchor, lower)

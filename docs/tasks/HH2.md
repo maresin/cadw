@@ -27,7 +27,11 @@
 
 **CADW:** `cadw.ml.uplift._fit_uplift_two_model`
 
-**Benchmark:** RCT_IHDP → pehe=0.15
+**Benchmarks:**
+- **[literature]** RCT_IHDP → pehe=0.15
+  - algorithm: `T_learner_uplift` (description)
+  - number: https://www.fredjo.com/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### CausalTree — sota / tier1_core
 
@@ -43,7 +47,11 @@
 
 **CADW:** `cadw.ml.uplift.fit_uplift`
 
-**Benchmark:** RCT_IHDP → pehe=0.12
+**Benchmarks:**
+- **[literature]** RCT_IHDP → pehe=0.12
+  - algorithm: `CausalTree` (description)
+  - number: https://www.fredjo.com/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **qini** (anchor, higher)

@@ -30,7 +30,11 @@
 
 **CADW:** `cadw.ml.logistic.fit_logistic`
 
-**Benchmark:** AMLB → roc_auc=0.78 (median across AMLB binary tasks; ranking only)
+**Benchmarks:**
+- **[literature]** AMLB → roc_auc=0.78
+  - algorithm: `LogisticRegression` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: median across AMLB binary tasks; ranking only [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GBDT — sota / tier1_core
 
@@ -47,7 +51,11 @@
 
 **CADW:** `cadw.ml.gbdt.fit_gbdt_classifier`
 
-**Benchmark:** AMLB → roc_auc=0.82 (median across AMLB binary tasks)
+**Benchmarks:**
+- **[literature]** AMLB → roc_auc=0.82
+  - algorithm: `GBDT` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: median across AMLB binary tasks [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### BernoulliNB — baseline / tier1_core
 
@@ -64,7 +72,11 @@
 
 **CADW:** `cadw.ml.naive_bayes.fit_bernoulli_nb`
 
-**Benchmark:** AMLB → roc_auc=0.72
+**Benchmarks:**
+- **[literature]** AMLB → roc_auc=0.72
+  - algorithm: `BernoulliNB` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### TabPFN — sota / tier3_export
 
@@ -78,7 +90,11 @@
 
 **Config:** `{'n_estimators': 'int'}`
 
-**Benchmark:** AMLB → roc_auc=0.85 (Top of AMLB small-N subset; export via to_batches(format='torch'))
+**Benchmarks:**
+- **[literature]** AMLB → roc_auc=0.85
+  - algorithm: `TabPFN` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: Top of AMLB small-N subset; export via to_batches(format='torch') [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **roc_auc** (anchor, higher)

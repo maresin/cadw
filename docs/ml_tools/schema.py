@@ -34,11 +34,37 @@ class BenchmarkRef:
 
 @dataclass
 class BenchmarkResult:
-    source: str
-    url: str
-    metric: str
-    value: float
+    """v3 schema (v0.9.47b): separates number source from algorithm source.
+
+    - benchmark / benchmark_url: WHERE the NUMBER comes from
+    - algorithm / algorithm_source_url / algorithm_source_kind: WHERE the
+      algorithm is documented (paper / code / docs / pseudocode / description)
+    - attribution: literature | cadw_reproduced | cadw_measured
+    - reproduces: iff cadw_reproduced, names the literature algorithm
+      (must match an `algorithm` in a sibling literature entry)
+    """
+    benchmark: str
+    benchmark_url: str
+    algorithm: str = ""
+    algorithm_source_url: str = ""
+    algorithm_source_kind: str = "description"
+    attribution: str = "literature"
+    reproduces: str | None = None
+    task_type: str = ""
+    n_datasets: int | None = None
+    metric: str = ""
+    value: float | None = None
+    std: float | None = None
     note: str = ""
+
+    # --- Backward-compat shim (removed in v0.9.47c) ---
+    @property
+    def source(self) -> str:
+        return self.benchmark
+
+    @property
+    def url(self) -> str:
+        return self.benchmark_url
 
 
 @dataclass
@@ -59,9 +85,15 @@ class ModelCard:
     purpose: str
     real_life_examples: list[str]
     config: dict[str, Any]
-    benchmark_result: BenchmarkResult
+    benchmark_results: list[BenchmarkResult]
     cadw_module: str = ""
     cadw_function: str = ""
+
+    # --- Backward-compat shim (removed in v0.9.47c) ---
+    @property
+    def benchmark_result(self) -> BenchmarkResult | None:
+        """Deprecated: use .benchmark_results list."""
+        return self.benchmark_results[0] if self.benchmark_results else None
 
 
 @dataclass
@@ -117,7 +149,7 @@ class Benchmarks:
 
 # === Loaders ===
 
-def _load_yaml(path: Path) -> Any:
+def _load_yaml(path: str | Path) -> Any:
     try:
         import yaml
     except ImportError:
@@ -126,7 +158,7 @@ def _load_yaml(path: Path) -> Any:
             "pyyaml is a transitive dep of pytest; if missing, "
             "install with `pip install pyyaml`."
         )
-    return yaml.safe_load(path.read_text())
+    return yaml.safe_load(Path(path).read_text())
 
 
 def load_benchmarks(path: Path) -> Benchmarks:
@@ -141,6 +173,61 @@ def load_benchmarks(path: Path) -> Benchmarks:
             warning=spec.get("warning", ""),
         )
     return Benchmarks(benchmarks=specs)
+
+
+def _parse_benchmark_result(raw: dict, model_name: str) -> BenchmarkResult:
+    """Parse one benchmark_result entry (old v0.9.44 or new v0.9.47b schema).
+
+    Old schema shim: source/url/metric/value/note -> v3 fields with
+    algorithm=model_name, algorithm_source_kind=description,
+    attribution=literature. Note gets a [migrated] suffix.
+    """
+    if "source" in raw and "benchmark" not in raw:
+        old_note = raw.get("note", "")
+        suffix = "[migrated v0.9.47b: algorithm/algorithm_source_url unverified]"
+        migrated_note = (old_note + " " + suffix).strip() if old_note else suffix
+        old_val = raw["value"]
+        return BenchmarkResult(
+            benchmark=raw["source"],
+            benchmark_url=raw["url"],
+            algorithm=model_name,
+            algorithm_source_url="",
+            algorithm_source_kind="description",
+            attribution="literature",
+            reproduces=None,
+            task_type="",
+            n_datasets=None,
+            metric=raw["metric"],
+            value=float(old_val) if old_val is not None else None,
+            std=None,
+            note=migrated_note,
+        )
+    new_val = raw.get("value")
+    new_std = raw.get("std")
+    return BenchmarkResult(
+        benchmark=raw["benchmark"],
+        benchmark_url=raw["benchmark_url"],
+        algorithm=raw.get("algorithm", ""),
+        algorithm_source_url=raw.get("algorithm_source_url", ""),
+        algorithm_source_kind=raw.get("algorithm_source_kind", "description"),
+        attribution=raw.get("attribution", "literature"),
+        reproduces=raw.get("reproduces"),
+        task_type=raw.get("task_type", ""),
+        n_datasets=raw.get("n_datasets"),
+        metric=raw.get("metric", ""),
+        value=float(new_val) if new_val is not None else None,
+        std=float(new_std) if new_std is not None else None,
+        note=raw.get("note", ""),
+    )
+
+
+def _parse_benchmark_results(m: dict) -> list[BenchmarkResult]:
+    """Accept either old singular `benchmark_result` or new list `benchmark_results`."""
+    if "benchmark_results" in m and m["benchmark_results"]:
+        return [_parse_benchmark_result(r, m["name"]) for r in m["benchmark_results"]]
+    if "benchmark_result" in m:
+        return [_parse_benchmark_result(m["benchmark_result"], m["name"])]
+    return []
 
 
 def _parse_model(m: dict) -> ModelCard:
@@ -159,13 +246,7 @@ def _parse_model(m: dict) -> ModelCard:
         purpose=m["purpose"],
         real_life_examples=list(m.get("real_life_examples") or []),
         config=dict(m.get("config") or {}),
-        benchmark_result=BenchmarkResult(
-            source=m["benchmark_result"]["source"],
-            url=m["benchmark_result"]["url"],
-            metric=m["benchmark_result"]["metric"],
-            value=float(m["benchmark_result"]["value"]),
-            note=m["benchmark_result"].get("note", ""),
-        ),
+        benchmark_results=_parse_benchmark_results(m),
         cadw_module=m.get("cadw_module", ""),
         cadw_function=m.get("cadw_function", ""),
     )
@@ -213,6 +294,50 @@ def load_section(path: Path) -> Section:
 
 
 # === Validator ===
+
+def _validate_benchmark_result(br: BenchmarkResult, m_label: str, err) -> None:
+    """v0.9.47b: attribution-specific validation rules for one entry."""
+    from .enums import ATTRIBUTIONS, SOURCE_KINDS
+
+    lbl = f"{m_label}.{br.benchmark}.{br.metric}"
+
+    if br.attribution not in ATTRIBUTIONS:
+        err(f"{lbl}: attribution={br.attribution!r} not in {ATTRIBUTIONS}")
+        return
+
+    if br.algorithm_source_kind and br.algorithm_source_kind not in SOURCE_KINDS:
+        err(f"{lbl}: algorithm_source_kind={br.algorithm_source_kind!r} "
+            f"not in {SOURCE_KINDS}")
+
+    # Note required (explains fetch quote, failure, or measurement evidence)
+    if not (br.note or "").strip():
+        if br.value is not None:
+            err(f"{lbl}: value={br.value} but note empty")
+        else:
+            err(f"{lbl}: value=null but note empty (must explain)")
+
+    if br.std is not None and (br.n_datasets is None or br.n_datasets < 2):
+        err(f"{lbl}: std={br.std} requires n_datasets >= 2")
+
+    if br.attribution == "literature":
+        if br.algorithm.startswith("cadw."):
+            err(f"{lbl}: literature attribution cannot use cadw.* algorithm")
+        if br.reproduces is not None:
+            err(f"{lbl}: literature attribution must not set 'reproduces'")
+
+    elif br.attribution == "cadw_reproduced":
+        if not br.algorithm.startswith("cadw."):
+            err(f"{lbl}: cadw_reproduced algorithm must be cadw.*, "
+                f"got {br.algorithm!r}")
+        if br.reproduces is None:
+            err(f"{lbl}: cadw_reproduced requires 'reproduces'")
+
+    elif br.attribution == "cadw_measured":
+        if not br.algorithm.startswith("cadw."):
+            err(f"{lbl}: cadw_measured algorithm must be cadw.*")
+        if br.benchmark != "cadw_internal":
+            err(f"{lbl}: cadw_measured must use benchmark=cadw_internal")
+
 
 def validate_matrix(
     sections: list[Section],
@@ -274,9 +399,11 @@ def validate_matrix(
                     err(f"{m_label}: empty purpose")
                 if not m.real_life_examples:
                     warn(f"{m_label}: no real_life_examples")
-                if m.benchmark_result.source not in benchmarks.benchmarks:
-                    err(f"{m_label}: benchmark_result.source "
-                        f"{m.benchmark_result.source!r} not in benchmarks.yaml")
+                for br in m.benchmark_results:
+                    if br.benchmark not in benchmarks.benchmarks:
+                        err(f"{m_label}: benchmark {br.benchmark!r} "
+                            f"not in benchmarks.yaml")
+                    _validate_benchmark_result(br, m_label, err)
 
             # --- metrics ---
             anchor_count = 0

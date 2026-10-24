@@ -28,7 +28,11 @@
 
 **CADW:** `cadw.ml.ordinal.fit_ordinal_logit`
 
-**Benchmark:** AMLB → accuracy=0.55 (exact-match accuracy)
+**Benchmarks:**
+- **[literature]** AMLB → accuracy=0.55
+  - algorithm: `OrdinalLogit` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: exact-match accuracy [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### GBDT_threshold — sota / tier1_core
 
@@ -42,7 +46,11 @@
 
 **Config:** `{'n_estimators': 'int', 'max_depth': 'int'}`
 
-**Benchmark:** AMLB → accuracy=0.6
+**Benchmarks:**
+- **[literature]** AMLB → accuracy=0.6
+  - algorithm: `GBDT_threshold` (description)
+  - number: https://openml.github.io/automlbenchmark/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **mae_ordinal** (anchor, lower)

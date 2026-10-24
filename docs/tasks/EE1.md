@@ -28,7 +28,11 @@
 
 **Config:** `{'threshold': 'float'}`
 
-**Benchmark:** ODDS → roc_auc=0.72
+**Benchmarks:**
+- **[literature]** ODDS → roc_auc=0.72
+  - algorithm: `zscore` (description)
+  - number: https://odds.cs.stonybrook.edu/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### IForest — sota / tier1_core
 
@@ -45,7 +49,11 @@
 
 **CADW:** `cadw.ml.iforest.fit_isolation_forest`
 
-**Benchmark:** ODDS → roc_auc=0.87
+**Benchmarks:**
+- **[literature]** ODDS → roc_auc=0.87
+  - algorithm: `IForest` (description)
+  - number: https://odds.cs.stonybrook.edu/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### LOF — baseline / tier3_export
 
@@ -59,7 +67,11 @@
 
 **Config:** `{'n_neighbors': 'int'}`
 
-**Benchmark:** ODDS → roc_auc=0.78
+**Benchmarks:**
+- **[literature]** ODDS → roc_auc=0.78
+  - algorithm: `LOF` (description)
+  - number: https://odds.cs.stonybrook.edu/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **roc_auc** (anchor, higher)

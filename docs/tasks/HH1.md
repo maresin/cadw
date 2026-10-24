@@ -28,7 +28,11 @@
 
 **CADW:** `cadw.ml.meta_learners.fit_meta_learner`
 
-**Benchmark:** RCT_IHDP → ate_error=0.1
+**Benchmarks:**
+- **[literature]** RCT_IHDP → ate_error=0.1
+  - algorithm: `T_learner` (description)
+  - number: https://www.fredjo.com/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### S_learner — baseline / tier1_core
 
@@ -44,7 +48,11 @@
 
 **CADW:** `cadw.ml.meta_learners.fit_meta_learner`
 
-**Benchmark:** RCT_IHDP → ate_error=0.12
+**Benchmarks:**
+- **[literature]** RCT_IHDP → ate_error=0.12
+  - algorithm: `S_learner` (description)
+  - number: https://www.fredjo.com/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ### DR_learner — sota / tier3_export
 
@@ -56,7 +64,11 @@
 **Use cases:**
 - Observational causal inference
 
-**Benchmark:** RCT_IHDP → ate_error=0.06
+**Benchmarks:**
+- **[literature]** RCT_IHDP → ate_error=0.06
+  - algorithm: `DR_learner` (description)
+  - number: https://www.fredjo.com/
+  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
 
 ## Metrics
 - **ate_error** (anchor, lower)
