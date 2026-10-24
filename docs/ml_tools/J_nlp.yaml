@@ -1,0 +1,200 @@
+# J - Natural language processing
+# Subtypes: J1 classification, J2 embeddings, J3 topic modeling.
+# v0.9.48.3: discovery pass. Cards only - no code in cadw/ml/.
+# Live leaderboard reality (2026-10-24):
+#   - PWC SST-2 page redirects to huggingface.co/papers/trending (no numbers).
+#   - huggingface.co/spaces/glue_benchmark is 404; gluebenchmark.com unreachable.
+#   - MTEB space renders numbers client-side; static HTML has none.
+# So all literature values are null with explicit reasons. Numeric
+# evidence we have is CADW-native from scripts/bench_tfidf.py and
+# scripts/bench_lda.py, captured in .pingis/benches/{tfidf,lda}.json.
+
+section: J
+name: Natural language processing
+subtypes:
+  - id: J1
+    name: Text classification
+    description: Assign a label to a text document (sentiment, topic, intent).
+    real_life: [Sentiment analysis, Support-ticket routing, Spam / abuse detection]
+    benchmarks:
+      - name: SST-2
+        url: https://nlp.stanford.edu/sentiment/
+        metrics: [accuracy]
+        note: "Binary sentiment (GLUE SST-2). PWC/HF leaderboards not fetchable from this network on 2026-10-24."
+      - name: cadw_internal_nlp
+        url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches"
+        metrics: ["fit_time_s", "peak_rss_mb", "vocab_size"]
+        note: "CADW-native runtime on synthetic corpora (scripts/bench_tfidf.py)."
+    models:
+      - name: TFIDF_LogReg
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [linear_signal, representation]
+        purpose: "TF-IDF bag-of-words features fed to a linear logistic classifier. Inductive bias: additive linear signal over sparse lexical n-grams - strong on topic/sentiment tasks with n in the thousands; loses word order and long-range context."
+        real_life_examples: ["Support-ticket intent routing", "Sentiment on product reviews", "Abuse / spam detection"]
+        config: {max_features: int, ngram_range: list, C: float}
+        benchmark_results:
+          - {benchmark: SST-2, benchmark_url: 'https://huggingface.co/datasets/nyu-mll/glue', algorithm: 'sklearn TfidfVectorizer + LogisticRegression', algorithm_source_url: 'https://scikit-learn.org/stable/modules/feature_extraction.html', algorithm_source_kind: docs, attribution: literature, task_type: 'text classification', n_datasets: null, metric: accuracy, value: null, note: 'no_public_benchmark: SST-2 GLUE live leaderboard not fetchable (PWC redirect to HF trending; gluebenchmark.com unreachable); TF-IDF+LR has no public per-model SST-2 row'}
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/tfidf.json', algorithm: 'cadw.ml.tfidf', algorithm_source_url: 'cadw/ml/tfidf.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: 'text vectorization', n_datasets: 3, metric: fit_time_s, value: 1.281, std: 0.628, note: 'CADW-native: fit_s=0.026/0.258/1.281 @n=10k/100k/500k (scripts/bench_tfidf.py, .pingis/benches/tfidf.json); std=half-range; hardware-specific.'}
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/tfidf.json', algorithm: 'cadw.ml.tfidf', algorithm_source_url: 'cadw/ml/tfidf.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: 'text vectorization', n_datasets: 3, metric: peak_rss_mb, value: 229.6, std: 114.45, note: 'CADW-native: peak_mb=0.7/45.1/229.6 @n=10k/100k/500k (scripts/bench_tfidf.py, .pingis/benches/tfidf.json); std=half-range; hardware-specific.'}
+        cadw_module: cadw.ml.tfidf
+        cadw_function: fit_tfidf
+
+      - name: ComplementNB
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_by_agent: true, described_only: true}
+        roles: [probabilistic]
+        purpose: "Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter."
+        real_life_examples: ["Fast spam baseline", "Long-tail topic tagging", "Low-resource text classification"]
+        config: {alpha: float}
+        benchmark_results:
+          - {benchmark: SST-2, benchmark_url: 'https://huggingface.co/datasets/nyu-mll/glue', algorithm: 'sklearn.naive_bayes.ComplementNB', algorithm_source_url: 'https://scikit-learn.org/stable/modules/naive_bayes.html', algorithm_source_kind: docs, attribution: literature, task_type: 'text classification', n_datasets: null, metric: accuracy, value: null, note: 'no_public_benchmark: SST-2 GLUE live LB not fetchable; ComplementNB has no public SST-2 row'}
+      - name: LinearSVC
+        tier: baseline
+        tier_level: tier2_wrapper
+        implementation_status: {verified_by_agent: true, described_only: true}
+        roles: [linear_signal]
+        purpose: "L2-regularized linear SVM on TF-IDF (Joachims 1998). Inductive bias: maximum-margin linear separator over sparse features - strong on topic tasks; no calibrated probabilities out of the box."
+        real_life_examples: ["Topic classification on 20NG", "Reuters news routing", "Intent detection on transcripts"]
+        config: {C: float, max_iter: int}
+        benchmark_results:
+          - {benchmark: 20Newsgroups, benchmark_url: 'https://scikit-learn.org/stable/datasets/real_world.html', algorithm: 'sklearn.svm.LinearSVC', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html', algorithm_source_kind: docs, attribution: literature, task_type: 'text classification', n_datasets: null, metric: accuracy, value: null, note: 'no_public_benchmark: no live 20NG leaderboard; sklearn dataset page has splits but no per-model accuracies'}
+
+      - name: BERT
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, nonlinear_interactions]
+        purpose: "Devlin 2019 - bidirectional transformer pre-trained with masked LM, fine-tuned per task. Inductive bias: contextual token representations with self-attention over the full sequence - SOTA on SST-2/GLUE; torch-only, reached via to_batches(format='torch')."
+        real_life_examples: ["GLUE benchmark fine-tuning", "Review sentiment at scale", "Multi-lingual intent detection"]
+        config: {model_size: string, max_len: int, lr: float}
+        benchmark_results:
+          - {benchmark: SST-2, benchmark_url: 'https://huggingface.co/datasets/nyu-mll/glue', algorithm: 'BERT (Devlin et al. 2019)', algorithm_source_url: 'https://arxiv.org/abs/1810.04805', algorithm_source_kind: paper, attribution: literature, task_type: 'text classification', n_datasets: null, metric: accuracy, value: null, note: 'no_public_benchmark: SST-2 GLUE live LB not fetchable (PWC redirect, gluebenchmark.com unreachable); paper numbers are not a live LB'}
+    metrics:
+      - {name: accuracy, combination: anchor, direction: higher, responsibility: 'Correct-class fraction; canonical classification metric.', special: 'Threshold 0.5; meaningful only when classes are balanced (SST-2 yes; 20NG/Reuters no - prefer f1_macro).'}
+      - {name: f1_macro, combination: diagnostic, direction: higher, responsibility: 'Macro-averaged F1; robust to class imbalance.', special: 'Not comparable to accuracy numerically.'}
+      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: 'Wall-clock fit time.', special: 'Hardware-specific.'}
+    ensemble_recommendation:
+      - roles: [linear_signal, probabilistic]
+        models: [TFIDF_LogReg, ComplementNB]
+        max_per_role: 1
+        note: "LogReg (margin-based) and ComplementNB (generative) give complementary lexical priors; average predicted probabilities on the same TF-IDF matrix."
+  - id: J2
+    name: Text embeddings
+    description: Map documents to dense vectors so that semantic similarity becomes geometric.
+    real_life: [Semantic search, Duplicate detection, Ticket clustering]
+    benchmarks:
+      - name: STS-B
+        url: https://huggingface.co/datasets/sentence-transformers/stsb
+        metrics: [spearman_cosine, pearson_cosine]
+        note: "GLUE STS-B. Public leaderboard ranks fine-tuned PLMs; unsupervised embeddings are absent."
+      - name: MTEB
+        url: https://huggingface.co/spaces/mteb/leaderboard
+        metrics: [nDCG_at_10, mean_average_precision, main_score]
+        note: "MTEB Space renders client-side; static HTML exposes no per-model numbers (2026-10-24)."
+    models:
+      - name: LSA_TFIDF_SVD
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [representation]
+        purpose: "Latent Semantic Analysis: TF-IDF doc-term matrix reduced by randomized SVD to k dense factors. Inductive bias: linear low-rank co-occurrence structure - captures topical synonymy without supervision; cannot encode word order or polysemy."
+        real_life_examples: ["Topic clustering of ticket corpora", "Baseline document similarity search", "Pre-embedding feature compression"]
+        config: {n_components: int, n_iter: int}
+        benchmark_results:
+          - {benchmark: STS-B, benchmark_url: 'https://huggingface.co/datasets/sentence-transformers/stsb', algorithm: 'TF-IDF + randomized SVD (LSA)', algorithm_source_url: 'https://scikit-learn.org/stable/modules/decomposition.html', algorithm_source_kind: docs, attribution: literature, task_type: 'text embedding', n_datasets: null, metric: spearman_cosine, value: null, note: 'no_public_benchmark: STS-B GLUE LB ranks only fine-tuned PLMs; unsupervised LSA has no public row'}
+        cadw_module: cadw.ml.randsvd
+        cadw_function: fit_randomized_svd
+
+      - name: Word2Vec
+        tier: baseline
+        tier_level: tier2_wrapper
+        implementation_status: {described_only: true}
+        roles: [representation]
+        purpose: "Mikolov 2013 - shallow predictive embedding from local context windows; document vectors obtained by pooling. Inductive bias: distributional similarity from local co-occurrence; no context-dependent polysemy."
+        real_life_examples: ["Domain word vectors on small corpora", "Cheap semantic features for classifiers", "Nearest-neighbour term expansion"]
+        config: {vector_size: int, window: int, sg: int, epochs: int}
+        benchmark_results:
+          - {benchmark: STS-B, benchmark_url: 'https://huggingface.co/datasets/sentence-transformers/stsb', algorithm: 'Word2Vec (Mikolov et al. 2013)', algorithm_source_url: 'https://arxiv.org/abs/1301.3781', algorithm_source_kind: paper, attribution: literature, task_type: 'text embedding', n_datasets: null, metric: spearman_cosine, value: null, note: 'no_public_benchmark: Word2Vec was never entered on the STS-B GLUE leaderboard; paper reports word-similarity tasks, not STS-B'}
+
+      - name: SentenceTransformer
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, nonlinear_interactions]
+        purpose: "Reimers & Gurevych 2019 - siamese BERT fine-tuned contrastively to produce sentence embeddings directly. Inductive bias: contextual, order-aware semantics from large corpora; SOTA on STS/MTEB, torch-only via to_batches(format='torch')."
+        real_life_examples: ["Semantic search / RAG retrieval", "Duplicate question detection", "Cross-lingual matching"]
+        config: {base_model: string, pooling: string, max_seq_length: int}
+        benchmark_results:
+          - {benchmark: MTEB, benchmark_url: 'https://huggingface.co/spaces/mteb/leaderboard', algorithm: 'Sentence-BERT (Reimers & Gurevych 2019)', algorithm_source_url: 'https://arxiv.org/abs/1908.10084', algorithm_source_kind: paper, attribution: literature, task_type: 'text embedding', n_datasets: null, metric: main_score, value: null, note: 'fetch_ok_no_number: MTEB Space HTML fetched 2026-10-24 but the table is client-side rendered; no per-model number extractable'}
+          - {benchmark: STS-B, benchmark_url: 'https://huggingface.co/datasets/sentence-transformers/stsb', algorithm: 'Sentence-BERT (Reimers & Gurevych 2019)', algorithm_source_url: 'https://arxiv.org/abs/1908.10084', algorithm_source_kind: paper, attribution: literature, task_type: 'text embedding', n_datasets: null, metric: spearman_cosine, value: null, note: 'no_public_benchmark: STS-B GLUE LB not fetchable; S-BERT paper reports STS-B dev Spearman but that is a paper number, not a live LB row'}
+    metrics:
+      - {name: spearman_cosine, combination: anchor, direction: higher, responsibility: 'Rank correlation between cosine similarity and human similarity.', special: 'Only comparable on the same STS split; unsupervised and fine-tuned embeddings are NOT comparable.'}
+      - {name: nDCG_at_10, combination: diagnostic, direction: higher, responsibility: 'Retrieval quality in MTEB task families.', special: 'MTEB aggregates heterogeneous tasks; report per-family, never as one scalar.'}
+      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: 'Wall-clock fit/encode time.', special: 'Hardware-specific.'}
+    ensemble_recommendation:
+      - roles: [representation]
+        models: [LSA_TFIDF_SVD]
+        max_per_role: 1
+        note: "Only CADW-verified representation model here; concatenating with a PLM embedding requires to_batches(format='torch') and is out of scope for native CADW."
+  - id: J3
+    name: Topic modeling
+    description: Discover latent topics in a document collection; infer per-document mixtures.
+    real_life: [Editorial topic tagging, Corpus exploration, Keyword discovery in tickets]
+    benchmarks:
+      - name: 20Newsgroups
+        url: https://scikit-learn.org/stable/datasets/real_world.html
+        metrics: [perplexity, coherence_c_v]
+        note: "20NG is the standard corpus; there is NO live public leaderboard for topic-model coherence or perplexity."
+      - name: cadw_internal
+        url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches"
+        metrics: ["perplexity", "fit_time_s", "peak_rss_mb", "vocab_size"]
+        note: "CADW-native perplexity/time on synthetic corpora from scripts/bench_lda.py."
+    models:
+      - name: LDA
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [probabilistic, representation]
+        purpose: "Blei 2003 - latent Dirichlet allocation: each document is a mixture of K topics, each topic a distribution over words. Inductive bias: exchangeable bag-of-words with Dirichlet priors - interpretable, but ignores word order and struggles on short texts."
+        real_life_examples: ["Editorial topic tagging", "Corpus exploration on 20NG", "Keyword discovery in support tickets"]
+        config: {n_topics: int, alpha: float, beta: float, max_iter: int}
+        benchmark_results:
+          - {benchmark: 20Newsgroups, benchmark_url: 'https://scikit-learn.org/stable/datasets/real_world.html', algorithm: 'LDA (Blei et al. 2003)', algorithm_source_url: 'https://aclanthology.org/W04-3252/', algorithm_source_kind: paper, attribution: literature, task_type: 'topic modeling', n_datasets: null, metric: perplexity, value: null, note: 'no_public_benchmark: 20NG has no live public perplexity/coherence leaderboard; per-paper numbers use different vocab/preprocessing'}
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/lda.json', algorithm: 'cadw.ml.lda', algorithm_source_url: 'cadw/ml/lda.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: 'topic modeling', n_datasets: 3, metric: perplexity, value: 4.131, std: 0.0005, note: 'CADW-native: perplexity=4.130/4.131/4.131 @n=2k/10k/50k, k=3 (scripts/bench_lda.py, .pingis/benches/lda.json); synthetic corpus; std=half-range.'}
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/lda.json', algorithm: 'cadw.ml.lda', algorithm_source_url: 'cadw/ml/lda.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: 'topic modeling', n_datasets: 3, metric: fit_time_s, value: 102.892, std: 49.2, note: 'CADW-native: fit_s=4.491/21.382/102.892 @n=2k/10k/50k (scripts/bench_lda.py, .pingis/benches/lda.json); std=half-range; hardware-specific.'}
+        cadw_module: cadw.ml.lda
+        cadw_function: fit_lda
+
+      - name: NMF
+        tier: baseline
+        tier_level: tier2_wrapper
+        implementation_status: {described_only: true}
+        roles: [representation]
+        purpose: "Lee & Seung 1999 - non-negative matrix factorization of the doc-term matrix. Inductive bias: additive parts-based topics with sparsity enforced by non-negativity; no probabilistic likelihood, so perplexity is undefined."
+        real_life_examples: ["Parts-based topic discovery", "Topic tagging with sparse vocabularies", "Document clustering"]
+        config: {n_components: int, init: string, max_iter: int}
+        benchmark_results:
+          - {benchmark: 20Newsgroups, benchmark_url: 'https://scikit-learn.org/stable/datasets/real_world.html', algorithm: 'sklearn.decomposition.NMF', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html', algorithm_source_kind: docs, attribution: literature, task_type: 'topic modeling', n_datasets: null, metric: perplexity, value: null, note: 'no_public_benchmark: NMF has no likelihood/perplexity; 20NG has no live public coherence leaderboard either'}
+
+      - name: BERTopic
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, nonlinear_interactions]
+        purpose: "Grootendorst 2022 - pipeline of PLM embeddings + UMAP + HDBSCAN + c-TF-IDF for topic representation. Inductive bias: contextual embeddings + density clustering; SOTA coherence on short texts, but torch-only via to_batches(format='torch')."
+        real_life_examples: ["Short-text topic discovery (tweets, tickets)", "Large-scale corpus exploration", "Dynamic topic modeling over time"]
+        config: {embedding_model: string, umap_n_neighbors: int, min_cluster_size: int}
+        benchmark_results:
+          - {benchmark: 20Newsgroups, benchmark_url: 'https://scikit-learn.org/stable/datasets/real_world.html', algorithm: 'BERTopic (Grootendorst 2022)', algorithm_source_url: 'https://maartengr.github.io/BERTopic/index.html', algorithm_source_kind: docs, attribution: literature, task_type: 'topic modeling', n_datasets: null, metric: coherence_c_v, value: null, note: 'no_public_benchmark: 20NG has no live public coherence leaderboard; BERTopic paper reports its own c_v on a different corpus subset'}
+    metrics:
+      - {name: perplexity, combination: anchor, direction: lower, responsibility: 'Held-out per-word perplexity; canonical probabilistic topic-model fit.', special: 'Only defined for probabilistic models (LDA, not NMF/BERTopic). Vocab and preprocessing change the number - compare only within the same pipeline.'}
+      - {name: coherence_c_v, combination: diagnostic, direction: higher, responsibility: 'Human-interpretability proxy for top-word sets.', special: 'Not comparable to perplexity; report alongside it, never combined.'}
+      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: 'Wall-clock fit time.', special: 'Hardware-specific.'}
+    ensemble_recommendation:
+      - roles: [probabilistic]
+        models: [LDA]
+        max_per_role: 1
+        note: "Only CADW-verified topic model; NMF and BERTopic are reference-only until implemented, so they are excluded from ensembles."

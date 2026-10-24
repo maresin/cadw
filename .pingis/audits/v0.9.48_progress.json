@@ -1,6 +1,6 @@
 {
-  "last_completed": "N",
-  "in_progress": "J",
+  "last_completed": "J",
+  "in_progress": "M",
   "completed_cards": [
     "I1.CoxPH",
     "I1.KaplanMeier",
@@ -12,6 +12,16 @@
     "N1.KernelDensity",
     "N1.BIRCH",
     "N1.HDBSCAN",
-    "N1.NormalizingFlow"
+    "N1.NormalizingFlow",
+    "J1.TFIDF_LogReg",
+    "J1.ComplementNB",
+    "J1.LinearSVC",
+    "J1.BERT",
+    "J2.LSA_TFIDF_SVD",
+    "J2.Word2Vec",
+    "J2.SentenceTransformer",
+    "J3.LDA",
+    "J3.NMF",
+    "J3.BERTopic"
   ]
 }

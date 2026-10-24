@@ -96,6 +96,49 @@ benchmarks:
     warning: "Implicit-feedback split; NDCG@10 varies with negative
       sampling. Compare only within the same split."
 
+
+  SST-2:
+    url: https://huggingface.co/datasets/nyu-mll/glue
+    modality: nlp_classification
+    metrics: [accuracy]
+    warning: "Binary sentiment (GLUE SST-2). Evaluated on GLUE dev/test splits; PLM numbers assume pre-trained transformers and are NOT comparable to from-scratch bag-of-words baselines."
+
+  AG_News:
+    url: https://www.kaggle.com/datasets/amananandrai/ag-news-classification-dataset
+    modality: nlp_classification
+    metrics: [accuracy, error_rate]
+    warning: "4-class news topic. Numbers vary by tokenizer and train/test split; compare only within the same leaderboard."
+
+  20Newsgroups:
+    url: https://scikit-learn.org/stable/datasets/real_world.html#the-20-newsgroups-text-dataset
+    modality: nlp_classification
+    metrics: [accuracy, f1_macro]
+    warning: "20-class newsgroup; 'all' vs 'subset' variants differ. Compare only within the same variant."
+
+  Reuters:
+    url: https://www.nltk.org/book/ch02.html
+    modality: nlp_classification
+    metrics: [accuracy, f1_macro]
+    warning: "Reuters-21578 or RCV1; the two are NOT comparable. Use Reuters-21578 with ModApté split for the classic benchmark."
+
+  MTEB:
+    url: https://huggingface.co/spaces/mteb/leaderboard
+    modality: nlp_embeddings
+    metrics: [nDCG_at_10, mean_average_precision, main_score]
+    warning: "Massive Text Embedding Benchmark (HuggingFace Space). Leaderboard rendered client-side; static HTML has no per-model numbers. Numbers are mean over task families; compare only on the same task subset."
+
+  STS-B:
+    url: https://huggingface.co/datasets/sentence-transformers/stsb
+    modality: nlp_embeddings
+    metrics: [spearman_cosine, pearson_cosine]
+    warning: "Semantic Textual Similarity benchmark (GLUE STS-B). Spearman on dev/test; PLM numbers assume fine-tuning — NOT comparable to unsupervised TF-IDF/SVD cosine."
+
+  cadw_internal_nlp:
+    url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches"
+    modality: internal
+    metrics: ["perplexity", "fit_time_s", "peak_rss_mb", "vocab_size"]
+    warning: "CADW-native NLP measurements. NOT comparable to external leaderboards. Use only for runtime / perplexity on synthetic corpora from scripts/bench_*.py."
+
   cadw_internal:
     url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches"
     modality: internal

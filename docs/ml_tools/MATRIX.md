@@ -67,6 +67,16 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | I | I1 Time-to-event (Cox / AFT / deep) | RandomSurvivalForest | sota | tier3_export | nonlinear_interactions | desc, export | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | DeepSurv | sota | tier3_export | nonlinear_interactions, representation | desc, export | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | DeepHit | sota | tier3_export | nonlinear_interactions, representation | desc, export | c_index |
+| J | J1 Text classification | TFIDF_LogReg | baseline | tier1_core | linear_signal, representation | ✓ cadw, ✓ agent | accuracy |
+| J | J1 Text classification | ComplementNB | baseline | tier1_core | probabilistic | ✓ agent, desc | accuracy |
+| J | J1 Text classification | LinearSVC | baseline | tier2_wrapper | linear_signal | ✓ agent, desc | accuracy |
+| J | J1 Text classification | BERT | sota | tier3_export | representation, nonlinear_interactions | desc, export | accuracy |
+| J | J2 Text embeddings | LSA_TFIDF_SVD | baseline | tier1_core | representation | ✓ cadw, ✓ agent | spearman_cosine |
+| J | J2 Text embeddings | Word2Vec | baseline | tier2_wrapper | representation | desc | spearman_cosine |
+| J | J2 Text embeddings | SentenceTransformer | sota | tier3_export | representation, nonlinear_interactions | desc, export | spearman_cosine |
+| J | J3 Topic modeling | LDA | baseline | tier1_core | probabilistic, representation | ✓ cadw, ✓ agent | perplexity |
+| J | J3 Topic modeling | NMF | baseline | tier2_wrapper | representation | desc | perplexity |
+| J | J3 Topic modeling | BERTopic | sota | tier3_export | representation, nonlinear_interactions | desc, export | perplexity |
 | N | N1 Unsupervised density | GaussianMixture | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | mean_log_likelihood |
 | N | N1 Unsupervised density | KernelDensity | baseline | tier2_wrapper | local_structure, probabilistic | desc | mean_log_likelihood |
 | N | N1 Unsupervised density | BIRCH | baseline | tier1_core | local_structure, representation | ✓ cadw, ✓ agent | mean_log_likelihood |
