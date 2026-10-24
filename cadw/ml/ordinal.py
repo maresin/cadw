@@ -1,0 +1,161 @@
+"""Ordinal logistic regression, cumulative-link model (D.5.1, v0.9.39).
+
+Reference: McCullagh, *Regression Models for Ordinal Data*, JRSS-B 42(2),
+1980; Agresti, *Categorical Data Analysis*, 3rd ed., Wiley 2013, ch. 8
+(cumulative logit model); Tutz, *Regression for Categorical Data*, CUP 2012.
+See .pingis/algorithm_notes/d5_1_ordinal_logit.md.
+
+Proportional-odds cumulative logit:
+  P(Y <= k | x) = sigmoid(theta_k - x @ beta),  k = 1..K-1
+with ordered thresholds theta_1 < ... < theta_{K-1}. Fitted by minimising the
+negative multinomial log-likelihood with L-BFGS-B over [beta, theta_1,
+log-gaps] so the thresholds stay ordered without a constrained solver. For
+reference comparison we also expose the same likelihood so tests can pin it
+against statsmodels OrderedModel (distr="logit"). RAM: O(n*d + d*K).
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+import numpy as np
+import pyarrow as pa
+
+from cadw.core.memory_guard import MemoryGuard
+from cadw.ml._logging import log_fit
+
+
+def _sigmoid(z):
+    return 1.0 / (1.0 + np.exp(-np.clip(z, -50.0, 50.0)))
+
+
+def _unpack(params, d, K):
+    beta = params[:d]
+    theta0 = params[d]
+    gaps = np.exp(params[d + 1:])  # positive gaps
+    theta = theta0 + np.concatenate([[0.0], np.cumsum(gaps)])
+    return beta, theta
+
+
+def _pack(beta, theta):
+    gaps = np.diff(theta)
+    if np.any(gaps <= 0):
+        raise ValueError("ordinal: thresholds must be strictly increasing")
+    return np.concatenate([beta, [theta[0]], np.log(gaps)])
+
+
+def _neg_loglik(params, X, y, d, K):
+    beta, theta = _unpack(params, d, K)
+    eta = X @ beta
+    z = theta[None, :] - eta[:, None]
+    P = _sigmoid(z)
+    eps = 1e-12
+    P = np.clip(P, eps, 1 - eps)
+    probs = np.empty((X.shape[0], K))
+    probs[:, 0] = P[:, 0]
+    for k in range(1, K - 1):
+        probs[:, k] = P[:, k] - P[:, k - 1]
+    probs[:, K - 1] = 1.0 - P[:, K - 2]
+    probs = np.clip(probs, eps, 1.0)
+    nll = -float(np.sum(np.log(probs[np.arange(X.shape[0]), y.astype(np.int64)])))
+    # add a tiny penalty on the log-gaps so extreme thresholds are avoided
+    return nll
+
+
+def _predict_proba_np(X, beta, theta):
+    eta = X @ beta
+    z = theta[None, :] - eta[:, None]
+    P = _sigmoid(z)
+    K = theta.size + 1
+    probs = np.empty((X.shape[0], K))
+    probs[:, 0] = P[:, 0]
+    for k in range(1, K - 1):
+        probs[:, k] = P[:, k] - P[:, k - 1]
+    probs[:, K - 1] = 1.0 - P[:, K - 2]
+    return np.clip(probs, 0.0, 1.0)
+
+
+def _collect(df, cols, y_col, mg):
+    from cadw.ml.gbdt import _stack_numeric
+    Xs, ys = [], []
+    n = 0
+    for b in df._iter_filtered_batches():
+        mg.check_batch(b, name="ordinal.pass1", extra_factor=3.0)
+        Xs.append(_stack_numeric(b, cols))
+        ys.append(b.column(y_col).cast(pa.float64(), safe=False)
+                  .to_numpy(zero_copy_only=False))
+        n += b.num_rows
+        mg.check_state(n * (len(cols) * 8 + 8), name="ordinal.state")
+    if n == 0:
+        raise ValueError("ordinal: empty input")
+    return np.vstack(Xs), np.concatenate(ys)
+
+
+class OrdinalLogitModel:
+    """Proportional-odds cumulative-logit classifier."""
+
+    def __init__(self, beta, theta, classes, feature_cols, params):
+        self.beta_ = np.asarray(beta, dtype=np.float64)
+        self.theta_ = np.asarray(theta, dtype=np.float64)
+        self.classes_ = np.asarray(classes)
+        self.feature_cols_ = list(feature_cols)
+        self.params_ = dict(params)
+        self.fitted_ = True
+
+    def state_nbytes(self):
+        return int(self.beta_.nbytes + self.theta_.nbytes + 256)
+
+    def to_dict(self):
+        return {"beta": self.beta_.tolist(), "theta": self.theta_.tolist(),
+                "classes": [float(c) for c in self.classes_],
+                "params": self.params_}
+
+    def predict_proba(self, df, memory_guard=None):
+        mg = memory_guard or df._memory_guard
+        from cadw.ml.gbdt import _stack_numeric
+        chunks = []
+        for b in df._iter_filtered_batches():
+            mg.check_batch(b, name="ordinal.predict", extra_factor=3.0)
+            chunks.append(_predict_proba_np(_stack_numeric(b, self.feature_cols_),
+                                            self.beta_, self.theta_))
+        if not chunks:
+            return np.zeros((0, self.classes_.size))
+        return np.vstack(chunks)
+
+    def predict(self, df, memory_guard=None):
+        p = self.predict_proba(df, memory_guard)
+        return self.classes_[np.argmax(p, axis=1)]
+
+
+def fit_ordinal_logit(df, X_cols, y_col, *, max_iter=200, tol=1e-6,
+                      memory_guard: Optional[MemoryGuard] = None):
+    """Fit a proportional-odds ordinal logit on integer-coded ordered classes."""
+    cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
+    if not cols:
+        raise ValueError("fit_ordinal_logit: X_cols must be non-empty")
+    for c in cols + [y_col]:
+        if c not in df._columns:
+            raise KeyError(f"fit_ordinal_logit: column {c!r} not in {df._columns}")
+    mg = memory_guard or df._memory_guard
+    X, y = _collect(df, cols, y_col, mg)
+    if np.isnan(X).any() or np.isnan(y).any():
+        raise ValueError("fit_ordinal_logit: nulls in features or outcome")
+    classes = np.unique(y)
+    if classes.size < 2:
+        raise ValueError(f"fit_ordinal_logit: need >= 2 ordered classes; got {classes.size}")
+    K = classes.size
+    y_idx = np.searchsorted(classes, y)
+    d = X.shape[1]
+    # init: zero beta, evenly spaced thresholds
+    theta0 = np.linspace(-1.0, 1.0, K - 1) if K > 2 else np.array([0.0])
+    params0 = _pack(np.zeros(d), theta0)
+    from scipy.optimize import minimize
+    res = minimize(_neg_loglik, params0, args=(X, y_idx, d, K),
+                   method="L-BFGS-B",
+                   options={"maxiter": int(max_iter), "ftol": tol, "gtol": tol})
+    beta, theta = _unpack(res.x, d, K)
+    model = OrdinalLogitModel(beta, theta, classes, cols,
+                              {"max_iter": max_iter, "tol": tol,
+                               "n_iter": int(res.nit), "success": bool(res.success)})
+    log_fit("ordinal_logit", loss=float(res.fun), state_bytes=model.state_nbytes())
+    mg.check_state(model.state_nbytes(), name="ordinal.model")
+    return model

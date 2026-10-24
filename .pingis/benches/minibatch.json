@@ -1,0 +1,53 @@
+{
+  "algo": "D.5.3",
+  "runs": [
+    {
+      "n": 20000,
+      "model": "kmeans",
+      "fit_s": 0.054,
+      "inertia": 167483.1,
+      "peak_mb": 9.1,
+      "state_b": 328
+    },
+    {
+      "n": 20000,
+      "model": "gmm",
+      "fit_s": 0.082,
+      "score": -3.4608,
+      "peak_mb": 2.9,
+      "state_b": 376
+    },
+    {
+      "n": 100000,
+      "model": "kmeans",
+      "fit_s": 0.364,
+      "inertia": 49893.2,
+      "peak_mb": 13.1,
+      "state_b": 328
+    },
+    {
+      "n": 100000,
+      "model": "gmm",
+      "fit_s": 0.657,
+      "score": -2.548,
+      "peak_mb": 13.0,
+      "state_b": 376
+    },
+    {
+      "n": 500000,
+      "model": "kmeans",
+      "fit_s": 1.979,
+      "inertia": 249563.7,
+      "peak_mb": 63.4,
+      "state_b": 328
+    },
+    {
+      "n": 500000,
+      "model": "gmm",
+      "fit_s": 3.113,
+      "score": -2.5484,
+      "peak_mb": 66.7,
+      "state_b": 376
+    }
+  ]
+}

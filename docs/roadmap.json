@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.38",
+  "current_version": "0.9.39",
   "updated": "2026-10-24",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -412,30 +412,34 @@
         {
           "id": "D.4.6",
           "name": "calibration Platt/isotonic",
-          "patch": "v0.9.34",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.39",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/calibration.py"
         },
         {
           "id": "D.5.1",
           "name": "ordinal logistic cumulative link",
-          "patch": "v0.9.35",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.39",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/ordinal.py"
         },
         {
           "id": "D.5.2",
           "name": "classifier chains",
-          "patch": "v0.9.35",
-          "status": "planned",
-          "complexity": "S"
+          "patch": "v0.9.39",
+          "status": "done",
+          "complexity": "S",
+          "file": "cadw/ml/chains.py"
         },
         {
           "id": "D.5.3",
           "name": "MiniBatchKMeans / GMM",
-          "patch": "v0.9.35",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.39",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/minibatch.py"
         },
         {
           "id": "D.5.4",

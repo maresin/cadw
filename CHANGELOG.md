@@ -1,5 +1,42 @@
 ## [Unreleased]
 
+### v0.9.39 (2026-10-24) — Phase D algorithms, group 5/7
+
+- **D.4.6 (M) — probability calibration.** `cadw/ml/calibration.py` +
+  `df.fit_calibration(...)`. Platt scaling (Newton IRLS) and isotonic (PAVA
+  over <=256 equal-count bins) on top of the in-tree GBDT classifier;
+  `brier_score` and `expected_calibration_error` also exported. 10 tests;
+  isotonic ECE 0.0038 vs platt 0.0231 at 100 000 rows; 100 000 rows in 5.92 s.
+- **D.5.1 (M) — ordinal logistic cumulative link.** `cadw/ml/ordinal.py` +
+  `df.fit_ordinal_logit(...)`. Proportional-odds cumulative logit fitted with
+  L-BFGS-B on the multinomial likelihood; thresholds parameterised as
+  [theta_0, log-gaps] to stay ordered without a constrained solver. 10 tests;
+  vs statsmodels OrderedModel(distr=logit): beta and first threshold maxdiff
+  < 1e-2. 200 000 rows in 2.09 s.
+- **D.5.2 (S) — classifier chains.** `cadw/ml/chains.py` +
+  `df.fit_chains(...)`. Each label is an in-tree GBDT; chain variant appends
+  true previous labels at fit and hard predicted labels at predict; independent
+  variant is the one-vs-rest baseline. `subset_accuracy` metric. 8 tests;
+  subset accuracy 0.664 vs sklearn ClassifierChain 0.702 (94% of reference),
+  and chain >= OvR on the same data. 100 000 rows in 11.26 s.
+- **D.5.3 (M) — MiniBatch KMeans + streaming EM GMM.** `cadw/ml/minibatch.py`
+  + `df.fit_minibatch_kmeans(...)` / `df.fit_minibatch_gmm(...)`. KMeans uses
+  Sculley per-centroid streaming updates with per-centroid counts; GMM is a
+  diagonal-covariance EM with per-mini-batch sufficient statistics seeded from
+  k-means++. 12 tests; inertia vs sklearn MiniBatchKMeans within 1.15x;
+  GMM log-likelihood vs sklearn GaussianMixture(diag) within 0.15 nats.
+  500 000 rows: kmeans 1.98 s / 63 MB, gmm 3.11 s / 67 MB — well under the
+  2.2 GB budget.
+
+All four modules live under `cadw/ml/` per the stage-4 structural note.
+Bindings `fit_calibration`/`fit_ordinal_logit`/`fit_chains`/
+`fit_minibatch_kmeans`/`fit_minibatch_gmm` registered. No new dev dependencies.
+
+Docs: `docs/roadmap.json` D.4.6/D.5.1/D.5.2/D.5.3 -> done,
+`docs/ML_TASKS_TAXONOMY.md` A4/A5 and B2/B3 -> available. Notes and benches
+under `.pingis/algorithm_notes/`, `.pingis/benches/`. Fast suite 2711 -> 2751
+passed; slow 25 passed.
+
 ### v0.9.38 (2026-10-24) — Phase D algorithms, group 4/7
 
 - **D.4.2 (M) — PELT change-point detection.** `cadw/ml/pelt.py` +

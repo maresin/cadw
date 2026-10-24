@@ -1,0 +1,32 @@
+{
+  "algo": "D.5.1",
+  "runs": [
+    {
+      "n": 5000,
+      "fit_s": 0.292,
+      "n_iter": 12,
+      "success": true,
+      "acc": 0.764,
+      "peak_mb": 36.4,
+      "state_b": 296
+    },
+    {
+      "n": 50000,
+      "fit_s": 0.582,
+      "n_iter": 11,
+      "success": true,
+      "acc": 0.7643,
+      "peak_mb": 7.3,
+      "state_b": 296
+    },
+    {
+      "n": 200000,
+      "fit_s": 2.089,
+      "n_iter": 11,
+      "success": true,
+      "acc": 0.7642,
+      "peak_mb": 30.5,
+      "state_b": 296
+    }
+  ]
+}

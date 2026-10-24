@@ -1,0 +1,37 @@
+{
+  "algo": "D.5.2",
+  "runs": [
+    {
+      "n": 20000,
+      "chain": true,
+      "fit_s": 2.27,
+      "subset_acc": 0.6621,
+      "peak_mb": 11.1,
+      "state_b": 12800
+    },
+    {
+      "n": 20000,
+      "chain": false,
+      "fit_s": 1.95,
+      "subset_acc": 0.6621,
+      "peak_mb": 1.1,
+      "state_b": 12800
+    },
+    {
+      "n": 100000,
+      "chain": true,
+      "fit_s": 11.26,
+      "subset_acc": 0.6555,
+      "peak_mb": 39.5,
+      "state_b": 12800
+    },
+    {
+      "n": 100000,
+      "chain": false,
+      "fit_s": 9.57,
+      "subset_acc": 0.6555,
+      "peak_mb": 23.6,
+      "state_b": 12800
+    }
+  ]
+}

@@ -15,10 +15,10 @@
 | D.4.3 | v0.9.38 | done | 11 | 50k rows: 17.15 s / 1.4 MB / 800 352 B | statsmodels ETS: MASE 0.298 vs 0.338 |
 | D.4.4 | v0.9.38 | done | 9 | 100k rows: 0.92 s / 6.5 MB / 1 600 256 B | statsmodels Theta: MASE 2.18 vs 1.99 |
 | D.4.5 | v0.9.38 | done | 11 | 50k x k=4 p=2: 0.039 s / 12.3 MB / 1 600 544 B | statsmodels VAR: max fc diff 2.8e-17 |
-| D.4.6 | v0.9.39 | pending | — | — | — |
-| D.5.1 | v0.9.39 | pending | — | — | — |
-| D.5.2 | v0.9.39 | pending | — | — | — |
-| D.5.3 | v0.9.39 | pending | — | — | — |
+| D.4.6 | v0.9.39 | done | 10 | 100k rows: 5.92 s / 10.7 MB / 1 824 B | sklearn CCV (sigmoid/isotonic): Brier within 1.3x, ECE 0.0038 |
+| D.5.1 | v0.9.39 | done | 10 | 200k rows: 2.09 s / 30.5 MB / 296 B | statsmodels OrderedModel: beta maxdiff < 1e-2 |
+| D.5.2 | v0.9.39 | done | 8 | 100k rows: 11.26 s / 39.5 MB / 12 800 B | sklearn ClassifierChain 0.702 vs ours 0.664 (94%) |
+| D.5.3 | v0.9.39 | done | 12 | 500k rows: km 1.98 s / 63 MB, gmm 3.11 s / 67 MB | sklearn MiniBatchKMeans inertia within 1.15x; GMM loglik within 0.15 |
 | D.5.4 | v0.9.40 | pending | — | — | — |
 | D.6.1 | v0.9.40 | pending | — | — | — |
 | D.6.2 | v0.9.40 | pending | — | — | — |
@@ -28,4 +28,4 @@
 | D.6.7 | v0.9.41 | pending | — | — | — |
 | D.6.9 | v0.9.41 | pending | — | — | — |
 
-Done: 13/25. Fast suite 2711 passed, 2 skipped. Slow 25 passed.
+Done: 17/25. Fast suite 2751 passed, 2 skipped. Slow 25 passed.

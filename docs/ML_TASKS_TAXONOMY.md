@@ -282,9 +282,9 @@ Same as A6 (imbalanced) — rare events with labels.
 
 ## Pending types (see ALGORITHM_BACKLOG)
 
-- **A4/A5** (multilabel, ordinal) — D.5.2, D.5.1
+- **A4/A5** (multilabel, ordinal) — ✓ chains v0.9.39 (D.5.2), ✓ ordinal logit v0.9.39 (D.5.1)
 - **A7** (quantile reg) — GBDT pinball pending
-- **B2/B3** (hierarchical / BIRCH) — D.5.4, T1 recipe
+- **B2/B3** (hierarchical / BIRCH) — D.5.4, T1 recipe; ✓ MiniBatch KMeans/GMM v0.9.39 (D.5.3)
 - **C2** (t-SNE/UMAP) — T2 recipe
 - **D2** (multi TS) — ✓ VAR v0.9.38 (D.4.5)
 - **D5** (change-point) — ✓ PELT v0.9.38 (D.4.2)

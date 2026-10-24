@@ -877,3 +877,80 @@ class _MLBindingsMixin:
         from cadw.ts.var import VARModel
         return VARModel(p=p).fit(self, target_col,
                                  time_col=time_col, group_col=group_col)
+
+    def fit_calibration(
+        self,
+        X_cols,
+        y_col: str,
+        *,
+        method: str = "platt",
+        n_estimators: int = 50,
+        max_depth: int = 3,
+        learning_rate: float = 0.1,
+        n_bins: int = 256,
+    ):
+        """Platt / isotonic probability calibration (v0.9.39, D.4.6)."""
+        from cadw.ml.calibration import fit_calibration as _f
+        return _f(self, X_cols, y_col, method=method,
+                  n_estimators=n_estimators, max_depth=max_depth,
+                  learning_rate=learning_rate, n_bins=n_bins)
+
+    def fit_ordinal_logit(
+        self,
+        X_cols,
+        y_col: str,
+        *,
+        max_iter: int = 200,
+        tol: float = 1e-6,
+    ):
+        """Ordinal logistic cumulative link (v0.9.39, D.5.1)."""
+        from cadw.ml.ordinal import fit_ordinal_logit as _f
+        return _f(self, X_cols, y_col, max_iter=max_iter, tol=tol)
+
+    def fit_chains(
+        self,
+        X_cols,
+        label_cols,
+        *,
+        chain: bool = True,
+        n_estimators: int = 30,
+        max_depth: int = 3,
+        learning_rate: float = 0.1,
+    ):
+        """Classifier chains / one-vs-rest (v0.9.39, D.5.2)."""
+        from cadw.ml.chains import fit_chains as _f
+        return _f(self, X_cols, label_cols, chain=chain,
+                  n_estimators=n_estimators, max_depth=max_depth,
+                  learning_rate=learning_rate)
+
+    def fit_minibatch_kmeans(
+        self,
+        X_cols,
+        *,
+        n_clusters: int = 8,
+        batch_size: int = 1024,
+        max_iter: int = 100,
+        tol: float = 1e-4,
+        seed: int = 0,
+    ):
+        """MiniBatch KMeans (v0.9.39, D.5.3)."""
+        from cadw.ml.minibatch import fit_minibatch_kmeans as _f
+        return _f(self, X_cols, n_clusters=n_clusters, batch_size=batch_size,
+                  max_iter=max_iter, tol=tol, seed=seed)
+
+    def fit_minibatch_gmm(
+        self,
+        X_cols,
+        *,
+        n_components: int = 3,
+        batch_size: int = 1024,
+        max_iter: int = 50,
+        tol: float = 1e-4,
+        seed: int = 0,
+        reg: float = 1e-6,
+    ):
+        """MiniBatch EM GMM, diagonal covariance (v0.9.39, D.5.3)."""
+        from cadw.ml.minibatch import fit_minibatch_gmm as _f
+        return _f(self, X_cols, n_components=n_components,
+                  batch_size=batch_size, max_iter=max_iter, tol=tol,
+                  seed=seed, reg=reg)
