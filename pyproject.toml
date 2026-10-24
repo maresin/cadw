@@ -1,6 +1,6 @@
 [project]
 name = "cadw-framework"
-version = "0.9.42"
+version = "0.9.43"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -40,7 +40,7 @@ markers = [
     "e2e: end-to-end integration tests",
 ]
 testpaths = ["tests"]
-norecursedirs = ["_legacy", ".venv", "build", "dist"]
+norecursedirs = ["_legacy", ".venv", "build", "dist", ".hypothesis"]
 
 [dependency-groups]
 viz = [

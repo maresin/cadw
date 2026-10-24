@@ -1,5 +1,8 @@
 # CADW — ML Tasks Taxonomy (navigator)
 
+> ⚠️ **DEPRECATED (v0.9.43):** this file will be replaced by `docs/ml_tools/` matrix after v0.9.44 (M1 patch). Kept for navigation until the matrix is populated for 5 sections (A, D, E, F, H). See `CONTEXT.md` §"Roadmap update (v0.9.43)" for the transition plan. New ML work must consult the matrix, not this file.
+
+
 **Version:** 0.9.33 (2026-10-23)
 **Purpose:** master navigator per ML task type. For each type —
 recommended 3 tiers of algorithms (baseline / best-in-class /

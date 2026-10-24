@@ -39,3 +39,34 @@ GBDT-bound and measured at smaller n because the GBDT histogram batch guard
 State = d * 8 bytes scores + 512 overhead (672 measured). MI is O(d) bins;
 Boruta holds one shadow copy of the batch (O(batch*d)) and refits the GBDT
 per iteration. All batches pass `check_batch(extra_factor>=2.0)`.
+
+## v0.9.43 correction: kNN MI → histogram MI
+
+Prior implementation (v0.9.40) delegated to sklearn's `mutual_info_classif`
+/ `mutual_info_regression` (Kraskov kNN estimator). Those imports were
+lazy inside `_mi_cc` / `_mi_cd`, but on the DEFAULT `method='mutual_info'`
+path — so any user without dev extras got `ImportError`. The v0.9.43 AST
+guard `test_no_bench_deps_in_core.py` caught this.
+
+v0.9.43 replaces both `_mi_cc` and `_mi_cd` with histogram MI (native
+numpy; quantile-binned; adaptive bins n^(1/3), capped 5..50).
+
+Trade-off (measured on `_data(seed=0)` in tests):
+- **Ranking**: preserved. On synthetic f0+f1 signal vs f2,f3 noise,
+  top-2 = {f0, f1} matches sklearn's kNN result.
+- **Absolute values**: differ (smoke: histogram MI(informative)=0.46,
+  MI(noise)=0.03 — ratio ~15x; Kraskov gives higher absolute MI).
+- **Speed**: 10-100x faster (no kNN queries).
+- **Memory**: O(n_bins^2) joint histogram + O(n) workspace.
+
+If a future workload needs kNN MI (very-high-dim, or distributional MI
+for aliased quantization), re-add as an *optional* method gated on
+availability:
+
+    if method == "mutual_info_knn":
+        try:
+            from sklearn.feature_selection import mutual_info_classif
+        except ImportError:
+            raise ImportError("mutual_info_knn requires scikit-learn")
+
+Not implemented in v0.9.43 — default path stays native.

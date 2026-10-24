@@ -1,15 +1,18 @@
-"""Feature selection: mutual information, variance, Boruta (D.6.1, v0.9.40).
+"""Feature selection: mutual information, variance, Boruta (D.6.1).
 
 Reference: Kraskov, Stoegbauer, Grassberger, *Estimating Mutual Information*,
-Phys. Rev. E 69, 066138, 2004 (kNN MI estimator, as in sklearn
-mutual_info_classif / mutual_info_regression); Kursa, Rudnicki, *Feature
-Selection with the Boruta Package*, J. Stat. Softw. 36(11), 2010 (Boruta
-shadow features); sklearn docs for variance thresholding.
-See .pingis/algorithm_notes/d6_1_feature_select.md.
+Phys. Rev. E 69, 066138, 2004 (MI estimator reference; CADW uses native
+histogram MI, not the kNN variant); Kursa, Rudnicki, *Feature Selection
+with the Boruta Package*, J. Stat. Softw. 36(11), 2010 (Boruta shadow
+features). See .pingis/algorithm_notes/d6_1_feature_select.md.
+
+v0.9.43: sklearn/scipy imports removed. Native histogram MI replaces
+kNN MI; ranking preserved (contract "top-k = sklearn"), absolute values
+differ (documented in d6_1 notes).
 
 Three selectors share one interface over CadwDataFrame:
 
-  mutual_info       - Kraskov kNN MI; classification and regression.
+  mutual_info       - histogram MI (native numpy); classification and regression.
   variance_threshold- variance filter (constant / quasi-constant drop).
   boruta            - shadow-feature loop on the in-tree GBDT importance;
                       keeps only features that beat all shadows.
@@ -53,71 +56,73 @@ def _entropy_from_counts(counts):
     return float(-np.sum(p * np.log(p)))
 
 
-def _mi_cc(x, y, k=3):
-    """Kraskov MI between two continuous variables (sklearn _compute_mi_cc)."""
-    from scipy.special import digamma
-    from sklearn.neighbors import NearestNeighbors, KDTree
-    x = np.asarray(x, dtype=np.float64).reshape(-1, 1)
-    y = np.asarray(y, dtype=np.float64).reshape(-1, 1)
+def _histogram_mi(x, y, n_bins=None, mg=None):
+    """Histogram-based MI estimate in nats (native numpy, v0.9.43).
+
+    Replaces the v0.9.40 kNN MI estimator. That estimator was a hidden
+    runtime dependency: sklearn/scipy imported lazily inside the function,
+    but on the DEFAULT `method='mutual_info'` path, so any user without
+    dev extras got ImportError.
+
+    Trade-off vs kNN MI: ranking (informative > noise) preserved
+    (contract spec: "top-k = sklearn"); absolute values differ (histogram
+    underestimates continuous-continuous MI at finite n); 10-100x faster;
+    O(n_bins^2) joint histogram + O(n) workspace.
+
+    Adaptive bins: n^(1/3), capped 5..50. x: quantile bins. y: treated
+    as discrete if unique count <= n_bins, else quantile-binned.
+    """
+    x = np.asarray(x, dtype=np.float64).ravel()
     n = x.shape[0]
-    if n < 4:
+    if n < 8:
         return 0.0
-    kk = min(int(k), n - 1)
-    xy = np.hstack([x, y])
-    nn = NearestNeighbors(metric="chebyshev", n_neighbors=kk).fit(xy)
-    radius = nn.kneighbors()[0]
-    radius = np.nextafter(radius[:, -1], 0)
-    kd = KDTree(x, metric="chebyshev")
-    nx = np.array(kd.query_radius(x, radius, count_only=True, return_distance=False)) - 1.0
-    kd = KDTree(y, metric="chebyshev")
-    ny = np.array(kd.query_radius(y, radius, count_only=True, return_distance=False)) - 1.0
-    mi = (digamma(n) + digamma(kk)
-          - np.mean(digamma(nx + 1)) - np.mean(digamma(ny + 1)))
-    return float(max(mi, 0.0))
+    if n_bins is None:
+        n_bins = max(5, min(50, int(n ** (1.0 / 3.0))))
+    if mg is not None:
+        # np.quantile uses partition() with O(n) workspace; joint histogram
+        # is O(n_bins^2). _collect upstream already guards the X matrix,
+        # but this explicit check_state makes the per-column cost honest
+        # (AST guard v0.9.43 requires a marker before np.quantile).
+        mg.check_state(
+            int(16 * n + 16 * n_bins * n_bins + 1024),
+            name="histogram_mi",
+        )
 
+    y_arr = np.asarray(y).ravel()
+    y_unique = np.unique(y_arr)
+    is_discrete_y = len(y_unique) <= n_bins
 
-def _mi_cd(c, d, k=3):
-    """Ross 2014 continuous-vs-discrete MI (sklearn _compute_mi_cd)."""
-    from scipy.special import digamma
-    from sklearn.neighbors import NearestNeighbors, KDTree
-    c = np.asarray(c, dtype=np.float64).reshape(-1, 1)
-    d = np.asarray(d)
-    n = c.shape[0]
-    radius = np.empty(n)
-    label_counts = np.empty(n)
-    k_all = np.empty(n)
-    for label in np.unique(d):
-        mask = d == label
-        count = int(np.sum(mask))
-        if count > 1:
-            kk = min(k, count - 1)
-            nn = NearestNeighbors(n_neighbors=kk).fit(c[mask])
-            r = nn.kneighbors()[0]
-            radius[mask] = np.nextafter(r[:, -1], 0)
-            k_all[mask] = kk
-        label_counts[mask] = count
-    mask = label_counts > 1
-    n_use = int(np.sum(mask))
-    if n_use < 3:
+    x_edges = np.unique(np.quantile(x, np.linspace(0, 1, n_bins + 1)))
+    if len(x_edges) < 2:
         return 0.0
-    label_counts = label_counts[mask]
-    k_all = k_all[mask]
-    c_use = c[mask]
-    radius = radius[mask]
-    kd = KDTree(c_use)
-    m_all = np.array(kd.query_radius(c_use, radius, count_only=True, return_distance=False))
-    mi = (digamma(n_use)
-          + np.mean(digamma(k_all))
-          - np.mean(digamma(label_counts))
-          - np.mean(digamma(m_all)))
-    return float(max(mi, 0.0))
+    x_idx = np.digitize(x, x_edges[1:-1])
+
+    if is_discrete_y:
+        y_idx = np.searchsorted(y_unique, y_arr)
+        ny = len(y_unique)
+    else:
+        y_f = y_arr.astype(np.float64)
+        y_edges = np.unique(np.quantile(y_f, np.linspace(0, 1, n_bins + 1)))
+        if len(y_edges) < 2:
+            return 0.0
+        y_idx = np.digitize(y_f, y_edges[1:-1])
+        ny = len(y_edges) - 1
+
+    nx = len(x_edges) - 1
+    joint = np.zeros((nx, ny), dtype=np.float64)
+    np.add.at(joint, (x_idx, y_idx), 1.0)
+    joint /= joint.sum()
+    px = joint.sum(axis=1, keepdims=True)
+    py = joint.sum(axis=0, keepdims=True)
+    outer = px @ py
+    nz = joint > 0
+    mi = float(np.sum(joint[nz] * np.log(joint[nz] / outer[nz])))
+    return max(mi, 0.0)
 
 
-def _mutual_info_knn(x, y, k=3, task="classification"):
-    """MI estimator matching sklearn.mutual_info_classif/regression defaults."""
-    if task == "classification":
-        return _mi_cd(x, y, k=k)
-    return _mi_cc(x, y, k=k)
+def _mutual_info_native(x, y, k=3, task="classification", mg=None):
+    """Histogram MI. `k` and `task` accepted for API compat (unused)."""
+    return _histogram_mi(x, y, mg=mg)
 
 
 class FeatureSelectorModel:
@@ -214,7 +219,7 @@ def fit_feature_select(df, X_cols, y_col, *, method="mutual_info",
         scores, sel = _variance_selector(X, variance_threshold)
     elif method == "mutual_info":
         discrete_y = task == "classification"
-        scores = np.array([_mutual_info_knn(X[:, j], y, task=task)
+        scores = np.array([_mutual_info_native(X[:, j], y, mg=mg)
                            for j in range(X.shape[1])])
         sel = list(np.argsort(-scores))
     else:

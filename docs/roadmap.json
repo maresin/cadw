@@ -4,7 +4,7 @@
   "updated": "2026-10-24",
   "principles": [
     "Universality via recipes, not model zoo.",
-    "Every algorithm O(1)/O(d\u00b2) or sample+stream wrapper.",
+    "Every algorithm O(1)/O(d²) or sample+stream wrapper.",
     "New model only if unreachable by composition.",
     "Light NNs (<=5M) only for ensemble diversification.",
     "Infrastructure refactor <= features."
@@ -96,8 +96,10 @@
           "complexity": "M",
           "file": "cadw/dataframe/_core.py, cadw/ops/{shuffle,rank,metrics,pivot,resample,groupby}.py, cadw/ts/{features,stats,models,thf,backtest}.py",
           "deferred_to": null,
-          "resolution_note": "v0.9.32: AST scan of all 160 to_pylist/as_py/to_numpy sites triaged (see _FOR_PINGIS/AUDIT_v0931.md). Only real gap was F9 (gbdt inner ReduceOps) \u2014 fixed via batch_memory_factor overrides. Remaining 15 sites verified guarded/bounded/by-design.",
-          "completed_in": "v0.9.32 (AUDIT_v0931 F9)"
+          "resolution_note": "v0.9.32: AST scan of all 160 to_pylist/as_py/to_numpy sites triaged (see _FOR_PINGIS/AUDIT_v0931.md). Only real gap was F9 (gbdt inner ReduceOps) — fixed via batch_memory_factor overrides. Remaining 15 sites verified guarded/bounded/by-design.",
+          "completed_in": "v0.9.32 (AUDIT_v0931 F9)",
+          "resolution": "Closed by reference to AUDIT_v0931 (v0.9.32): 160 to_pylist/as_py/to_numpy sites scanned systematically; only F9 (gbdt per-batch stack, fixed v0.9.32) was real; remaining sites bounded by sample/group size, guarded upstream, or by design (MaterializedIndex). Original '18 sites' claim from v0.9.26 cannot be re-derived (audit absent), but the exhaustive 160-site audit supersedes it.",
+          "closed_in": "0.9.43"
         },
         {
           "id": "A.9",
@@ -106,7 +108,7 @@
           "status": "done",
           "complexity": "S",
           "file": "cadw/ops/sort.py",
-          "resolution_note": "v0.9.26c-diagnostic: _append_to_builders absent from cadw/ \u2014 already removed in prior patch"
+          "resolution_note": "v0.9.26c-diagnostic: _append_to_builders absent from cadw/ — already removed in prior patch"
         },
         {
           "id": "A.10",
@@ -115,7 +117,7 @@
           "status": "done",
           "complexity": "S",
           "file": "cadw/core/memory_guard.py",
-          "resolution_note": "v0.9.26c-diagnostic: memory_guard.py:757 comment 'v0.9.25e (A.10): fallback scales with state_limit, not fixed' \u2014 already shipped in v0.9.25e"
+          "resolution_note": "v0.9.26c-diagnostic: memory_guard.py:757 comment 'v0.9.25e (A.10): fallback scales with state_limit, not fixed' — already shipped in v0.9.25e"
         }
       ],
       "completed_at": "2026-10-23",
@@ -138,7 +140,7 @@
           "complexity": "L",
           "file": "cadw/dataframe.py",
           "closed_at": "2026-10-23",
-          "notes": "v0.9.26 B.1 milestone: dataframe.py split into 18 modules across 20+ patches (v0.9.26g-y2). Original spec was 9; actual 18 due to subsystem granularity. _core.py 7900 \u2192 ~530 LOC; ~7300 LOC redistributed to mixin modules. 40+ \u00a713.4 lessons learned (296-336). 0 production bugs, 0 logic change."
+          "notes": "v0.9.26 B.1 milestone: dataframe.py split into 18 modules across 20+ patches (v0.9.26g-y2). Original spec was 9; actual 18 due to subsystem granularity. _core.py 7900 → ~530 LOC; ~7300 LOC redistributed to mixin modules. 40+ §13.4 lessons learned (296-336). 0 production bugs, 0 logic change."
         },
         {
           "id": "B.2",
@@ -211,7 +213,7 @@
         "v0.9.26b"
       ],
       "completed_at": "2026-10-23",
-      "summary": "Phase B close (v0.9.30): 8/8 milestones done. B.1 dataframe split (18 modules, _core 7900\u2192530 LOC, tail added), B.2 DECISIONS split (288 KB \u2192 24 files), B.3 pytest markers + xdist (-m ts = 103 tests vs 2500, 1.9\u00d7 parallel opt-in), B.4 collect_project phase-aware, B.5 scripts reorg (75 files), B.6 cleanup (-7.9 MB), B.7 recipes scaffold, B.8 roadmap.json. 0 production bugs, 0 logic change. 60+ \u00a713.4 lessons (278\u2013360). Context-transfer pain measurably mitigated."
+      "summary": "Phase B close (v0.9.30): 8/8 milestones done. B.1 dataframe split (18 modules, _core 7900→530 LOC, tail added), B.2 DECISIONS split (288 KB → 24 files), B.3 pytest markers + xdist (-m ts = 103 tests vs 2500, 1.9× parallel opt-in), B.4 collect_project phase-aware, B.5 scripts reorg (75 files), B.6 cleanup (-7.9 MB), B.7 recipes scaffold, B.8 roadmap.json. 0 production bugs, 0 logic change. 60+ §13.4 lessons (278–360). Context-transfer pain measurably mitigated."
     },
     {
       "id": "C",
@@ -637,7 +639,7 @@
       "name": "Tech debt close",
       "version_range": "v0.9.38",
       "status": "planned",
-      "description": "Close \u00a711.5/\u00a711.6/AUDIT \u00a73.5 items.",
+      "description": "Close §11.5/§11.6/AUDIT §3.5 items.",
       "items": [
         {
           "id": "G.1",
@@ -785,14 +787,14 @@
     },
     {
       "id": "I",
-      "name": "Bug backlog (part1_report \u00a71)",
-      "description": "Bug fixes from part1_report.md audit \u2014 no deferral allowed. Fix or reject with measurement.",
+      "name": "Bug backlog (part1_report §1)",
+      "description": "Bug fixes from part1_report.md audit — no deferral allowed. Fix or reject with measurement.",
       "status": "completed",
       "version_range": "v0.9.34",
       "items": [
         {
           "id": "I.1",
-          "name": "B1 \u2014 _RunStream.refill quadratic concat",
+          "name": "B1 — _RunStream.refill quadratic concat",
           "patch": "v0.9.34",
           "status": "done",
           "complexity": "S",
@@ -802,7 +804,7 @@
         },
         {
           "id": "I.2",
-          "name": "B2 \u2014 encode_categorical O(K) Python-set",
+          "name": "B2 — encode_categorical O(K) Python-set",
           "patch": "v0.9.34",
           "status": "done",
           "complexity": "S",
@@ -812,7 +814,7 @@
         },
         {
           "id": "I.3",
-          "name": "B3 \u2014 ROC-AUC pass2 Python loop",
+          "name": "B3 — ROC-AUC pass2 Python loop",
           "patch": "v0.9.34",
           "status": "rejected-with-measurement",
           "complexity": "S",
@@ -822,7 +824,7 @@
         },
         {
           "id": "I.4",
-          "name": "B7 \u2014 _string_hash_column O(K) Python",
+          "name": "B7 — _string_hash_column O(K) Python",
           "patch": "v0.9.34",
           "status": "done",
           "complexity": "S",
@@ -832,7 +834,7 @@
         },
         {
           "id": "I.5",
-          "name": "A9 \u2014 ML log wiring (3 remaining)",
+          "name": "A9 — ML log wiring (3 remaining)",
           "patch": "v0.9.34",
           "status": "done",
           "complexity": "S",
@@ -842,7 +844,7 @@
         },
         {
           "id": "I.6",
-          "name": "B4 \u2014 memory_guard fallback factor",
+          "name": "B4 — memory_guard fallback factor",
           "patch": "v0.9.34",
           "status": "done",
           "complexity": "S",
@@ -852,7 +854,7 @@
         },
         {
           "id": "I.7",
-          "name": "A10 \u2014 empty-input contract docs",
+          "name": "A10 — empty-input contract docs",
           "patch": "v0.9.34",
           "status": "done",
           "complexity": "S",
@@ -862,7 +864,7 @@
         },
         {
           "id": "I.8",
-          "name": "B6 \u2014 README version drift",
+          "name": "B6 — README version drift",
           "patch": "v0.9.34",
           "status": "done",
           "complexity": "S",

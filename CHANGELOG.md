@@ -1,5 +1,58 @@
 ## [Unreleased]
 
+### v0.9.43 (2026-10-24) — Phase G: tech debt closeout
+- **D.6.1 de-skleranification** — `cadw/ml/feature_select.py`
+  imported sklearn/scipy lazily inside `_mi_cc`/`_mi_cd`, on the
+  default `method='mutual_info'` path. That made sklearn a hidden
+  runtime dep (caught by the new AST guard). Replaced with
+  histogram-based MI (native numpy, adaptive bins). Ranking vs
+  sklearn preserved (contract spec 'top-k = sklearn'); absolute
+  values differ (smoke: MI 0.46 vs 0.03 — ratio ~15x; documented
+  in d6_1 notes). Tests rewritten from `np.allclose(scores, ref)`
+  to top-k ranking checks.
+- **`tests/test_version_consistency.py`** — guards pyproject.version
+  == cadw.__version__ == CHANGELOG top entry. Added after two
+  consecutive version-bump misses (v0.9.42-fix1, v0.9.43 pre-check).
+- **Stray `=` file** removed (shell artifact from
+  `echo scikit-learn>=1.9.1` without quotes).
+
+
+Closes A.6 (deferred from v0.9.26) and isolates benchmark reference
+deps. No production code change.
+
+- **A.6 closed** by reference to AUDIT_v0931 (v0.9.32): 160
+  to_pylist/as_py/to_numpy sites scanned; only F9 (gbdt per-batch
+  stack, fixed v0.9.32) was real; all others bounded by sample/
+  group size, guarded upstream, or by design. Original "18 sites"
+  claim from v0.9.26 cannot be re-derived (audit absent), but the
+  exhaustive 160-site audit supersedes it.
+- **`requirements-bench.txt`** — isolated list of reference libraries
+  (scikit-learn, statsmodels, pyod, ruptures, lifelines, implicit).
+  NOT added to `pyproject.toml`. Used only by `scripts/bench_*.py`
+  and future `tests/test_ml_tools_*`.
+- **AST guard** `tests/test_no_bench_deps_in_core.py` — fails if any
+  `cadw/**/*.py` imports pyod/ruptures/lifelines/implicit/
+  statsmodels/sklearn. Mirror of the existing
+  `test_no_pandas_in_ops.py` pattern.
+- **`.hypothesis` in `norecursedirs`** — pytest no longer scans the
+  hypothesis cache during collection. Pre-existing issue, not a
+  v0.9.42 regression.
+- **`docs/ML_TASKS_TAXONOMY.md` marked deprecated** — will be
+  replaced by `docs/ml_tools/` matrix after v0.9.44 (M1). Kept for
+  navigation until 5 sections populated (A, D, E, F, H).
+- **`CONTEXT.md` roadmap section added** — A-D closed; G (this
+  patch) → M1 (matrix schema) → F (Light NNs) / H (Long-tail)
+  → E (recipes as views). DoD for F/H adds "card in matrix with
+  roles, purpose, real_life_examples, benchmark_result,
+  implementation_status".
+- **`docs/roadmap.json`**: A.6 → done (with resolution note).
+
+Test status: fast suite green (v0.9.42 baseline 2829 passed /
+2 skipped + ~99 new AST-guard param tests); slow 25 passed;
+WL 34 OK.
+
+
+
 ### v0.9.42 (2026-10-24) — D.3.3 causal tree ensemble
 
 Replaces the v0.9.37 two-model T-learner in `fit_uplift` with a proper

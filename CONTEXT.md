@@ -108,3 +108,38 @@ FOR_PINGIS: AUDIT_v0931.md (findings), algorithm_notes.md (D.1.3 sources + D.3.1
 - Algorithm backlog: 25 items → TASK_v0935 (algorithm pass, no
   deferral).
 - PINGIS workspace: `.pingis/` — all artifacts centralised.
+
+## Roadmap update (v0.9.43)
+
+**Phases A-D:** ✅ closed (Phase D = 29/29 algorithms, 25 notes
++ 25 benches).
+
+| Phase | Status | DoD |
+|---|---|---|
+| **G** tech debt | ✅ closed v0.9.43 (A.6, .hypothesis, bench-deps isolation) | — |
+| **M1** matrix schema | 🔜 v0.9.44 (blocker for F/H) | pydantic schema + 5 sections (A, D, E, F, H) + validator test |
+| **F** Light NNs | after M1 | model + tests + bench + **card in matrix** |
+| **H** Long-tail | after M1 | model + tests + bench + **card in matrix** |
+| **E** Recipes | after F/H | reduced to views over the matrix |
+| **M2** Reproduction | parallel | isolated requirements-bench.txt + scripts/reproduce_benchmark.py |
+| **M3** Fill remaining | parallel with F/H | 10 more sections (B, C, G, I, J, K, L, M, N, O) |
+
+**DoD change for F/H:** a model is `done` only when:
+
+1. `cadw/ml/<name>.py` implemented + ≥8 tests + bench
+2. Card in `docs/ml_tools/<section>.yaml` with:
+   `roles`, `purpose`, `real_life_examples`, `benchmark_result`,
+   `implementation_status: {verified_in_cadw: true, verified_by_agent: true}`
+3. `tests/test_ml_tools_schema.py` passes
+
+**Deprecated:** `docs/ML_TASKS_TAXONOMY.md` (top-of-file notice) —
+replaced by matrix after M1 populates 5 sections.
+
+**Bench-deps isolation (v0.9.43):**
+
+- `requirements-bench.txt` — pyod, ruptures, lifelines, implicit,
+  statsmodels, sklearn. NOT in `pyproject.toml`.
+- AST guard `tests/test_no_bench_deps_in_core.py` prevents `cadw/`
+  from importing these. Reference work lives only in `scripts/` and
+  `tests/`.
+
