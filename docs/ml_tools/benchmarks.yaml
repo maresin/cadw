@@ -220,3 +220,11 @@ benchmarks:
     warning: "GraphSAGE 2017 inductive protein-protein-interaction benchmark.
       Micro-F1 across 24 test graphs. Not comparable to transductive
       Cora/Citeseer results."
+
+  ImageNet1k:
+    url: https://paperswithcode.com/sota/image-classification-on-imagenet
+    modality: image_classification
+    metrics: [top1_err, accuracy]
+    warning: "ImageNet-1k top-1. Different papers use different model sizes and
+      training regimes (e.g. ImageNet-21k pretraining vs scratch). Compare
+      only within the same source's table."

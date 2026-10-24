@@ -1,6 +1,6 @@
 {
-  "last_completed": "L",
-  "in_progress": "K",
+  "last_completed": "K",
+  "in_progress": "final",
   "completed_cards": [
     "I.I1.CoxPH",
     "I.I1.KaplanMeier",
@@ -61,6 +61,10 @@
     "L.L1.GCN",
     "L.L1.GraphSAGE",
     "L.L1.GAT",
-    "L.L1.Node2Vec"
+    "L.L1.Node2Vec",
+    "K.K1.ResNet50",
+    "K.K1.ViT",
+    "K.K1.ConvNeXt",
+    "K.K1.EfficientNet"
   ]
 }

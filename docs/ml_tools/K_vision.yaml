@@ -1,0 +1,78 @@
+# K — Vision (summary only)
+# v0.9.48.7: summary section per TASK_v0.9.48 (§K/L scope).
+# Out of scope: torch required. No CADW implementation is planned — these
+# cards document what sits beyond the to_batches export boundary.
+# No cadw_measured / cadw_reproduced here (no .pingis/benches artifacts).
+#
+# Benchmark reality (2026-10-25): Papers-with-Code's ImageNet leaderboard is
+# blocked from this environment (returns a HuggingFace landing page, not the
+# SOTA table). The only fetchable sources are the primary papers' arXiv HTML:
+#   * He et al. 2016 (ResNet) — Table 3, ResNet-50 top-1 error 22.85%
+#   * Dosovitskiy et al. 2021 (ViT) — abstract, 88.55% ImageNet top-1 (ViT-H/14)
+#   * Liu et al. 2022 (ConvNeXt) — abstract, 87.8% ImageNet top-1
+#   * Tan & Le 2019 (EfficientNet) — abstract, 84.3% top-1 (EfficientNet-B7)
+#
+# Two-URL rule: benchmark_url is the arXiv HTML page where the number is;
+# algorithm_source_url is the arXiv abstract (where the algorithm is
+# described) — always a different path level on the same domain.
+
+section: K
+name: Vision (summary — out of scope, torch required)
+subtypes:
+  - id: K1
+    name: "Image classification"
+    description: "Classify images into a fixed label set; the canonical deep-learning benchmark task."
+    real_life:
+      - "Product image categorization"
+      - "Medical image triage"
+      - "Content moderation"
+    benchmarks:
+      - name: ImageNet1k
+        url: "https://paperswithcode.com/sota/image-classification-on-imagenet"
+        metrics: [accuracy, top1_err]
+        note: "ImageNet-1k top-1. Papers differ in model size and training regime (ImageNet-21k vs scratch); compare only within one source's table."
+    models:
+      - name: ResNet50
+        tier: baseline
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, nonlinear_interactions]
+        purpose: "He et al. 2016 — residual connections let very deep CNNs train by learning identity shortcuts. Inductive bias: translation-equivariant convolution + depth via skip connections; the canonical vision backbone."
+        real_life_examples: ["Image classification backbone", "Feature extractor for detection", "Transfer-learning baseline"]
+        config: {depth: int, width_mult: float, num_classes: int}
+        benchmark_results:
+          - {benchmark: ImageNet1k, benchmark_url: 'https://arxiv.org/html/1512.03385', algorithm: 'ResNet-50 (He et al. 2016)', algorithm_source_url: 'https://arxiv.org/abs/1512.03385', algorithm_source_kind: paper, attribution: literature, task_type: image_classification, n_datasets: 1, metric: top1_err, value: 22.85, note: "fetched 2026-10-25 from arXiv:1512.03385 HTML Table 3: 'ResNet-50 22.85 6.71' (10-crop validation, top-1 error %; accuracy = 100 - 22.85 = 77.15%). out of scope: torch required."}
+      - name: ViT
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, nonlinear_interactions]
+        purpose: "Dosovitskiy et al. 2021 — split image into 16x16 patches, treat as tokens for a Transformer encoder. Inductive bias: minimal image-specific prior (patch locality only); needs large-scale pretraining to beat CNNs."
+        real_life_examples: ["Large-scale vision backbone", "Multimodal (CLIP-style) base", "Transfer to detection/segmentation"]
+        config: {patch_size: int, num_layers: int, hidden_dim: int}
+        benchmark_results:
+          - {benchmark: ImageNet1k, benchmark_url: 'https://arxiv.org/html/2010.11929', algorithm: 'ViT-H/14 (Dosovitskiy et al. 2021)', algorithm_source_url: 'https://arxiv.org/abs/2010.11929', algorithm_source_kind: paper, attribution: literature, task_type: image_classification, n_datasets: 1, metric: accuracy, value: 88.55, note: "fetched 2026-10-25 from arXiv:2010.11929 HTML abstract: 'the best model reaches the accuracy of 88.55% on ImageNet' (ViT-H/14, ImageNet-21k pretrain). out of scope: torch required."}
+      - name: ConvNeXt
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, nonlinear_interactions]
+        purpose: "Liu et al. 2022 — modernize a ResNet with Transformer-era training recipe and design choices (depthwise conv, LayerNorm, GELU). Inductive bias: pure convolution, but matched to ViT-era scaling."
+        real_life_examples: ["Vision backbone competitive with ViT", "Edge-friendly (no attention)", "Detection/segmentation backbone"]
+        config: {depths: list, dims: list, num_classes: int}
+        benchmark_results:
+          - {benchmark: ImageNet1k, benchmark_url: 'https://arxiv.org/html/2201.03545', algorithm: 'ConvNeXt (Liu et al. 2022)', algorithm_source_url: 'https://arxiv.org/abs/2201.03545', algorithm_source_kind: paper, attribution: literature, task_type: image_classification, n_datasets: 1, metric: accuracy, value: 87.8, note: "fetched 2026-10-25 from arXiv:2201.03545 HTML abstract: 'achieving 87.8% ImageNet top-1 accuracy' (ConvNeXt-XL). out of scope: torch required."}
+      - name: EfficientNet
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, nonlinear_interactions]
+        purpose: "Tan & Le 2019 — compound scaling of depth/width/resolution under a fixed FLOP budget, found by neural-architecture search. Inductive bias: mobile-conv blocks with SE; Pareto-optimal for a compute budget."
+        real_life_examples: ["Mobile / edge inference", "Compute-budgeted backbone", "Transfer-learning baseline"]
+        config: {compound_coef: float, num_classes: int}
+        benchmark_results:
+          - {benchmark: ImageNet1k, benchmark_url: 'https://arxiv.org/html/1905.11946', algorithm: 'EfficientNet-B7 (Tan & Le 2019)', algorithm_source_url: 'https://arxiv.org/abs/1905.11946', algorithm_source_kind: paper, attribution: literature, task_type: image_classification, n_datasets: 1, metric: accuracy, value: 84.3, note: "fetched 2026-10-25 from arXiv:1905.11946 HTML abstract: 'EfficientNet-B7 achieves state-of-the-art 84.3% top-1 accuracy on ImageNet'. out of scope: torch required."}
+    metrics:
+      - {name: accuracy, combination: anchor, direction: higher, responsibility: 'ImageNet-1k top-1 accuracy (percent).', special: 'Model size and pretraining regime differ across papers; compare only within one source table.'}
+      - {name: top1_err, combination: diagnostic, direction: lower, responsibility: 'ImageNet-1k top-1 error rate (percent) as reported by ResNet paper.', special: 'Complement of accuracy; report which one the source uses.'}
+    ensemble_recommendation: []

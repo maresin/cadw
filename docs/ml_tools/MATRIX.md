@@ -77,6 +77,10 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | J | J3 Topic modeling | LDA | baseline | tier1_core | probabilistic, representation | ✓ cadw, ✓ agent | perplexity |
 | J | J3 Topic modeling | NMF | baseline | tier2_wrapper | representation | desc | perplexity |
 | J | J3 Topic modeling | BERTopic | sota | tier3_export | representation, nonlinear_interactions | desc, export | perplexity |
+| K | K1 Image classification | ResNet50 | baseline | tier3_export | representation, nonlinear_interactions | desc, export | accuracy |
+| K | K1 Image classification | ViT | sota | tier3_export | representation, nonlinear_interactions | desc, export | accuracy |
+| K | K1 Image classification | ConvNeXt | sota | tier3_export | representation, nonlinear_interactions | desc, export | accuracy |
+| K | K1 Image classification | EfficientNet | sota | tier3_export | representation, nonlinear_interactions | desc, export | accuracy |
 | L | L1 Node / edge / graph classification, link prediction | GCN | baseline | tier3_export | local_structure, representation | desc, export | accuracy |
 | L | L1 Node / edge / graph classification, link prediction | GraphSAGE | sota | tier3_export | local_structure, representation | desc, export | accuracy |
 | L | L1 Node / edge / graph classification, link prediction | GAT | sota | tier3_export | local_structure, representation, nonlinear_interactions | desc, export | accuracy |
