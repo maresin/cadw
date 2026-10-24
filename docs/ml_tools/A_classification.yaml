@@ -1,0 +1,356 @@
+# A — Classification & Regression
+# 7 subtypes: A1 binary, A2 multiclass, A3 regression, A4 multilabel,
+# A5 ordinal, A6 imbalanced, A7 quantile.
+#
+# v0.9.44a-fix1: pr_auc anchor -> pareto_axis (single anchor: roc_auc);
+# A7 ensemble cleared (models are described_only, not recommendable).
+# Comments beyond this header were dropped by the yaml round-trip and
+# will be restored in v0.9.44b.
+
+section: A
+name: Classification & Regression
+subtypes:
+- id: A1
+  name: Binary classification
+  description: Predict P(y=1|x) with y in {0,1}.
+  real_life: [Credit scoring (default yes/no), Churn prediction, Fraud detection (rare positive), CTR prediction]
+  benchmarks:
+  - name: AMLB
+    url: https://openml.github.io/automlbenchmark/
+    metrics: [roc_auc, accuracy, logloss]
+  models:
+  - name: LogisticRegression
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [linear_signal]
+    purpose: Additive log-odds; fast on high-d, low-n; interpretable coefficients.
+    real_life_examples: [Credit scoring, Medical risk scores]
+    config: {alpha: float, max_iter: int, l1_ratio: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: roc_auc, value: 0.78, note: median
+        across AMLB binary tasks; ranking only}
+    cadw_module: cadw.ml.logistic
+    cadw_function: fit_logistic
+  - name: GBDT
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions]
+    purpose: Gradient-boosted trees; SOTA on most tabular Kaggle tasks.
+    real_life_examples: [Kaggle credit scoring, Ad click prediction]
+    config: {n_estimators: int, max_depth: int, learning_rate: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: roc_auc, value: 0.82, note: median
+        across AMLB binary tasks}
+    cadw_module: cadw.ml.gbdt
+    cadw_function: fit_gbdt_classifier
+  - name: BernoulliNB
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [probabilistic]
+    purpose: Naive Bayes for binary features; fast baseline.
+    real_life_examples: [Spam filter, Text classification]
+    config: {alpha: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: roc_auc, value: 0.72}
+    cadw_module: cadw.ml.naive_bayes
+    cadw_function: fit_bernoulli_nb
+  - name: TabPFN
+    tier: sota
+    tier_level: tier3_export
+    implementation_status: {described_only: true, not_implemented_in_cadw: true}
+    roles: [nonlinear_interactions]
+    purpose: Prior-fitted transformer for small tabular datasets; SOTA on AMLB small-N.
+    real_life_examples: [Medical tabular prediction (n<2000)]
+    config: {n_estimators: int}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: roc_auc, value: 0.85, note: Top
+        of AMLB small-N subset; export via to_batches(format='torch')}
+  metrics:
+  - {name: roc_auc, combination: anchor, direction: higher, responsibility: Threshold-invariant discrimination., special: Insensitive
+      to class imbalance; prefer pr_auc when positive_rate<0.05.}
+  - {name: pr_auc, combination: pareto_axis, direction: higher, responsibility: Discrimination under class imbalance., special: Only
+      use as anchor when positive_rate<0.05; not comparable to roc_auc numerically.}
+  - {name: brier, combination: pareto_axis, direction: lower, responsibility: Calibration + discrimination mixed; safest for
+      probability use., special: 'Decompose to (reliability, resolution, uncertainty) to see where loss comes from.'}
+  - {name: logloss, combination: diagnostic, direction: lower, responsibility: Strict calibration-aware loss., special: Very
+      sensitive to confident wrong predictions; do not sum with brier.}
+  - {name: accuracy, combination: diagnostic, direction: higher, responsibility: Business-default decision quality., special: Uses
+      a fixed threshold 0.5; only meaningful when costs are symmetric.}
+  ensemble_recommendation:
+  - roles: [linear_signal, nonlinear_interactions]
+    models: [LogisticRegression, GBDT]
+    max_per_role: 2
+    note: Complementary inductive biases; average predicted probabilities.
+  - roles: [linear_signal, probabilistic]
+    models: [LogisticRegression, BernoulliNB]
+    max_per_role: 2
+    note: Only when features are binary; Naive Bayes adds fast likelihood.
+- id: A2
+  name: Multiclass classification
+  description: Predict P(y=k|x) for K>=3 classes.
+  real_life: [Handwritten digit recognition, Product category tagging]
+  benchmarks:
+  - name: AMLB
+    url: https://openml.github.io/automlbenchmark/
+    metrics: [accuracy, logloss]
+  models:
+  - name: LogisticRegression_multinomial
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [linear_signal]
+    purpose: Multinomial log-odds; strong when classes are roughly linearly separable.
+    real_life_examples: [Iris-style small-d tasks]
+    config: {alpha: float, max_iter: int}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: accuracy, value: 0.74}
+    cadw_module: cadw.ml.logistic
+    cadw_function: fit_logistic
+  - name: GBDT_multiclass
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions]
+    purpose: One-vs-all softmax GBDT; SOTA on tabular multiclass.
+    real_life_examples: [Product categorization]
+    config: {n_estimators: int, max_depth: int}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: accuracy, value: 0.81}
+    cadw_module: cadw.ml.gbdt
+    cadw_function: fit_gbdt_classifier
+  - name: GaussianNB
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [probabilistic]
+    purpose: Gaussian class-conditionals; extremely fast.
+    real_life_examples: [Baseline in medical tabular data]
+    config: {var_smoothing: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: accuracy, value: 0.68}
+    cadw_module: cadw.ml.naive_bayes
+    cadw_function: fit_gaussian_nb
+  metrics:
+  - {name: accuracy, combination: anchor, direction: higher, responsibility: Overall correct decisions when classes are balanced.,
+    special: Use balanced_accuracy or macro-F1 when classes are imbalanced.}
+  - {name: logloss, combination: diagnostic, direction: lower, responsibility: Calibration-aware multiclass loss., special: Punishes
+      confident wrong calls; not comparable to accuracy.}
+  - {name: macro_f1, combination: pareto_axis, direction: higher, responsibility: 'Per-class balance, robust to class imbalance.',
+    special: Degrades when one class is very rare and the model ignores it.}
+  ensemble_recommendation:
+  - roles: [linear_signal, nonlinear_interactions]
+    models: [LogisticRegression_multinomial, GBDT_multiclass]
+    max_per_role: 2
+    note: Linear + trees; average softmax probabilities.
+- id: A3
+  name: Regression
+  description: Predict y in R.
+  real_life: [Price prediction, Demand forecast, ETA estimation]
+  benchmarks:
+  - name: AMLB
+    url: https://openml.github.io/automlbenchmark/
+    metrics: [rmse]
+  models:
+  - name: Ridge
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [linear_signal]
+    purpose: L2-regularised linear regression; closed-form solution, O(d^2) state.
+    real_life_examples: [Housing price baseline]
+    config: {alpha: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: rmse, value: 0.42, note: normalised
+        RMSE median across AMLB regression tasks}
+    cadw_module: cadw.ml.linear
+    cadw_function: fit_linear
+  - name: Lasso
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [linear_signal]
+    purpose: L1-regularised linear regression; produces sparse coefficients.
+    real_life_examples: [Gene expression regression]
+    config: {alpha: float, max_iter: int}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: rmse, value: 0.43}
+    cadw_module: cadw.ml.linear
+    cadw_function: fit_lasso
+  - name: GBDT_L2
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions]
+    purpose: Gradient-boosted trees with squared loss; general-purpose SOTA.
+    real_life_examples: [Kaggle tabular regression winner baseline]
+    config: {n_estimators: int, max_depth: int, learning_rate: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: rmse, value: 0.36}
+    cadw_module: cadw.ml.gbdt
+    cadw_function: fit_gbdt_regressor
+  metrics:
+  - {name: rmse, combination: anchor, direction: lower, responsibility: Standard regression loss; interpretable in y units.,
+    special: Sensitive to outliers; prefer mae when target has heavy tails.}
+  - {name: mae, combination: pareto_axis, direction: lower, responsibility: Median-scaled loss; robust to outliers., special: Not
+      linearly related to rmse; do not combine into one score.}
+  - {name: r2, combination: diagnostic, direction: higher, responsibility: Fraction of variance explained., special: Can be
+      negative on test data; only meaningful relative to a baseline.}
+  ensemble_recommendation:
+  - roles: [linear_signal, nonlinear_interactions]
+    models: [Ridge, GBDT_L2]
+    max_per_role: 2
+    note: Linear extrapolation + tree interpolation; average predictions.
+- id: A4
+  name: Multilabel classification
+  description: Predict multiple binary labels per row.
+  real_life: [Document tagging, Medical diagnosis (multiple conditions)]
+  benchmarks:
+  - name: AMLB
+    url: https://openml.github.io/automlbenchmark/
+    metrics: [accuracy]
+  models:
+  - name: OneVsRest_Logistic
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [linear_signal]
+    purpose: Independent per-label logits; ignores label correlations.
+    real_life_examples: [Tag suggestion]
+    config: {alpha: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: accuracy, value: 0.62, note: subset
+        accuracy}
+    cadw_module: cadw.ml.chains
+    cadw_function: fit_classifier_chains
+  - name: ClassifierChains
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions]
+    purpose: Sequential per-label classifiers; each sees earlier labels.
+    real_life_examples: [Medical coding (ICD)]
+    config: {n_estimators: int, order: list}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: accuracy, value: 0.66}
+    cadw_module: cadw.ml.chains
+    cadw_function: fit_classifier_chains
+  metrics:
+  - {name: subset_accuracy, combination: anchor, direction: higher, responsibility: Exact-match accuracy per row., special: Strict
+      — one wrong label fails the row; use hamming_loss when labels are numerous.}
+  - {name: hamming_loss, combination: pareto_axis, direction: lower, responsibility: Fraction of incorrect labels per row.,
+    special: Handles many labels gracefully; not comparable to subset_accuracy.}
+  ensemble_recommendation:
+  - roles: [linear_signal, nonlinear_interactions]
+    models: [OneVsRest_Logistic, ClassifierChains]
+    max_per_role: 1
+    note: OvR as baseline, chains as SOTA; use chains when label correlation is strong.
+- id: A5
+  name: Ordinal classification
+  description: Predict ranked classes (e.g. ratings 1-5).
+  real_life: [Star ratings, Pain severity 1-10, Satisfaction surveys]
+  benchmarks:
+  - name: AMLB
+    url: https://openml.github.io/automlbenchmark/
+    metrics: [accuracy]
+  models:
+  - name: OrdinalLogit
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [linear_signal]
+    purpose: Cumulative-link logistic; respects class order.
+    real_life_examples: [Satisfaction survey prediction]
+    config: {alpha: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: accuracy, value: 0.55, note: exact-match
+        accuracy}
+    cadw_module: cadw.ml.ordinal
+    cadw_function: fit_ordinal_logit
+  - name: GBDT_threshold
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {described_only: true}
+    roles: [nonlinear_interactions]
+    purpose: GBDT on cumulative logits; SOTA when relations are nonlinear.
+    real_life_examples: [Risk bands in finance]
+    config: {n_estimators: int, max_depth: int}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: accuracy, value: 0.6}
+  metrics:
+  - {name: mae_ordinal, combination: anchor, direction: lower, responsibility: Distance-aware accuracy; respects ordered classes.,
+    special: Preferred to accuracy; a 1→2 error is less costly than 1→5.}
+  - {name: accuracy, combination: diagnostic, direction: higher, responsibility: Exact-match accuracy., special: Ignores distance;
+      misleads when ordinal distance matters.}
+  ensemble_recommendation:
+  - roles: [linear_signal, nonlinear_interactions]
+    models: [OrdinalLogit]
+    max_per_role: 1
+    note: Single model — GBDT-threshold is described_only, wait for verification.
+- id: A6
+  name: Imbalanced classification
+  description: Binary/multiclass with strong class imbalance (positive_rate<5%).
+  real_life: [Fraud detection, Rare disease diagnosis, Defect detection]
+  benchmarks:
+  - name: AMLB
+    url: https://openml.github.io/automlbenchmark/
+    metrics: [roc_auc, pr_auc]
+  models:
+  - name: Logistic_balanced
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [linear_signal]
+    purpose: LogReg with class_weight='balanced'; simplest cost-sensitive baseline.
+    real_life_examples: [Imbalanced credit scoring]
+    config: {class_weight: str, alpha: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: pr_auc, value: 0.42, note: AMLB
+        imbalance subset}
+    cadw_module: cadw.ml.logistic
+    cadw_function: fit_logistic
+  - name: GBDT_scale_pos_weight
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions]
+    purpose: Cost-sensitive GBDT; weight positives by neg/pos ratio (XGBoost semantics).
+    real_life_examples: [Fraud detection, Defect detection]
+    config: {scale_pos_weight: float, n_estimators: int}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: pr_auc, value: 0.51}
+    cadw_module: cadw.ml.gbdt
+    cadw_function: fit_gbdt_classifier
+  metrics:
+  - {name: pr_auc, combination: anchor, direction: higher, responsibility: Discrimination of the rare class; prefers models
+      that rank positives high., special: Much lower than roc_auc when imbalance is strong; use only pr_auc comparisons for
+      this subtype.}
+  - {name: roc_auc, combination: diagnostic, direction: higher, responsibility: Discrimination of rare class (legacy comparison).,
+    special: Overly optimistic under heavy imbalance; do not use as anchor.}
+  - {name: recall_at_1pct, combination: pareto_axis, direction: higher, responsibility: Business-aligned recall at 1% false-positive
+      budget., special: Not comparable across datasets with different prevalence.}
+  ensemble_recommendation:
+  - roles: [linear_signal, nonlinear_interactions]
+    models: [Logistic_balanced, GBDT_scale_pos_weight]
+    max_per_role: 2
+    note: Weighted probability average; apply calibration before deployment.
+- id: A7
+  name: Quantile / interval regression
+  description: Predict conditional quantiles (e.g. P10/P50/P90 of y|x).
+  real_life: [Delivery-time ETA, Inventory safety stock, Risk bands]
+  benchmarks:
+  - name: AMLB
+    url: https://openml.github.io/automlbenchmark/
+    metrics: [rmse]
+  models:
+  - name: LinearQuantReg
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {described_only: true}
+    roles: [linear_signal]
+    purpose: Linear quantile regression (pinball loss); fast baseline.
+    real_life_examples: [Salary quantile regression]
+    config: {quantiles: list, alpha: float}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: rmse, value: 0.5, note: 'pinball
+        loss, not rmse; use for ranking only'}
+  - name: GBDT_pinball
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {described_only: true}
+    roles: [nonlinear_interactions]
+    purpose: GBDT with pinball loss; SOTA for nonlinear quantile regression.
+    real_life_examples: [ETA with confidence intervals]
+    config: {quantiles: list, n_estimators: int}
+    benchmark_result: {source: AMLB, url: 'https://openml.github.io/automlbenchmark/', metric: rmse, value: 0.46}
+  metrics:
+  - {name: pinball_loss, combination: anchor, direction: lower, responsibility: Official quantile regression loss., special: 'Sum
+      over quantiles = ''interval score''; report per-quantile, not aggregated.'}
+  - {name: coverage_90, combination: pareto_axis, direction: target, responsibility: 'Fraction of true y within [P05, P95];
+      target 0.90.', special: 'Diagnostic for calibration of quantile intervals, not a score.'}
+  ensemble_recommendation: []

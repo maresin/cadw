@@ -874,6 +874,45 @@
         }
       ],
       "completed_at": "2026-10-23"
+    },
+    {
+      "id": "M1",
+      "name": "ML-tools matrix",
+      "description": "Schema + cards for A, D, E, F, H; DoD for Phase F/H.",
+      "status": "in_progress",
+      "started_at": "2026-10-24",
+      "items": [
+        {
+          "id": "M1.1",
+          "name": "schema.py + enums.py + benchmarks.yaml",
+          "status": "done",
+          "patch": "0.9.44"
+        },
+        {
+          "id": "M1.2",
+          "name": "A_classification.yaml (7 subtypes)",
+          "status": "done",
+          "patch": "0.9.44"
+        },
+        {
+          "id": "M1.3",
+          "name": "D_time_series.yaml (7 subtypes)",
+          "status": "done",
+          "patch": "0.9.44"
+        },
+        {
+          "id": "M1.4",
+          "name": "E/F/H sections",
+          "status": "planned",
+          "patch": "0.9.44b"
+        },
+        {
+          "id": "M1.5",
+          "name": "render_matrix.py + MATRIX.md",
+          "status": "planned",
+          "patch": "0.9.44b"
+        }
+      ]
     }
   ]
 }

@@ -1,0 +1,89 @@
+# Benchmark registry for the ML-tools matrix (M1, v0.9.44).
+# Every benchmark_result.source in section YAML MUST name an entry here.
+#
+# `warning` is REQUIRED for every benchmark and states the comparability
+# caveat. Rule: numbers from different benchmarks are NEVER comparable;
+# each carries its own dataset selection, protocol, and metric definition.
+
+benchmarks:
+  AMLB:
+    url: https://openml.github.io/automlbenchmark/
+    modality: tabular
+    metrics: [accuracy, roc_auc, rmse, logloss]
+    warning: "Tabular AutoML benchmark (OpenML datasets). Do not compare
+      with ODDS (different task types) or with per-dataset Kaggle
+      results (different splits)."
+
+  ODDS:
+    url: https://odds.cs.stonybrook.edu/
+    modality: tabular_anomaly
+    metrics: [roc_auc, pr_auc]
+    warning: "26 curated tabular anomaly datasets. Train-on-contamination
+      variant differs from ADBench. Compare only within ODDS."
+
+  ADBench:
+    url: https://github.com/Minqi824/ADBench
+    modality: tabular_anomaly
+    metrics: [roc_auc, pr_auc]
+    warning: "57 datasets, unlabeled/unsupervised variant. Numbers not
+      comparable to ODDS (different label definition and sample size)."
+
+  UCR_Classification:
+    url: https://www.timeseriesclassification.com/
+    modality: ts_classification
+    metrics: [accuracy]
+    warning: "109+ UCR/UEA datasets with 30 resamples; reported numbers
+      are mean over resamples. Not comparable to UCR_Anomaly."
+
+  UCR_Anomaly:
+    url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
+    modality: ts_anomaly
+    metrics: [auprc, point_adjusted_f1]
+    warning: "250 curated time series. Different papers use different
+      anomaly labels (some synthetic, some real); AUPRC absolute values
+      vary by protocol. Prefer ranking (best-5 / best-10) over absolute
+      numbers. Not comparable to TSB-AD."
+
+  TSB-AD:
+    url: https://github.com/TheDatumOrg/TSB-AD
+    modality: ts_anomaly
+    metrics: [vus_pr, auprc]
+    warning: "NeurIPS 2024 archive, 1070 series / 40 datasets, proposes
+      VUS-PR as the recommended metric. Newer than UCR_Anomaly; not
+      directly comparable to it."
+
+  M4:
+    url: https://github.com/Mcompetitions/M4-methods
+    modality: ts_forecast
+    metrics: [smape, mase]
+    warning: "100k time series across 6 frequencies; ensemble-heavy
+      baseline. Do not compare with M5 (different target, hierarchical)."
+
+  M5:
+    url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
+    modality: ts_forecast_hierarchical
+    metrics: [wrmssе, smape]
+    warning: "Retail hierarchical forecast; WRMSSE is hierarchical-only.
+      Not comparable to M4 sMAPE."
+
+  RCT_IHDP:
+    url: https://www.fredjo.com/
+    modality: causal
+    metrics: [ate_error, pehe]
+    warning: "Semi-synthetic IHDP and RCT benchmarks. Different papers
+      simulate treatment effect with different DGP; absolute PEHE
+      differences < 0.1 are typically noise."
+
+  CoxPH_Survival:
+    url: https://github.com/sebp/scikit-survival/tree/master/sksurv/datasets
+    modality: survival
+    metrics: [c_index, ibs, brier_time]
+    warning: "Collection of small survival datasets. C-index depends on
+      censoring rate; compare only within the same dataset."
+
+  Amazon_Recsys:
+    url: https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
+    modality: recsys
+    metrics: [recall_at_k, ndcg_at_k]
+    warning: "Implicit-feedback split; NDCG@10 varies with negative
+      sampling. Compare only within the same split."

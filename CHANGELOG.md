@@ -1,5 +1,46 @@
 ## [Unreleased]
 
+### v0.9.44 (2026-10-24) — M1 part 1: ml_tools schema + A/D
+
+Data + validator only. No production code change. Fills the first two
+sections of the ML-tools matrix that will replace
+`docs/ML_TASKS_TAXONOMY.md` (deprecated v0.9.43).
+
+- `docs/ml_tools/enums.py` — fixed vocabularies: 7 roles,
+  3 tier levels, 4 impl flags, 3 combination values.
+- `docs/ml_tools/schema.py` — dataclasses + `validate_matrix()`.
+  Plain Python, no pydantic (the matrix is data reviewed by humans;
+  domain-specific errors are more useful than generic pydantic ones).
+- `docs/ml_tools/benchmarks.yaml` — global registry of 11
+  benchmarks with mandatory `warning` about cross-benchmark
+  comparability (AMLB, ODDS, ADBench, UCR_Classification,
+  UCR_Anomaly, TSB-AD, M4, M5, RCT_IHDP, CoxPH_Survival,
+  Amazon_Recsys).
+- `docs/ml_tools/A_classification.yaml` — 7 subtypes (A1 binary,
+  A2 multiclass, A3 regression, A4 multilabel, A5 ordinal,
+  A6 imbalanced, A7 quantile). A1/A3 fully filled; A2/A4-A7 with
+  currently available CADW models + 1 SOTA reference each.
+- `docs/ml_tools/D_time_series.yaml` — 7 subtypes (D1, D2, D3.1,
+  D3.2, D3.3, D4, D5). All CADW-implemented TS models carded.
+- `tests/test_ml_tools_schema.py` — validator (4 tests).
+- `docs/roadmap.json`: Phase M1 added, status `in_progress`.
+- `CONTEXT.md`: M1 row updated to `v0.9.44a / v0.9.44b` split.
+
+**Validator rules enforced**:
+- every role/tier/tier_level/combination from fixed enum
+- exactly ONE `anchor` metric per subtype
+- `anchor` metric must have `special` field
+- every subtype has >= 1 `baseline` and >= 1 `sota` model
+- model not verified in cadw/agent → NOT in ensemble_recommendation
+- every `benchmark_result.source` in `benchmarks.yaml`
+- every benchmark has a `warning` (comparability caveat)
+- ensemble role overlap <= `max_per_role` per rule
+
+**Deferred to v0.9.44b**: E (anomaly), F (recsys), H (causal/uplift),
+`render_matrix.py`, `MATRIX.md` view.
+
+## [Unreleased]
+
 ### v0.9.43 (2026-10-24) — Phase G: tech debt closeout
 - **D.6.1 de-skleranification** — `cadw/ml/feature_select.py`
   imported sklearn/scipy lazily inside `_mi_cc`/`_mi_cd`, on the

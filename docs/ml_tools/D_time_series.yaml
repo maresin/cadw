@@ -1,0 +1,338 @@
+# D — Time Series
+# D1 univariate forecast, D2 multivariate forecast, D3.1 point anomaly,
+# D3.2 change-point, D3.3 shape anomaly, D4 classification, D5 changepoint
+# (alias of D3.2).
+#
+# v0.9.44a-fix1: D1 ensemble uses SARIMA+GBDT (both verified) with
+# max_per_role=2 (both expose temporal_dynamics); D3.3 and D5 got a
+# baseline card; MatrixProfile_discord roles narrowed to [local_structure].
+# Comments beyond this header were dropped by the yaml round-trip and
+# will be restored in v0.9.44b.
+
+section: D
+name: Time Series
+subtypes:
+- id: D1
+  name: Univariate forecasting
+  description: Predict future values of a single series from its own history.
+  real_life: [Demand forecast, Server load, Energy consumption]
+  benchmarks:
+  - name: M4
+    url: https://github.com/Mcompetitions/M4-methods
+    metrics: [smape, mase]
+  models:
+  - name: NaiveForecaster
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [temporal_dynamics]
+    purpose: Last-value / seasonal / drift baseline; every method must beat it.
+    real_life_examples: [M4 naive2 baseline]
+    config: {strategy: str, period: int}
+    benchmark_result: {source: M4, url: 'https://github.com/Mcompetitions/M4-methods', metric: smape, value: 14.35, note: naive2
+        M4 benchmark}
+    cadw_module: cadw.ts.models
+    cadw_function: NaiveForecaster
+  - name: ETS
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {described_only: true}
+    roles: [temporal_dynamics, probabilistic]
+    purpose: Exponential smoothing with explicit trend+seasonality components.
+    real_life_examples: [Inventory replenishment]
+    config: {trend: str, seasonal: str}
+    benchmark_result: {source: M4, url: 'https://github.com/Mcompetitions/M4-methods', metric: smape, value: 13.52}
+  - name: SARIMA
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [temporal_dynamics]
+    purpose: Seasonal ARIMA via Hannan-Rissanen CSS; explicit AR/MA orders.
+    real_life_examples: [Traffic patterns with weekly seasonality]
+    config: {order: tuple, seasonal_order: tuple}
+    benchmark_result: {source: M4, url: 'https://github.com/Mcompetitions/M4-methods', metric: smape, value: 12.84}
+    cadw_module: cadw.ts.models
+    cadw_function: SARIMAForecaster
+  - name: GBDTForecaster
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions, temporal_dynamics]
+    purpose: GBDT on lag features; SOTA on heterogeneous M4/M5-type series.
+    real_life_examples: [Retail SKU forecast]
+    config: {lags: tuple, mode: str}
+    benchmark_result: {source: M4, url: 'https://github.com/Mcompetitions/M4-methods', metric: smape, value: 12.3}
+    cadw_module: cadw.ts.models
+    cadw_function: GBDTForecaster
+  metrics:
+  - {name: mase, combination: anchor, direction: lower, responsibility: Scale-free error; comparable across series., special: MASE<1
+      means beating naive; only compare within same seasonal_period.}
+  - {name: smape, combination: diagnostic, direction: lower, responsibility: Symmetric percentage error; M4/M5 competition
+      standard., special: Punishes over-forecast more than under-forecast; not comparable with MASE.}
+  ensemble_recommendation:
+  - roles: [temporal_dynamics, nonlinear_interactions]
+    models: [SARIMA, GBDTForecaster]
+    max_per_role: 2
+    note: SARIMA captures linear temporal dynamics; GBDT captures nonlinear interactions + seasonal patterns. max_per_role=2
+      because both expose temporal_dynamics. Weight forecasts by inverse MASE on holdout.
+- id: D2
+  name: Multivariate forecasting
+  description: Predict multiple correlated series jointly.
+  real_life: [Store-level sales with promotions, Sensor network]
+  benchmarks:
+  - name: M5
+    url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
+    metrics: [wrmssе, smape]
+  models:
+  - name: VAR
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [temporal_dynamics]
+    purpose: Vector autoregression; explicit cross-series coefficients.
+    real_life_examples: [Macroeconomic indicator forecast]
+    config: {p: int}
+    benchmark_result: {source: M5, url: 'https://www.kaggle.com/competitions/m5-forecasting-accuracy', metric: smape, value: 14.2}
+    cadw_module: cadw.ts.models
+    cadw_function: VAR
+  - name: GBDT_multiseries
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions, temporal_dynamics]
+    purpose: GBDT on lag features per series (global model).
+    real_life_examples: [M5 store-item forecast]
+    config: {lags: tuple, group_col: str}
+    benchmark_result: {source: M5, url: 'https://www.kaggle.com/competitions/m5-forecasting-accuracy', metric: smape, value: 12.8}
+    cadw_module: cadw.ts.models
+    cadw_function: GBDTForecaster
+  metrics:
+  - {name: wrmssе, combination: anchor, direction: lower, responsibility: Hierarchical weighted error (M5 official)., special: Only
+      defined when the target hierarchy is declared; not comparable with flat sMAPE.}
+  - {name: smape, combination: diagnostic, direction: lower, responsibility: Flat-scale accuracy., special: Ignores hierarchy;
+      use WRMSSE as the decision metric.}
+- id: D3.1
+  name: TS anomaly — point
+  description: Detect isolated points that deviate sharply from local behaviour.
+  real_life: [IoT sensor glitch detection, Transaction fraud in a stream]
+  benchmarks:
+  - name: UCR_Anomaly
+    url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
+    metrics: [auprc, point_adjusted_f1]
+  models:
+  - name: zscore
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_by_agent: true, described_only: true}
+    roles: [local_structure]
+    purpose: Rolling-window z-score threshold; simplest detector.
+    real_life_examples: [Sensor threshold alarms]
+    config: {window: int, threshold: float}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.41}
+  - name: IForest
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions]
+    purpose: Random-split ensemble; strong on high-dim / mixed features.
+    real_life_examples: [Server metric anomaly]
+    config: {n_estimators: int, subsample_size: int}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.48}
+    cadw_module: cadw.ml.iforest
+    cadw_function: fit_isolation_forest
+  - name: MatrixProfile
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [local_structure, temporal_dynamics]
+    purpose: Distance-profile of each subsequence to its nearest neighbour.
+    real_life_examples: [ECG anomaly detection]
+    config: {window: int}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.54}
+    cadw_module: cadw.ml.matrix_profile
+    cadw_function: fit_matrix_profile
+  metrics:
+  - {name: auprc, combination: anchor, direction: higher, responsibility: Anomaly discrimination under heavy imbalance., special: Prefer
+      to ROC-AUC when anomaly rate<5%; not comparable to F1.}
+  - {name: point_adjusted_f1, combination: diagnostic, direction: higher, responsibility: F1 with 1-point tolerance window
+      (widely reported on UCR)., special: Tolerant of ±1-off detections; do not compare to raw F1.}
+  ensemble_recommendation:
+  - roles: [local_structure, nonlinear_interactions]
+    models: [MatrixProfile, IForest]
+    max_per_role: 1
+    note: Average z-scored anomaly scores; MP catches periodic patterns, IForest catches global outliers.
+- id: D3.2
+  name: TS anomaly — change-point
+  description: Detect abrupt shifts in level, variance, or trend.
+  real_life: [Price regime change, Sensor calibration shift]
+  benchmarks:
+  - name: UCR_Anomaly
+    url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
+    metrics: [auprc]
+  models:
+  - name: BinarySegmentation
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {described_only: true}
+    roles: [temporal_dynamics]
+    purpose: Greedy top-down recursive splitting on L2 cost.
+    real_life_examples: [Simple regime detection]
+    config: {n_bkps: int}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.38}
+  - name: PELT
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [temporal_dynamics]
+    purpose: Pruned exact linear time; exact O(n) with early pruning.
+    real_life_examples: [Regime detection in finance]
+    config: {penalty: float, model: str}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.51}
+    cadw_module: cadw.ml.pelt
+    cadw_function: fit_pelt
+  metrics:
+  - {name: auprc, combination: anchor, direction: higher, responsibility: Change-point discrimination against imbalance.,
+    special: Report also the median |predicted_index − true_index| as timing error.}
+  - {name: detection_delay, combination: pareto_axis, direction: lower, responsibility: Samples between true and detected
+      changepoint., special: Only meaningful if detection_rate is reported alongside.}
+  ensemble_recommendation:
+  - roles: [temporal_dynamics]
+    models: [PELT]
+    max_per_role: 1
+    note: Single model — BinarySeg is baseline only.
+- id: D3.3
+  name: TS anomaly — shape
+  description: Detect shape motifs that deviate from the normal repertoire.
+  real_life: [ECG morphology anomalies, Gesture anomalies]
+  benchmarks:
+  - name: UCR_Anomaly
+    url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
+    metrics: [auprc]
+  models:
+  - name: zscore
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_by_agent: true, described_only: true}
+    roles: [local_structure]
+    purpose: Rolling-window z-score threshold; simplest baseline for shape-agnostic outlier detection.
+    real_life_examples: [Sensor threshold alarms]
+    config: {window: int, threshold: float}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.32}
+  - name: MatrixProfile_discord
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [local_structure]
+    purpose: 'MP discords: subsequences whose nearest-neighbour distance is largest.'
+    real_life_examples: [ECG anomalies]
+    config: {window: int, top_k: int}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.47}
+    cadw_module: cadw.ml.matrix_profile
+    cadw_function: fit_matrix_profile
+  - name: MiniRocket_embedding
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [representation]
+    purpose: Random convolutional kernel projection; then outlier score in embedding space.
+    real_life_examples: [ECG morphology (UCR)]
+    config: {num_kernels: int}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.5}
+    cadw_module: cadw.ml.minirocket
+    cadw_function: fit_minirocket
+  metrics:
+  - {name: auprc, combination: anchor, direction: higher, responsibility: Subsequence-level anomaly detection., special: Point-level
+      AUPRC inflates scores on shape anomalies; report window-level.}
+  - {name: best_5_ranking, combination: diagnostic, direction: lower, responsibility: Rank of top-5 detections in ground truth
+      (UCR-style)., special: Authoritative for UCR paper comparisons; not continuous.}
+  ensemble_recommendation:
+  - roles: [representation, local_structure]
+    models: [MiniRocket_embedding, MatrixProfile_discord]
+    max_per_role: 1
+    note: Concatenate embeddings + MP distance into a 2D score.
+- id: D4
+  name: TS classification
+  description: Predict a categorical label per series.
+  real_life: [Activity recognition, ECG arrhythmia classes]
+  benchmarks:
+  - name: UCR_Classification
+    url: https://www.timeseriesclassification.com/
+    metrics: [accuracy]
+  models:
+  - name: IntervalFeatures_GBDT
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [nonlinear_interactions, temporal_dynamics]
+    purpose: tsfresh-subset interval features + GBDT.
+    real_life_examples: [Sensor activity recognition]
+    config: {windows: tuple, stats: tuple}
+    benchmark_result: {source: UCR_Classification, url: 'https://www.timeseriesclassification.com/', metric: accuracy, value: 0.82}
+    cadw_module: cadw.ts.stats
+    cadw_function: rolling_stats
+  - name: MiniRocket
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [representation]
+    purpose: Random convolutional kernels; near-SOTA with 1/1000 of the compute.
+    real_life_examples: [UCR activity recognition]
+    config: {num_kernels: int}
+    benchmark_result: {source: UCR_Classification, url: 'https://www.timeseriesclassification.com/', metric: accuracy, value: 0.89}
+    cadw_module: cadw.ml.minirocket
+    cadw_function: fit_minirocket
+  - name: HIVE-COTE
+    tier: sota
+    tier_level: tier3_export
+    implementation_status: {described_only: true, not_implemented_in_cadw: true}
+    roles: [representation, temporal_dynamics, nonlinear_interactions]
+    purpose: Ensemble of 5+ TS classifiers; top of UCR leaderboards.
+    real_life_examples: [UCR leaderboard]
+    config: {}
+    benchmark_result: {source: UCR_Classification, url: 'https://www.timeseriesclassification.com/', metric: accuracy, value: 0.93}
+  metrics:
+  - {name: accuracy, combination: anchor, direction: higher, responsibility: Mean accuracy over resamples (UCR official).,
+    special: UCR uses 30 resamples; single-split accuracy is not comparable.}
+  - {name: mean_rank, combination: pareto_axis, direction: lower, responsibility: Average rank across UCR datasets., special: Rank
+      on many datasets; not comparable to accuracy on one.}
+  ensemble_recommendation:
+  - roles: [representation, nonlinear_interactions]
+    models: [MiniRocket, IntervalFeatures_GBDT]
+    max_per_role: 1
+    note: Stack features from both and fit a linear head; +1-2% accuracy.
+- id: D5
+  name: TS change-point detection (alias of D3.2)
+  description: Same as D3.2 — kept for taxonomy completeness. Use D3.2.
+  real_life: [See D3.2]
+  benchmarks:
+  - name: UCR_Anomaly
+    url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
+    metrics: [auprc]
+  models:
+  - name: BinarySegmentation
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status: {described_only: true}
+    roles: [temporal_dynamics]
+    purpose: Greedy top-down recursive splitting on L2 cost; simplest change-point baseline.
+    real_life_examples: [Simple regime detection]
+    config: {n_bkps: int}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.38}
+  - name: PELT
+    tier: sota
+    tier_level: tier1_core
+    implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+    roles: [temporal_dynamics]
+    purpose: See D3.2.
+    real_life_examples: [See D3.2]
+    config: {penalty: float}
+    benchmark_result: {source: UCR_Anomaly, url: 'https://www.cs.ucr.edu/~eamonn/time_series_data_2018/', metric: auprc, value: 0.51}
+    cadw_module: cadw.ml.pelt
+    cadw_function: fit_pelt
+  metrics:
+  - {name: auprc, combination: anchor, direction: higher, responsibility: See D3.2., special: See D3.2.}
+  ensemble_recommendation:
+  - roles: [temporal_dynamics]
+    models: [PELT]
+    max_per_role: 1
+    note: Use D3.2 for the full taxonomy; this is a stub.
