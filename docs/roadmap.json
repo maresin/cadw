@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.40",
+  "current_version": "0.9.41",
   "updated": "2026-10-24",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -284,7 +284,7 @@
       "id": "D",
       "name": "Algorithm coverage P1",
       "version_range": "v0.9.31-v0.9.36",
-      "status": "in_progress",
+      "status": "completed",
       "description": "Cover task types currently NEEDS. On primitives, state O(1..model).",
       "items": [
         {
@@ -488,14 +488,14 @@
           "id": "D.6.6",
           "name": "LDA",
           "patch": "v0.9.36",
-          "status": "planned",
+          "status": "done",
           "complexity": "L"
         },
         {
           "id": "D.6.7",
           "name": "LinUCB contextual bandit",
           "patch": "v0.9.36",
-          "status": "planned",
+          "status": "done",
           "complexity": "S"
         },
         {
@@ -510,7 +510,7 @@
           "id": "D.6.9",
           "name": "TF-IDF / text hashing on disk",
           "patch": "v0.9.36",
-          "status": "planned",
+          "status": "done",
           "complexity": "M"
         }
       ],

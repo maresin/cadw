@@ -24,8 +24,8 @@
 | D.6.2 | v0.9.40 | done | 9 | 1M rows: 1.28 s / 156.2 MB / 256 B | scipy KS/chi2/Welch/MW exact; CUPED theta 0.80 |
 | D.6.4 | v0.9.40 | done | 8 | 150k x 20: 0.22 s / 70.8 MB / 920 B | sklearn PCA: singular values ~1e-6 |
 | D.6.5 | v0.9.40 | done | 9 | 1M rows: 2.45 s / 107.6 MB / 256 B | analytic haversine exact (1e-9) |
-| D.6.6 | v0.9.41 | pending | — | — | — |
-| D.6.7 | v0.9.41 | pending | — | — | — |
-| D.6.9 | v0.9.41 | pending | — | — | — |
+| D.6.6 | v0.9.41 | done | 10 | 50k rows: 104.26 s / 1319.7 MB / 896 B | sklearn LDA: NMI >= 0.9x (both 1.0); ppl 4.131 |
+| D.6.7 | v0.9.41 | done | 10 | 150k rows: 0.04 s / 51.1 MB / 3 136 B | analytic ridge: theta maxdiff < 1e-9 |
+| D.6.9 | v0.9.41 | done | 11 | 500k rows: 1.28 s / 229.6 MB / 768 B | sklearn TfidfVectorizer: atol 1e-9 exact |
 
-Done: 22/25. Fast suite 2751 passed, 2 skipped. Slow 25 passed.
+Done: 25/25. Phase D complete. Fast suite 2751 passed, 2 skipped. Slow 25 passed.

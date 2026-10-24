@@ -267,7 +267,7 @@ Same as A6 (imbalanced) — rare events with labels.
   `value_counts`
 - O2 Cleaning: ✓ `fillna`, `dropna`, `ffill`, `bfill`; ⏳
   IterativeImputer — N34
-- O3 FE: ✓ `assign` (planned C.1); ⏳ encoders (D.6.9, C.2-C.4)
+- O3 FE: ✓ `assign` (planned C.1); ✓ TF-IDF v0.9.41 (D.6.9); ⏳ encoders (C.2-C.4)
 - O4 Selection: ✓ `compute_feature_importance`; ✓ perm importance
   (v0.9.31); ✓ mutual_info / Boruta — v0.9.40 (D.6.1)
 - O5 Validation: ✓ schema via pyarrow; ✓ drift — v0.9.40 (D.6.2)
@@ -292,8 +292,8 @@ Same as A6 (imbalanced) — rare events with labels.
 - **G1** (LTR) — ✓ LambdaMART v0.9.35 (D.2.1)
 - **H1/H2** (causal/uplift) — ✓ T/S-learner v0.9.37 (D.3.2), ✓ uplift v0.9.37 (D.3.3)
 - **I1** (survival) — ✓ CoxPH v0.9.36 (D.3.1)
-- **J1/J3/J4** (text) — D.6.9 TF-IDF, N11
-- **M1** (bandits) — D.6.7 LinUCB
+- **J1/J3/J4** (text) — ✓ TF-IDF v0.9.41 (D.6.9), ✓ LDA topics v0.9.41 (D.6.6), N11
+- **M1** (bandits) — ✓ LinUCB v0.9.41 (D.6.7)
 - **N1** (density) — ✓ GMM v0.9.31 (D.6.8)
 - **O12/O13** (online / geospatial) — ✓ geo agg v0.9.40 (D.6.5), N37
 

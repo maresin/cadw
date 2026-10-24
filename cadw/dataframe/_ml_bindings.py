@@ -997,3 +997,27 @@ class _MLBindingsMixin:
         from cadw.ml.geo import fit_geo_agg as _f
         return _f(self, lat_col, lon_col, cell_size_m=cell_size_m,
                   origin_lat=origin_lat, origin_lon=origin_lon)
+
+    def fit_lda(self, text_col: str, *, n_topics: int = 10, vocab_size: int = 1000,
+                max_iter: int = 10, alpha: float = 0.1, beta: float = 0.01,
+                tau0: float = 64.0, kappa: float = 0.7, seed: int = 0):
+        """Online variational Bayes LDA (v0.9.41, D.6.6)."""
+        from cadw.ml.lda import fit_lda as _f
+        return _f(self, text_col, n_topics=n_topics, vocab_size=vocab_size,
+                  max_iter=max_iter, alpha=alpha, beta=beta, tau0=tau0,
+                  kappa=kappa, seed=seed)
+
+    def fit_linucb(self, X_cols, *, arm_col: str, reward_col: str,
+                   alpha: float = 1.0, l2: float = 1.0):
+        """Disjoint LinUCB sufficient statistics (v0.9.41, D.6.7)."""
+        from cadw.ml.linucb import fit_linucb as _f
+        return _f(self, X_cols, arm_col=arm_col, reward_col=reward_col,
+                  alpha=alpha, l2=l2)
+
+    def fit_tfidf(self, text_col: str, *, vocab_size: int = 10000,
+                  sublinear_tf: bool = True, min_df: int = 1,
+                  norm: "str | None" = "l2"):
+        """Streaming TF-IDF vectorizer (v0.9.41, D.6.9)."""
+        from cadw.ml.tfidf import fit_tfidf as _f
+        return _f(self, text_col, vocab_size=vocab_size,
+                  sublinear_tf=sublinear_tf, min_df=min_df, norm=norm)

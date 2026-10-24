@@ -1,5 +1,32 @@
 ## [Unreleased]
 
+### v0.9.41 (2026-10-24) — Phase D algorithms, group 7/7 (Phase D complete)
+
+- **D.6.6 (M) — online variational Bayes LDA.** `cadw/ml/lda.py` +
+  `df.fit_lda(...)`. Bounded DF vocabulary, streamed document-level
+  variational E-step, per-epoch (K x V) M-step, document-seeded init plus
+  perplexity-selected multi-restart (defaults max_iter=15, n_restarts=16).
+  `transform` -> normalised document-topic gamma; `perplexity` uses the true
+  predictive likelihood, not the variational bound. 10 tests; vs sklearn
+  LDA on the same BoW our NMI >= 0.9x (both reach 1.0); 2k/10k/50k rows in
+  4.43/21.19/104.26 s, perplexity 4.13.
+- **D.6.7 (S) — disjoint LinUCB.** `cadw/ml/linucb.py` +
+  `df.fit_linucb(...)`. Streaming per-arm sufficient statistics
+  (A_a += x x^T, b_a += r x), closed-form ridge theta, UCB score
+  x^T theta + alpha sqrt(x^T A^-1 x); state O(K d^2). 10 tests; theta equals
+  the analytic ridge solution to 1e-9; 150 000 rows in 0.04 s, peak RSS
+  51 MB.
+- **D.6.9 (S) — streaming TF-IDF.** `cadw/ml/tfidf.py` +
+  `df.fit_tfidf(...)`. Streamed DF vector, sklearn smoothed idf
+  log((1+n)/(1+df))+1, sublinear TF, l1/l2/none norms, sparse (indices,
+  values) output. 11 tests; dense output matches sklearn TfidfVectorizer to
+  1e-9 with the identical tokenizer/vocabulary; 500 000 rows in 1.28 s,
+  peak RSS 230 MB.
+
+Phase D is complete: all 29 D items are done. 31 new tests in this group;
+fast suite 2796 -> 2827 passed, slow 25 passed, WHITELISTED_FUNCS 34 keys
+unchanged.
+
 ### v0.9.40 (2026-10-24) — Phase D algorithms, group 6/7
 
 - **D.5.4 (L) — BIRCH CF-tree streaming clustering.** `cadw/ml/birch.py` +
