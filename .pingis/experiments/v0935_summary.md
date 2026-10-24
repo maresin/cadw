@@ -19,13 +19,13 @@
 | D.5.1 | v0.9.39 | done | 10 | 200k rows: 2.09 s / 30.5 MB / 296 B | statsmodels OrderedModel: beta maxdiff < 1e-2 |
 | D.5.2 | v0.9.39 | done | 8 | 100k rows: 11.26 s / 39.5 MB / 12 800 B | sklearn ClassifierChain 0.702 vs ours 0.664 (94%) |
 | D.5.3 | v0.9.39 | done | 12 | 500k rows: km 1.98 s / 63 MB, gmm 3.11 s / 67 MB | sklearn MiniBatchKMeans inertia within 1.15x; GMM loglik within 0.15 |
-| D.5.4 | v0.9.40 | pending | — | — | — |
-| D.6.1 | v0.9.40 | pending | — | — | — |
-| D.6.2 | v0.9.40 | pending | — | — | — |
-| D.6.4 | v0.9.40 | pending | — | — | — |
-| D.6.5 | v0.9.40 | pending | — | — | — |
+| D.5.4 | v0.9.40 | done | 9 | 50k rows: 3.39 s / 3.4 MB / 4 176 B | sklearn Birch: purity 1.0 (up to label perm) |
+| D.6.1 | v0.9.40 | done | 10 | 10k rows: MI 1.51 s, variance 0.003 s, Boruta 8.36 s | sklearn mutual_info: within atol=0.03 |
+| D.6.2 | v0.9.40 | done | 9 | 1M rows: 1.28 s / 156.2 MB / 256 B | scipy KS/chi2/Welch/MW exact; CUPED theta 0.80 |
+| D.6.4 | v0.9.40 | done | 8 | 150k x 20: 0.22 s / 70.8 MB / 920 B | sklearn PCA: singular values ~1e-6 |
+| D.6.5 | v0.9.40 | done | 9 | 1M rows: 2.45 s / 107.6 MB / 256 B | analytic haversine exact (1e-9) |
 | D.6.6 | v0.9.41 | pending | — | — | — |
 | D.6.7 | v0.9.41 | pending | — | — | — |
 | D.6.9 | v0.9.41 | pending | — | — | — |
 
-Done: 17/25. Fast suite 2751 passed, 2 skipped. Slow 25 passed.
+Done: 22/25. Fast suite 2751 passed, 2 skipped. Slow 25 passed.

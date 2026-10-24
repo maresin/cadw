@@ -106,7 +106,7 @@ modeling (H1), uplift (H2), anomaly supervised (E2).
 - ✓ `fit_gbdt_classifier(scale_pos_weight=...)` — v0.9.32 (imbalanced)
 - ⏳ sample_weight in `fit_logistic` — D.1.3 extension (patch pending)
 - ⏳ calibration (Platt / isotonic) — D.4.6
-- ⏳ mutual_info / Boruta — D.6.1
+- ✓ mutual_info / variance / Boruta — v0.9.40 (D.6.1)
 
 ### A2. Multiclass classification
 
@@ -170,7 +170,7 @@ embedding compression, geographic zones, document grouping.
 **CADW status:**
 - ✓ `fit_kmeans` — v0.7.1
 - ⏳ MiniBatchKMeans / GMM (EM) — D.5.3
-- ⏳ BIRCH CF-tree — D.5.4
+- ✓ BIRCH CF-tree — v0.9.40 (D.5.4)
 - ⏳ HDBSCAN — T3 (sample+stream recipe, Phase H)
 
 ### C1. Linear dimensionality reduction
@@ -185,7 +185,7 @@ compression, whitening, outlier detection (reconstruction error).
 
 **CADW status:**
 - ✓ `fit_pca` — v0.7.2
-- ⏳ randomized SVD — D.6.4
+- ✓ randomized SVD — v0.9.40 (D.6.4)
 - ⏳ AE — F.3 (Light NNs)
 
 ### D1. TS forecast (univariate)
@@ -269,14 +269,14 @@ Same as A6 (imbalanced) — rare events with labels.
   IterativeImputer — N34
 - O3 FE: ✓ `assign` (planned C.1); ⏳ encoders (D.6.9, C.2-C.4)
 - O4 Selection: ✓ `compute_feature_importance`; ✓ perm importance
-  (v0.9.31); ⏳ mutual_info / Boruta — D.6.1
-- O5 Validation: ✓ schema via pyarrow; ⏳ drift — D.6.2
+  (v0.9.31); ✓ mutual_info / Boruta — v0.9.40 (D.6.1)
+- O5 Validation: ✓ schema via pyarrow; ✓ drift — v0.9.40 (D.6.2)
 - O6 Sampling: ✓ KFold, GroupKFold, TimeSeriesSplit
 - O7 Hyperparam: ⏳ external (Optuna) — via to_batches
 - O8 XAI: ✓ perm importance; ⏳ SHAP (sample, Phase H)
 - O9 Fairness: ✓ `df.fairness_metrics` — v0.9.35 (D.1.4)
-- O10 Drift: ⏳ KS/PSI/Chi2 — D.6.2
-- O11 A/B: ⏳ t/MW/CUPED — D.6.2
+- O10 Drift: ✓ KS/PSI/Chi2 — v0.9.40 (D.6.2)
+- O11 A/B: ✓ t/MW/CUPED — v0.9.40 (D.6.2)
 
 ---
 
@@ -284,7 +284,7 @@ Same as A6 (imbalanced) — rare events with labels.
 
 - **A4/A5** (multilabel, ordinal) — ✓ chains v0.9.39 (D.5.2), ✓ ordinal logit v0.9.39 (D.5.1)
 - **A7** (quantile reg) — GBDT pinball pending
-- **B2/B3** (hierarchical / BIRCH) — D.5.4, T1 recipe; ✓ MiniBatch KMeans/GMM v0.9.39 (D.5.3)
+- **B2/B3** (hierarchical / BIRCH) — ✓ BIRCH v0.9.40 (D.5.4); ✓ MiniBatch KMeans/GMM v0.9.39 (D.5.3)
 - **C2** (t-SNE/UMAP) — T2 recipe
 - **D2** (multi TS) — ✓ VAR v0.9.38 (D.4.5)
 - **D5** (change-point) — ✓ PELT v0.9.38 (D.4.2)
@@ -295,7 +295,7 @@ Same as A6 (imbalanced) — rare events with labels.
 - **J1/J3/J4** (text) — D.6.9 TF-IDF, N11
 - **M1** (bandits) — D.6.7 LinUCB
 - **N1** (density) — ✓ GMM v0.9.31 (D.6.8)
-- **O12/O13** (online / geospatial) — N37, D.6.5
+- **O12/O13** (online / geospatial) — ✓ geo agg v0.9.40 (D.6.5), N37
 
 Types **out of scope** (torch-only, no out-of-core fit):
 J2, J5, K1-K4, L1, L2, N2.

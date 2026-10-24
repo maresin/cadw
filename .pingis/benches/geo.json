@@ -1,0 +1,32 @@
+{
+  "algo": "D.6.5",
+  "runs": [
+    {
+      "n": 10000,
+      "cell_size_m": 500.0,
+      "cells": 233,
+      "total": 10000.0,
+      "fit_agg_s": 0.017,
+      "peak_mb": 6.2,
+      "state_b": 256
+    },
+    {
+      "n": 100000,
+      "cell_size_m": 500.0,
+      "cells": 233,
+      "total": 100000.0,
+      "fit_agg_s": 0.185,
+      "peak_mb": 8.2,
+      "state_b": 256
+    },
+    {
+      "n": 1000000,
+      "cell_size_m": 500.0,
+      "cells": 233,
+      "total": 1000000.0,
+      "fit_agg_s": 2.45,
+      "peak_mb": 107.6,
+      "state_b": 256
+    }
+  ]
+}

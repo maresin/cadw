@@ -1,5 +1,31 @@
 ## [Unreleased]
 
+### v0.9.40 (2026-10-24) — Phase D algorithms, group 6/7
+
+- **D.5.4 (L) — BIRCH CF-tree streaming clustering.** `cadw/ml/birch.py` +
+  `df.fit_birch(...)`. (N, LS, SS) cluster features, single-level CF tree with
+  threshold-based absorption and closest-pair split at branching_factor;
+  phase 3 weighted k-means++ agglomeration of leaf CFs. State O(#CF*(2d+1)),
+  independent of N. 9 tests; sklearn Birch purity 1.0 (up to label perm);
+  50 000 rows in 3.39 s, peak RSS 3.4 MB.
+- **D.6.1 (M) — mutual_info / variance / Boruta feature selection.**
+  `cadw/ml/feature_select.py` + `df.fit_feature_select(...)`. MI (k-NN)
+  matches sklearn within atol=0.03; zero-variance drop; Boruta shadow
+  features via GBDT importance. 10 tests; 10 000 rows MI 1.51 s,
+  Boruta 8.36 s.
+- **D.6.2 (M) — drift + CUPED A/B.** `cadw/ml/drift.py` +
+  `df.fit_drift(...)` / `df.fit_ab_test(...)`. KS/PSI/chi2/Welch/MW
+  statistics match scipy exactly; CUPED theta -> 0.80. 9 tests; 1 000 000
+  rows in 1.28 s, peak RSS 156 MB.
+- **D.6.4 (S) — randomized SVD.** `cadw/ml/randsvd.py` +
+  `df.fit_randomized_svd(...)`. Halko range finder + power iterations;
+  singular values match sklearn PCA to ~1e-6. 8 tests; 150 000x20 in
+  0.22 s, peak RSS 71 MB.
+- **D.6.5 (S) — geospatial aggregation.** `cadw/ml/geo.py` +
+  `df.fit_geo_agg(...)`. Haversine, bearing, hex_cell binning with streaming
+  per-cell count/sum/mean; haversine matches the analytic great-circle
+  exactly. 9 tests; 1 000 000 rows in 2.45 s, peak RSS 108 MB.
+
 ### v0.9.39 (2026-10-24) — Phase D algorithms, group 5/7
 
 - **D.4.6 (M) — probability calibration.** `cadw/ml/calibration.py` +

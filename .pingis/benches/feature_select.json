@@ -1,0 +1,68 @@
+{
+  "algo": "D.6.1",
+  "runs": [
+    {
+      "n": 10000,
+      "d": 20,
+      "method": "mutual_info",
+      "fit_s": 1.508,
+      "n_selected": 20,
+      "peak_mb": 85.0,
+      "state_b": 672
+    },
+    {
+      "n": 10000,
+      "d": 20,
+      "method": "variance",
+      "fit_s": 0.003,
+      "n_selected": 20,
+      "peak_mb": 0.0,
+      "state_b": 672
+    },
+    {
+      "n": 50000,
+      "d": 20,
+      "method": "mutual_info",
+      "fit_s": 3.962,
+      "n_selected": 20,
+      "peak_mb": 13.7,
+      "state_b": 672
+    },
+    {
+      "n": 50000,
+      "d": 20,
+      "method": "variance",
+      "fit_s": 0.032,
+      "n_selected": 20,
+      "peak_mb": 7.6,
+      "state_b": 672
+    },
+    {
+      "n": 2000,
+      "d": 20,
+      "method": "boruta",
+      "fit_s": 4.642,
+      "n_selected": 2,
+      "peak_mb": 3.2,
+      "state_b": 672
+    },
+    {
+      "n": 5000,
+      "d": 20,
+      "method": "boruta",
+      "fit_s": 5.394,
+      "n_selected": 2,
+      "peak_mb": 10.5,
+      "state_b": 672
+    },
+    {
+      "n": 10000,
+      "d": 20,
+      "method": "boruta",
+      "fit_s": 8.355,
+      "n_selected": 2,
+      "peak_mb": 16.1,
+      "state_b": 672
+    }
+  ]
+}

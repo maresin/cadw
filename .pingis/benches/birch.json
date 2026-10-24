@@ -1,0 +1,29 @@
+{
+  "algo": "D.5.4",
+  "runs": [
+    {
+      "n": 5000,
+      "fit_s": 0.286,
+      "n_cf": 50,
+      "n_clusters": 4,
+      "peak_mb": 1.1,
+      "state_b": 4176
+    },
+    {
+      "n": 20000,
+      "fit_s": 1.336,
+      "n_cf": 50,
+      "n_clusters": 4,
+      "peak_mb": 0.0,
+      "state_b": 4176
+    },
+    {
+      "n": 50000,
+      "fit_s": 3.388,
+      "n_cf": 50,
+      "n_clusters": 4,
+      "peak_mb": 3.4,
+      "state_b": 4176
+    }
+  ]
+}

@@ -954,3 +954,46 @@ class _MLBindingsMixin:
         return _f(self, X_cols, n_components=n_components,
                   batch_size=batch_size, max_iter=max_iter, tol=tol,
                   seed=seed, reg=reg)
+
+    def fit_birch(self, X_cols, *, n_clusters: int = 8, threshold: float = 0.5,
+                  branching_factor: int = 50, max_iter: int = 20):
+        """BIRCH CF-tree streaming clustering (v0.9.40, D.5.4)."""
+        from cadw.ml.birch import fit_birch as _f
+        return _f(self, X_cols, n_clusters=n_clusters, threshold=threshold,
+                  branching_factor=branching_factor, max_iter=max_iter)
+
+    def fit_feature_select(self, X_cols, y_col: str, *, method: str = "mutual_info",
+                           task: str = "classification", variance_threshold: float = 0.0,
+                           max_iter: int = 20, n_estimators: int = 50, seed: int = 0):
+        """Feature selection: mutual_info / variance / Boruta (v0.9.40, D.6.1)."""
+        from cadw.ml.feature_select import fit_feature_select as _f
+        return _f(self, X_cols, y_col, method=method, task=task,
+                  variance_threshold=variance_threshold, max_iter=max_iter,
+                  n_estimators=n_estimators, seed=seed)
+
+    def fit_drift(self, col: str, reference_col: str, *, method: str = "ks", n_bins: int = 10):
+        """Drift estimator (v0.9.40, D.6.2)."""
+        from cadw.ml.drift import fit_drift as _f
+        return _f(self, col, reference_col, method=method, n_bins=n_bins)
+
+    def fit_ab_test(self, outcome_col: str, treatment_col: str, *,
+                    covariate_col: "str | None" = None, method: str = "t"):
+        """A/B test container (v0.9.40, D.6.2)."""
+        from cadw.ml.drift import fit_ab_test as _f
+        return _f(self, outcome_col, treatment_col,
+                  covariate_col=covariate_col, method=method)
+
+    def fit_randomized_svd(self, X_cols, *, n_components: int = 8,
+                           n_oversamples: int = 10, n_power_iter: int = 1, seed: int = 0):
+        """Randomized SVD (v0.9.40, D.6.4)."""
+        from cadw.ml.randsvd import fit_randomized_svd as _f
+        return _f(self, X_cols, n_components=n_components,
+                  n_oversamples=n_oversamples, n_power_iter=n_power_iter, seed=seed)
+
+    def fit_geo_agg(self, lat_col: str, lon_col: str, *, cell_size_m: float = 1000.0,
+                    origin_lat: "float | None" = None,
+                    origin_lon: "float | None" = None):
+        """Geo-aggregation config (v0.9.40, D.6.5)."""
+        from cadw.ml.geo import fit_geo_agg as _f
+        return _f(self, lat_col, lon_col, cell_size_m=cell_size_m,
+                  origin_lat=origin_lat, origin_lon=origin_lon)
