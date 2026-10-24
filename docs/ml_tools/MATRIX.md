@@ -77,6 +77,10 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | J | J3 Topic modeling | LDA | baseline | tier1_core | probabilistic, representation | ✓ cadw, ✓ agent | perplexity |
 | J | J3 Topic modeling | NMF | baseline | tier2_wrapper | representation | desc | perplexity |
 | J | J3 Topic modeling | BERTopic | sota | tier3_export | representation, nonlinear_interactions | desc, export | perplexity |
+| L | L1 Node / edge / graph classification, link prediction | GCN | baseline | tier3_export | local_structure, representation | desc, export | accuracy |
+| L | L1 Node / edge / graph classification, link prediction | GraphSAGE | sota | tier3_export | local_structure, representation | desc, export | accuracy |
+| L | L1 Node / edge / graph classification, link prediction | GAT | sota | tier3_export | local_structure, representation, nonlinear_interactions | desc, export | accuracy |
+| L | L1 Node / edge / graph classification, link prediction | Node2Vec | sota | tier3_export | representation, local_structure | desc, export | accuracy |
 | M | M1 Contextual bandit (online policy selection) | LinUCB | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | ctr |
 | M | M1 Contextual bandit (online policy selection) | EpsilonGreedy | baseline | tier1_core | linear_signal | ✓ agent, desc | ctr |
 | M | M1 Contextual bandit (online policy selection) | UCB1 | baseline | tier1_core | probabilistic | ✓ agent, desc | ctr |

@@ -1,0 +1,88 @@
+# L — Graph ML (summary only)
+# v0.9.48.6: summary section per TASK_v0.9.48 (§K/L scope).
+# Out of scope: torch required. No CADW implementation is planned — these
+# cards exist so the matrix documents what sits beyond the to_batches
+# export boundary. No cadw_measured / cadw_reproduced entries are allowed
+# here (no .pingis/benches artifacts exist for graph models).
+#
+# Benchmark reality (2026-10-25): OGB and Papers-with-Code are blocked from
+# this environment (no 200). The only fetchable leaderboards are the arXiv
+# HTML results tables of the primary papers themselves:
+#   * Kipf & Welling 2017 (GCN) Table 2 — Cora 81.5 / Citeseer 70.3 / Pubmed 79.0
+#   * Velickovic et al. 2018 (GAT) Table 1 — same datasets, GAT 83.0 / 72.5 / 79.0
+#   * Perozzi et al. 2014 / Grover & Leskovec 2016 (node2vec) Table 2 — BlogCatalog macro-F1
+#   * Hamilton et al. 2017 (GraphSAGE) — inductive PPI, no extractable numeric table on HTML
+#
+# Two-URL rule: benchmark_url is the arXiv HTML (where the number is);
+# algorithm_source_url is the arXiv abstract or code repo (where the
+# algorithm is described) — always a different path.
+
+section: L
+name: Graph ML (summary — out of scope, torch required)
+subtypes:
+  - id: L1
+    name: "Node / edge / graph classification, link prediction"
+    description: "Learn representations of nodes/edges/graphs for classification and link prediction."
+    real_life:
+      - "Fraud-ring detection on transaction graphs"
+      - "Citation-network node classification"
+      - "Friend / item link prediction"
+    benchmarks:
+      - name: Cora_Citeseer_Pubmed
+        url: "https://arxiv.org/html/1609.02907"
+        metrics: [accuracy]
+        note: "Citation-network node classification. GCN and GAT numbers come from their own HTML tables; compare only within one source's table (splits differ across papers)."
+      - name: BlogCatalog_PPI_Wikipedia
+        url: "https://arxiv.org/html/1607.00653"
+        metrics: [macro_f1]
+        note: "node2vec 2016 multi-label node classification; macro-F1 at 50% labeled nodes. Not comparable to Cora accuracy."
+      - name: PPI_GraphSAGE
+        url: "https://arxiv.org/html/1706.02216"
+        metrics: [micro_f1]
+        note: "GraphSAGE inductive PPI (24 test graphs). Not comparable to transductive Cora results."
+    models:
+      - name: GCN
+        tier: baseline
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [local_structure, representation]
+        purpose: "Kipf & Welling 2017 — graph convolution as a first-order Chebyshev approximation of spectral filtering; each layer averages neighbour features then applies a linear map. Inductive bias: homophily + locality, one-hop aggregation per layer."
+        real_life_examples: ["Citation-network classification", "Molecule property prediction", "Knowledge-graph completion"]
+        config: {hidden_dim: int, num_layers: int, dropout: float}
+        benchmark_results:
+          - {benchmark: Cora_Citeseer_Pubmed, benchmark_url: 'https://arxiv.org/html/1609.02907', algorithm: 'GCN (Kipf & Welling 2017)', algorithm_source_url: 'https://arxiv.org/abs/1609.02907', algorithm_source_kind: paper, attribution: literature, task_type: node_classification, n_datasets: 3, metric: accuracy, value: 81.5, note: "fetched 2026-10-25 from arXiv:1609.02907 HTML Table 2: 'GCN (this paper) ... 81.5 (4s)' for Cora; Citeseer 70.3, Pubmed 79.0 in the same row. accuracy is percent. out of scope: torch required."}
+      - name: GraphSAGE
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [local_structure, representation]
+        purpose: "Hamilton et al. 2017 — inductive node embedding by sampling and aggregating a fixed-size neighbourhood, so it generalizes to unseen nodes/graphs. Inductive bias: local sample-and-aggregate; unlike GCN, no full-graph Laplacian required."
+        real_life_examples: ["Inductive node classification on new graphs", "Dynamic social graphs", "Recommendation on evolving graphs"]
+        config: {aggregator: string, num_samples: list, hidden_dim: int}
+        benchmark_results:
+          - {benchmark: PPI_GraphSAGE, benchmark_url: 'https://arxiv.org/html/1706.02216', algorithm: 'GraphSAGE (Hamilton et al. 2017)', algorithm_source_url: 'https://arxiv.org/abs/1706.02216', algorithm_source_kind: paper, attribution: literature, task_type: node_classification, n_datasets: 1, metric: micro_f1, value: null, note: "fetch_ok_no_number: https://arxiv.org/html/1706.02216 renders but the results table is figure-embedded, not extractable as text. out of scope: torch required."}
+      - name: GAT
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [local_structure, representation, nonlinear_interactions]
+        purpose: "Velickovic et al. 2018 — self-attention over neighbours, learning per-edge weights instead of fixed Laplacian coefficients. Inductive bias: importance-weighted local aggregation, one head per relation type."
+        real_life_examples: ["Node classification with heterogeneous neighbour importance", "Knowledge-graph embedding", "Traffic forecasting"]
+        config: {num_heads: int, hidden_dim: int, dropout: float}
+        benchmark_results:
+          - {benchmark: Cora_Citeseer_Pubmed, benchmark_url: 'https://arxiv.org/html/1710.10903', algorithm: 'GAT (Velickovic et al. 2018)', algorithm_source_url: 'https://arxiv.org/abs/1710.10903', algorithm_source_kind: paper, attribution: literature, task_type: node_classification, n_datasets: 3, metric: accuracy, value: 83.0, note: "fetched 2026-10-25 from arXiv:1710.10903 HTML Table 1: 'GAT (ours) 83.0 ± 0.7%' on Cora; Citeseer 72.5, Pubmed 79.0 in the same row. out of scope: torch required."}
+      - name: Node2Vec
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, local_structure]
+        purpose: "Grover & Leskovec 2016 — biased random walks (return/in-out parameters p, q) feeding Skip-gram embeddings. Inductive bias: random-walk neighbourhood similarity; transductive (fixed node set)."
+        real_life_examples: ["Graph node embeddings", "Link prediction", "Community detection"]
+        config: {p: float, q: float, walk_length: int, num_walks: int, dim: int}
+        benchmark_results:
+          - {benchmark: BlogCatalog_PPI_Wikipedia, benchmark_url: 'https://arxiv.org/html/1607.00653', algorithm: 'node2vec (Grover & Leskovec 2016)', algorithm_source_url: 'https://arxiv.org/abs/1607.00653', algorithm_source_kind: paper, attribution: literature, task_type: multilabel_node_classification, n_datasets: 3, metric: macro_f1, value: 0.2581, note: "fetched 2026-10-25 from arXiv:1607.00653 HTML Table 2: 'node2vec 0.2581 0.1791 0.1552' across BlogCatalog/PPI/Wikipedia (macro-F1 at 50% labeled). out of scope: torch required."}
+    metrics:
+      - {name: accuracy, combination: anchor, direction: higher, responsibility: 'Node classification accuracy on transductive citation benchmarks (Cora/Citeseer/Pubmed).', special: 'Splits differ across papers; compare only within one source table.'}
+      - {name: micro_f1, combination: diagnostic, direction: higher, responsibility: 'Micro-F1 on inductive multi-graph benchmarks (PPI).'}
+      - {name: macro_f1, combination: diagnostic, direction: higher, responsibility: 'Macro-F1 on multilabel node classification (BlogCatalog/PPI/Wikipedia).'}
+    ensemble_recommendation: []

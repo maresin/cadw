@@ -1,6 +1,6 @@
 {
-  "last_completed": "O",
-  "in_progress": "L",
+  "last_completed": "L",
+  "in_progress": "K",
   "completed_cards": [
     "I.I1.CoxPH",
     "I.I1.KaplanMeier",
@@ -57,6 +57,10 @@
     "O.O10.EvidentlyDrift",
     "O.O11.ProportionsZTest",
     "O.O11.MannWhitneyU",
-    "O.O11.CUPED"
+    "O.O11.CUPED",
+    "L.L1.GCN",
+    "L.L1.GraphSAGE",
+    "L.L1.GAT",
+    "L.L1.Node2Vec"
   ]
 }

@@ -195,3 +195,28 @@ benchmarks:
     metrics: [psi, ks_p, chi2_p, drift_share]
     warning: "Evidently documentation. No published leaderboard for drift
       detector accuracy; PSI/KS thresholds are domain-specific."
+
+  Cora_Citeseer_Pubmed:
+    url: https://arxiv.org/html/1609.02907
+    modality: graph_node_classification
+    metrics: [accuracy]
+    warning: "Citation-network node classification (Cora / Citeseer / Pubmed).
+      Numbers are from Kipf & Welling 2017 Table 2 (or GAT 2018 Table 1
+      for methods that compare). Splits differ between papers; compare
+      only within one source's table."
+
+  BlogCatalog_PPI_Wikipedia:
+    url: https://arxiv.org/html/1607.00653
+    modality: graph_node_embedding
+    metrics: [macro_f1]
+    warning: "node2vec 2016 multi-label node classification on BlogCatalog,
+      PPI (Homo sapiens), Wikipedia word cooccurrence. Macro-F1 at 50%
+      labeled nodes. Not comparable to Cora/Citeseer accuracy."
+
+  PPI_GraphSAGE:
+    url: https://arxiv.org/html/1706.02216
+    modality: graph_node_classification
+    metrics: [micro_f1]
+    warning: "GraphSAGE 2017 inductive protein-protein-interaction benchmark.
+      Micro-F1 across 24 test graphs. Not comparable to transductive
+      Cora/Citeseer results."
