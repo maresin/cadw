@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.41",
+  "current_version": "0.9.44",
   "updated": "2026-10-24",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -886,31 +886,36 @@
           "id": "M1.1",
           "name": "schema.py + enums.py + benchmarks.yaml",
           "status": "done",
-          "patch": "0.9.44"
+          "patch": "v0.9.44",
+          "complexity": "S"
         },
         {
           "id": "M1.2",
           "name": "A_classification.yaml (7 subtypes)",
           "status": "done",
-          "patch": "0.9.44"
+          "patch": "v0.9.44",
+          "complexity": "M"
         },
         {
           "id": "M1.3",
           "name": "D_time_series.yaml (7 subtypes)",
           "status": "done",
-          "patch": "0.9.44"
+          "patch": "v0.9.44",
+          "complexity": "M"
         },
         {
           "id": "M1.4",
           "name": "E/F/H sections",
           "status": "planned",
-          "patch": "0.9.44b"
+          "patch": "v0.9.45",
+          "complexity": "M"
         },
         {
           "id": "M1.5",
           "name": "render_matrix.py + MATRIX.md",
           "status": "planned",
-          "patch": "0.9.44b"
+          "patch": "v0.9.45",
+          "complexity": "S"
         }
       ]
     }
