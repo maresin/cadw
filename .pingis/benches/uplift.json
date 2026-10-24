@@ -5,19 +5,19 @@
       "n": 20000,
       "d": 3,
       "n_estimators": 100,
-      "fit_s": 2.07,
-      "qini_coef": 0.03129,
-      "peak_mb": 7.6,
-      "state_b": 820224
+      "fit_s": 6.21,
+      "qini_coef": 0.0266,
+      "peak_mb": 8.3,
+      "state_b": 217856
     },
     {
       "n": 100000,
       "d": 3,
       "n_estimators": 100,
-      "fit_s": 9.43,
-      "qini_coef": 0.00019,
-      "peak_mb": 12.7,
-      "state_b": 820224
+      "fit_s": 6.18,
+      "qini_coef": 0.03172,
+      "peak_mb": 9.6,
+      "state_b": 214528
     }
   ]
 }

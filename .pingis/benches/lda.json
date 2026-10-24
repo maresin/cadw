@@ -3,29 +3,29 @@
   "runs": [
     {
       "n": 2000,
-      "fit_s": 4.427,
+      "fit_s": 4.491,
       "topics": 3,
       "vocab": 12,
       "perplexity": 4.13,
-      "peak_mb": 147.4,
+      "peak_mb": 21.9,
       "state_b": 896
     },
     {
       "n": 10000,
-      "fit_s": 21.186,
+      "fit_s": 21.382,
       "topics": 3,
       "vocab": 12,
       "perplexity": 4.131,
-      "peak_mb": 298.6,
+      "peak_mb": 17.7,
       "state_b": 896
     },
     {
       "n": 50000,
-      "fit_s": 104.258,
+      "fit_s": 102.892,
       "topics": 3,
       "vocab": 12,
       "perplexity": 4.131,
-      "peak_mb": 1319.7,
+      "peak_mb": 92.2,
       "state_b": 896
     }
   ]

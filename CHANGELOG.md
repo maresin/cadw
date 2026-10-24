@@ -1,5 +1,41 @@
 ## [Unreleased]
 
+### v0.9.42 (2026-10-24) — D.3.3 causal tree ensemble
+
+Replaces the v0.9.37 two-model T-learner in `fit_uplift` with a proper
+causal tree ensemble.
+
+- **Split criterion**: Euclidean divergence between treated/control
+  outcome distributions in children (Rzepakowski & Jaroszewicz 2012).
+  `Gain = (n_L/n)·D_ED(L) + (n_R/n)·D_ED(R) - D_ED(S)`,
+  `D_ED(S) = (P(y=1|t=1,S) - P(y=1|t=0,S))^2`.
+- **Honest leaf estimation** (Wager & Athey 2018): random half of the
+  sample chooses tree structure, other half estimates leaf CATE.
+  Removes overfitting and doubles the effective sample per leaf vs
+  the T-learner's split arms.
+- **Ensemble**: `n_estimators` bootstrap samples; average per-row
+  CATE predictions.
+- **Bounded sample**: cap at `max_samples=20 000` rows (`_MAX_SAMPLE_ROWS`);
+  new `max_samples=` keyword on `fit_uplift`. Prediction streams batches.
+- **`_fit_uplift_two_model`**: previous v0.9.37 T-learner preserved
+  (private) as the reference baseline for the strict comparison test.
+- **API unchanged**: `fit_uplift(df, X_cols, treatment_col, y_col, *,
+  n_estimators=50, max_depth=3, learning_rate=0.1, seed=0, max_samples=None,
+  memory_guard=None)` — `learning_rate` accepted for compatibility and
+  ignored (no residual boosting; ensemble averaging suffices).
+- **Test contract change**: `test_qini_beats_t_learner_on_strong_signal`
+  now compares causal tree against `meta_learners.fit_meta_learner(kind='t')`
+  (D.3.2 canonical T-learner) on `p1=0.9, p0=0.2, x0>0` synthetic.
+  `_truth` DGP switched from U-shaped CATE (sigmoid saturation made
+  `corr(u, x2) > 0.25` pass by luck for T-learner on seed=0) to a
+  monotone multiplicative effect (`t * (0.6 + 0.3*x2)`).
+
+Artifacts: `.pingis/algorithm_notes/d3_3_uplift.md`,
+`.pingis/benches/uplift.json`. `docs/ALGORITHM_BACKLOG.md D.3.3` row
+restored to `Qini >= T-learner on strong-signal synthetic`.
+
+## [Unreleased]
+
 ### v0.9.41 (2026-10-24) — Phase D algorithms, group 7/7 (Phase D complete)
 
 - **D.6.6 (M) — online variational Bayes LDA.** `cadw/ml/lda.py` +

@@ -204,7 +204,13 @@ def _train_ppl(C_batches_fn, comp, alpha):
 def fit_lda(df, text_col, *, n_topics=10, vocab_size=1000, max_iter=15,
             batch_size=None, alpha=0.1, beta=0.01, tau0=1.0, kappa=0.0,
             n_restarts=16, seed=0, memory_guard: Optional[MemoryGuard] = None):
-    """Fit LDA over a text column (multi-restart, perplexity-selected)."""
+    """Fit LDA over a text column (multi-restart, perplexity-selected).
+
+Note (v0.9.42): this is *sample-based* LDA, not the streaming variational
+E-step from Hoffman-Blei-Bach 2010. State is O(K·V); fit memory is
+O(max_samples × V) where max_samples=2000 rows — bounded, does not grow
+with N. True streaming E-step is future work.
+"""
     if n_topics < 1:
         raise ValueError("fit_lda: n_topics must be >= 1")
     if vocab_size < 2:
@@ -223,10 +229,12 @@ def fit_lda(df, text_col, *, n_topics=10, vocab_size=1000, max_iter=15,
     K = int(n_topics)
     idx = {w: i for i, w in enumerate(vocab)}
 
-    doc_sample = []
+    MAX_SAMPLE_ROWS = 2000
+    doc_sample: list = []
+    doc_sample_rows = 0
 
     def _batches():
-        nonlocal doc_sample
+        nonlocal doc_sample_rows
         for b in df._iter_filtered_batches():
             mg.check_batch(b, name="lda.fit", extra_factor=3.0)
             texts = b.column(text_col).to_pylist()
@@ -236,8 +244,11 @@ def fit_lda(df, text_col, *, n_topics=10, vocab_size=1000, max_iter=15,
                     j = idx.get(tok)
                     if j is not None:
                         C[i, j] += 1.0
-            if len(doc_sample) < 2000:
-                doc_sample.append(C[: max(0, 2000 - len(doc_sample))])
+            if doc_sample_rows < MAX_SAMPLE_ROWS:
+                take = min(C.shape[0], MAX_SAMPLE_ROWS - doc_sample_rows)
+                if take > 0:
+                    doc_sample.append(C[:take])
+                    doc_sample_rows += take
             yield C
 
     best_comp = None

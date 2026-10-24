@@ -39,7 +39,9 @@ def make(n, seed=0):
 def run(n):
     df = make(n); gc.collect()
     with RSS() as s:
-        t0 = time.time(); m = fit_lda(df, "text", n_topics=3, vocab_size=1000, seed=0); dt = time.time()-t0
+        t0 = time.time(); from cadw.core.memory_guard import MemoryGuard
+        mg = MemoryGuard(max_memory_mb=200)
+        m = fit_lda(df, "text", n_topics=3, vocab_size=1000, seed=0, memory_guard=mg); dt = time.time()-t0
         g = m.transform(df, text_col="text")
         ppl = m.perplexity(df, text_col="text")
     out = dict(n=n, fit_s=round(dt,3), topics=m.n_topics_, vocab=len(m.vocab_),
