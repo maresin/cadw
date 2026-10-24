@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.36",
-  "updated": "2026-10-23",
+  "current_version": "0.9.37",
+  "updated": "2026-10-24",
   "principles": [
     "Universality via recipes, not model zoo.",
     "Every algorithm O(1)/O(d²) or sample+stream wrapper.",
@@ -351,29 +351,31 @@
           "patch": "v0.9.36",
           "status": "done",
           "complexity": "M",
-          "deferred_note": "v0.9.32: deferred - needs ~400-500 LOC + Sort-based risk-set primitive; sources in _FOR_PINGIS/algorithm_notes.md (lifelines, Cox 1972, Efron 1977).",
           "file": "cadw/ml/coxph.py"
         },
         {
           "id": "D.3.2",
           "name": "T/S-learner + propensity",
-          "patch": "v0.9.33",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.37",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/meta_learners.py"
         },
         {
           "id": "D.3.3",
           "name": "uplift trees (Qini)",
-          "patch": "v0.9.33",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.37",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/uplift.py"
         },
         {
           "id": "D.4.1",
           "name": "MiniRocket streaming",
-          "patch": "v0.9.34",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.37",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/minirocket.py"
         },
         {
           "id": "D.4.2",

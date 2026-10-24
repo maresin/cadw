@@ -1,0 +1,44 @@
+{
+  "algo": "D.4.1",
+  "runs": [
+    {
+      "n_series": 200,
+      "length": 500,
+      "num_kernels": 84,
+      "feature_shape": [
+        200,
+        84
+      ],
+      "fit_transform_s": 0.61,
+      "series_per_s": 326.5,
+      "peak_mb": 6.0,
+      "state_b": 7744
+    },
+    {
+      "n_series": 1000,
+      "length": 500,
+      "num_kernels": 84,
+      "feature_shape": [
+        1000,
+        84
+      ],
+      "fit_transform_s": 3.13,
+      "series_per_s": 319.5,
+      "peak_mb": 15.3,
+      "state_b": 7744
+    },
+    {
+      "n_series": 500,
+      "length": 2000,
+      "num_kernels": 84,
+      "feature_shape": [
+        500,
+        84
+      ],
+      "fit_transform_s": 2.01,
+      "series_per_s": 248.6,
+      "peak_mb": 20.9,
+      "state_b": 7744
+    }
+  ]
+}

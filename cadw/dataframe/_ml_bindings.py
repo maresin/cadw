@@ -766,4 +766,55 @@ class _MLBindingsMixin:
         )
 
 
+    def fit_meta_learner(
+        self,
+        X_cols,
+        treatment_col: str,
+        y_col: str,
+        *,
+        kind: str = "t",
+        n_estimators: int = 50,
+        max_depth: int = 3,
+        learning_rate: float = 0.1,
+        propensity_alpha: float = 1.0,
+    ):
+        """T/S-learner + propensity (v0.9.37, D.3.2)."""
+        from cadw.ml.meta_learners import fit_meta_learner as _f
+        return _f(
+            self, X_cols, treatment_col, y_col, kind=kind,
+            n_estimators=n_estimators, max_depth=max_depth,
+            learning_rate=learning_rate, propensity_alpha=propensity_alpha,
+        )
 
+    def fit_uplift(
+        self,
+        X_cols,
+        treatment_col: str,
+        y_col: str,
+        *,
+        n_estimators: int = 50,
+        max_depth: int = 3,
+        learning_rate: float = 0.1,
+    ):
+        """Uplift trees + Qini (v0.9.37, D.3.3)."""
+        from cadw.ml.uplift import fit_uplift as _f
+        return _f(
+            self, X_cols, treatment_col, y_col, n_estimators=n_estimators,
+            max_depth=max_depth, learning_rate=learning_rate,
+        )
+
+    def fit_minirocket(
+        self,
+        value_col: str,
+        *,
+        id_col: "str | None" = None,
+        num_kernels: int = 84,
+        seed: int = 0,
+        max_dilation: int = 32,
+    ):
+        """MiniRocket random-conv features (v0.9.37, D.4.1)."""
+        from cadw.ml.minirocket import fit_minirocket as _f
+        return _f(
+            self, value_col, id_col=id_col, num_kernels=num_kernels,
+            seed=seed, max_dilation=max_dilation,
+        )

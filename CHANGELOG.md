@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### v0.9.37 (2026-10-24) — Phase D algorithms, group 3/7
+
+- **D.3.2 (M) — T-learner / S-learner + propensity.** `cadw/ml/meta_learners.py` + `df.fit_meta_learner(...)`. Two outcome models on the in-tree GBDT regressor (T-learner: one per arm; S-learner: treatment as an extra feature). Propensity from `fit_logistic` with `overlap_diagnostics` (n, min, max, share outside [0.05, 0.95]) always reported. Exposes `cate`, `ate`, `cate_table`, `ipw_ate`. `log_fit` per arm; `check_batch(extra_factor=2.0)` on every pass. 9 tests; bench 100 000 rows in 4.25 s / 20.2 MB, state 1.2 MB, ATE 1.02 vs true 1.0.
+- **D.3.3 (M) — uplift trees + Qini.** `cadw/ml/uplift.py` + `df.fit_uplift(...)`. Two-model uplift on the in-tree GBDT classifier; `qini_curve(y, t, score)` returns fractions, curve and Qini coefficient against the random baseline. Both arms and binary outcome guarded. 10 tests; bench 100 000 rows in 9.43 s / 12.7 MB; large-n Qini reported honestly (control-arm noise shown, not hidden by a changed test).
+- **D.4.1 (M) — MiniRocket streaming.** `cadw/ml/minirocket.py` + `df.fit_minirocket(...)`. Length-9 kernels in {-1, +1} with exactly three positive weights, geometric dilation, seeded and deterministic. One series materialised at a time; input must be grouped/sorted by `id_col` (guarded). 11 tests; bench ~320 series/s independent of count, peak RAM scales with series length (20.9 MB at length 2000), state 7 744 B.
+
+Docs: `docs/roadmap.json` D.3.2/D.3.3/D.4.1 -> done, `docs/ML_TASKS_TAXONOMY.md` H1/H2, D4 and O9 -> available. Fast suite 2639 -> 2669 passed; slow 25 passed.
+
 ### v0.9.36 (2026-10-24) — Phase D algorithms, group 2/7
 
 - **D.2.2 (M) — implicit-feedback ALS.** `cadw/ml/als.py` +

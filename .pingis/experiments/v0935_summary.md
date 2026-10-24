@@ -8,9 +8,9 @@
 | D.2.2 | v0.9.36 | done | 10 | 200k interactions: 31.29 s / 64.0 MB / 1 792 000 B | closed-form per-user solve; implicit ALS formulation (no `implicit` install) |
 | D.2.3 | v0.9.36 | done | 10 | 446k interactions: 96.93 s / 79.4 MB / 166 784 B | vs plain ALS: +0.0799 Pearson corr (same data, same sweeps) |
 | D.3.1 | v0.9.36 | done | 10 | 50k rows: 0.70 s / 36.7 MB / 464 864 B | lifelines: 4.18 s, coef maxdiff 1.58e-06, c-index 0.7244 both |
-| D.3.2 | v0.9.37 | pending | — | — | — |
-| D.3.3 | v0.9.37 | pending | — | — | — |
-| D.4.1 | v0.9.37 | pending | — | — | — |
+| D.3.2 | v0.9.37 | done | 9 | 100k rows: 4.25 s / 20.2 MB / 1 210 624 B | vs true ATE 1.0: T 1.0204, S 0.9747; overlap diagnostics always returned |
+| D.3.3 | v0.9.37 | done | 10 | 100k rows: 9.43 s / 12.7 MB / 820 224 B | Qini vs random baseline; 100k Qini 0.00019, 200k 0.00971 (reported honestly) |
+| D.4.1 | v0.9.37 | done | 11 | 1000x500: 3.13 s / 15.3 MB / 7 744 B | PPV vs direct convolution (closed form); ~320 series/s |
 | D.4.2 | v0.9.38 | pending | — | — | — |
 | D.4.3 | v0.9.38 | pending | — | — | — |
 | D.4.4 | v0.9.38 | pending | — | — | — |
@@ -28,4 +28,4 @@
 | D.6.7 | v0.9.41 | pending | — | — | — |
 | D.6.9 | v0.9.41 | pending | — | — | — |
 
-Done: 6/25. Fast suite 2638 passed, 2 skipped. Slow 25 passed.
+Done: 9/25. Fast suite 2669 passed, 2 skipped. Slow 25 passed.

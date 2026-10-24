@@ -1,5 +1,5 @@
 """CADW: out-of-core dataframe. См. DECISIONS.md."""
-__version__ = "0.9.36"
+__version__ = "0.9.37"
 
 from .core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from .dataset import (

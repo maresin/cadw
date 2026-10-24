@@ -1,0 +1,23 @@
+{
+  "algo": "D.3.3",
+  "runs": [
+    {
+      "n": 20000,
+      "d": 3,
+      "n_estimators": 100,
+      "fit_s": 2.07,
+      "qini_coef": 0.03129,
+      "peak_mb": 7.6,
+      "state_b": 820224
+    },
+    {
+      "n": 100000,
+      "d": 3,
+      "n_estimators": 100,
+      "fit_s": 9.43,
+      "qini_coef": 0.00019,
+      "peak_mb": 12.7,
+      "state_b": 820224
+    }
+  ]
+}

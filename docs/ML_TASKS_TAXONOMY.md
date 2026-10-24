@@ -74,7 +74,7 @@ ensemble candidates) and CADW implementation status.
 | **O6** | Sampling | Random / stratified | Reservoir / balanced | strat + reservoir |
 | **O7** | Hyperparameter search | Grid | Bayesian (Optuna, external) | grid + random + bayes |
 | **O8** | Explainability | GBDT gain | SHAP (sample) / perm | gain + perm + SHAP |
-| **O9** | Fairness | (pending) | DP/EO/TPR-gap (Reduce) | — |
+| **O9** | Fairness | DP/EO/TPR-gap | DF-based (group sums) | ✓ v0.9.35 (D.1.4) |
 | **O10** | Drift detection | Mean shift | KS/PSI/Chi2 | KS + PSI + Chi2 |
 | **O11** | A/B testing | t-test | CUPED | t + MW + CUPED |
 | **O12** | Online learning | partial_fit | SGDClassifier / online GBDT | — |
@@ -218,7 +218,7 @@ equipment fault, gesture from sensors, industrial diagnostics.
 
 **CADW status:**
 - ✓ interval features (`cadw.ts.stats` tsfresh-subset)
-- ⏳ MiniRocket streaming — D.4.1
+- ✓ MiniRocket streaming — v0.9.37 (D.4.1)
 - ⏳ N-BEATS / 1D-CNN — F.2
 
 ### E1. Unsupervised anomaly
@@ -290,7 +290,7 @@ Same as A6 (imbalanced) — rare events with labels.
 - **D5** (change-point) — D.4.2 PELT
 - **F1/F2** (recsys) — ✓ ALS v0.9.36 (D.2.2), ✓ hybrid MF v0.9.36 (D.2.3)
 - **G1** (LTR) — ✓ LambdaMART v0.9.35 (D.2.1)
-- **H1/H2** (causal/uplift) — D.3.2, D.3.3
+- **H1/H2** (causal/uplift) — ✓ T/S-learner v0.9.37 (D.3.2), ✓ uplift v0.9.37 (D.3.3)
 - **I1** (survival) — ✓ CoxPH v0.9.36 (D.3.1)
 - **J1/J3/J4** (text) — D.6.9 TF-IDF, N11
 - **M1** (bandits) — D.6.7 LinUCB
