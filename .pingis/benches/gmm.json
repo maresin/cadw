@@ -1,0 +1,26 @@
+{
+  "algo": "D.6.8",
+  "runs": [
+    {
+      "n": 100000,
+      "k": 3,
+      "d": 5,
+      "fit_s": 0.37,
+      "score_s": 0.05,
+      "peak_mb": 13.8,
+      "state_b": 264,
+      "mean_ll": -7.095
+    },
+    {
+      "n": 1000000,
+      "k": 3,
+      "d": 5,
+      "fit_s": 3.258,
+      "score_s": 0.44,
+      "peak_mb": 20.4,
+      "state_b": 264,
+      "mean_ll": -7.096
+    }
+  ],
+  "provenance": "scripts/bench_gmm.py (run 2026-10-24 during v0.9.48.2)"
+}

@@ -1,0 +1,93 @@
+# N - Density estimation
+# Subtype N1: unsupervised density (mixture models, KDE, flows).
+# v0.9.48.2: first discovery pass. Cards only - no code in cadw/ml/.
+# No mainstream public leaderboard exists for unsupervised density;
+# AMLB/OpenML are supervised. All literature values are null with
+# explicit no_public_benchmark notes. Numbers we have are CADW-native
+# measurements in .pingis/benches/gmm.json from scripts/bench_gmm.py.
+
+section: N
+name: Density estimation
+subtypes:
+  - id: N1
+    name: "Unsupervised density"
+    description: "Estimate p(x) for tabular data; score new samples and detect low-density regions."
+    real_life:
+      - "Novelty / anomaly detection via low-likelihood"
+      - "Generative sampling for simulation"
+      - "Cohort modeling / mixture discovery"
+    benchmarks:
+      - name: cadw_internal
+        url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches"
+        metrics: [fit_time_s, peak_rss_mb, mean_log_likelihood, n_clusters]
+        note: "No public density leaderboard; subtype uses CADW-native measurements only."
+    models:
+      - name: GaussianMixture
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [probabilistic]
+        purpose: "EM-fitted mixture of Gaussians. Inductive bias: data are drawn from a fixed number of Gaussian components — strong when clusters are approximately ellipsoidal and K is known; the canonical parametric density baseline."
+        real_life_examples: ["Gaussian-cluster customer segmentation", "Anomaly detection via low likelihood", "Synthetic sampling for simulation"]
+        config: {n_components: int, covariance_type: string, random_state: int, max_iter: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/gmm.json', algorithm: 'cadw.ml.gmm', algorithm_source_url: 'cadw/ml/gmm.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: density, n_datasets: 2, metric: mean_log_likelihood, value: -7.095, std: 0.0005, note: 'CADW-native: mean_ll=-7.095 @n=100k and -7.096 @n=1M (scripts/bench_gmm.py run 2026-10-24, .pingis/benches/gmm.json); std=half-range; NOT comparable to external LB.'}
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/gmm.json', algorithm: 'cadw.ml.gmm', algorithm_source_url: 'cadw/ml/gmm.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: density, n_datasets: 2, metric: fit_time_s, value: 3.258, std: 1.444, note: 'CADW-native: fit_s=0.37 @n=100k and 3.258 @n=1M (scripts/bench_gmm.py, .pingis/benches/gmm.json); std=half-range; hardware-specific.'}
+        cadw_module: cadw.ml.gmm
+        cadw_function: fit_gmm
+
+      - name: KernelDensity
+        tier: baseline
+        tier_level: tier2_wrapper
+        implementation_status: {described_only: true}
+        roles: [local_structure, probabilistic]
+        purpose: "Non-parametric kernel density estimator; the density is a sum of kernel bumps at every training point. Inductive bias: smooth local structure with bandwidth-controlled smoothing — no parametric form, but O(n) scoring and fragile in high dimensions."
+        real_life_examples: ["1-2D density visualization", "Anomaly scoring in low-d sensor streams", "Smooth residual distributions"]
+        config: {kernel: string, bandwidth: float}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.neighbors.KernelDensity', algorithm_source_url: 'https://scikit-learn.org/stable/modules/density.html', algorithm_source_kind: docs, attribution: literature, task_type: density, n_datasets: null, metric: mean_log_likelihood, value: null, note: 'no_public_benchmark: AMLB/OpenML measure supervised metrics only; no density log-likelihood leaderboard'}
+
+      - name: BIRCH
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        roles: [local_structure, representation]
+        purpose: "Balanced iterative reducing and clustering using hierarchies (Zhang 1996). Inductive bias: cluster-feature tree with radius threshold; density is approximated by per-leaf counts. Not a true density model but a scalable cluster-based density proxy."
+        real_life_examples: ["Streaming cluster discovery", "Large-catalog bucketing", "Approximate density for n>>memory"]
+        config: {threshold: float, branching_factor: int, n_clusters: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/birch.json', algorithm: 'cadw.ml.birch', algorithm_source_url: 'cadw/ml/birch.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: density, n_datasets: 3, metric: fit_time_s, value: 3.388, std: 1.551, note: 'CADW-native: fit_s=0.286/1.336/3.388 @n=5k/20k/50k (scripts/bench_birch.py, .pingis/benches/birch.json); std=half-range; hardware-specific.'}
+        cadw_module: cadw.ml.birch
+        cadw_function: fit_birch
+
+      - name: HDBSCAN
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status: {described_only: true}
+        roles: [local_structure]
+        purpose: "Hierarchical density-based clustering (Campello 2013). Inductive bias: clusters are contiguous high-density regions at variable density — automatically discovers K, robust to noise. Strong on irregular densities but no explicit p(x)."
+        real_life_examples: ["Open-set clustering / noise detection", "Arbitrary-shape density modes", "Geospatial hot-spot detection"]
+        config: {min_cluster_size: int, min_samples: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'hdbscan.HDBSCAN', algorithm_source_url: 'https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html', algorithm_source_kind: docs, attribution: literature, task_type: density, n_datasets: null, metric: mean_log_likelihood, value: null, note: 'no_public_benchmark: HDBSCAN does not output log-likelihood; no unified density leaderboard'}
+
+      - name: NormalizingFlow
+        tier: sota
+        tier_level: tier3_export
+        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        roles: [representation, probabilistic]
+        purpose: "Invertible neural network (RealNVP/MAF/Glow) that maps data to a latent Gaussian via a chain of bijections. Inductive bias: arbitrary smooth density with exact likelihood — SOTA in high dimensions but torch-only, reached only via to_batches(format='torch')."
+        real_life_examples: ["High-d generative modeling", "Likelihood-based anomaly detection", "Tabular density for CATE posterior"]
+        config: {flow_type: string, n_layers: int, hidden_sizes: list}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'Normalizing flows (Papamakarios et al. 2021)', algorithm_source_url: 'https://arxiv.org/abs/1912.02762', algorithm_source_kind: paper, attribution: literature, task_type: density, n_datasets: null, metric: mean_log_likelihood, value: null, note: 'no_public_benchmark: flows reported per-dataset in papers; no unified public density LB on the AMLB task set'}
+
+    metrics:
+      - {name: mean_log_likelihood, combination: anchor, direction: higher, responsibility: 'Mean held-out log-likelihood; the canonical density-quality metric.', special: 'Scale-dependent: not comparable across dataset normalizations. Report median across runs when n_datasets>=2.'}
+      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: 'Wall-clock fit time.', special: 'Hardware-specific; only comparable within the same bench run.'}
+      - {name: peak_rss_mb, combination: diagnostic, direction: lower, responsibility: 'Peak resident memory.', special: 'Includes Python + numpy overhead; not a pure model cost.'}
+    ensemble_recommendation:
+      - roles: [probabilistic, local_structure]
+        models: [GaussianMixture, BIRCH]
+        max_per_role: 2
+        note: "GMM gives parametric densities; BIRCH gives scalable cluster-based density proxy. Complementary when n spans 10k-1M; use GMM when K is known and parametric log-likelihood is needed."

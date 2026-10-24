@@ -67,3 +67,8 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | I | I1 Time-to-event (Cox / AFT / deep) | RandomSurvivalForest | sota | tier3_export | nonlinear_interactions | desc, export | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | DeepSurv | sota | tier3_export | nonlinear_interactions, representation | desc, export | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | DeepHit | sota | tier3_export | nonlinear_interactions, representation | desc, export | c_index |
+| N | N1 Unsupervised density | GaussianMixture | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | mean_log_likelihood |
+| N | N1 Unsupervised density | KernelDensity | baseline | tier2_wrapper | local_structure, probabilistic | desc | mean_log_likelihood |
+| N | N1 Unsupervised density | BIRCH | baseline | tier1_core | local_structure, representation | ✓ cadw, ✓ agent | mean_log_likelihood |
+| N | N1 Unsupervised density | HDBSCAN | sota | tier2_wrapper | local_structure | desc | mean_log_likelihood |
+| N | N1 Unsupervised density | NormalizingFlow | sota | tier3_export | representation, probabilistic | desc, export | mean_log_likelihood |
