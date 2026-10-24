@@ -77,6 +77,11 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | J | J3 Topic modeling | LDA | baseline | tier1_core | probabilistic, representation | ✓ cadw, ✓ agent | perplexity |
 | J | J3 Topic modeling | NMF | baseline | tier2_wrapper | representation | desc | perplexity |
 | J | J3 Topic modeling | BERTopic | sota | tier3_export | representation, nonlinear_interactions | desc, export | perplexity |
+| M | M1 Contextual bandit (online policy selection) | LinUCB | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | ctr |
+| M | M1 Contextual bandit (online policy selection) | EpsilonGreedy | baseline | tier1_core | linear_signal | ✓ agent, desc | ctr |
+| M | M1 Contextual bandit (online policy selection) | UCB1 | baseline | tier1_core | probabilistic | ✓ agent, desc | ctr |
+| M | M1 Contextual bandit (online policy selection) | ThompsonSampling | sota | tier2_wrapper | probabilistic | ✓ agent, desc | ctr |
+| M | M1 Contextual bandit (online policy selection) | NeuralUCB | sota | tier3_export | nonlinear_interactions, representation | desc, export | ctr |
 | N | N1 Unsupervised density | GaussianMixture | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | mean_log_likelihood |
 | N | N1 Unsupervised density | KernelDensity | baseline | tier2_wrapper | local_structure, probabilistic | desc | mean_log_likelihood |
 | N | N1 Unsupervised density | BIRCH | baseline | tier1_core | local_structure, representation | ✓ cadw, ✓ agent | mean_log_likelihood |

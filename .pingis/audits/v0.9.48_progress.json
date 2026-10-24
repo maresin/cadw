@@ -1,6 +1,6 @@
 {
-  "last_completed": "J",
-  "in_progress": "M",
+  "last_completed": "M",
+  "in_progress": "O",
   "completed_cards": [
     "I1.CoxPH",
     "I1.KaplanMeier",
@@ -22,6 +22,11 @@
     "J2.SentenceTransformer",
     "J3.LDA",
     "J3.NMF",
-    "J3.BERTopic"
+    "J3.BERTopic",
+    "M1.LinUCB",
+    "M1.EpsilonGreedy",
+    "M1.UCB1",
+    "M1.ThompsonSampling",
+    "M1.NeuralUCB"
   ]
 }

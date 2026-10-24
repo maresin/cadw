@@ -149,3 +149,28 @@ benchmarks:
       cadw_reproduced pair. Never alone for cross-framework ranking.
       Also: metrics list is illustrative — schema accepts any string
       when benchmark=cadw_internal."
+
+  Yahoo_R6A:
+    url: https://webscope.sandbox.yahoo.com/catalog.php?datatype=r&did=1
+    modality: bandit_ctr
+    metrics: [ctr, ctr_lift_pct]
+    warning: "Yahoo! Today Module R6A/R6B (Li et al. 2010). Numbers are CTR
+      on the one-week evaluation set; lift is relative to epsilon-greedy.
+      Not comparable to Open Bandit Dataset (different domain/protocol)."
+
+  Open_Bandit_Dataset:
+    url: https://github.com/st-tech/zr-obp
+    modality: bandit_ctr
+    metrics: [ctr, relative_ctr]
+    warning: "ZOZO Open Bandit Dataset (Saito et al. 2020). CTR and relative
+      CTR vs uniform-random. Different domain (fashion e-commerce) than
+      Yahoo R6A; not comparable across the two."
+
+  Mushroom:
+    url: https://archive.ics.uci.edu/dataset/73/mushroom
+    modality: bandit_simulated
+    metrics: [cumulative_reward]
+    warning: "UCI Mushroom, a standard simulated contextual-bandit benchmark
+      (each arm's reward is deterministic per context). Cumulative reward
+      depends on horizon and reward encoding; compare only within the same
+      simulation."
