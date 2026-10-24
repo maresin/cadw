@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "current_version": "0.9.35",
+  "current_version": "0.9.36",
   "updated": "2026-10-23",
   "principles": [
     "Universality via recipes, not model zoo.",
@@ -332,24 +332,27 @@
         {
           "id": "D.2.2",
           "name": "ALS (implicit) iterative Reduce",
-          "patch": "v0.9.32",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.36",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/als.py"
         },
         {
           "id": "D.2.3",
           "name": "hybrid MF + content",
-          "patch": "v0.9.32",
-          "status": "planned",
-          "complexity": "M"
+          "patch": "v0.9.36",
+          "status": "done",
+          "complexity": "M",
+          "file": "cadw/ml/hybrid_mf.py"
         },
         {
           "id": "D.3.1",
           "name": "CoxPH partial likelihood",
-          "patch": "v0.9.33",
-          "status": "planned",
+          "patch": "v0.9.36",
+          "status": "done",
           "complexity": "M",
-          "deferred_note": "v0.9.32: deferred - needs ~400-500 LOC + Sort-based risk-set primitive; sources in _FOR_PINGIS/algorithm_notes.md (lifelines, Cox 1972, Efron 1977)."
+          "deferred_note": "v0.9.32: deferred - needs ~400-500 LOC + Sort-based risk-set primitive; sources in _FOR_PINGIS/algorithm_notes.md (lifelines, Cox 1972, Efron 1977).",
+          "file": "cadw/ml/coxph.py"
         },
         {
           "id": "D.3.2",

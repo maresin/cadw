@@ -1,0 +1,28 @@
+{
+  "5000": {
+    "n": 5000,
+    "d": 5,
+    "fit_s": 0.06,
+    "iters": 4,
+    "converged": true,
+    "peak_mb": 6.0,
+    "state_b": 46896,
+    "c_index": 0.7229,
+    "ref_fit_s": 0.45,
+    "ref_c_index": 0.7229,
+    "coef_maxdiff": 1.5383589235806738e-06
+  },
+  "50000": {
+    "n": 50000,
+    "d": 5,
+    "fit_s": 0.7,
+    "iters": 4,
+    "converged": true,
+    "peak_mb": 36.7,
+    "state_b": 464864,
+    "c_index": 0.7244,
+    "ref_fit_s": 4.18,
+    "ref_c_index": 0.7244,
+    "coef_maxdiff": 1.5834595019637021e-06
+  }
+}

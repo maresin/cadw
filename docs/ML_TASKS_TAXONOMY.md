@@ -288,10 +288,10 @@ Same as A6 (imbalanced) — rare events with labels.
 - **C2** (t-SNE/UMAP) — T2 recipe
 - **D2** (multi TS) — D.4.5 VAR
 - **D5** (change-point) — D.4.2 PELT
-- **F1/F2** (recsys) — D.2.2 ALS, D.2.3 hybrid
+- **F1/F2** (recsys) — ✓ ALS v0.9.36 (D.2.2), ✓ hybrid MF v0.9.36 (D.2.3)
 - **G1** (LTR) — ✓ LambdaMART v0.9.35 (D.2.1)
 - **H1/H2** (causal/uplift) — D.3.2, D.3.3
-- **I1** (survival) — D.3.1 CoxPH
+- **I1** (survival) — ✓ CoxPH v0.9.36 (D.3.1)
 - **J1/J3/J4** (text) — D.6.9 TF-IDF, N11
 - **M1** (bandits) — D.6.7 LinUCB
 - **N1** (density) — ✓ GMM v0.9.31 (D.6.8)

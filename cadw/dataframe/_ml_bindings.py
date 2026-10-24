@@ -665,6 +665,69 @@ class _MLBindingsMixin:
         )
 
 
+    def fit_als(
+        self,
+        user_col: str,
+        item_col: str,
+        *,
+        weight_col: "str | None" = None,
+        n_factors: int = 16,
+        n_iter: int = 10,
+        reg: float = 0.1,
+        alpha: float = 40.0,
+        seed: int = 0,
+    ):
+        """Implicit-feedback ALS (v0.9.36, D.2.2). Out-of-core via
+        external_sort per sweep; state O((U+I)*k)."""
+        from cadw.ml.als import fit_als
+        return fit_als(
+            self, user_col, item_col, weight_col=weight_col,
+            n_factors=n_factors, n_iter=n_iter, reg=reg, alpha=alpha,
+            seed=seed, memory_guard=self._memory_guard,
+        )
+
+
+    def fit_hybrid_mf(
+        self,
+        user_col: str,
+        item_col: str,
+        content_cols: "str | Sequence[str]",
+        *,
+        n_factors: int = 16,
+        n_iter: int = 10,
+        reg: float = 0.1,
+        alpha: float = 40.0,
+        ridge: float = 1.0,
+        seed: int = 0,
+    ):
+        """Hybrid MF + content (v0.9.36, D.2.3). ALS factors plus a
+        ridge-learned content residual; cold items score from content."""
+        from cadw.ml.hybrid_mf import fit_hybrid_mf
+        return fit_hybrid_mf(
+            self, user_col, item_col, content_cols,
+            n_factors=n_factors, n_iter=n_iter, reg=reg, alpha=alpha,
+            ridge=ridge, seed=seed, memory_guard=self._memory_guard,
+        )
+
+
+    def fit_coxph(
+        self,
+        X_cols: "str | Sequence[str]",
+        time_col: str,
+        event_col: str,
+        *,
+        max_iter: int = 50,
+        tol: float = 1e-7,
+    ):
+        """Cox proportional hazards (v0.9.36, D.3.1). Breslow partial
+        likelihood, Newton-Raphson, guarded streaming pre-pass."""
+        from cadw.ml.coxph import fit_coxph
+        return fit_coxph(
+            self, X_cols, time_col, event_col,
+            max_iter=max_iter, tol=tol, memory_guard=self._memory_guard,
+        )
+
+
     def fit_lasso(
         self,
         X_cols: "str | Sequence[str]",

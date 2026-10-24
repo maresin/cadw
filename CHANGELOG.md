@@ -1,5 +1,35 @@
 ## [Unreleased]
 
+### v0.9.36 (2026-10-24) — Phase D algorithms, group 2/7
+
+- **D.2.2 (M) — implicit-feedback ALS.** `cadw/ml/als.py` +
+  `df.fit_als(...)`. Hu-Koren-Volinsky confidence weighting; one
+  `external_sort` per sweep, streamed per-user k×k solves. State
+  O((U+I)·k). `log_fit` per sweep; every batch goes through
+  `check_batch(..., extra_factor=2.0)`. 10 tests; bench 200 000
+  interactions in 31.29 s / 64 MB, state 1 792 000 B exact.
+- **D.2.3 (M) — hybrid MF + content.** `cadw/ml/hybrid_mf.py` +
+  `df.fit_hybrid_mf(...)`. Ridge map from item content to ALS item
+  factors, applied as a k-dimensional residual (a concatenation broke
+  scoring and was caught by the tests); cold start via
+  `content_only_scores`. 10 tests; measured +0.0799 Pearson corr vs
+  ALS at 446 391 interactions for ~0.5% extra fit time.
+- **D.3.1 (M) — Cox proportional hazards.** `cadw/ml/coxph.py` +
+  `df.fit_coxph(...)`. Breslow partial likelihood, Newton-Raphson,
+  baseline cumulative hazard, Harrell c-index (vectorized in row
+  chunks). Cannot be a Reduce (risk sets are global) so it uses the
+  guarded O(N·d) pre-pass accepted for LambdaMART — no approximation
+  claimed. 10 tests; vs lifelines: coef maxdiff 1.58e-06, c-index
+  identical, 50 000 rows in 0.70 s vs 4.18 s.
+
+Dev dependencies added (test-side only, `[dependency-groups] dev`):
+`lifelines>=0.30`, `statsmodels>=0.15`. Nothing under `cadw/` imports
+either; they exist solely as reference implementations in the tests.
+
+Docs: `docs/roadmap.json` D.2.2/D.2.3/D.3.1 -> done,
+`docs/ML_TASKS_TAXONOMY.md` F1/F2 recsys and I1 survival ->
+available. Notes and benches under `.pingis/algorithm_notes/`,
+`.pingis/benches/`. Fast suite 2608 -> 2638 passed; slow 25 passed.
 ### v0.9.35 (2026-10-23) — Phase D algorithms, group 1/7
 
 First of seven algorithm patches (25 items total, no deferral).

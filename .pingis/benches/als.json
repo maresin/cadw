@@ -1,0 +1,22 @@
+{
+  "2000x800x20": {
+    "n_users": 2000,
+    "n_items": 800,
+    "interactions": 40000,
+    "k": 16,
+    "iters": 3,
+    "fit_s": 6.55,
+    "peak_mb": 19.4,
+    "state_b": 358400
+  },
+  "10000x4000x20": {
+    "n_users": 10000,
+    "n_items": 4000,
+    "interactions": 200000,
+    "k": 16,
+    "iters": 3,
+    "fit_s": 31.29,
+    "peak_mb": 64.0,
+    "state_b": 1792000
+  }
+}
