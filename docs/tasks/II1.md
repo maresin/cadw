@@ -41,7 +41,7 @@
   - number: https://github.com/sebp/scikit-survival/tree/master/sksurv/datasets
   - code/paper: https://lifelines.readthedocs.io/en/latest/fitters/regression/CoxPHFitter.html
   - note: no_public_benchmark: no public integrated-Brier leaderboard for CoxPH on sksurv collection
-- **[cadw_reproduced]** CoxPH_Survival → c_index=0.6755 (n=1)
+- **[cadw_reproduced]** cadw_internal → c_index=0.6755 (n=1)
   - algorithm: `cadw.ml.coxph` (code)
   - reproduces: `lifelines.CoxPHFitter`
   - number: .pingis/benches/reproduction/coxph.json

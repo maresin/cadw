@@ -349,7 +349,9 @@ def test_v03_cadw_reproduced_wrong_scope_raises():
         value=0.5, note="test",
     ))
     errors = _errors_of(_validate_card(card))
-    assert any("evaluation_scope='synthetic'" in e for e in errors), errors
+    # v0.9.51.3: validator message updated to allow both scopes
+    assert any("evaluation_scope in ('synthetic', 'both')" in e
+               for e in errors), errors
 
 
 def test_v03_cadw_reproduced_synthetic_scope_passes():

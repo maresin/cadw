@@ -33,7 +33,7 @@
   - number: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
   - code/paper: https://github.com/benfred/implicit
   - note: [legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot
-- **[cadw_reproduced]** Amazon_Recsys → ndcg_at_k=0.3827250969586643 (n=1)
+- **[cadw_reproduced]** cadw_internal → ndcg_at_k=0.3827250969586643 (n=1)
   - algorithm: `cadw.ml.als.fit_als` (code)
   - reproduces: `implicit.als.AlternatingLeastSquares`
   - number: .pingis/benches/reproduction/als.json

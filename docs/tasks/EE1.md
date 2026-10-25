@@ -56,7 +56,7 @@
   - number: http://web.archive.org/web/20240913183309/https://odds.cs.stonybrook.edu/
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html
   - note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
-- **[cadw_reproduced]** ODDS → roc_auc=0.9987789473684211 (n=1)
+- **[cadw_reproduced]** cadw_internal → roc_auc=0.9987789473684211 (n=1)
   - algorithm: `cadw.ml.iforest.fit_isolation_forest` (code)
   - reproduces: `sklearn.ensemble.IsolationForest`
   - number: .pingis/benches/reproduction/iforest.json

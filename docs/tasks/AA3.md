@@ -76,7 +76,7 @@
   - number: https://openml.github.io/automlbenchmark/
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingRegressor.html
   - note: [legacy v0.9.44, migrated v0.9.50]
-- **[cadw_reproduced]** AMLB → rmse=1.0970246900316962 (n=1)
+- **[cadw_reproduced]** cadw_internal → rmse=1.0970246900316962 (n=1)
   - algorithm: `cadw.ml.gbdt.fit_gbdt_regressor` (code)
   - reproduces: `sklearn.ensemble.GradientBoostingRegressor`
   - number: .pingis/benches/reproduction/gbdt_regressor.json
