@@ -30,9 +30,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → rmse=0.42
-  - algorithm: `Ridge` (description)
+  - algorithm: `sklearn.linear_model.Ridge` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: normalised RMSE median across AMLB regression tasks [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html
+  - note: normalised RMSE median across AMLB regression tasks [legacy v0.9.44, migrated v0.9.50]
 
 ### Lasso — baseline / tier1_core
 
@@ -50,9 +51,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → rmse=0.43
-  - algorithm: `Lasso` (description)
+  - algorithm: `sklearn.linear_model.Lasso` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Lasso.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### GBDT_L2 — sota / tier1_core
 
@@ -70,9 +72,16 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → rmse=0.36
-  - algorithm: `GBDT_L2` (description)
+  - algorithm: `sklearn.ensemble.GradientBoostingRegressor` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingRegressor.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
+- **[cadw_reproduced]** AMLB → rmse=1.0970246900316962 (n=1)
+  - algorithm: `cadw.ml.gbdt.fit_gbdt_regressor` (code)
+  - reproduces: `sklearn.ensemble.GradientBoostingRegressor`
+  - number: .pingis/benches/reproduction/gbdt_regressor.json
+  - code/paper: cadw/ml/gbdt.py
+  - note: M2 parity on synthetic_amlb_regression_like DGP; ref(sklearn.GradientBoostingRegressor)=1.0498, verdict=consistent
 
 ## Metrics
 - **rmse** (anchor, lower)

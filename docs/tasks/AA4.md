@@ -29,9 +29,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.62
-  - algorithm: `OneVsRest_Logistic` (description)
+  - algorithm: `sklearn.multiclass.OneVsRestClassifier` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: subset accuracy [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html
+  - note: subset accuracy [legacy v0.9.44, migrated v0.9.50]
 
 ### ClassifierChains — sota / tier1_core
 
@@ -49,9 +50,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.66
-  - algorithm: `ClassifierChains` (description)
+  - algorithm: `sklearn.multioutput.ClassifierChain` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.multioutput.ClassifierChain.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **subset_accuracy** (anchor, higher)

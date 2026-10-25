@@ -30,9 +30,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.55
-  - algorithm: `OrdinalLogit` (description)
+  - algorithm: `mord.LogisticAT` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: exact-match accuracy [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://pythonhosted.org/mord/
+  - note: exact-match accuracy [legacy v0.9.44, migrated v0.9.50]
 
 ### GBDT_threshold — sota / tier1_core
 
@@ -48,9 +49,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.6
-  - algorithm: `GBDT_threshold` (description)
+  - algorithm: `sklearn.ensemble.GradientBoostingClassifier` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingClassifier.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **mae_ordinal** (anchor, lower)

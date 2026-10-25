@@ -29,9 +29,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.74
-  - algorithm: `LogisticRegression_multinomial` (description)
+  - algorithm: `sklearn.linear_model.LogisticRegression` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### GBDT_multiclass — sota / tier1_core
 
@@ -49,9 +50,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.81
-  - algorithm: `GBDT_multiclass` (description)
+  - algorithm: `sklearn.ensemble.GradientBoostingClassifier` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingClassifier.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### GaussianNB — baseline / tier1_core
 
@@ -69,9 +71,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.68
-  - algorithm: `GaussianNB` (description)
+  - algorithm: `sklearn.naive_bayes.GaussianNB` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.GaussianNB.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **accuracy** (anchor, higher)

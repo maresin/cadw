@@ -32,9 +32,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → roc_auc=0.78
-  - algorithm: `LogisticRegression` (description)
+  - algorithm: `sklearn.linear_model.LogisticRegression` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: median across AMLB binary tasks; ranking only [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
+  - note: median across AMLB binary tasks; ranking only [legacy v0.9.44, migrated v0.9.50]
 
 ### GBDT — sota / tier1_core
 
@@ -53,9 +54,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → roc_auc=0.82
-  - algorithm: `GBDT` (description)
+  - algorithm: `sklearn.ensemble.GradientBoostingClassifier` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: median across AMLB binary tasks [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingClassifier.html
+  - note: median across AMLB binary tasks [legacy v0.9.44, migrated v0.9.50]
 
 ### BernoulliNB — baseline / tier1_core
 
@@ -74,9 +76,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → roc_auc=0.72
-  - algorithm: `BernoulliNB` (description)
+  - algorithm: `sklearn.naive_bayes.BernoulliNB` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.BernoulliNB.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### TabPFN — sota / tier3_export
 
@@ -92,9 +95,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → roc_auc=0.85
-  - algorithm: `TabPFN` (description)
+  - algorithm: `TabPFN` (paper)
   - number: https://openml.github.io/automlbenchmark/
-  - note: Top of AMLB small-N subset; export via to_batches(format='torch') [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://arxiv.org/abs/2207.01848
+  - note: Top of AMLB small-N subset; export via to_batches(format='torch') [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **roc_auc** (anchor, higher)

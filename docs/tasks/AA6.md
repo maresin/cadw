@@ -30,9 +30,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → pr_auc=0.42
-  - algorithm: `Logistic_balanced` (description)
+  - algorithm: `sklearn.linear_model.LogisticRegression` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: AMLB imbalance subset [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
+  - note: AMLB imbalance subset [legacy v0.9.44, migrated v0.9.50]
 
 ### GBDT_scale_pos_weight — sota / tier1_core
 
@@ -51,9 +52,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → pr_auc=0.51
-  - algorithm: `GBDT_scale_pos_weight` (description)
+  - algorithm: `XGBoost scale_pos_weight` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://xgboost.readthedocs.io/en/stable/parameter.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **pr_auc** (anchor, higher)

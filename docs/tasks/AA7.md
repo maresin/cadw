@@ -28,9 +28,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → rmse=0.5
-  - algorithm: `LinearQuantReg` (description)
+  - algorithm: `sklearn.linear_model.QuantileRegressor` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: pinball loss, not rmse; use for ranking only [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.QuantileRegressor.html
+  - note: pinball loss, not rmse; use for ranking only [legacy v0.9.44, migrated v0.9.50]
 
 ### GBDT_pinball — sota / tier1_core
 
@@ -46,9 +47,10 @@
 
 **Benchmarks:**
 - **[literature]** AMLB → rmse=0.46
-  - algorithm: `GBDT_pinball` (description)
+  - algorithm: `sklearn.ensemble.GradientBoostingRegressor` (docs)
   - number: https://openml.github.io/automlbenchmark/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingRegressor.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **pinball_loss** (anchor, lower)
