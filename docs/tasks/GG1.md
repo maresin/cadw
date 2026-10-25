@@ -28,9 +28,10 @@
 
 **Benchmarks:**
 - **[literature]** LETOR → ndcg_at_k=0.42
-  - algorithm: `PairwiseLogistic` (description)
-  - number: https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - algorithm: `sklearn.linear_model.LogisticRegression` (docs)
+  - number: https://web.archive.org/web/20240101000000/https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
+  - note: [legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot
 
 ### LambdaMART — sota / tier1_core
 
@@ -49,9 +50,10 @@
 
 **Benchmarks:**
 - **[literature]** LETOR → ndcg_at_k=0.51
-  - algorithm: `LambdaMART` (description)
-  - number: https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - algorithm: `LightGBM lambdarank` (code)
+  - number: https://web.archive.org/web/20240101000000/https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/
+  - code/paper: https://github.com/microsoft/LightGBM/tree/master/examples/lambdarank
+  - note: [legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot
 
 ## Metrics
 - **ndcg_at_k** (anchor, higher)
