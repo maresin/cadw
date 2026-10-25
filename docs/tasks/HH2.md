@@ -29,9 +29,10 @@
 
 **Benchmarks:**
 - **[literature]** RCT_IHDP → pehe=0.15
-  - algorithm: `T_learner_uplift` (description)
+  - algorithm: `T-learner (Kunzel et al.)` (paper)
   - number: https://www.fredjo.com/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://arxiv.org/abs/1706.03461
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### CausalTree — sota / tier1_core
 
@@ -49,9 +50,10 @@
 
 **Benchmarks:**
 - **[literature]** RCT_IHDP → pehe=0.12
-  - algorithm: `CausalTree` (description)
+  - algorithm: `Causal tree (Athey & Imbens)` (paper)
   - number: https://www.fredjo.com/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://arxiv.org/abs/1504.01132
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **qini** (anchor, higher)

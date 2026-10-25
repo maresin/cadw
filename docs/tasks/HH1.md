@@ -30,9 +30,10 @@
 
 **Benchmarks:**
 - **[literature]** RCT_IHDP → ate_error=0.1
-  - algorithm: `T_learner` (description)
+  - algorithm: `T-learner (Kunzel et al.)` (paper)
   - number: https://www.fredjo.com/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://arxiv.org/abs/1706.03461
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### S_learner — baseline / tier1_core
 
@@ -50,9 +51,10 @@
 
 **Benchmarks:**
 - **[literature]** RCT_IHDP → ate_error=0.12
-  - algorithm: `S_learner` (description)
+  - algorithm: `S-learner (Kunzel et al.)` (paper)
   - number: https://www.fredjo.com/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://arxiv.org/abs/1706.03461
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### DR_learner — sota / tier3_export
 
@@ -66,9 +68,10 @@
 
 **Benchmarks:**
 - **[literature]** RCT_IHDP → ate_error=0.06
-  - algorithm: `DR_learner` (description)
+  - algorithm: `DR-learner (EconML)` (docs)
   - number: https://www.fredjo.com/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://econml.azurewebsites.net/spec/estimation/dr.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **ate_error** (anchor, lower)
