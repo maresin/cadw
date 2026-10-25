@@ -1,6 +1,7 @@
 """Validator for the ML-tools matrix (M1, v0.9.44; v0.9.48.8 coverage)."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -197,3 +198,231 @@ def test_cadw_reproduced_reproduces_must_match_literature_algorithm():
     errors = [msg for sev, msg in issues if sev == "ERROR"]
     assert any("reproduces='XGBoost' not among literature algorithms" in e
                for e in errors), errors
+
+# ============================================================
+# v0.9.51.1: v0.3 schema extension — backward compatible
+# ============================================================
+
+
+def _make_card(**kwargs):
+    """Minimal valid ModelCard for v0.3 tests (one literature entry)."""
+    from docs.ml_tools.schema import ModelCard, ImplStatus, BenchmarkResult
+    defaults = dict(
+        name="TestModel", tier="sota", tier_level="tier1_core",
+        implementation_status=ImplStatus(verified_in_cadw=True),
+        roles=["nonlinear_interactions"], purpose="test",
+        real_life_examples=["test"], config={},
+        benchmark_results=[BenchmarkResult(
+            benchmark="AMLB", benchmark_url="https://example.com/",
+            algorithm="x", algorithm_source_url="https://example.com/x",
+            algorithm_source_kind="paper", attribution="literature",
+            task_type="test", metric="roc_auc",
+            value=0.5, note="test",
+        )],
+    )
+    defaults.update(kwargs)
+    return ModelCard(**defaults)
+
+
+def _make_section(card):
+    """Wrap a test card in a Subtype with a dummy baseline + metric card."""
+    from docs.ml_tools.schema import (Section, Subtype, MetricCard,
+                                       ModelCard, ImplStatus)
+    baseline = ModelCard(
+        name="__baseline__", tier="baseline", tier_level="tier1_core",
+        implementation_status=ImplStatus(verified_in_cadw=True),
+        roles=["linear_signal"], purpose="b",
+        real_life_examples=["b"], config={}, benchmark_results=[],
+    )
+    st = Subtype(
+        id="X1", name="t", description="d", real_life=[],
+        benchmarks=[], models=[baseline, card],
+        metrics=[MetricCard(
+            name="roc_auc", combination="anchor", direction="higher",
+            responsibility="r", special="s",
+        )],
+        ensemble_recommendation=[],
+    )
+    return Section(section="X", name="X", subtypes=[st])
+
+
+def _make_benchmarks():
+    from docs.ml_tools.schema import Benchmarks, BenchmarkSpec
+    return Benchmarks(benchmarks={
+        "AMLB": BenchmarkSpec(
+            url="https://amlb.example/", modality="tabular",
+            metrics=["roc_auc", "accuracy", "pr_auc"],
+            warning="w",
+        ),
+    })
+
+
+def _validate_card(card):
+    from docs.ml_tools.schema import validate_matrix
+    sec = _make_section(card)
+    return validate_matrix([sec], _make_benchmarks(), raise_on_error=False)
+
+
+def _errors_of(issues):
+    return [m for sev, m in issues if sev == "ERROR"]
+
+
+def _warns_of(issues):
+    return [m for sev, m in issues if sev == "WARN"]
+
+
+def test_v03_all_sections_still_validate():
+    """v0.3 fields are optional; existing 13 sections must still pass."""
+    load_benchmarks, load_section, validate_matrix = _load_all()
+    bm = load_benchmarks(ML_TOOLS / "benchmarks.yaml")
+    for path in _section_files():
+        sec = load_section(path)
+        issues = validate_matrix([sec], bm, raise_on_error=False)
+        errors = _errors_of(issues)
+        assert not errors, f"{path.stem}:\n" + "\n".join(errors)
+
+
+def test_v03_enum_fields_accept_known_values():
+    card = _make_card(
+        task_family="time_series", task_type="anomaly",
+        model_class="ml", learning_mode="unsupervised",
+        anomaly_type="point", data_modality="uni",
+        source_library="pyod", evaluation_scope="real_benchmark",
+        coverage="broad",
+    )
+    errors = _errors_of(_validate_card(card))
+    assert not errors, errors
+
+
+def test_v03_model_class_invalid_value_raises():
+    card = _make_card(model_class="quantum_model")
+    errors = _errors_of(_validate_card(card))
+    assert any("model_class='quantum_model'" in e for e in errors), errors
+
+
+def test_v03_learning_mode_invalid_value_raises():
+    card = _make_card(learning_mode="telepathic")
+    errors = _errors_of(_validate_card(card))
+    assert any("learning_mode='telepathic'" in e for e in errors), errors
+
+
+def test_v03_pretrained_requires_leakage_info():
+    card = _make_card(model_class="pretrained_ts")
+    errors = _errors_of(_validate_card(card))
+    assert any("requires 'leakage' block" in e for e in errors), errors
+
+
+def test_v03_pretrained_with_leakage_passes():
+    from docs.ml_tools.schema import LeakageInfo
+    card = _make_card(
+        model_class="pretrained_ts",
+        leakage=LeakageInfo(
+            pretraining_corpus="unknown",
+            pretraining_overlap_risk="unknown",
+        ),
+    )
+    errors = _errors_of(_validate_card(card))
+    assert not errors, errors
+
+
+def test_v03_pretrained_high_overlap_warns():
+    from docs.ml_tools.schema import LeakageInfo
+    card = _make_card(
+        model_class="pretrained_ts",
+        leakage=LeakageInfo(
+            pretraining_corpus="leaky",
+            pretraining_overlap_risk="high",
+        ),
+    )
+    warns = _warns_of(_validate_card(card))
+    assert any("overlap_risk='high'" in w for w in warns), warns
+
+
+def test_v03_cadw_reproduced_wrong_scope_raises():
+    from docs.ml_tools.schema import BenchmarkResult
+    card = _make_card(evaluation_scope="real_benchmark")
+    card.benchmark_results.append(BenchmarkResult(
+        benchmark="AMLB", benchmark_url=".pingis/benches/x.json",
+        algorithm="cadw.ml.x", algorithm_source_url="cadw/ml/x.py",
+        algorithm_source_kind="code", attribution="cadw_reproduced",
+        reproduces="x", task_type="test", metric="roc_auc",
+        value=0.5, note="test",
+    ))
+    errors = _errors_of(_validate_card(card))
+    assert any("evaluation_scope='synthetic'" in e for e in errors), errors
+
+
+def test_v03_cadw_reproduced_synthetic_scope_passes():
+    from docs.ml_tools.schema import BenchmarkResult
+    card = _make_card(evaluation_scope="synthetic")
+    card.benchmark_results.append(BenchmarkResult(
+        benchmark="AMLB", benchmark_url=".pingis/benches/x.json",
+        algorithm="cadw.ml.x", algorithm_source_url="cadw/ml/x.py",
+        algorithm_source_kind="code", attribution="cadw_reproduced",
+        reproduces="x", task_type="test", metric="roc_auc",
+        value=0.5, note="test",
+    ))
+    errors = _errors_of(_validate_card(card))
+    assert not any("evaluation_scope" in e for e in errors), errors
+
+
+def test_v03_supervised_ts_temporal_split_false_raises():
+    from docs.ml_tools.schema import LeakageInfo
+    card = _make_card(
+        task_type="anomaly", learning_mode="supervised",
+        leakage=LeakageInfo(temporal_split=False),
+    )
+    errors = _errors_of(_validate_card(card))
+    assert any("temporal_split=True" in e for e in errors), errors
+
+
+def test_v03_supervised_ts_temporal_split_unset_no_error():
+    from docs.ml_tools.schema import LeakageInfo
+    card = _make_card(
+        task_type="anomaly", learning_mode="supervised",
+        leakage=LeakageInfo(temporal_split=None),
+    )
+    errors = _errors_of(_validate_card(card))
+    assert not any("temporal_split" in e for e in errors), errors
+
+
+def test_v03_audit_leakage_script_present():
+    """audit_leakage.py exists, runs clean on current sections."""
+    import subprocess
+    script = ROOT / "scripts" / "audit_leakage.py"
+    assert script.exists(), f"missing {script}"
+    yaml_files = [str(p) for p in _section_files()]
+    r = subprocess.run(
+        [sys.executable, str(script)] + yaml_files,
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, (
+        f"audit_leakage failed:\nSTDOUT:\n{r.stdout}\nSTDERR:\n{r.stderr}"
+    )
+
+
+def test_v03_audit_leakage_catches_pretrained_without_leakage(tmp_path):
+    """audit_leakage.py errors on pretrained_ts with no leakage block."""
+    import subprocess
+    bad_yaml = tmp_path / "X_bad.yaml"
+    bad_yaml.write_text("""section: X
+name: X
+subtypes:
+  - id: X1
+    name: t
+    description: d
+    models:
+      - name: P
+        tier: sota
+        tier_level: tier3_export
+        model_class: pretrained_ts
+""")
+    script = ROOT / "scripts" / "audit_leakage.py"
+    r = subprocess.run(
+        [sys.executable, str(script), str(bad_yaml)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 1, (
+        f"expected exit 1, got {r.returncode}\nSTDOUT:\n{r.stdout}"
+    )
+    assert "PRETRAINED_NO_LEAKAGE" in r.stdout, r.stdout

@@ -66,6 +66,16 @@ class ImplStatus:
     not_implemented_in_cadw: bool = False
 
 
+# v0.9.51.1: leakage info (optional, backward compatible).
+@dataclass
+class LeakageInfo:
+    pretraining_corpus: str | None = None
+    pretraining_overlap_risk: str = "unknown"
+    temporal_split: bool | None = None
+    target_leakage_checked: bool | None = None
+    notes: str | None = None
+
+
 @dataclass
 class ModelCard:
     name: str
@@ -79,6 +89,23 @@ class ModelCard:
     benchmark_results: list[BenchmarkResult]
     cadw_module: str = ""
     cadw_function: str = ""
+    # v0.9.51.1: v0.3 optional fields (all None by default)
+    task_family: str | None = None
+    task_type: str | None = None
+    model_class: str | None = None
+    learning_mode: str | None = None
+    anomaly_type: str | None = None
+    domain: list[str] | None = None
+    data_modality: str | None = None
+    source_library: str | None = None
+    library_benchmark: str | None = None
+    reference_implementation: bool | None = None
+    evaluation_scope: str | None = None
+    dgp_source: str | None = None
+    dgp_overlap_risk: str | None = None
+    leakage: LeakageInfo | None = None
+    coverage: str | None = None
+    pareto_axes: list[str] | None = None
 
 
 @dataclass
@@ -187,6 +214,19 @@ def _parse_benchmark_results(m: dict) -> list[BenchmarkResult]:
     return [_parse_benchmark_result(r, m["name"]) for r in raw]
 
 
+def _parse_leakage(raw) -> LeakageInfo | None:
+    """v0.9.51.1: parse optional leakage block (backward compatible)."""
+    if not raw:
+        return None
+    return LeakageInfo(
+        pretraining_corpus=raw.get("pretraining_corpus"),
+        pretraining_overlap_risk=raw.get("pretraining_overlap_risk", "unknown"),
+        temporal_split=raw.get("temporal_split"),
+        target_leakage_checked=raw.get("target_leakage_checked"),
+        notes=raw.get("notes"),
+    )
+
+
 def _parse_model(m: dict) -> ModelCard:
     status = m.get("implementation_status") or {}
     return ModelCard(
@@ -206,6 +246,22 @@ def _parse_model(m: dict) -> ModelCard:
         benchmark_results=_parse_benchmark_results(m),
         cadw_module=m.get("cadw_module", ""),
         cadw_function=m.get("cadw_function", ""),
+        task_family=m.get("task_family"),
+        task_type=m.get("task_type"),
+        model_class=m.get("model_class"),
+        learning_mode=m.get("learning_mode"),
+        anomaly_type=m.get("anomaly_type"),
+        domain=m.get("domain"),
+        data_modality=m.get("data_modality"),
+        source_library=m.get("source_library"),
+        library_benchmark=m.get("library_benchmark"),
+        reference_implementation=m.get("reference_implementation"),
+        evaluation_scope=m.get("evaluation_scope"),
+        dgp_source=m.get("dgp_source"),
+        dgp_overlap_risk=m.get("dgp_overlap_risk"),
+        leakage=_parse_leakage(m.get("leakage")),
+        coverage=m.get("coverage"),
+        pareto_axes=m.get("pareto_axes"),
     )
 
 
@@ -308,6 +364,65 @@ def _validate_benchmark_result(br: BenchmarkResult, card: ModelCard,
             err(f"{lbl}: cadw_measured must use benchmark=cadw_internal")
 
 
+def _validate_model_v03(m: ModelCard, m_label: str, err, warn) -> None:
+    """v0.9.51.1: v0.3 optional-field validation.
+
+    All rules fire only if the relevant field is set — existing cards
+    with no v0.3 fields pass unchanged (backward compat).
+    """
+    from .enums import (ANOMALY_TYPES, COVERAGE, DATA_MODALITIES,
+                        EVALUATION_SCOPES, LEAKAGE_RISKS, LEARNING_MODES,
+                        MODEL_CLASSES, SOURCE_LIBRARIES, TASK_FAMILIES,
+                        TASK_TYPES)
+
+    def _check(name, value, allowed):
+        if value is not None and value not in allowed:
+            err(f"{m_label}: {name}={value!r} not in {allowed}")
+
+    _check("task_family", m.task_family, TASK_FAMILIES)
+    _check("task_type", m.task_type, TASK_TYPES)
+    _check("model_class", m.model_class, MODEL_CLASSES)
+    _check("learning_mode", m.learning_mode, LEARNING_MODES)
+    _check("anomaly_type", m.anomaly_type, ANOMALY_TYPES)
+    _check("data_modality", m.data_modality, DATA_MODALITIES)
+    _check("source_library", m.source_library, SOURCE_LIBRARIES)
+    _check("evaluation_scope", m.evaluation_scope, EVALUATION_SCOPES)
+    _check("coverage", m.coverage, COVERAGE)
+    _check("dgp_overlap_risk", m.dgp_overlap_risk, LEAKAGE_RISKS)
+
+    if m.leakage is not None:
+        if m.leakage.pretraining_overlap_risk not in LEAKAGE_RISKS:
+            err(f"{m_label}: leakage.pretraining_overlap_risk="
+                f"{m.leakage.pretraining_overlap_risk!r} not in "
+                f"{LEAKAGE_RISKS}")
+
+    # Rule A: pretrained/llm require leakage block
+    if m.model_class in ("pretrained_ts", "llm_based"):
+        if m.leakage is None:
+            err(f"{m_label}: model_class={m.model_class!r} requires "
+                f"'leakage' block (pretraining_corpus + overlap_risk)")
+        elif m.leakage.pretraining_overlap_risk == "high":
+            warn(f"{m_label}: leakage.pretraining_overlap_risk='high' "
+                 f"— should be excluded or explicitly documented")
+
+    # Rule B: cadw_reproduced requires evaluation_scope='synthetic'
+    has_repro = any(br.attribution == "cadw_reproduced"
+                    for br in m.benchmark_results)
+    if has_repro and m.evaluation_scope is not None:
+        if m.evaluation_scope != "synthetic":
+            err(f"{m_label}: cadw_reproduced requires "
+                f"evaluation_scope='synthetic', "
+                f"got {m.evaluation_scope!r}")
+
+    # Rule C: supervised TS requires temporal_split=True
+    if (m.task_type in ("forecast", "anomaly")
+            and m.learning_mode == "supervised"
+            and m.leakage is not None
+            and m.leakage.temporal_split is False):
+        err(f"{m_label}: task_type={m.task_type!r} + "
+            f"learning_mode='supervised' requires temporal_split=True")
+
+
 def validate_matrix(
     sections: list[Section],
     benchmarks: Benchmarks,
@@ -368,6 +483,7 @@ def validate_matrix(
                     err(f"{m_label}: empty purpose")
                 if not m.real_life_examples:
                     warn(f"{m_label}: no real_life_examples")
+                _validate_model_v03(m, m_label, err, warn)
                 for br in m.benchmark_results:
                     if br.benchmark not in benchmarks.benchmarks:
                         err(f"{m_label}: benchmark {br.benchmark!r} "

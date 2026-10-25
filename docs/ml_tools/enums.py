@@ -67,3 +67,79 @@ SOURCE_KINDS = (
     "pseudocode",
     "description",
 )
+
+
+# === v0.9.51.1 (v0.3): model classes (TAB taxonomy, 5) ===
+MODEL_CLASSES = (
+    "non_learning",
+    "ml",
+    "dl_from_scratch",
+    "llm_based",
+    "pretrained_ts",
+)
+
+# === Learning modes (6) ===
+LEARNING_MODES = (
+    "unsupervised",
+    "semi_supervised",
+    "self_supervised",
+    "supervised",
+    "zero_shot",
+    "few_shot",
+)
+
+# === Anomaly types (6) ===
+ANOMALY_TYPES = (
+    "point",
+    "collective",
+    "contextual",
+    "changepoint",
+    "shape",
+    "none",
+)
+
+# === Data modality (4) ===
+DATA_MODALITIES = (
+    "uni",
+    "multi",
+    "both",
+    "n/a",
+)
+
+# === Leakage risks (5) ===
+LEAKAGE_RISKS = (
+    "none",
+    "low",
+    "medium",
+    "high",
+    "unknown",
+)
+
+# === Evaluation scope (3) ===
+EVALUATION_SCOPES = (
+    "real_benchmark",
+    "synthetic",
+    "both",
+)
+
+# === Source libraries (12) ===
+SOURCE_LIBRARIES = (
+    "pyod", "sktime", "merlion", "orion", "kats", "alibi_detect",
+    "stumpy", "ruptures", "telemanom", "banpei", "paddlex", "native",
+)
+
+# === Coverage (2) ===
+COVERAGE = ("broad", "narrow")
+
+# === Task family (5) ===
+TASK_FAMILIES = (
+    "supervised_tabular", "time_series", "unsupervised",
+    "specialized", "applicability",
+)
+
+# === Task type (14) ===
+TASK_TYPES = (
+    "classification", "regression", "forecast", "anomaly", "density",
+    "recsys", "ltr", "causal", "survival", "bandit",
+    "nlp", "vision", "graph", "eda",
+)
