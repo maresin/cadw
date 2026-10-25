@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "current_version": "0.9.45",
-  "updated": "2026-10-24",
+  "updated": "2026-10-25",
   "principles": [
     "Universality via recipes, not model zoo.",
     "Every algorithm O(1)/O(d²) or sample+stream wrapper.",
@@ -871,6 +871,16 @@
           "file": "README.md",
           "source": "part1_report.md B6 (P2)",
           "resolution": "B6: README version drift removed"
+        },
+        {
+          "id": "I.9",
+          "name": "BUG-1: value_counts crashes on multi-chunk (mixed int64/double __vco_sum)",
+          "patch": "v0.9.49",
+          "status": "planned",
+          "complexity": "S",
+          "file": "cadw/ops/groupby.py:741 (_groupby_with_skew concat_tables)",
+          "source": ".pingis/audits/v0.9.48_bugs.md (found by PINGIS v0.9.48)",
+          "reproducer": "Multi-chunk CadwDataFrame (chunk_size=50k, n=100k), df.value_counts('cat')"
         }
       ],
       "completed_at": "2026-10-23"

@@ -111,3 +111,20 @@ requires split → D.x.y-1, D.x.y-2 sub-patches, still no deferral.
 Artifacts: `.pingis/audits/v0934_bugfix_report.md`,
 `.pingis/benches/v0934_*.json`, `.pingis/experiments/v0934_notes.md`.
 
+## BUG-1 (v0.9.49) — value_counts crashes on multi-chunk
+
+**Found by:** PINGIS during v0.9.48 discovery (Section O).
+**Report:** `.pingis/audits/v0.9.48_bugs.md`.
+**Severity:** P1 (medium; chunk-size dependent).
+**File:line:** `cadw/ops/groupby.py:741` — `pa.concat_tables(all_results)` in `_groupby_with_skew`.
+**Called from:** `cadw/dataframe/_aggregations.py:82` (`value_counts` -> `_gba`).
+
+**Reproducer:** multi-chunk CadwDataFrame (chunk_size=50k, n=100k), `df.value_counts("cat")` → `ArrowInvalid: Schema at index N was different: __vco_sum int64 vs double`.
+
+**Root cause:** per-chunk partial sums for `__vco_sum` typed `int64` (count-only path) or `double` (sum path). `pa.concat_tables` requires identical schemas.
+
+**Fix:** unify partial-aggregate dtypes before `concat_tables` (cast to `float64`).
+
+**Test:** `tests/test_v0949_value_counts_multichunk.py` — reproducer, pass after fix.
+
+**Bench:** not needed (correctness, not perf).

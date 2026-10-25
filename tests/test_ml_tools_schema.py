@@ -36,7 +36,7 @@ def test_section_validates(path):
     sec = load_section(path)
     issues = validate_matrix([sec], bm, raise_on_error=False)
     errors = [m for sev, m in issues if sev == "ERROR"]
-    assert not errors, "".join(errors)
+    assert not errors, "\n".join(errors)
 
 
 def test_benchmarks_registry_loads():
