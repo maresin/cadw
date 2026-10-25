@@ -177,6 +177,7 @@ subtypes:
   - name: VAR
     tier: baseline
     tier_level: tier1_core
+    evaluation_scope: both
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true

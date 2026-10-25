@@ -409,9 +409,11 @@ def _validate_model_v03(m: ModelCard, m_label: str, err, warn) -> None:
     has_repro = any(br.attribution == "cadw_reproduced"
                     for br in m.benchmark_results)
     if has_repro and m.evaluation_scope is not None:
-        if m.evaluation_scope != "synthetic":
+        # v0.9.51.2: 'both' is valid — card mixes real-benchmark literature
+        # entries with synthetic cadw_reproduced entries.
+        if m.evaluation_scope not in ("synthetic", "both"):
             err(f"{m_label}: cadw_reproduced requires "
-                f"evaluation_scope='synthetic', "
+                f"evaluation_scope in ('synthetic', 'both'), "
                 f"got {m.evaluation_scope!r}")
 
     # Rule C: supervised TS requires temporal_split=True

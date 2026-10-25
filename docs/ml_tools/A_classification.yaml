@@ -383,6 +383,7 @@ subtypes:
   - name: GBDT_L2
     tier: sota
     tier_level: tier1_core
+    evaluation_scope: both
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
@@ -410,7 +411,7 @@ subtypes:
       value: 0.36
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    - benchmark: AMLB
+    - benchmark: cadw_internal
       benchmark_url: .pingis/benches/reproduction/gbdt_regressor.json
       algorithm: cadw.ml.gbdt.fit_gbdt_regressor
       algorithm_source_url: cadw/ml/gbdt.py

@@ -52,6 +52,7 @@ subtypes:
   - name: IForest
     tier: sota
     tier_level: tier1_core
+    evaluation_scope: both
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
@@ -80,7 +81,7 @@ subtypes:
       value: 0.87
       std: null
       note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
-    - benchmark: ODDS
+    - benchmark: cadw_internal
       benchmark_url: .pingis/benches/reproduction/iforest.json
       algorithm: cadw.ml.iforest.fit_isolation_forest
       algorithm_source_url: cadw/ml/iforest.py

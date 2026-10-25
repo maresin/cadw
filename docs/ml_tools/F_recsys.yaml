@@ -48,6 +48,7 @@ subtypes:
   - name: ALS
     tier: sota
     tier_level: tier1_core
+    evaluation_scope: both
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
@@ -75,7 +76,7 @@ subtypes:
       value: 0.23
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot'
-    - benchmark: Amazon_Recsys
+    - benchmark: cadw_internal
       benchmark_url: .pingis/benches/reproduction/als.json
       algorithm: cadw.ml.als.fit_als
       algorithm_source_url: cadw/ml/als.py
@@ -122,6 +123,7 @@ subtypes:
   - name: ALS
     tier: baseline
     tier_level: tier1_core
+    evaluation_scope: both
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
@@ -149,7 +151,7 @@ subtypes:
       value: 0.23
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot'
-    - benchmark: Amazon_Recsys
+    - benchmark: cadw_internal
       benchmark_url: .pingis/benches/reproduction/als.json
       algorithm: cadw.ml.als.fit_als
       algorithm_source_url: cadw/ml/als.py

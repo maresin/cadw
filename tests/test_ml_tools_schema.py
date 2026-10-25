@@ -426,3 +426,18 @@ subtypes:
         f"expected exit 1, got {r.returncode}\nSTDOUT:\n{r.stdout}"
     )
     assert "PRETRAINED_NO_LEAKAGE" in r.stdout, r.stdout
+
+def test_v03_cadw_reproduced_both_scope_passes():
+    """v0.9.51.2: 'both' is valid for cards mixing real + synthetic."""
+    from docs.ml_tools.schema import BenchmarkResult
+    card = _make_card(evaluation_scope="both")
+    card.benchmark_results.append(BenchmarkResult(
+        benchmark="cadw_internal", benchmark_url=".pingis/benches/x.json",
+        algorithm="cadw.ml.x", algorithm_source_url="cadw/ml/x.py",
+        algorithm_source_kind="code", attribution="cadw_reproduced",
+        reproduces="x", task_type="test", metric="roc_auc",
+        value=0.5, note="test",
+    ))
+    errors = _errors_of(_validate_card(card))
+    assert not any("evaluation_scope" in e for e in errors), errors
+

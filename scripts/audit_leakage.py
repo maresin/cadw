@@ -87,10 +87,11 @@ def _check_model(m: dict, card_id: str, errors: list[str],
                 f"[REPRO_NO_SCOPE] {card_id}: cadw_reproduced without "
                 f"evaluation_scope (recommend 'synthetic')"
             )
-        elif evaluation_scope != "synthetic":
+        elif evaluation_scope not in ("synthetic", "both"):
             errors.append(
                 f"[REPRO_WRONG_SCOPE] {card_id}: cadw_reproduced requires "
-                f"evaluation_scope='synthetic', got {evaluation_scope!r}"
+                f"evaluation_scope in ('synthetic', 'both'), "
+                f"got {evaluation_scope!r}"
             )
 
     is_sup_ts = (task_type in ("forecast", "anomaly")
