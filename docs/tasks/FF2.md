@@ -29,9 +29,16 @@
 
 **Benchmarks:**
 - **[literature]** Amazon_Recsys → ndcg_at_k=0.23
-  - algorithm: `ALS` (description)
-  - number: https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - algorithm: `implicit.als.AlternatingLeastSquares` (code)
+  - number: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
+  - code/paper: https://github.com/benfred/implicit
+  - note: [legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot
+- **[cadw_reproduced]** Amazon_Recsys → ndcg_at_k=0.3827250969586643 (n=1)
+  - algorithm: `cadw.ml.als.fit_als` (code)
+  - reproduces: `implicit.als.AlternatingLeastSquares`
+  - number: .pingis/benches/reproduction/als.json
+  - code/paper: cadw/ml/als.py
+  - note: M2 parity on synthetic_recsys_like DGP; cadw=0.38273, ref(implicit)=0.36734, verdict=consistent; NDCG@10 on 20% holdout, user-item matrix ~10% density
 
 ### Hybrid_MF_GBDT — sota / tier1_core
 
@@ -49,9 +56,10 @@
 
 **Benchmarks:**
 - **[literature]** Amazon_Recsys → ndcg_at_k=0.27
-  - algorithm: `Hybrid_MF_GBDT` (description)
-  - number: https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - algorithm: `sklearn.ensemble.HistGradientBoostingRegressor` (docs)
+  - number: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html
+  - note: [legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot
 
 ## Metrics
 - **ndcg_at_k** (anchor, higher)

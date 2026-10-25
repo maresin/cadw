@@ -1,0 +1,13 @@
+{
+  "model": "ALS",
+  "dataset_kind": "synthetic_recsys_like",
+  "reference_model": "implicit.als.AlternatingLeastSquares",
+  "cadw_metric": 0.3827250969586643,
+  "reference_metric": 0.3673357858995032,
+  "cadw_peak_mb": 0.0,
+  "reference_peak_mb": 0.0,
+  "cadw_time_s": 0.34560608863830566,
+  "reference_time_s": 0.04582667350769043,
+  "verdict": "consistent",
+  "notes": "NDCG@10 on 20% holdout; user-item matrix ~10% density."
+}
