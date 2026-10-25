@@ -62,7 +62,7 @@ benchmarks:
   M5:
     url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
     modality: ts_forecast_hierarchical
-    metrics: [wrmssе, smape]
+    metrics: [wrmse, smape]
     warning: "Retail hierarchical forecast; WRMSSE is hierarchical-only.
       Not comparable to M4 sMAPE."
 

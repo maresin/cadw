@@ -30,8 +30,8 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | D | D1 Univariate forecasting | ETS | baseline | tier1_core | temporal_dynamics, probabilistic | desc | mase |
 | D | D1 Univariate forecasting | SARIMA | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | GBDTForecaster | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | mase |
-| D | D2 Multivariate forecasting | VAR | baseline | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmssе |
-| D | D2 Multivariate forecasting | GBDT_multiseries | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | wrmssе |
+| D | D2 Multivariate forecasting | VAR | baseline | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
+| D | D2 Multivariate forecasting | GBDT_multiseries | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D3.1 TS anomaly — point | zscore | baseline | tier1_core | local_structure | ✓ agent, desc | auprc |
 | D | D3.1 TS anomaly — point | IForest | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | auprc |
 | D | D3.1 TS anomaly — point | MatrixProfile | sota | tier1_core | local_structure, temporal_dynamics | ✓ cadw, ✓ agent | auprc |

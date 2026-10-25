@@ -29,9 +29,10 @@
 
 **Benchmarks:**
 - **[literature]** UCR_Classification → accuracy=0.82
-  - algorithm: `IntervalFeatures_GBDT` (description)
+  - algorithm: `sklearn.ensemble.HistGradientBoostingRegressor` (docs)
   - number: https://www.timeseriesclassification.com/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### MiniRocket — sota / tier1_core
 
@@ -49,9 +50,10 @@
 
 **Benchmarks:**
 - **[literature]** UCR_Classification → accuracy=0.89
-  - algorithm: `MiniRocket` (description)
+  - algorithm: `MiniRocket` (paper)
   - number: https://www.timeseriesclassification.com/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://arxiv.org/abs/2103.01827
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### HIVE-COTE — sota / tier3_export
 
@@ -65,9 +67,10 @@
 
 **Benchmarks:**
 - **[literature]** UCR_Classification → accuracy=0.93
-  - algorithm: `HIVE-COTE` (description)
+  - algorithm: `HIVE-COTE 2.0` (paper)
   - number: https://www.timeseriesclassification.com/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://arxiv.org/abs/2010.09155
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **accuracy** (anchor, higher)

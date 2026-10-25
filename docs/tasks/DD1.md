@@ -30,9 +30,10 @@
 
 **Benchmarks:**
 - **[literature]** M4 → smape=14.35
-  - algorithm: `NaiveForecaster` (description)
+  - algorithm: `naive2 forecaster` (docs)
   - number: https://github.com/Mcompetitions/M4-methods
-  - note: naive2 M4 benchmark [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://otexts.com/fpp3/
+  - note: naive2 M4 benchmark [legacy v0.9.44, migrated v0.9.50]
 
 ### ETS — baseline / tier1_core
 
@@ -48,9 +49,10 @@
 
 **Benchmarks:**
 - **[literature]** M4 → smape=13.52
-  - algorithm: `ETS` (description)
+  - algorithm: `statsmodels ExponentialSmoothing` (docs)
   - number: https://github.com/Mcompetitions/M4-methods
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://www.statsmodels.org/stable/generated/statsmodels.tsa.holtwinters.ExponentialSmoothing.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### SARIMA — sota / tier1_core
 
@@ -68,9 +70,10 @@
 
 **Benchmarks:**
 - **[literature]** M4 → smape=12.84
-  - algorithm: `SARIMA` (description)
+  - algorithm: `statsmodels SARIMAX` (docs)
   - number: https://github.com/Mcompetitions/M4-methods
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://www.statsmodels.org/stable/generated/statsmodels.tsa.statespace.sarimax.SARIMAX.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ### GBDTForecaster — sota / tier1_core
 
@@ -88,9 +91,10 @@
 
 **Benchmarks:**
 - **[literature]** M4 → smape=12.3
-  - algorithm: `GBDTForecaster` (description)
+  - algorithm: `sklearn.ensemble.HistGradientBoostingRegressor` (docs)
   - number: https://github.com/Mcompetitions/M4-methods
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **mase** (anchor, lower)

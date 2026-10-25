@@ -10,7 +10,7 @@
 
 ## Benchmarks
 - **M5** — https://www.kaggle.com/competitions/m5-forecasting-accuracy
-  - metrics: wrmssе, smape
+  - metrics: wrmse, smape
 
 ## Models
 ### VAR — baseline / tier1_core
@@ -29,9 +29,16 @@
 
 **Benchmarks:**
 - **[literature]** M5 → smape=14.2
-  - algorithm: `VAR` (description)
+  - algorithm: `statsmodels VAR` (docs)
   - number: https://www.kaggle.com/competitions/m5-forecasting-accuracy
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://www.statsmodels.org/stable/generated/statsmodels.tsa.vector_ar.var_model.VAR.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
+- **[cadw_reproduced]** cadw_internal → rmse=5.83672798857639e-18 (n=1)
+  - algorithm: `cadw.ts.models.fit_var` (code)
+  - reproduces: `statsmodels VAR`
+  - number: .pingis/benches/reproduction/var.json
+  - code/paper: cadw/ts/models.py
+  - note: M2 parity on synthetic_m4_like_multivariate DGP: RMSE(cadw_forecast, statsmodels_forecast)=0.0 (5.8e-18 round-off); verdict=consistent
 
 ### GBDT_multiseries — sota / tier1_core
 
@@ -49,12 +56,13 @@
 
 **Benchmarks:**
 - **[literature]** M5 → smape=12.8
-  - algorithm: `GBDT_multiseries` (description)
+  - algorithm: `sklearn.ensemble.HistGradientBoostingRegressor` (docs)
   - number: https://www.kaggle.com/competitions/m5-forecasting-accuracy
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html
+  - note: [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
-- **wrmssе** (anchor, lower)
+- **wrmse** (anchor, lower)
   - Hierarchical weighted error (M5 official).
   - *special:* Only defined when the target hierarchy is declared; not comparable with flat sMAPE.
 - **smape** (diagnostic, lower)
