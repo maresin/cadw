@@ -876,11 +876,13 @@
           "id": "I.9",
           "name": "BUG-1: value_counts crashes on multi-chunk (mixed int64/double __vco_sum)",
           "patch": "v0.9.49",
-          "status": "planned",
+          "status": "done",
           "complexity": "S",
           "file": "cadw/ops/groupby.py:741 (_groupby_with_skew concat_tables)",
           "source": ".pingis/audits/v0.9.48_bugs.md (found by PINGIS v0.9.48)",
-          "reproducer": "Multi-chunk CadwDataFrame (chunk_size=50k, n=100k), df.value_counts('cat')"
+          "reproducer": "Multi-chunk CadwDataFrame (chunk_size=50k, n=100k), df.value_counts('cat')",
+          "completed_at": "2026-10-25",
+          "resolution": "Fixed in v0.9.49: _groupby_with_skew aligns per-chunk result schemas via safe Table.cast(target_schema) before concat_tables. Light path int64 counts preserved (pandas value_counts parity); heavy path float64 non-count aggs cast exactly (integers < 2^53 round-trip). No promote_options (would mask unrelated mismatches). M2 verified: multi-chunk == single-chunk == pandas on n=100k, 20 cats."
         }
       ],
       "completed_at": "2026-10-23"
