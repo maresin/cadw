@@ -1,5 +1,42 @@
 ## [Unreleased]
 
+### v0.9.50 (2026-10-25) — M3: migrate legacy A–H to v3 schema
+
+Migration + enrichment. No production code change, no new cards.
+
+- **Migrated 6 legacy sections** (A/D/E/F/G/H, 53 cards) from v2
+  (`benchmark_result` singular, no attribution / algorithm_source_url /
+  task_type) to v3 (`benchmark_results` list with benchmark_url +
+  algorithm_source_url + attribution + task_type).
+- **53 LEGACY warnings closed** (was 53 in audit_url_log.py, now 0).
+  Combined v0.9.48+v0.9.50 url_log (257 entries): 0 errors, 0 warnings.
+- **v2 back-compat shim removed** from schema.py:
+  `ModelCard.benchmark_result` property, `BenchmarkResult.source`/`.url`
+  properties, v2 branches in `_parse_benchmark_result(s)`. All 13
+  sections now v3.
+- **5 cadw_reproduced entries added** (parity vs M2 reproduction):
+  - A.A3.GBDT_L2 ← gbdt_regressor.json (sklearn.GBR, rmse, consistent)
+  - D.D2.VAR ← var.json (statsmodels VAR, rmse, consistent)
+  - E.E1.IForest ← iforest.json (sklearn.IsolationForest, roc_auc, consistent)
+  - F.F1.ALS ← als.json (implicit ALS, ndcg_at_k, consistent)
+  - F.F2.ALS ← als.json (same)
+- **1 cadw_measured entry added**: D.D3.1.MatrixProfile ← matrix_profile.json
+  (fit_time_s, n_datasets=2).
+- **Legacy bug fixed**: `wrmssе` (Cyrillic е U+0435) → `wrmse` in
+  D_time_series.yaml (2 places) and benchmarks.yaml[M5].metrics.
+- **Wayback substitutions** (fetch 403/refused at canonical URL, original
+  URL preserved in card note):
+  - E: ODDS
+  - F: Amazon_Recsys
+  - G: LETOR
+
+Deferred to v0.9.50.1 fixup: CHANGELOG entry (this one), validator
+`reproduces` sibling rule + test.
+
+Fast suite: 3077 passed, 2 skipped. Focused: 121 passed.
+
+## [Unreleased]
+
 ### v0.9.49 (2026-10-25) — BUG-1: value_counts crashes on multi-chunk
 
 Production bug fix (correctness, chunk-size dependent). No new deps.

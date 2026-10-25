@@ -252,7 +252,8 @@ def load_section(path: Path) -> Section:
 
 # === Validator ===
 
-def _validate_benchmark_result(br: BenchmarkResult, m_label: str, err) -> None:
+def _validate_benchmark_result(br: BenchmarkResult, card: ModelCard,
+                              m_label: str, err) -> None:
     """v0.9.47b: attribution-specific validation rules for one entry."""
     from .enums import ATTRIBUTIONS, SOURCE_KINDS
 
@@ -288,6 +289,17 @@ def _validate_benchmark_result(br: BenchmarkResult, m_label: str, err) -> None:
                 f"got {br.algorithm!r}")
         if br.reproduces is None:
             err(f"{lbl}: cadw_reproduced requires 'reproduces'")
+        else:
+            # v0.9.50.1: 'reproduces' must name an algorithm that appears
+            # in a literature entry within the same card. Match by algorithm
+            # only — benchmark/metric may differ (e.g. cadw_internal RMSE
+            # on synthetic DGP vs M5 sMAPE on real data for VAR).
+            lit_algs = {r.algorithm for r in card.benchmark_results
+                        if r.attribution == "literature"}
+            if br.reproduces not in lit_algs:
+                err(f"{lbl}: reproduces={br.reproduces!r} not among "
+                    f"literature algorithms in this card "
+                    f"(available: {sorted(lit_algs)})")
 
     elif br.attribution == "cadw_measured":
         if not br.algorithm.startswith("cadw."):
@@ -360,7 +372,7 @@ def validate_matrix(
                     if br.benchmark not in benchmarks.benchmarks:
                         err(f"{m_label}: benchmark {br.benchmark!r} "
                             f"not in benchmarks.yaml")
-                    _validate_benchmark_result(br, m_label, err)
+                    _validate_benchmark_result(br, m, m_label, err)
 
             # --- metrics ---
             anchor_count = 0

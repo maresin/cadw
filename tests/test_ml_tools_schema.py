@@ -141,3 +141,59 @@ def test_subtype_metric_names_cover_benchmark_result_metrics():
                 f"metric(s) {sorted(missing)}; declared={sorted(declared)}"
             )
     assert not errors, "".join(errors)
+
+
+# ============================================================
+# v0.9.50.1: validator enforces 'reproduces' sibling match
+# ============================================================
+
+def test_cadw_reproduced_reproduces_must_match_literature_algorithm():
+    """cadw_reproduced.reproduces must name an algorithm present in a
+    literature entry of the same card. Guards against fabricated parity
+    claims ('CADW reproduces Algorithm-X' when Algorithm-X has no
+    literature row in this card)."""
+    from docs.ml_tools.schema import (
+        BenchmarkResult, ModelCard, ImplStatus, validate_matrix,
+        Section, Subtype, MetricCard,
+    )
+    from docs.ml_tools.schema import Benchmarks, BenchmarkSpec
+
+    lit = BenchmarkResult(
+        benchmark="AMLB", benchmark_url="https://amlb.example/",
+        algorithm="LightGBM", algorithm_source_url="https://papers.example/lg.pdf",
+        algorithm_source_kind="paper", attribution="literature",
+        task_type="binary classification", metric="roc_auc",
+        value=0.842, note="fetched; quote",
+    )
+    bad_repro = BenchmarkResult(
+        benchmark="AMLB", benchmark_url=".pingis/benches/reproduction/gbdt.json",
+        algorithm="cadw.ml.gbdt.fit_gbdt_regressor",
+        algorithm_source_url="cadw/ml/gbdt.py", algorithm_source_kind="code",
+        attribution="cadw_reproduced",
+        reproduces="XGBoost",  # NOT in literature siblings
+        task_type="binary classification", metric="roc_auc",
+        value=0.838, note="M2",
+    )
+    card = ModelCard(
+        name="GBDT", tier="sota", tier_level="tier1_core",
+        implementation_status=ImplStatus(verified_in_cadw=True),
+        roles=["nonlinear_interactions"], purpose="x",
+        real_life_examples=["y"], config={},
+        benchmark_results=[lit, bad_repro],
+    )
+    st = Subtype(
+        id="A1", name="binary", description="d", real_life=[],
+        benchmarks=[], models=[card], metrics=[
+            MetricCard(name="roc_auc", combination="anchor",
+                       direction="higher", responsibility="r", special="s"),
+        ], ensemble_recommendation=[],
+    )
+    sec = Section(section="A", name="A", subtypes=[st])
+    bm = Benchmarks(benchmarks={
+        "AMLB": BenchmarkSpec(url="https://amlb.example/", modality="tabular",
+                              metrics=["roc_auc"], warning="w"),
+    })
+    issues = validate_matrix([sec], bm, raise_on_error=False)
+    errors = [msg for sev, msg in issues if sev == "ERROR"]
+    assert any("reproduces='XGBoost' not among literature algorithms" in e
+               for e in errors), errors
