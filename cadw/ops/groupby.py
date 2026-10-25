@@ -738,7 +738,25 @@ def _groupby_with_skew(batch_iter, by_columns, agg_columns, agg_funcs, heavy_key
             "groupby_with_skew: heavy=%d, light_partitions=%d",
             len(accum), len(light_results),
         )
-    return pa.concat_tables(all_results)
+    # v0.9.49 (BUG-1): unify schemas before concat.
+    # Per-chunk partials diverge: the light path uses pyarrow group_by
+    # (int64 for sum/min/max on integer columns), while the heavy path
+    # builds a table via `_empty_result_schema`, which declares every
+    # non-count agg as float64. `pa.concat_tables` requires identical
+    # schemas and raised ArrowInvalid on multi-chunk value_counts
+    # (count-only chunks int64 vs sum chunks double).
+    # Align every result to the schema of the first light result (or
+    # the heavy result when there are no lights) via a *safe* cast, so
+    # integer count columns stay int64 (pandas value_counts parity) and
+    # integral float partials round-trip exactly (exact up to 2^53).
+    target_schema = all_results[0].schema
+    aligned: list[pa.Table] = []
+    for t in all_results:
+        if t.schema.equals(target_schema):
+            aligned.append(t)
+        else:
+            aligned.append(t.cast(target_schema))
+    return pa.concat_tables(aligned)
 
 
 def groupby_aggregate(

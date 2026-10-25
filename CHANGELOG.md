@@ -1,5 +1,44 @@
 ## [Unreleased]
 
+### v0.9.49 (2026-10-25) — BUG-1: value_counts crashes on multi-chunk
+
+Production bug fix (correctness, chunk-size dependent). No new deps.
+
+**Broken:** `CadwDataFrame.value_counts(col)` raised `pyarrow.lib.ArrowInvalid:
+Schema at index N was different: <col>: string / __vco_sum: int64 vs
+__vco_sum: double` whenever the frame was read with `chunk_size < n` and the
+categorical column triggered skew isolation. Single-chunk frames were unaffected.
+Reproducer: `.pingis/audits/v0.9.48_bugs.md` BUG-1.
+
+**Root cause (confirmed):** in `cadw/ops/groupby.py::_groupby_with_skew`, the
+light partitions are aggregated by `pa.Table.group_by(...).aggregate`, which
+preserves the integer dtype of the ones-column → `__vco_sum: int64`. The heavy
+key is accumulated in Python and materialised through `_accum_to_table`, which
+uses `_empty_result_schema` — that declares every non-count aggregation as
+`float64` → `__vco_sum: double`. When both paths appear across chunks,
+`pa.concat_tables(all_results)` (line 741) rejects the schema mismatch.
+
+**Fix:** before `pa.concat_tables`, align every table in `all_results` to the
+schema of the first result via a safe `Table.cast(target_schema)`. This keeps
+counts as `int64` (pandas `value_counts` parity) and lets integral float
+partials round-trip exactly (float64 exact up to 2^53). `promote_options` was
+deliberately not used — it would mask unrelated schema mismatches.
+
+**M2 validation (n=100_000, 20 categories, chunk_size=50_000 vs 1_000_000):**
+- multi-chunk cadw == single-chunk cadw → True (20 groups, sum=100_000)
+- multi-chunk cadw == pandas `Series.value_counts()` → True
+- single-chunk cadw == pandas `Series.value_counts()` → True
+- sample: `{g9: 5176, g1: 5108, g11: 5072, g19: 5071, g15: 5048}` on all three.
+
+**Tests:**
+- `tests/test_v0949_value_counts_multichunk.py` — verbatim reproducer; fails at
+  4e7e614, passes at v0.9.49.
+- `tests/test_groupby_v2.py` — two new cases: multi-chunk == single-chunk, and
+  both == pandas (M2 parity). Existing 10 cases untouched (12 passed total).
+
+**Gates:** full fast suite 3077 passed, 2 skipped, 25 deselected.
+
+
 ### v0.9.47 (2026-10-24) — METHODOLOGY + schema v3 + PINGIS TASK
 
 Docs + tooling only. No production ML code.

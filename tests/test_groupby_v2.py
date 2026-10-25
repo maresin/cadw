@@ -183,3 +183,59 @@ def test_groupby_multiple_by_columns(tmp_path):
         ("B", "X", 3.0),
         ("B", "Y", 10.0),
     ]
+
+# ---------------- v0.9.49 BUG-1: multi-chunk value_counts -------------
+
+def _make_multichunk_frame(tmp_path, n=100_000, ncat=20, chunk_size=50_000):
+    import numpy as np
+    import pyarrow.parquet as pq
+    from cadw import CadwDataFrame
+
+    rng = np.random.default_rng(0)
+    tab = pa.table({
+        **{f"c{i}": pa.array(rng.normal(size=n)) for i in range(10)},
+        "cat": pa.array([f"g{j % ncat}" for j in rng.integers(0, ncat, size=n)]),
+    })
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    src = str(tmp_path / "src.parquet")
+    pq.write_table(tab, src)
+    return CadwDataFrame.from_parquet(
+        src, str(tmp_path / "ds"), chunk_size=chunk_size,
+        memory_guard=MemoryGuard(max_memory_mb=500),
+        spill_dir=str(tmp_path / "spill"),
+    )
+
+
+def _vc_as_dict(t: pa.Table) -> dict:
+    return {row[0]: row[1] for row in zip(t.column(0).to_pylist(), t.column("count").to_pylist())}
+
+
+def test_value_counts_multichunk_matches_singlechunk(tmp_path):
+    """v0.9.49 BUG-1: multi-chunk value_counts must equal single-chunk."""
+    df_multi = _make_multichunk_frame(tmp_path, chunk_size=50_000)
+    df_single = _make_multichunk_frame(tmp_path / "single", chunk_size=1_000_000)
+
+    multi = _vc_as_dict(df_multi.value_counts("cat"))
+    single = _vc_as_dict(df_single.value_counts("cat"))
+
+    assert multi == single, f"multi-chunk {multi} != single-chunk {single}"
+    assert len(multi) == 20
+    assert sum(multi.values()) == 100_000
+
+
+def test_value_counts_multichunk_matches_pandas(tmp_path):
+    """M2: cadw multi-chunk value_counts == pandas value_counts."""
+    import pandas as pd
+
+    df_multi = _make_multichunk_frame(tmp_path, chunk_size=50_000)
+    df_single = _make_multichunk_frame(tmp_path / "single", chunk_size=1_000_000)
+
+    # Reference: pandas over the same source data.
+    pdf = pd.read_parquet(str(tmp_path / "src.parquet"), columns=["cat"])
+    ref = pdf["cat"].value_counts().to_dict()
+
+    multi = _vc_as_dict(df_multi.value_counts("cat"))
+    single = _vc_as_dict(df_single.value_counts("cat"))
+
+    assert multi == ref, f"multi-chunk != pandas: {multi} vs {ref}"
+    assert single == ref, f"single-chunk != pandas: {single} vs {ref}"
