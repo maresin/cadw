@@ -57,15 +57,6 @@ class BenchmarkResult:
     std: float | None = None
     note: str = ""
 
-    # --- Backward-compat shim (removed in v0.9.47c) ---
-    @property
-    def source(self) -> str:
-        return self.benchmark
-
-    @property
-    def url(self) -> str:
-        return self.benchmark_url
-
 
 @dataclass
 class ImplStatus:
@@ -88,12 +79,6 @@ class ModelCard:
     benchmark_results: list[BenchmarkResult]
     cadw_module: str = ""
     cadw_function: str = ""
-
-    # --- Backward-compat shim (removed in v0.9.47c) ---
-    @property
-    def benchmark_result(self) -> BenchmarkResult | None:
-        """Deprecated: use .benchmark_results list."""
-        return self.benchmark_results[0] if self.benchmark_results else None
 
 
 @dataclass
@@ -176,32 +161,7 @@ def load_benchmarks(path: Path) -> Benchmarks:
 
 
 def _parse_benchmark_result(raw: dict, model_name: str) -> BenchmarkResult:
-    """Parse one benchmark_result entry (old v0.9.44 or new v0.9.47b schema).
-
-    Old schema shim: source/url/metric/value/note -> v3 fields with
-    algorithm=model_name, algorithm_source_kind=description,
-    attribution=literature. Note gets a [migrated] suffix.
-    """
-    if "source" in raw and "benchmark" not in raw:
-        old_note = raw.get("note", "")
-        suffix = "[migrated v0.9.47b: algorithm/algorithm_source_url unverified]"
-        migrated_note = (old_note + " " + suffix).strip() if old_note else suffix
-        old_val = raw["value"]
-        return BenchmarkResult(
-            benchmark=raw["source"],
-            benchmark_url=raw["url"],
-            algorithm=model_name,
-            algorithm_source_url="",
-            algorithm_source_kind="description",
-            attribution="literature",
-            reproduces=None,
-            task_type="",
-            n_datasets=None,
-            metric=raw["metric"],
-            value=float(old_val) if old_val is not None else None,
-            std=None,
-            note=migrated_note,
-        )
+    """Parse one v3 benchmark_result entry."""
     new_val = raw.get("value")
     new_std = raw.get("std")
     return BenchmarkResult(
@@ -222,12 +182,9 @@ def _parse_benchmark_result(raw: dict, model_name: str) -> BenchmarkResult:
 
 
 def _parse_benchmark_results(m: dict) -> list[BenchmarkResult]:
-    """Accept either old singular `benchmark_result` or new list `benchmark_results`."""
-    if "benchmark_results" in m and m["benchmark_results"]:
-        return [_parse_benchmark_result(r, m["name"]) for r in m["benchmark_results"]]
-    if "benchmark_result" in m:
-        return [_parse_benchmark_result(m["benchmark_result"], m["name"])]
-    return []
+    """Parse v3 `benchmark_results` list. Empty/missing -> [] ."""
+    raw = m.get("benchmark_results") or []
+    return [_parse_benchmark_result(r, m["name"]) for r in raw]
 
 
 def _parse_model(m: dict) -> ModelCard:
