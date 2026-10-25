@@ -30,9 +30,10 @@
 
 **Benchmarks:**
 - **[literature]** ODDS → roc_auc=0.72
-  - algorithm: `zscore` (description)
-  - number: https://odds.cs.stonybrook.edu/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - algorithm: `scipy.stats.zscore` (docs)
+  - number: http://web.archive.org/web/20240913183309/https://odds.cs.stonybrook.edu/
+  - code/paper: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.zscore.html
+  - note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
 
 ### IForest — sota / tier1_core
 
@@ -51,9 +52,16 @@
 
 **Benchmarks:**
 - **[literature]** ODDS → roc_auc=0.87
-  - algorithm: `IForest` (description)
-  - number: https://odds.cs.stonybrook.edu/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - algorithm: `sklearn.ensemble.IsolationForest` (docs)
+  - number: http://web.archive.org/web/20240913183309/https://odds.cs.stonybrook.edu/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html
+  - note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
+- **[cadw_reproduced]** ODDS → roc_auc=0.9987789473684211 (n=1)
+  - algorithm: `cadw.ml.iforest.fit_isolation_forest` (code)
+  - reproduces: `sklearn.ensemble.IsolationForest`
+  - number: .pingis/benches/reproduction/iforest.json
+  - code/paper: cadw/ml/iforest.py
+  - note: M2 parity on synthetic_odds_like DGP; cadw=0.9988, ref(sklearn.IsolationForest)=0.9992, verdict=consistent
 
 ### LOF — baseline / tier3_export
 
@@ -69,9 +77,10 @@
 
 **Benchmarks:**
 - **[literature]** ODDS → roc_auc=0.78
-  - algorithm: `LOF` (description)
-  - number: https://odds.cs.stonybrook.edu/
-  - note: [migrated v0.9.47b: algorithm/algorithm_source_url unverified]
+  - algorithm: `sklearn.neighbors.LocalOutlierFactor` (docs)
+  - number: http://web.archive.org/web/20240913183309/https://odds.cs.stonybrook.edu/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.LocalOutlierFactor.html
+  - note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
 
 ## Metrics
 - **roc_auc** (anchor, higher)
