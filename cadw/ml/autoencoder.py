@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .sub_pca import _map_max, _map_mean
+from .sub_pca import _map_max, _map_mean, _prepare_windows
 
 
 @dataclass
@@ -159,8 +159,9 @@ def fit_autoencoder(
     -------
     AutoencoderResult
     """
-    x = np.asarray(series, dtype=np.float64).ravel()
-    n = len(x)
+    windows, n, c = _prepare_windows(series, window_size, stride=1)
+    n_w = len(windows)
+    d = windows.shape[1]
     if n < window_size:
         raise ValueError(
             f"series length {n} < window_size {window_size}")
@@ -178,7 +179,7 @@ def fit_autoencoder(
 
     n_w = n - window_size + 1
     if guard is not None:
-        est_bytes = 8 * n_w * window_size * 4
+        est_bytes = 8 * n_w * d * 4
         limit_mb = _probe_memory_limit_mb(guard)
         if limit_mb is not None and limit_mb > 0:
             if est_bytes > limit_mb * 1024 * 1024:
@@ -187,7 +188,6 @@ def fit_autoencoder(
                     f"Autoencoder estimated {est_bytes} bytes > "
                     f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
-    windows = np.lib.stride_tricks.sliding_window_view(x, window_size).copy()
     # v0.9.63-fix2: normalization strategies per HYDRA (SIGMOD 2026) —
     # z-score "may also suppress amplitude-driven anomalies". Default
     # "none" preserves spike amplitude; "window" is old behaviour.
@@ -201,14 +201,14 @@ def fit_autoencoder(
             f"got {normalization!r}")
 
     rng = np.random.default_rng(random_state)
-    W1 = _xavier_init(window_size, hidden_size, rng)
+    W1 = _xavier_init(d, hidden_size, rng)
     b1 = np.zeros(hidden_size)
     W2 = _xavier_init(hidden_size, latent_size, rng)
     b2 = np.zeros(latent_size)
     W3 = _xavier_init(latent_size, hidden_size, rng)
     b3 = np.zeros(hidden_size)
-    W4 = _xavier_init(hidden_size, window_size, rng)
-    b4 = np.zeros(window_size)
+    W4 = _xavier_init(hidden_size, d, rng)
+    b4 = np.zeros(d)
 
     params = [W1, b1, W2, b2, W3, b3, W4, b4]
     velocities = [np.zeros_like(p) for p in params]

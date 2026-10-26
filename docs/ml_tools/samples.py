@@ -199,3 +199,44 @@ def gen_ts_changepoint(n: int = 5000, n_channels: int = 3,
         X[cp:end] += shift_per_ch  # mean shift in all channels
         pos.extend(range(cp, end))
     return X, cps, np.array(sorted(pos))
+
+
+def gen_ts_shape_anomaly_multi(n: int = 5000, n_channels: int = 3,
+                                n_segments: int = 5, seg_len: int = 50,
+                                anomaly_noise: float = 3.0,
+                                seed: int = 0) -> tuple:
+    """Multi-channel shape anomaly via cross-channel correlation break.
+
+    Normal:
+      x1 = sin(2*pi*t/100) + 0.1*N(0,1)
+      x2 = cos(2*pi*t/100) + 0.1*N(0,1)
+      x3 = x1 - x2 + 0.1*N(0,1)   (x3 lies on the plane x3 = x1 - x2)
+
+    Anomaly segment [s:s+seg_len]:
+      x3 = (x1 - x2) + anomaly_noise * N(0,1)   (off-plane; structural break)
+
+    Univariate detector on x3 sees only elevated noise; multivariate/
+    cross-channel detector (EIF with windows, STRAY on per-row vectors)
+    sees the deviation from the x3 = x1 - x2 plane.
+
+    Returns
+    -------
+    X : np.ndarray, shape (n, n_channels)
+    anomaly_positions : np.ndarray, shape (n_segments * seg_len,)
+    """
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    x1 = np.sin(2 * np.pi * t / 100.0) + 0.1 * rng.standard_normal(n)
+    x2 = np.cos(2 * np.pi * t / 100.0) + 0.1 * rng.standard_normal(n)
+    x3 = x1 - x2 + 0.1 * rng.standard_normal(n)
+
+    starts = rng.choice(n - seg_len - 10, size=n_segments,
+                        replace=False) + 5
+    pos = []
+    for s in starts:
+        x3[s:s + seg_len] = ((x1[s:s + seg_len] - x2[s:s + seg_len])
+                             + anomaly_noise * rng.standard_normal(seg_len))
+        pos.extend(range(s, s + seg_len))
+    X = np.stack([x1, x2, x3], axis=1)
+    return X, np.array(sorted(pos))

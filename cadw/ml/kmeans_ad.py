@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .sub_pca import _map_max, _map_mean
+from .sub_pca import _map_max, _map_mean, _prepare_windows
 
 
 @dataclass
@@ -169,12 +169,12 @@ def fit_kmeans_ad(
     -------
     KMeansADResult
     """
-    x = np.asarray(series, dtype=np.float64).ravel()
-    n = len(x)
+    windows, n, c = _prepare_windows(series, window_size, stride=1)
+    n_w = len(windows)
+    d = windows.shape[1]
     if n < window_size:
         raise ValueError(
             f"series length {n} < window_size {window_size}")
-    n_w = n - window_size + 1
     if n_w < n_clusters:
         raise ValueError(
             f"n_windows ({n_w}) < n_clusters ({n_clusters})")
@@ -183,7 +183,7 @@ def fit_kmeans_ad(
             f"aggregate must be 'max' or 'mean', got {aggregate!r}")
 
     if guard is not None:
-        est_bytes = 8 * n_w * window_size * 2
+        est_bytes = 8 * n_w * d * 2
         limit_mb = _probe_memory_limit_mb(guard)
         if limit_mb is not None and limit_mb > 0:
             if est_bytes > limit_mb * 1024 * 1024:
@@ -192,8 +192,6 @@ def fit_kmeans_ad(
                     f"KMeansAD estimated {est_bytes} bytes > "
                     f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
-    windows = np.lib.stride_tricks.sliding_window_view(
-        x, window_size).copy()
 
     rng = np.random.default_rng(random_state)
     centroids = _kmeans_plus_plus_init(windows, n_clusters, rng)

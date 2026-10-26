@@ -1,0 +1,43 @@
+{
+  "dgp": "gen_ts_shape_anomaly_multi",
+  "n": 5000,
+  "n_channels": 3,
+  "n_segments": 5,
+  "seg_len": 50,
+  "contamination": 0.05,
+  "n_anomaly_points": 250,
+  "models": {
+    "eif": {
+      "recall": 0.864,
+      "detected": 216,
+      "n_anomaly_points": 250,
+      "total_flagged": 250,
+      "fit_time_s": 17.54,
+      "peak_rss_mb": 8.45
+    },
+    "sub_pca": {
+      "recall": 0.944,
+      "detected": 236,
+      "n_anomaly_points": 250,
+      "total_flagged": 250,
+      "fit_time_s": 0.03,
+      "peak_rss_mb": 17.59
+    },
+    "kmeans_ad": {
+      "recall": 0.868,
+      "detected": 217,
+      "n_anomaly_points": 250,
+      "total_flagged": 249,
+      "fit_time_s": 0.058,
+      "peak_rss_mb": 7.23
+    },
+    "autoencoder": {
+      "recall": 0.78,
+      "detected": 195,
+      "n_anomaly_points": 250,
+      "total_flagged": 247,
+      "fit_time_s": 1.322,
+      "peak_rss_mb": 16.78
+    }
+  }
+}

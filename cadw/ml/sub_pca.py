@@ -176,6 +176,38 @@ def _map_mean(window_scores: np.ndarray, w: int, n: int,
     return sums / counts
 
 
+def _prepare_windows(series: np.ndarray, window_size: int,
+                     stride: int = 1) -> tuple:
+    """Return (windows, n, n_channels).
+
+    Univariate (n,): sliding windows -> (n_w, w).
+    Multivariate (n, c): multi-channel windows flattened per window
+    (n_w, w*c); cross-channel structure preserved in the flat vector.
+    v0.9.73: replaces np.ravel() which silently broke multi-channel.
+    """
+    X = np.asarray(series, dtype=np.float64)
+    if X.ndim == 1:
+        n = len(X)
+        c = 1
+    elif X.ndim == 2:
+        n, c = X.shape
+    else:
+        raise ValueError(
+            f"series must be 1D or 2D, got ndim={X.ndim}")
+    if n < window_size:
+        raise ValueError(
+            f"series length {n} < window_size {window_size}")
+    if stride < 1:
+        raise ValueError(f"stride must be >= 1, got {stride}")
+    ends = np.arange(0, n - window_size + 1, stride)
+    idx = ends[:, None] + np.arange(window_size)[None, :]
+    if X.ndim == 1:
+        windows = X[idx]
+    else:
+        windows = X[idx].reshape(-1, window_size * c)
+    return windows, n, c
+
+
 def fit_sub_pca(
     series: np.ndarray,
     *,
@@ -207,19 +239,19 @@ def fit_sub_pca(
     -------
     SubPCAResult
     """
-    x = np.asarray(series, dtype=np.float64).ravel()
-    n = len(x)
+    windows, n, c = _prepare_windows(series, window_size, stride=1)
+    n_w = len(windows)
+    d = windows.shape[1]
     if n < window_size:
         raise ValueError(
             f"series length {n} < window_size {window_size}")
-    n_w = n - window_size + 1
     if n_w < 2:
         raise ValueError(
             f"too few windows: n_windows={n_w} < 2 "
             f"(n={n}, window_size={window_size})")
 
     if guard is not None:
-        est_bytes = 8 * n_w * window_size
+        est_bytes = 8 * n_w * d
         limit_mb = _probe_memory_limit_mb(guard)
         if limit_mb is not None and limit_mb > 0:
             if est_bytes > limit_mb * 1024 * 1024:
@@ -228,13 +260,12 @@ def fit_sub_pca(
                     f"Sub-PCA estimated {est_bytes} bytes > "
                     f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
-    windows = _sliding_windows(x, window_size)
     mean_w = windows.mean(axis=0)
     centered = windows - mean_w
 
     eigvals, eigvecs = _fit_pca_eigh(centered)
-    k = _resolve_k(n_components, eigvals, window_size)
-    components = eigvecs[:, :k].T  # (k, w)
+    k = _resolve_k(n_components, eigvals, d)
+    components = eigvecs[:, :k].T  # (k, d)
 
     proj = centered @ components.T  # (n_w, k)
     recon = proj @ components  # (n_w, w)
