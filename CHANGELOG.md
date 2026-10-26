@@ -1,5 +1,142 @@
 ## [Unreleased]
 
+### v0.9.68 (2026-10-26) - TS anomaly: 13 tier1_core models + Phase D
+
+First release in this cycle; covers model work v0.9.52-v0.9.67 and
+matrix work v0.9.65-v0.9.67 (details below).
+
+13 new tier1_core anomaly detectors implemented in pure numpy
+(AST-guard `test_no_bench_deps_in_core.py` enforces no sklearn/scipy/
+torch/aeon/pyod/merlion/kats in cadw/). Each has >=12 tests, bench
+artifact in `.pingis/benches/`, and a v0.3 matrix card in
+`D_time_series.yaml`.
+
+Model implementations:
+
+- DWT-MLEAD (`cadw/ml/dwt_mlead.py`) - Thill 2017. Multilevel Haar
+  DWT + Mahalanobis distance per level. Density-based leader
+  (TAB 5.2.1). n=100k point spikes: recall 0.76, 0.51s, 35 MB.
+
+- KShapeAD (`cadw/ml/kshape.py`) - Paparrizos & Gravano 2015.
+  k-Shape with SBD (FFT cross-correlation + shift alignment) +
+  eigenvector centroids. VUS-PR 0.40 U (TSB-AD). n=10k: 0.41, 23.5s.
+
+- Sub-PCA (`cadw/ml/sub_pca.py`) - windowed PCA reconstruction;
+  mean aggregation for spike spread. VUS-PR 0.42 U (TSB-AD). Fastest
+  strong model: n=100k, recall 1.0, 0.13s, 200 MB.
+
+- EIF (`cadw/ml/eif.py`) - Hariri 2019. Extended IForest: random
+  hyperplane splits. TAB Fig 8a best group. Segments uni 0.80,
+  multi 1.00.
+
+- T-squared+Q (`cadw/ml/tspq.py`) - Hotelling T^2 + Q (SPE) on PCA.
+  SKAB changepoint F1 0.76. n=20k multi, recall 0.96, 0.03s.
+
+- Hampel (`cadw/ml/hampel.py`) - rolling median + MAD filter.
+  Baseline. n=100k, recall 1.0, 0.06s.
+
+- ZMS (`cadw/ml/zms.py`) - Merlion-style trailing rolling z-score.
+  n=100k, recall 1.0, 0.03s, 85 flagged (precise).
+
+- CUSUM (`cadw/ml/cusum.py`) - two-sided CUSUM with reset after
+  alarm. n=100k, 10 alternating mean shifts, recall 1.0, 1.28s.
+
+- STRAY (`cadw/ml/stray.py`) - Talagala 2021. Robust standardize +
+  k-NN distance + GPD tail (MoM, not MLE). Brute-force KNN O(n^2),
+  n<=20k. n=10k, recall 1.0, 1.43s.
+
+- S2G (`cadw/ml/s2g.py`) - Boniol & Palpanas 2020, paper-faithful:
+  local convolution + PCA 3D + rotation + angle nodes + transition
+  graph + path normalcy. VUS-PR 0.39 U. n=50k: segments 0.58, motifs
+  0.34. Third rewrite after two failed attempts (simplified PCA-graph:
+  0.35/0.18; naive np.roll alignment: 0.007) - documented in commits.
+
+- Autoencoder (`cadw/ml/autoencoder.py`) - MLP encoder-decoder, SGD
+  + momentum, mean/median reconstruction error. n=50k needed to avoid
+  memorizing point spikes (documented scale sensitivity).
+
+- KMeansAD (`cadw/ml/kmeans_ad.py`) - k-means++ on windowed
+  subsequences. VUS-PR 0.37 U (TSB-AD). n=50k, recall 0.90, 0.28s.
+
+- PatchMemoryAD (`cadw/ml/patch_memory_ad.py`) - PaAno-inspired patch
+  splitting + MLP encoder + memory bank + triplet loss (often inactive;
+  min-distance scoring still works). n=30k, recall 1.0.
+
+v0.9.63-fix2: normalization strategies (HYDRA SIGMOD 2026 evidence).
+HYDRA section 1: "while normalization reduces scale bias and can
+enhance anomaly detectability, it may also suppress amplitude-driven
+anomalies". PaAno normalises per PATCH not window. Ablation on 4 DGPs
+(easy/subtle/noisy/hard, n=30k, 20 spikes, contamination=0.08):
+
+    config  pma_none  pma_window  pma_patch  ae_none  ae_window
+    easy    1.00      1.00        0.35       1.00     1.00
+    subtle  1.00      1.00        0.35       1.00     0.90
+    noisy   1.00      0.00        0.00       1.00     0.00
+    hard    0.95      0.10        0.00       0.60     0.00
+
+Default `normalization="none"` preserves amplitude. `"window"` (old)
+suppresses spikes at sigma>=0.5 (recall 0.0). `"patch"` (PaAno-
+faithful) underperforms with THIS MLP-flattened encoder (0.35 easy,
+0.00 noisy) because MLP has no weight sharing across patches; PaAno's
+per-patch norm requires 1D-conv (same kernel per patch -> position-
+invariant). Kept for API completeness; not recommended until 1D-conv
+backprop is added.
+
+Honest limitation (for matrix docs): on synthetic amplitude-spike
+DGPs, classical Sub-PCA (0.03s) and KMeansAD (0.1s) match or beat
+DL (Autoencoder 2s, PatchMemoryAD 14s) at normalization="none".
+DL advantage expected only on multi-shape UCR data (TSB-AD: PaAno
+0.52 vs Sub-PCA 0.42 there) - deferred to Phase C.2 with proper
+1D-conv PaAno. All DL models tier=baseline; no claim of new SOTA.
+
+v0.9.64: guard false-positive fix.
+`test_arrow_call_memory_guard` flagged `np.quantile` in
+`fit_dwt_mlead` (cadw/ml/dwt_mlead.py:264) as "high-risk unguarded
+quantile" - false positive (guard matched by attr name only;
+np.quantile is in-place numpy partition, not pyarrow/pandas allocation
+of unbounded memory). Fix: `_SAFE_NUMPY_MODULES = {np, numpy, math,
+scipy}` + recursive receiver check in `_get_high_risk_calls`; +4
+tests (np not flagged, pandas still flagged, nested np.attr, DWT-MLEAD
+end-to-end). No whitelist entry added - fix at guard level prevents
+future false positives on numpy-based anomaly models.
+
+v0.9.65-v0.9.67: Phase D - matrix update.
+
+- `benchmarks.yaml`: +SKAB (industrial ts_anomaly, f1+nab metrics),
+  +TAB (VLDB 2025 unified ts_anomaly, vus_pr primary). 3 new anomaly
+  benchmarks total (TSB-AD was already there).
+
+- 13 cards added to `D_time_series.yaml` with v0.3 fields
+  (model_class, learning_mode, anomaly_type, data_modality,
+  source_library=native, evaluation_scope=synthetic, dgp_source,
+  dgp_overlap_risk=none, leakage all native/none/temporal, coverage
+  broad, pareto_axes [recall, fit_time_s, peak_rss_mb]).
+
+- Tier corrections: IForest sota->baseline (VUS-PR 0.30 vs Sub-PCA
+  0.42); MiniRocket_embedding sota->baseline (classifier, not
+  anomaly detector); D5 DEPRECATED prefix (alias of D3.2).
+
+- Metric anchors: D3.1 auprc->vus_pr (TSB-AD/TAB primary); D3.3
+  auprc->vus_pr (range-aware; point-level AUPRC inflates shape-
+  anomaly scores); auprc demoted to diagnostic; point_adjusted_f1
+  explicitly LEGACY (gameable by random ranking on long series);
+  recall added as diagnostic for cadw_measured entries; D3.2 nab
+  added as diagnostic (SKAB convention) with auprc note weakened.
+
+- MATRIX.md 140 lines; 40 docs/tasks/*.md regenerated byte-equal.
+
+Gates: fast suite 3310 passed, 8 skipped (optional libs: sktime,
+pyod, aeon, kats, sahandha/eif; smoke tests self-skip); 25 deselected
+(slow). AST-guard `test_no_bench_deps_in_core.py` 127 passed.
+WL 34 keys OK. audit_leakage 0 warnings. audit_url_log 0 errors
+(combined v0.9.48 + v0.9.50 log, 257 entries).
+
+Deferred to Phase C.2: 1D-conv PaAno (proper, no MLP-flattened
+compromise); GraphTS (paper-only, single-paper 84% vs S2G 61% on UCR,
+no reference code); SubLOF/MovingWindow/SAND (tier2 wrappers, low
+priority); full UCR evaluation of current 13 models (synthetic DGP
+too simple to show DL advantage).
+
 ### v0.9.50 (2026-10-25) — M3: migrate legacy A–H to v3 schema
 
 Migration + enrichment. No production code change, no new cards.
