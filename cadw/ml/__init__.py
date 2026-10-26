@@ -53,3 +53,5 @@ from .zms import ZMSResult, fit_zms  # noqa: E402,F401
 from .cusum import CUSUMResult, fit_cusum  # noqa: E402,F401
 # v0.9.59: STRAY (Talagala et al. 2021)
 from .stray import STRAYResult, fit_stray  # noqa: E402,F401
+# v0.9.60: S2G (Series2Graph, Boniol & Palpanas 2020)
+from .s2g import S2GResult, fit_s2g  # noqa: E402,F401
