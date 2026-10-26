@@ -821,6 +821,35 @@ subtypes:
       cadw_measured synthetic-bench entries.
     special: Affected-ratio dependent (spike × window × 2 / n);
       recommended_contamination must exceed affected_ratio.
+  - name: vus_roc
+    combination: diagnostic
+    direction: higher
+    responsibility: Range-aware ROC-AUC; TSB-AD secondary metric.
+    special: Less imbalance-sensitive than VUS-PR but less discriminative;
+      not numerically comparable to point-wise AUC-ROC.
+  - name: range_f1
+    combination: diagnostic
+    direction: higher
+    responsibility: Range-aware F1 with tolerance windows (TSB-AD).
+    special: Combines precision and recall over anomaly ranges; not
+      comparable to point-wise F1.
+  - name: affiliation_f1
+    combination: diagnostic
+    direction: higher
+    responsibility: Affiliation-F1 (TAB/UCR primary for UCR evaluation).
+    special: Partial credit for near-miss detections; not comparable to
+      range_f1.
+  - name: auc_roc
+    combination: diagnostic
+    direction: higher
+    responsibility: Point-wise ROC-AUC (universal baseline).
+    special: Overly optimistic under heavy imbalance (contamination<5%);
+      prefer vus_roc or vus_pr.
+  - name: point_f1
+    combination: diagnostic
+    direction: higher
+    responsibility: Point-wise F1 without tolerance (TSB-AD baseline).
+    special: Strict; no credit for near-miss detections.
   ensemble_recommendation:
   - roles:
     - local_structure
@@ -1002,6 +1031,18 @@ subtypes:
     direction: lower
     responsibility: Samples between true and detected changepoint.
     special: Only meaningful if detection_rate is reported alongside.
+  - name: range_f1
+    combination: diagnostic
+    direction: higher
+    responsibility: Range-aware F1 with tolerance windows.
+    special: For changepoint, report detection_delay alongside; single
+      ground-truth point makes range_f1 sensitive to tolerance choice.
+  - name: point_f1
+    combination: diagnostic
+    direction: higher
+    responsibility: Point-wise F1 without tolerance.
+    special: Strict for changepoint (single timestamp); use
+      detection_delay as the timing-aware alternative.
   ensemble_recommendation:
   - roles:
     - temporal_dynamics
@@ -1172,6 +1213,32 @@ subtypes:
     direction: lower
     responsibility: Rank of top-5 detections in ground truth (UCR-style).
     special: Authoritative for UCR paper comparisons; not continuous.
+  - name: vus_roc
+    combination: diagnostic
+    direction: higher
+    responsibility: Range-aware ROC-AUC; TSB-AD secondary metric.
+    special: Not numerically comparable to point-wise AUC-ROC.
+  - name: range_f1
+    combination: diagnostic
+    direction: higher
+    responsibility: Range-aware F1 with tolerance windows (TSB-AD).
+    special: Combines precision and recall over anomaly ranges.
+  - name: affiliation_f1
+    combination: diagnostic
+    direction: higher
+    responsibility: Affiliation-F1 (TAB/UCR primary for UCR evaluation).
+    special: Partial credit for near-miss detections; not comparable to
+      range_f1.
+  - name: auc_roc
+    combination: diagnostic
+    direction: higher
+    responsibility: Point-wise ROC-AUC (universal baseline).
+    special: Overly optimistic under heavy imbalance; prefer vus_roc.
+  - name: point_f1
+    combination: diagnostic
+    direction: higher
+    responsibility: Point-wise F1 without tolerance (TSB-AD baseline).
+    special: Strict; no credit for near-miss detections.
   ensemble_recommendation:
   - roles:
     - representation
