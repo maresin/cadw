@@ -52,6 +52,24 @@ benchmarks:
       VUS-PR as the recommended metric. Newer than UCR_Anomaly; not
       directly comparable to it."
 
+  SKAB:
+    url: https://github.com/waico/SKAB
+    modality: ts_anomaly_industrial
+    metrics: [f1, nab]
+    warning: "Skoltech Anomaly Benchmark. Industrial multivariate with
+      separate outlier + changepoint ground truth. 34 datasets (v0.9);
+      testbed under repair. Numbers NOT comparable to TSB-AD
+      (different domain + metric) or UCR_Anomaly."
+
+  TAB:
+    url: https://github.com/decisionintelligence/TAB
+    modality: ts_anomaly
+    metrics: [vus_pr, vus_roc, f1, precision, recall, auc_roc, auc_pr]
+    warning: "Unified TSAD benchmark (VLDB 2025): 29 multivariate +
+      1635 univariate, 5 model classes (non-learning through pretrained).
+      Introduces VUS-PR as primary. Not comparable to TSB-AD (different
+      dataset selection + protocol) or UCR_Anomaly."
+
   M4:
     url: https://github.com/Mcompetitions/M4-methods
     modality: ts_forecast

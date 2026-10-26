@@ -298,7 +298,10 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
   - name: IForest
-    tier: sota
+    # v0.9.65 P0: sota -> baseline. TSB-AD VUS-PR 0.30 vs Sub-PCA 0.42,
+    # KShapeAD 0.40; IForest is a tabular outlier detector applied to
+    # windowed series, not a TS-native SOTA. Kept as a fast baseline.
+    tier: baseline
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
@@ -540,7 +543,10 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
   - name: MiniRocket_embedding
-    tier: sota
+    # v0.9.65 P0: sota -> baseline. MiniRocket is a classification
+    # feature extractor, not an anomaly detector; using its embedding
+    # + outlier score is an ad-hoc heuristic, not SOTA in TSAD.
+    tier: baseline
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
@@ -706,7 +712,7 @@ subtypes:
     note: Stack features from both and fit a linear head; +1-2% accuracy.
 - id: D5
   name: TS change-point detection (alias of D3.2)
-  description: Same as D3.2 — kept for taxonomy completeness. Use D3.2.
+  description: DEPRECATED — use D3.2. Kept for taxonomy completeness only.
   real_life:
   - See D3.2
   benchmarks:

@@ -33,13 +33,13 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | D | D2 Multivariate forecasting | VAR | baseline | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D2 Multivariate forecasting | GBDT_multiseries | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D3.1 TS anomaly — point | zscore | baseline | tier1_core | local_structure | ✓ agent, desc | auprc |
-| D | D3.1 TS anomaly — point | IForest | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | auprc |
+| D | D3.1 TS anomaly — point | IForest | baseline | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | auprc |
 | D | D3.1 TS anomaly — point | MatrixProfile | sota | tier1_core | local_structure, temporal_dynamics | ✓ cadw, ✓ agent | auprc |
 | D | D3.2 TS anomaly — change-point | BinarySegmentation | baseline | tier1_core | temporal_dynamics | desc | auprc |
 | D | D3.2 TS anomaly — change-point | PELT | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | auprc |
 | D | D3.3 TS anomaly — shape | zscore | baseline | tier1_core | local_structure | ✓ agent, desc | auprc |
 | D | D3.3 TS anomaly — shape | MatrixProfile_discord | sota | tier1_core | local_structure | ✓ cadw, ✓ agent | auprc |
-| D | D3.3 TS anomaly — shape | MiniRocket_embedding | sota | tier1_core | representation | ✓ cadw, ✓ agent | auprc |
+| D | D3.3 TS anomaly — shape | MiniRocket_embedding | baseline | tier1_core | representation | ✓ cadw, ✓ agent | auprc |
 | D | D4 TS classification | IntervalFeatures_GBDT | baseline | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | accuracy |
 | D | D4 TS classification | MiniRocket | sota | tier1_core | representation | ✓ cadw, ✓ agent | accuracy |
 | D | D4 TS classification | HIVE-COTE | sota | tier3_export | representation, temporal_dynamics, nonlinear_interactions | desc, export | accuracy |

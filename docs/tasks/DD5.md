@@ -2,7 +2,7 @@
 
 *Section:* D — Time Series
 
-**Description:** Same as D3.2 — kept for taxonomy completeness. Use D3.2.
+**Description:** DEPRECATED — use D3.2. Kept for taxonomy completeness only.
 
 **Real-life examples:**
 - See D3.2
