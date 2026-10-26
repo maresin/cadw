@@ -1,5 +1,114 @@
 ## [Unreleased]
 
+### v0.9.74 (2026-10-26) - TS anomaly: BOCPD + 3-role ensembles + multi-shape
+
+Second integrated release of the TS-anomaly cycle; covers v0.9.69-v0.9.73.
+First release (v0.9.68) closed Phase C (13 tier1 models) and Phase D
+(cards + benchmarks + metric anchors). This release closes the remaining
+gaps: diagnostic metrics, BinSeg baseline, zscore verification, BOCPD
+probabilistic role, 3-role ensembles everywhere, and multi-channel shape.
+
+Models added (v0.9.70, v0.9.72):
+- BinarySegmentation (cadw/ml/binseg.py) - greedy top-down L2 splitting
+  (ruptures Binseg reference). Baseline D3.2/D5. n=100k, 10 alternating
+  shifts: recall=1.0 (10/10 within +/-10), 12.3s, 2 MB.
+- BOCPD (cadw/ml/bocpd.py) - Bayesian online change-point detection
+  with Student-t predictive likelihood (Adams & MacKay 2007;
+  gwgundersen/bocd reference). Probabilistic role for D3.2 3-role
+  ensemble. Student-t critical for heavy-tailed industrial data
+  (SKAB: 32% DR at 13% FAR; BOCPD-Gaussian ~0% DR). n=20k, 5 alternating
+  shifts: recall=1.0 (5/5 exact), median_detection_delay=0.0, 7.3s, 32 MB.
+
+Fix history for BOCPD (documented in docstring):
+  v0.9.72-fix1: per-element Python loop was 60s+ on n=20k. Rewritten to
+    vectorized log-pdf with analytic alpha/kappa invariants
+    (alpha[r]=alpha0+r/2, kappa[r]=kappa0+r; only mu/beta tracked);
+    max_run capped at 200.
+  v0.9.72-fix2: burn-in masking. First ~200 timestamps were flagged as
+    anomalies on any series (posterior concentrated at small r; not
+    enough data to establish long run). decision_scores[:burn_in]=0
+    (default burn_in = 2*run_length_threshold).
+  v0.9.72-fix3: scoring. Changed from P(r < run_length_threshold) to
+    R[0] = P(change at t). Old scoring drifted toward the percentile
+    threshold (cp_prob accumulates at every step, R[0] > 0 even in
+    stationary periods) -> 400 false positives on n=20k at
+    contamination=0.02 (threshold ~0.001). New: score = R[0],
+    threshold = max(percentile(1-c), 0.5). Requires mode=change,
+    matching Adams & MacKay.
+
+Card activation (v0.9.70):
+- D3.1 zscore: described_only -> verified_in_cadw (cadw.ml.zms.fit_zms),
+  cadw_measured recall=1.0.
+- D3.3 zscore: same fit_zms, different role (shape-agnostic baseline).
+- D3.2 BinarySegmentation: described_only -> verified_in_cadw
+  (cadw.ml.binseg.fit_binseg), cadw_measured recall=1.0.
+- D5 BinarySegmentation (alias): same, documented as DEPRECATED alias.
+
+Diagnostic metrics (v0.9.69) - TSB-AD + TAB completeness:
+D3.1 and D3.3 gained vus_roc, range_f1, affiliation_f1, auc_roc, point_f1
+  as diagnostic (anchors unchanged: vus_pr).
+D3.2 gained range_f1, point_f1, recall as diagnostic (anchor auprc kept;
+  note added: WEAK anchor for changepoint; NAB preferred when available).
+point_adjusted_f1 explicitly marked LEGACY (gameable by random ranking).
+
+3-role ensembles (v0.9.72b):
+- D3.1: [MatrixProfile, IForest] -> [DWT-MLEAD, Sub-PCA, KShapeAD]
+  roles: temporal_dynamics + representation + local_structure
+- D3.2: [PELT] -> [PELT, T-squared+Q, BOCPD]
+  roles: temporal_dynamics + representation + probabilistic
+  (T-squared+Q role retier: temporal_dynamics -> representation; PCA
+  subspace SPC is representation-based)
+- D3.3: [S2G, MiniRocket_embedding, EIF] -> [S2G, Sub-PCA, EIF]
+  roles: local_structure + representation + nonlinear_interactions
+  (v0.9.73: MiniRocket_embedding uni-only replaced by Sub-PCA
+  multi-capable; EIF moved to nonlinear_interactions slot after v0.9.72b)
+EIF card added to D3.3 (same fit_eif as D3.1, role=shape vs point).
+
+Multi-channel shape support (v0.9.73):
+- cadw/ml/sub_pca.py, kmeans_ad.py, autoencoder.py: +_prepare_windows
+  helper (uni/multi windowing, stride param, min-length guard). Body
+  uses d = windows.shape[1] instead of window_size in PCA/eigh/
+  xavier/zero-init/memory-est.
+- docs/ml_tools/samples.py: +gen_ts_shape_anomaly_multi DGP
+  (x3=x1-x2 plane; anomaly segment off-plane + 3*noise -> cross-channel
+  break, invisible in per-channel marginals).
+- 4 models now multi-capable in D3.3: EIF (0.864), Sub-PCA (0.944),
+  KMeansAD (0.868), Autoencoder (0.78). Sub-PCA 0.03s (200x faster
+  than EIF at same recall).
+- STRAY multi test: recall=0.168 on cross-channel DGP; fundamental
+  limitation (KNN on raw 3D misses plane break). STAYS uni-only.
+- D3.3 ensemble: Sub-PCA takes representation slot from MiniRocket;
+  multi-shape now covered by 2 of 3 ensemble members (Sub-PCA + EIF)
+  plus S2G for uni motif.
+
+Backlog (.pingis/drafts/BACKLOG_ML.md, gitignored):
+- 11 deferred items with executable triggers + review protocol.
+- Conv-AE/MSCRED (multi shape): trigger = EIF recall<0.5 OR sub-0.8 on
+  new DGP OR real industrial multi-shape data needed.
+- CARMA (2026, dual-latent VAE, cross-channel correlation latent):
+  noted as principled alternative for cross-channel; Phase C.2.
+  Only method that explicitly solves the correlation-break problem we
+  measured (EIF 0.864 via windows; STRAY 0.168 via raw KNN).
+- roboBayes trigger updated (BOCPD recall<0.3 OR FP>40% OR SKAB v1.0).
+
+Verified counts (100% per D3.x):
+  D3.1: 13/13
+  D3.2: 5/5
+  D3.3: 8/8 (4 multi-capable)
+Anchors: D3.1 vus_pr, D3.2 auprc (note: weak; NAB diagnostic preferred),
+D3.3 vus_pr.
+
+Fast suite: 3344 passed, 8 skipped, 25 deselected.
+WL 34 OK. AST-guard 129 passed. audit_leakage 0 warnings.
+audit_url_log 0 errors (combined v0.9.48+v0.9.50 log, 257 entries).
+MATRIX.md 145 lines; 40 docs/tasks/*.md regenerated.
+
+Deferred to Phase C.2 (backlog): 1D-conv PaAno (proper); CARMA for
+cross-channel shape; HYDRA (SOTA general multi-detector); roboBayes
+(if BOCPD underperforms); SubLOF/MovingWindow/SAND (tier2);
+TSPulse ZS (pretrained reference); GraphTS (paper-only, no reference
+code); MAD-TCN/KARMA/DLinear_ad (native DL); full UCR evaluation.
+
 ### v0.9.68 (2026-10-26) - TS anomaly: 13 tier1_core models + Phase D
 
 First release in this cycle; covers model work v0.9.52-v0.9.67 and
