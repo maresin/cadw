@@ -792,16 +792,35 @@ subtypes:
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
   metrics:
-  - name: auprc
+  # v0.9.67: vus_pr primary (TSB-AD + TAB recommended); auprc demoted
+  # to diagnostic; point_adjusted_f1 explicitly legacy (gameable).
+  - name: vus_pr
     combination: anchor
     direction: higher
-    responsibility: Anomaly discrimination under heavy imbalance.
-    special: Prefer to ROC-AUC when anomaly rate<5%; not comparable to F1.
+    responsibility: Volume Under the Surface (range-aware PR); primary TSAD
+      metric recommended by TSB-AD (NeurIPS 2024) and TAB (VLDB 2025).
+    special: Range-aware; resistant to best-of-N seed shopping. Not
+      comparable to point-wise auprc numerically; report which protocol.
+  - name: auprc
+    combination: diagnostic
+    direction: higher
+    responsibility: Point-wise area under PR curve.
+    special: Point-wise; ignores anomaly range; prefer vus_pr for
+      range-aware anomalies. Not comparable to vus_pr.
   - name: point_adjusted_f1
     combination: diagnostic
     direction: higher
-    responsibility: F1 with 1-point tolerance window (widely reported on UCR).
-    special: Tolerant of ±1-off detections; do not compare to raw F1.
+    responsibility: LEGACY — F1 with 1-point tolerance (UCR protocol).
+    special: LEGACY and gameable — random ranking hits near-perfect PA-F1
+      on long series. Reported only for UCR paper comparison; NOT a
+      reliable decision metric.
+  - name: recall
+    combination: diagnostic
+    direction: higher
+    responsibility: Fraction of true anomalies flagged; used by CADW
+      cadw_measured synthetic-bench entries.
+    special: Affected-ratio dependent (spike × window × 2 / n);
+      recommended_contamination must exceed affected_ratio.
   ensemble_recommendation:
   - roles:
     - local_structure
@@ -963,11 +982,21 @@ subtypes:
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
   metrics:
+  # v0.9.67: auprc kept as anchor (PELT/BinarySeg literature uses it),
+  # but NAB added as honest alternative — SKAB changepoint convention.
   - name: auprc
     combination: anchor
     direction: higher
     responsibility: Change-point discrimination against imbalance.
-    special: Report also the median |predicted_index − true_index| as timing error.
+    special: WEAK anchor for changepoint — point-wise auprc ignores
+      timing. Prefer NAB + detection_delay when both reported (SKAB).
+  - name: nab
+    combination: diagnostic
+    direction: higher
+    responsibility: NAB score (standard Numenta metric); SKAB changepoint
+      convention.
+    special: Combines false-positive rate and detection delay at
+      application profile; ground truth tolerance-window dependent.
   - name: detection_delay
     combination: pareto_axis
     direction: lower
@@ -1123,11 +1152,21 @@ subtypes:
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
   metrics:
-  - name: auprc
+  # v0.9.67: vus_pr primary; auprc demoted (point-level AUPRC inflates
+  # shape-anomaly scores; range-awareness of VUS-PR is the fix).
+  - name: vus_pr
     combination: anchor
     direction: higher
-    responsibility: Subsequence-level anomaly detection.
-    special: Point-level AUPRC inflates scores on shape anomalies; report window-level.
+    responsibility: Volume Under the Surface (window-level PR); primary
+      TSAD metric for range-aware shape anomalies (TSB-AD, TAB).
+    special: Range-aware; robust to point-level AUPRC inflation on shape
+      anomalies. Not numerically comparable to point-wise auprc.
+  - name: auprc
+    combination: diagnostic
+    direction: higher
+    responsibility: Point-wise area under PR curve at window resolution.
+    special: Point-level AUPRC inflates scores on shape anomalies; use
+      for cross-paper UCR comparison only, not as primary.
   - name: best_5_ranking
     combination: diagnostic
     direction: lower
