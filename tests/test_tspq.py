@@ -137,11 +137,22 @@ def test_fit_t2q_memory_guard_real_smoke():
     assert r.decision_scores.shape == (500,)
 
 
-def test_t2q_no_bench_deps_in_source():
+def test_tspq_no_bench_deps_in_source():
+    """AST-based check: no forbidden imports in actual import statements."""
+    import ast
     src = (ROOT / "cadw/ml/tspq.py").read_text()
-    for f in ("import sklearn", "import pyod", "import torch",
-              "import scipy", "import aeon",
-              "from sklearn", "from pyod", "from torch",
-              "from scipy", "from aeon"):
-        assert f not in src, f"forbidden import: {f}"
+    tree = ast.parse(src)
+    forbidden = ("sktime", "sklearn", "scipy", "torch", "pyod",
+                 "aeon", "merlion", "kats", "paddle")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                assert top not in forbidden, (
+                    f"forbidden import: {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            top = mod.split(".")[0]
+            assert top not in forbidden, (
+                f"forbidden import-from: {mod}")
 

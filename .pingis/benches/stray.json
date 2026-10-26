@@ -1,0 +1,17 @@
+{
+  "model": "stray",
+  "n": 10000,
+  "n_spikes": 30,
+  "detected": 30,
+  "recall": 1.0,
+  "total_flagged": 32,
+  "k": 20,
+  "tail_fraction": 0.05,
+  "alpha": 0.01,
+  "threshold": 4.6052,
+  "xi": 0.464,
+  "beta": 0.0385,
+  "n_tail": 500,
+  "fit_time_s": 1.43,
+  "peak_rss_mb": 477.94
+}

@@ -80,9 +80,21 @@ def test_fit_zms_memory_guard_logic():
 
 
 def test_zms_no_bench_deps_in_source():
+    """AST-based check: no forbidden imports in actual import statements."""
+    import ast
     src = (ROOT / "cadw/ml/zms.py").read_text()
-    for f in ("import sklearn", "import scipy", "import torch",
-              "import merlion", "from sklearn", "from scipy",
-              "from torch", "from merlion"):
-        assert f not in src, f"forbidden import: {f}"
+    tree = ast.parse(src)
+    forbidden = ("sktime", "sklearn", "scipy", "torch", "pyod",
+                 "aeon", "merlion", "kats", "paddle")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                assert top not in forbidden, (
+                    f"forbidden import: {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            top = mod.split(".")[0]
+            assert top not in forbidden, (
+                f"forbidden import-from: {mod}")
 

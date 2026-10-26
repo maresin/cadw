@@ -51,3 +51,5 @@ from .hampel import HampelResult, fit_hampel  # noqa: E402,F401
 from .zms import ZMSResult, fit_zms  # noqa: E402,F401
 # v0.9.58: CUSUM (cumulative sum control chart)
 from .cusum import CUSUMResult, fit_cusum  # noqa: E402,F401
+# v0.9.59: STRAY (Talagala et al. 2021)
+from .stray import STRAYResult, fit_stray  # noqa: E402,F401
