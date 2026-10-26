@@ -59,3 +59,7 @@ from .s2g import S2GResult, fit_s2g  # noqa: E402,F401
 from .autoencoder import AutoencoderResult, fit_autoencoder  # noqa: E402,F401
 # v0.9.62: KMeansAD (k-means clustering on windows)
 from .kmeans_ad import KMeansADResult, fit_kmeans_ad  # noqa: E402,F401
+# v0.9.63: PatchMemoryAD (PaAno-inspired patch+memory+triplet)
+from .patch_memory_ad import (  # noqa: E402,F401
+    PatchMemoryADResult, fit_patch_memory_ad,
+)

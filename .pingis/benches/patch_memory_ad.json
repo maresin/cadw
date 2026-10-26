@@ -1,0 +1,23 @@
+{
+  "model": "patch_memory_ad",
+  "n": 30000,
+  "n_spikes": 20,
+  "detected": 20,
+  "recall": 1.0,
+  "total_flagged": 1487,
+  "window_size": 50,
+  "patch_len": 10,
+  "hidden_size": 32,
+  "latent_size": 16,
+  "n_memory": 64,
+  "n_epochs": 5,
+  "lr": 0.005,
+  "contamination": 0.05,
+  "threshold": 5.2196,
+  "first_loss": 0.0,
+  "last_loss": 0.0,
+  "fit_time_s": 24.406,
+  "peak_rss_mb": 63.65,
+  "specialization": "point anomaly (patches; segments are not detected \u2014 see module docstring)",
+  "training_note": "loss can remain 0 (triplet margin inactive) when memory warmup already gives close pos + far neg; scoring still works via min-distance to memory. Not a bug."
+}
