@@ -1,0 +1,22 @@
+{
+  "model": "autoencoder",
+  "n": 50000,
+  "n_spikes": 30,
+  "detected": 30,
+  "recall": 1.0,
+  "total_flagged": 3975,
+  "window_size": 50,
+  "hidden_size": 32,
+  "latent_size": 8,
+  "n_epochs": 30,
+  "lr": 0.01,
+  "batch_size": 64,
+  "contamination": 0.08,
+  "aggregate": "max",
+  "reconstruction_error": "median",
+  "threshold": 0.079694,
+  "first_loss": 0.1556,
+  "last_loss": 0.059533,
+  "fit_time_s": 12.205,
+  "peak_rss_mb": 125.07
+}
