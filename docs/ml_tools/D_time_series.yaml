@@ -116,6 +116,64 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+  - name: AutoETS
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - temporal_dynamics
+    - probabilistic
+    purpose: 'AutoETS: AICc-selected ETS. Evaluates up to 9 configurations
+      (trend N/A/Ad x season N/A/M), skips invalid combos (n<2s for
+      seasonal; y<=0 for multiplicative), picks minimum AICc =
+      n*ln(SSE/n) + 2k + 2k(k+1)/(n-k-1) with k = sigma+alpha+[beta]+
+      [gamma]+[phi]. Falls back to NaiveForecaster(last) if no config
+      fits. Wraps ETSForecaster; same prediction interval logic.'
+    real_life_examples:
+    - Automatic retail demand forecast (no manual model selection)
+    - Batch forecasting where ETS configuration varies per series
+    config:
+      seasonal_period: int
+      warn_slow_fit: bool
+      slow_fit_threshold_s: float
+    cadw_module: cadw.ts.auto_ets
+    cadw_function: AutoETSForecaster
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/auto_ets.json
+      algorithm: cadw.ts.auto_ets.AutoETSForecaster
+      algorithm_source_url: cadw/ts/auto_ets.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: univariate forecasting
+      n_datasets: 1
+      metric: mase
+      value: 0.4998
+      std: null
+      note: 'CADW-native: MASE=0.4998 on synthetic_seasonal_linear
+        (n=500, seasonal_period=12); 9 configs evaluated, selected
+        ETS(A,A,N) (trend dominates seasonal in this DGP); fit_time
+        44.1s. WARNING: 44s fit time is slow for n=500 — grid search
+        is O(9 configs * 600 evals * n) Python loop. Backlog item
+        "AutoETS grid search optimization" tracks vectorization /
+        coordinate-descent fix.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: synthetic_seasonal_linear
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [mase, fit_time_s, peak_rss_mb]
   - name: SARIMA
     tier: sota
     tier_level: tier1_core
@@ -153,8 +211,12 @@ subtypes:
       verified_by_agent: true
     roles:
     - nonlinear_interactions
-    - temporal_dynamics
-    purpose: GBDT on lag features; SOTA on heterogeneous M4/M5-type series.
+    purpose: 'GBDT on lag features; SOTA on heterogeneous M4/M5-type
+      series. v0.9.76c: role temporal_dynamics removed — GBDTForecaster
+      captures nonlinear_interactions in lag-feature space; temporal
+      structure is implicit in lag features, not a native
+      temporal_dynamics model (SARIMA/AutoETS are the temporal_dynamics
+      representatives). Enables 3-role ensemble in D1.'
     real_life_examples:
     - Retail SKU forecast
     config:
@@ -532,12 +594,22 @@ subtypes:
   ensemble_recommendation:
   - roles:
     - temporal_dynamics
+    - probabilistic
     - nonlinear_interactions
     models:
     - SARIMA
+    - AutoETS
     - GBDTForecaster
     max_per_role: 2
-    note: SARIMA captures linear temporal dynamics; GBDT captures nonlinear interactions + seasonal patterns. max_per_role=2 because both expose temporal_dynamics. Weight forecasts by inverse MASE on holdout.
+    note: '3 complementary paradigms: SARIMA (temporal_dynamics,
+      seasonal ARIMA via Hannan-Rissanen CSS), AutoETS (probabilistic,
+      AICc-selected ETS state-space), GBDTForecaster
+      (nonlinear_interactions, tree-based on lag features). v0.9.76c:
+      AutoETS added; GBDT roles narrowed to nonlinear_interactions
+      only (temporal_dynamics removed; SARIMA+AutoETS are the two
+      temporal_dynamics representatives). max_per_role=2 because
+      SARIMA and AutoETS both expose temporal_dynamics. Average
+      z-scored point forecasts weighted by inverse holdout MASE.'
 - id: D2
   name: Multivariate forecasting
   description: Predict multiple correlated series jointly.

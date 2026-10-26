@@ -1,0 +1,82 @@
+{
+  "model": "auto_ets",
+  "n": 500,
+  "seasonal_period": 12,
+  "n_configs_evaluated": 9,
+  "selected_config": {
+    "label": "ETS(A,A,N)",
+    "trend": "A",
+    "seasonal": "N",
+    "damped": false
+  },
+  "best_aicc": -500.604,
+  "aicc_scores": [
+    {
+      "label": "ETS(A,N,N)",
+      "trend": "N",
+      "seasonal": "N",
+      "damped": false,
+      "aicc": -388.175
+    },
+    {
+      "label": "ETS(A,N,A)",
+      "trend": "N",
+      "seasonal": "A",
+      "damped": false,
+      "aicc": -386.151
+    },
+    {
+      "label": "ETS(A,N,M)",
+      "trend": "N",
+      "seasonal": "M",
+      "damped": false,
+      "aicc": -234.704
+    },
+    {
+      "label": "ETS(A,A,N)",
+      "trend": "A",
+      "seasonal": "N",
+      "damped": false,
+      "aicc": -500.604
+    },
+    {
+      "label": "ETS(A,A,A)",
+      "trend": "A",
+      "seasonal": "A",
+      "damped": false,
+      "aicc": -498.573
+    },
+    {
+      "label": "ETS(A,A,M)",
+      "trend": "A",
+      "seasonal": "M",
+      "damped": false,
+      "aicc": -275.352
+    },
+    {
+      "label": "ETS(A,Ad,N)",
+      "trend": "Ad",
+      "seasonal": "N",
+      "damped": true,
+      "aicc": -401.259
+    },
+    {
+      "label": "ETS(A,Ad,A)",
+      "trend": "Ad",
+      "seasonal": "A",
+      "damped": true,
+      "aicc": -399.219
+    },
+    {
+      "label": "ETS(A,Ad,M)",
+      "trend": "Ad",
+      "seasonal": "M",
+      "damped": true,
+      "aicc": -186.056
+    }
+  ],
+  "mase": 0.4998,
+  "fit_predict_s": 44.128,
+  "peak_rss_mb": 22.07,
+  "state_b": 8544
+}

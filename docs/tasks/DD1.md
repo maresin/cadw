@@ -62,6 +62,28 @@
   - code/paper: cadw/ts/ets.py
   - note: CADW-native: fit_predict_s=0.18/1.74/17.15 @n=500/5k/50k (seasonal_period=12; scripts/bench_ets.py, .pingis/benches/ets.json). Residual sigma=0.61/0.54/0.52. Peak RSS 4.9/0.1/1.4 MB. Hardware-specific; NOT comparable to external LB. Range 1000x across n - O(n * grid_size) fit; no cross-n comparable fit_time.
 
+### AutoETS — sota / tier1_core
+
+**Roles:** temporal_dynamics, probabilistic
+**Status:** ✓ cadw, ✓ agent
+
+**Purpose:** AutoETS: AICc-selected ETS. Evaluates up to 9 configurations (trend N/A/Ad x season N/A/M), skips invalid combos (n<2s for seasonal; y<=0 for multiplicative), picks minimum AICc = n*ln(SSE/n) + 2k + 2k(k+1)/(n-k-1) with k = sigma+alpha+[beta]+ [gamma]+[phi]. Falls back to NaiveForecaster(last) if no config fits. Wraps ETSForecaster; same prediction interval logic.
+
+**Use cases:**
+- Automatic retail demand forecast (no manual model selection)
+- Batch forecasting where ETS configuration varies per series
+
+**Config:** `{'seasonal_period': 'int', 'warn_slow_fit': 'bool', 'slow_fit_threshold_s': 'float'}`
+
+**CADW:** `cadw.ts.auto_ets.AutoETSForecaster`
+
+**Benchmarks:**
+- **[cadw_measured]** cadw_internal → mase=0.4998 (n=1)
+  - algorithm: `cadw.ts.auto_ets.AutoETSForecaster` (code)
+  - number: .pingis/benches/auto_ets.json
+  - code/paper: cadw/ts/auto_ets.py
+  - note: CADW-native: MASE=0.4998 on synthetic_seasonal_linear (n=500, seasonal_period=12); 9 configs evaluated, selected ETS(A,A,N) (trend dominates seasonal in this DGP); fit_time 44.1s. WARNING: 44s fit time is slow for n=500 — grid search is O(9 configs * 600 evals * n) Python loop. Backlog item "AutoETS grid search optimization" tracks vectorization / coordinate-descent fix.
+
 ### SARIMA — sota / tier1_core
 
 **Roles:** temporal_dynamics
@@ -85,10 +107,10 @@
 
 ### GBDTForecaster — sota / tier1_core
 
-**Roles:** nonlinear_interactions, temporal_dynamics
+**Roles:** nonlinear_interactions
 **Status:** ✓ cadw, ✓ agent
 
-**Purpose:** GBDT on lag features; SOTA on heterogeneous M4/M5-type series.
+**Purpose:** GBDT on lag features; SOTA on heterogeneous M4/M5-type series. v0.9.76c: role temporal_dynamics removed — GBDTForecaster captures nonlinear_interactions in lag-feature space; temporal structure is implicit in lag features, not a native temporal_dynamics model (SARIMA/AutoETS are the temporal_dynamics representatives). Enables 3-role ensemble in D1.
 
 **Use cases:**
 - Retail SKU forecast
@@ -268,5 +290,5 @@
   - *special:* Punishes over-forecast more than under-forecast; not comparable with MASE.
 
 ## Ensemble rules
-- **[temporal_dynamics, nonlinear_interactions]** → SARIMA + GBDTForecaster (max_per_role=2)
-  - SARIMA captures linear temporal dynamics; GBDT captures nonlinear interactions + seasonal patterns. max_per_role=2 because both expose temporal_dynamics. Weight forecasts by inverse MASE on holdout.
+- **[temporal_dynamics, probabilistic, nonlinear_interactions]** → SARIMA + AutoETS + GBDTForecaster (max_per_role=2)
+  - 3 complementary paradigms: SARIMA (temporal_dynamics, seasonal ARIMA via Hannan-Rissanen CSS), AutoETS (probabilistic, AICc-selected ETS state-space), GBDTForecaster (nonlinear_interactions, tree-based on lag features). v0.9.76c: AutoETS added; GBDT roles narrowed to nonlinear_interactions only (temporal_dynamics removed; SARIMA+AutoETS are the two temporal_dynamics representatives). max_per_role=2 because SARIMA and AutoETS both expose temporal_dynamics. Average z-scored point forecasts weighted by inverse holdout MASE.

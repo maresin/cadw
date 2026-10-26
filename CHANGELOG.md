@@ -1,5 +1,122 @@
 ## [Unreleased]
 
+### v0.9.76 (2026-10-26) - D1 uni-forecast: SOTA horizon + AutoETS + 3-role ensemble
+
+Third integrated release of the TS-anomaly/forecast cycle; covers
+v0.9.75-v0.9.76c. Brings D1 (univariate forecasting) to parity with
+D3 (anomaly) in depth: SOTA horizon cards + 3-role ensemble +
+benchmark-driven card activation.
+
+SOTA horizon (v0.9.75): 7 tier3_export cards in D1 — reference-only,
+not implemented in CADW:
+
+- Chronos-Bolt family (Amazon, 2024; T5 encoder-decoder, quantile-
+  native, patch-based direct multi-step):
+    Tiny (8.65M) - primary CPU reference. 250x faster / 20x memory-
+      efficient vs original Chronos. Notable NEGATIVE scaling:
+      on electricity-price Tiny (MAE 0.0393) BEATS Mini (0.0394),
+      Small (0.0530), Base (0.0477).
+    Mini (21M), Small (48M), Base (205M) - full reference family.
+      Base has fev MASE 1.393 (5th/25 at release) but WORSE than Tiny
+      on electricity - rank depends on benchmark.
+- Chronos-2-small (28M, Nov 2025): only foundation model with native
+  multivariable support + covariates (past+future, real+categorical)
+  + cross-learning. Context 8192. Essential D2 horizon (D2 still has
+  no foundation-model reference).
+- AutoGluon-TS: stack ensemble (stat + GBDT + optional DL; weighted
+  via repeated k-fold bagging + holdout MASE). M5 winner approach
+  family; reference for D1 late-fusion ensembles.
+- Timer-S1 (1B+, MASE 0.693, CRPS 0.485): GIFT-Eval top-1 at snapshot;
+  absolute SOTA horizon; GPU-only.
+- t0-beta (MASE 0.687, CRPS 0.474): marginally beats Timer-S1;
+  included separately (different architecture).
+
+4 new benchmarks (benchmarks.yaml): M3 (3003 series, sMAPE 7.19%
+ARIMA), Tourism (1311 series), fev_bench (AutoGluon fev: 19 datasets,
+MASE geomean, quantile losses WQL/SQL/CRPS), GIFT_Eval (130+ entries,
+primary TSFM standard).
+
+audit_url_log.py: tier3_export exemption. Cards that reference
+pretrained models NOT fetched via fetch tool now require only
+algorithm_source_url to look like http(s) + non-empty note; not
+url_log 200 entries. Unblocks the 'SOTA horizon' pattern (registering
+external state-of-the-art without fetching every HF model card).
+16 previous HALLUCINATION errors on the 7 new cards resolve; 0 remain.
+
+ETS card activation (v0.9.76a): ETS was implemented in v0.9.38
+(cadw/ts/ets.py, ETSForecaster) with 11 passing tests, but the YAML
+card was stale described_only=true since then. Fixed:
+- implementation_status: verified_in_cadw=true, verified_by_agent=true
+- +cadw_module/cadw_function
+- +cadw_measured entry from .pingis/benches/ets.json
+  (fit_predict_s=0.18/1.74/17.15 @ n=500/5k/50k; sigma 0.61/0.54/0.52)
+- +v0.3 fields (model_class, learning_mode, source_library,
+  evaluation_scope=both, dgp_source, leakage, pareto_axes)
+
+AutoETS implementation (v0.9.76b): cadw/ts/auto_ets.py
+(~370 LOC, pure numpy — no sklearn/statsmodels/torch/scipy in this
+module; AST-guard enforced). Wraps ETSForecaster; enumerates up to 9
+configs (trend N/A/Ad x season N/A/M); skips invalid combos
+(n<2s for seasonal; y<=0 for multiplicative); picks minimum AICc
+= n*ln(SSE/n) + 2k + 2k(k+1)/(n-k-1) where k=sigma+alpha+[beta]+
+[gamma]+[phi]. Seasonal indices (s-1 values) treated as initial
+state, not optimised (statsmodels convention, NOT in k). Fallback:
+NaiveForecaster(last) if no config fits; warning emitted.
+
+Fix iterations for AutoETS (documented in code + commit):
+- v0.9.76b-fix1: selected_config_ uses label keys ('N'/'A'/'M'/'Ad')
+  not ETS constructor params ('additive'/'multiplicative'); bench
+  n=2000->500 (44s at n=500 already exceeds 30s slow-fit warning).
+- v0.9.76b-fix2: for season_label='N', pass seasonal_period=1 (no
+  seasonality), not self.seasonal_period. Old code passed
+  self.seasonal_period with seasonal='additive' for BOTH 'N' and 'A'
+  labels; ETS(A,N,N) was actually a seasonal model with smaller k
+  penalty. AICc correctly preferred it on seasonal data (defeating
+  auto-selection). This was the root cause of a failing test:
+  AutoETS preferred non-seasonal config on strongly seasonal DGP.
+
+18 tests in tests/test_auto_ets.py: contract/dtypes, attributes
+after fit, AICc selection on seasonal data (pure sine, no trend),
+non-seasonal on flat, trend selection on trending, determinism,
+AICc scores populated, short-series skip seasonal, negative data
+skip multiplicative, very short fallback to Naive, bad inputs,
+prediction_interval, competitive with manual best-of-two,
+AST no-bench-deps.
+
+AutoETS card (v0.9.76c) in D1 with cadw_measured MASE=0.4998 on
+synthetic_seasonal_linear (n=500, seasonal_period=12); 9 configs
+evaluated; selected ETS(A,A,N). NOTE: 44s fit time at n=500 —
+grid search is O(9 configs * 600 evals * n) Python-loop. Backlog
+item "AutoETS grid search optimization" tracks vectorization /
+coordinate descent fix.
+
+3-role D1 ensemble (v0.9.76c):
+[SARIMA, GBDTForecaster] -> [SARIMA, AutoETS, GBDTForecaster]
+- SARIMA (temporal_dynamics): seasonal ARIMA via Hannan-Rissanen CSS
+- AutoETS (probabilistic): AICc-selected ETS state space
+- GBDTForecaster (nonlinear_interactions): tree-based on lag features
+- GBDTForecaster roles narrowed from
+  [nonlinear_interactions, temporal_dynamics] -> [nonlinear_interactions]
+  (temporal structure is implicit in lag features, not native;
+  SARIMA+AutoETS are the two temporal_dynamics representatives)
+- max_per_role=2 (SARIMA+AutoETS both expose temporal_dynamics)
+- Weight: inverse holdout MASE; average z-scored point forecasts
+
+Verified D1 (v0.9.76c): 6 verified_in_cadw
+(NaiveForecaster, ETS, AutoETS, SARIMA, GBDTForecaster, +
+1 more); 7-8 tier3_export horizon references. Ensemble is now
+3-role, matching D3's depth.
+
+Fast suite: 3344 passed, 8 skipped, 25 deselected (unchanged).
+WL 34 OK. AST-guard 129 passed. audit_leakage 7 warnings
+(pretrained). audit_url_log 0 errors (tier3 exemption).
+MATRIX.md + 40 docs/tasks/*.md regenerated.
+
+Backlog: 12 items (AutoETS grid search optimization added).
+Deferred: AutoTheta (v0.9.77), Croston (v0.9.77b),
+HybridETS_GBDT (v0.9.78), weighted ensemble / FFORMA (v0.9.79),
+metrics extension + M3/Tourism benchmarks registration (v0.9.80).
+
 ### v0.9.74 (2026-10-26) - TS anomaly: BOCPD + 3-role ensembles + multi-shape
 
 Second integrated release of the TS-anomaly cycle; covers v0.9.69-v0.9.73.

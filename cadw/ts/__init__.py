@@ -15,6 +15,8 @@ from .models import (
 from .backtest import backtest_forecaster
 from .thf import TemporalHierarchy
 from .ets import ETSForecaster
+from .auto_ets import AutoETSForecaster  # noqa: E402,F401  v0.9.76b
+
 from .theta import ThetaForecaster
 from .var import VARModel
 

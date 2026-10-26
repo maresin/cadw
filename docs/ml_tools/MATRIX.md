@@ -28,8 +28,9 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | A | A7 Quantile / interval regression | GBDT_pinball | sota | tier1_core | nonlinear_interactions | desc | pinball_loss |
 | D | D1 Univariate forecasting | NaiveForecaster | baseline | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | ETS | baseline | tier1_core | temporal_dynamics, probabilistic | ✓ cadw, ✓ agent | mase |
+| D | D1 Univariate forecasting | AutoETS | sota | tier1_core | temporal_dynamics, probabilistic | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | SARIMA | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | mase |
-| D | D1 Univariate forecasting | GBDTForecaster | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | mase |
+| D | D1 Univariate forecasting | GBDTForecaster | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | Chronos-Bolt-Tiny | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
 | D | D1 Univariate forecasting | Chronos-Bolt-Mini | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
 | D | D1 Univariate forecasting | Chronos-Bolt-Small | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
