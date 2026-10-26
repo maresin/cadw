@@ -1,0 +1,29 @@
+{
+  "model": "bocpd",
+  "n": 20000,
+  "n_changes": 5,
+  "burn_in": 20,
+  "detected": 5,
+  "hits": 5,
+  "recall": 1.0,
+  "median_detection_delay": 0.0,
+  "hazard_rate": 0.002,
+  "run_length_threshold": 10,
+  "contamination": 0.02,
+  "changepoints": [
+    1865,
+    5307,
+    8526,
+    15389,
+    18886
+  ],
+  "true_changepoints": [
+    1865,
+    5307,
+    8526,
+    15389,
+    18886
+  ],
+  "fit_time_s": 7.265,
+  "peak_rss_mb": 32.15
+}

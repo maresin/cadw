@@ -65,3 +65,5 @@ from .patch_memory_ad import (  # noqa: E402,F401
 )
 # v0.9.70: BinarySegmentation (greedy top-down L2 splitting)
 from .binseg import BinSegResult, fit_binseg  # noqa: E402,F401
+# v0.9.72: BOCPD (Bayesian online change-point, Student-t)
+from .bocpd import BOCPDResult, fit_bocpd  # noqa: E402,F401
