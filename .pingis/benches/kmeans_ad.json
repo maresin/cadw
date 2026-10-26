@@ -1,0 +1,17 @@
+{
+  "model": "kmeans_ad",
+  "n": 50000,
+  "n_spikes": 30,
+  "detected": 27,
+  "recall": 0.9,
+  "total_flagged": 2461,
+  "window_size": 50,
+  "n_clusters": 8,
+  "n_iter_run": 6,
+  "inertia": 738881.27,
+  "contamination": 0.05,
+  "aggregate": "max",
+  "threshold": 19.7997,
+  "fit_time_s": 0.28,
+  "peak_rss_mb": 41.98
+}

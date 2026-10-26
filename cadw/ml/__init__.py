@@ -57,3 +57,5 @@ from .stray import STRAYResult, fit_stray  # noqa: E402,F401
 from .s2g import S2GResult, fit_s2g  # noqa: E402,F401
 # v0.9.61: Autoencoder MLP (reconstruction-based DL)
 from .autoencoder import AutoencoderResult, fit_autoencoder  # noqa: E402,F401
+# v0.9.62: KMeansAD (k-means clustering on windows)
+from .kmeans_ad import KMeansADResult, fit_kmeans_ad  # noqa: E402,F401
