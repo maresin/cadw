@@ -130,6 +130,10 @@ def audit(
         for st in sec.get("subtypes", []):
             for m in st.get("models", []):
                 card_id = _card_id(sec_id, st["id"], m["name"])
+                # v0.9.75: tier3_export horizon cards — not fetched via
+                # fetch tool; require only algorithm_source_url to look
+                # like http(s). Skip url_log 200 requirement.
+                is_tier3 = m.get("tier_level") == "tier3_export"
                 brs = m.get("benchmark_results") or []
                 if not brs and m.get("benchmark_result"):
                     # v2 schema: legacy card, not audited (no algorithm_source_url,
@@ -153,7 +157,16 @@ def audit(
                         )
 
                     if attr == "literature":
-                        _check_literature(br, card_id, log, errors)
+                        if is_tier3:
+                            algo_url = br.get("algorithm_source_url", "")
+                            if not (algo_url.startswith("http://")
+                                    or algo_url.startswith("https://")):
+                                errors.append(
+                                    f"[TIER3_BAD_URL] {card_id}: "
+                                    f"algorithm_source_url={algo_url!r} "
+                                    f"not http(s)")
+                        else:
+                            _check_literature(br, card_id, log, errors)
                     elif attr == "cadw_reproduced":
                         _check_cadw_artifact(
                             br, card_id, errors, root, need_verdict=True,

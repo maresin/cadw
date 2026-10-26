@@ -246,3 +246,38 @@ benchmarks:
     warning: "ImageNet-1k top-1. Different papers use different model sizes and
       training regimes (e.g. ImageNet-21k pretraining vs scratch). Compare
       only within the same source's table."
+
+  M3:
+    url: https://forecasters.org/resources/time-series-data/m3-competition/
+    modality: ts_forecast
+    metrics: [smape, mase, mape]
+    warning: "3003 series, 2000-classic historical benchmark (Makridakis &
+      Hibon 2000). Different frequencies and horizons than M4. The M3
+      benchmark sMAPE is 7.19% (ARIMA) / 8.39% (Theta); do not compare
+      M3 sMAPE to M4 sMAPE directly."
+
+  Tourism:
+    url: https://robjhyndman.com/publications/the-tourism-forecasting-competition/
+    modality: ts_forecast
+    metrics: [mase, rmse, mape]
+    warning: "1311 tourism series (Athanasopoulos et al. 2011), monthly/
+      quarterly/yearly tourism demand. Different domain + aggregation than
+      M3/M4/M5. MASE only comparable within same dataset set."
+
+  fev_bench:
+    url: https://github.com/autogluon/fev
+    modality: ts_forecast
+    metrics: [mase, mae, rmse, mape, smape, wql, sql, crps]
+    warning: "AutoGluon fev-bench: 19 datasets, standardized protocol with
+      mean + geomean MASE, quantile losses WQL/SQL/CRPS. Numbers from
+      autogluon/fev leaderboard are aggregate-only; not comparable to
+      M3/M4/M5 (different dataset selection + protocol)."
+
+  GIFT_Eval:
+    url: https://github.com/SalesforceAIResearch/gift-eval
+    modality: ts_forecast
+    metrics: [mase, crps]
+    warning: "GIFT-Eval: 130+ entries across 24 tasks; PRIMARY standard for
+      time-series foundation models. Numbers are MASE + CRPS aggregate;
+      benchmark specifically designed for pretrained models (zero-shot),
+      not comparable to from-scratch classical models on M3/M4/M5."

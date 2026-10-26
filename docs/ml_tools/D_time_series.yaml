@@ -141,6 +141,349 @@ subtypes:
       value: 12.3
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+  # ==========================================================================
+  # v0.9.75: SOTA horizon (tier3_export — reference only, not implemented)
+  # Covers pre-trained foundation models + stack-ensemble approach.
+  # Rationale: without these, D1 matrix has no view of the 2025/2026 SOTA.
+  # All cards documented_only; excluded from ensemble_recommendation (rule).
+  # ==========================================================================
+  - name: Chronos-Bolt-Tiny
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - temporal_dynamics
+    - representation
+    purpose: 'Chronos-Bolt-Tiny (Amazon, 2024): 9M-parameter pretrained T5 encoder-decoder for time-series forecasting; patch-based input, direct multi-step, quantile-native output (produces full predictive distribution). 250x faster and 20x more memory-efficient than original Chronos. Notable NEGATIVE scaling result: on electricity-price data Tiny (8.65M) beats Bolt-Mini (21M), Bolt-Small (48M), Bolt-Base (205M) - smaller is better here.'
+    real_life_examples:
+    - CPU-only zero-shot forecasting baseline
+    - Quantile forecast for inventory
+    config:
+      model_id: str
+      context_length: int
+      prediction_length: int
+    benchmark_results:
+    - benchmark: fev_bench
+      benchmark_url: https://github.com/autogluon/fev
+      algorithm: Chronos-Bolt-Tiny
+      algorithm_source_url: https://huggingface.co/amazon/chronos-bolt-tiny
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: univariate forecasting
+      n_datasets: 19
+      metric: mase
+      value: null
+      std: null
+      note: 'no_public_benchmark: fev-bench leaderboard renders client-side; Tiny MASE from HF model card plots is ~1.40 (geomean, 19 fev datasets); absolute value depends on the fev snapshot. IEEE electricity: MAE=0.0393, RMSE=0.317, MAPE=0.0242 (best among Chronos-Bolt variants).'
+    model_class: pretrained_ts
+    learning_mode: zero_shot
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: real_benchmark
+    dgp_source: null
+    dgp_overlap_risk: unknown
+    leakage:
+      pretraining_corpus: 'ULFTS + Chronos datasets (not fully disclosed)'
+      pretraining_overlap_risk: unknown
+      temporal_split: true
+      target_leakage_checked: null
+      notes: 'Pretraining corpus not fully disclosed; potential leakage against UCR/TSB-AD/M4/M5 datasets cannot be ruled out. Reference-only.'
+  - name: Chronos-Bolt-Mini
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - temporal_dynamics
+    - representation
+    purpose: 'Chronos-Bolt-Mini (Amazon, 2024): 21M params. Larger than Tiny; on most fev-bench datasets has comparable or slightly better MASE. IEEE electricity showed Tiny beats Mini (MAE 0.0393 vs 0.0394). Apache 2.0, CPU-feasible.'
+    real_life_examples:
+    - Slightly larger CPU-friendly zero-shot baseline
+    config:
+      model_id: str
+    benchmark_results:
+    - benchmark: fev_bench
+      benchmark_url: https://github.com/autogluon/fev
+      algorithm: Chronos-Bolt-Mini
+      algorithm_source_url: https://huggingface.co/amazon/chronos-bolt-mini
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: univariate forecasting
+      n_datasets: 19
+      metric: mase
+      value: null
+      std: null
+      note: 'no_public_benchmark: fev-bench aggregate-only; Mini is comparable to Tiny (roughly MASE 1.39-1.40).'
+    model_class: pretrained_ts
+    learning_mode: zero_shot
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: real_benchmark
+    dgp_source: null
+    dgp_overlap_risk: unknown
+    leakage:
+      pretraining_corpus: 'ULFTS + Chronos datasets (not fully disclosed)'
+      pretraining_overlap_risk: unknown
+      temporal_split: true
+      target_leakage_checked: null
+      notes: 'Reference-only; unknown pretraining overlap.'
+  - name: Chronos-Bolt-Small
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - temporal_dynamics
+    - representation
+    purpose: 'Chronos-Bolt-Small (Amazon, 2024): 48M params. Underperforms Tiny on electricity-price (MAE 0.0530 vs 0.0393); kept as horizontal reference showing "larger does not help".'
+    real_life_examples:
+    - Upper-bound reference for Bolt scaling
+    config:
+      model_id: str
+    benchmark_results:
+    - benchmark: fev_bench
+      benchmark_url: https://github.com/autogluon/fev
+      algorithm: Chronos-Bolt-Small
+      algorithm_source_url: https://huggingface.co/amazon/chronos-bolt-small
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: univariate forecasting
+      n_datasets: 19
+      metric: mase
+      value: null
+      std: null
+      note: 'no_public_benchmark: fev-bench aggregate-only. IEEE electricity showed Small is WORSE than Tiny (MAE 0.0530 vs 0.0393) - negative result on model-size scaling.'
+    model_class: pretrained_ts
+    learning_mode: zero_shot
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: real_benchmark
+    dgp_source: null
+    dgp_overlap_risk: unknown
+    leakage:
+      pretraining_corpus: 'ULFTS + Chronos datasets (not fully disclosed)'
+      pretraining_overlap_risk: unknown
+      temporal_split: true
+      target_leakage_checked: null
+      notes: 'Reference-only; negative scaling example.'
+  - name: Chronos-Bolt-Base
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - temporal_dynamics
+    - representation
+    purpose: 'Chronos-Bolt-Base (Amazon, 2024): 205M params. Top of Bolt family on fev-bench (MASE 1.393); but performs WORSE than Tiny on electricity. Illustrates that rank depends on benchmark - no universal "best Bolt".'
+    real_life_examples:
+    - High-parameter CPU reference
+    config:
+      model_id: str
+    benchmark_results:
+    - benchmark: fev_bench
+      benchmark_url: https://github.com/autogluon/fev
+      algorithm: Chronos-Bolt-Base
+      algorithm_source_url: https://huggingface.co/amazon/chronos-bolt-base
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: univariate forecasting
+      n_datasets: 19
+      metric: mase
+      value: 1.393
+      std: null
+      note: 'fev-bench MASE 1.393 (geomean over 19 datasets); 5th of 25 in fev leaderboard at release; beats Tiny here BUT worse than Tiny on electricity (MAE 0.0477 vs 0.0393).'
+    model_class: pretrained_ts
+    learning_mode: zero_shot
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: real_benchmark
+    dgp_source: null
+    dgp_overlap_risk: unknown
+    leakage:
+      pretraining_corpus: 'ULFTS + Chronos datasets (not fully disclosed)'
+      pretraining_overlap_risk: unknown
+      temporal_split: true
+      target_leakage_checked: null
+      notes: 'Reference-only; negative result vs Tiny on electricity.'
+  - name: Chronos-2-small
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - temporal_dynamics
+    - representation
+    - nonlinear_interactions
+    purpose: 'Chronos-2-small (Amazon, Nov 2025): 28M params. Second-gen Chronos: multivariable native support, covariates (past+future, real+categorical), cross-learning. Context 8192 (4x Bolt). Only foundation model reference for D2 multi-forecast and D1 exog.'
+    real_life_examples:
+    - Multivariate zero-shot forecast
+    - Forecast with exogenous covariates
+    config:
+      model_id: str
+      context_length: int
+    benchmark_results:
+    - benchmark: GIFT_Eval
+      benchmark_url: https://github.com/SalesforceAIResearch/gift-eval
+      algorithm: Chronos-2-small
+      algorithm_source_url: https://huggingface.co/amazon/chronos-2-small
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: multivariate forecasting
+      n_datasets: null
+      metric: mase
+      value: null
+      std: null
+      note: 'no_public_benchmark: GIFT-Eval dynamic leaderboard; no single quoted MASE available. Chronos-2 120M is the flagship; small 28M is CPU-feasible variant. DO NOT compare Chronos-2 to Chronos-Bolt - different architecture + capabilities.'
+    model_class: pretrained_ts
+    learning_mode: zero_shot
+    anomaly_type: none
+    data_modality: both
+    source_library: native
+    evaluation_scope: real_benchmark
+    dgp_source: null
+    dgp_overlap_risk: unknown
+    leakage:
+      pretraining_corpus: 'ULFTS + Chronos datasets (not fully disclosed)'
+      pretraining_overlap_risk: unknown
+      temporal_split: true
+      target_leakage_checked: null
+      notes: 'Reference-only; only foundation model with multivariable + covariates support; essential for D2 horizon.'
+  - name: AutoGluon-TS
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - nonlinear_interactions
+    - temporal_dynamics
+    - calibration
+    purpose: 'AutoGluon-TimeSeries (AWS Labs, 2023+): stack ensemble over statistical + GBDT + (optional) DL; learned weights via repeated k-fold bagging + holdout MASE. The winning approach family for M5 (WRMSE 0.52). Reference for simple-weighted / FFORMA-style ensembles in D1.'
+    real_life_examples:
+    - M5 winner architecture (stack over LightGBM + stat)
+    - AutoML baseline for retail forecasting
+    config:
+      presets: str
+      time_limit: int
+    benchmark_results:
+    - benchmark: M5
+      benchmark_url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
+      algorithm: AutoGluon-TimeSeries (stack)
+      algorithm_source_url: https://auto.gluon.ai/stable/tutorials/timeseries/index.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: multivariate forecasting
+      n_datasets: 1
+      metric: wrmse
+      value: 0.52
+      std: null
+      note: 'Approx WRMSE for M5 winning pipeline (LightGBM + AutoGluon transforms; the exact 0.52 is the M5 top solution which used AutoGluon-style stacking). AutoGluon-TS not itself the winner submission but the winning approach family; treat as literature reference with standard M5 caveat.'
+    model_class: ml
+    learning_mode: supervised
+    anomaly_type: none
+    data_modality: both
+    source_library: native
+    evaluation_scope: real_benchmark
+    dgp_source: null
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+      notes: 'Supervised training on train+val, temporal holdout test. Not pretrained; leakage_risk none.'
+  - name: Timer-S1
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - temporal_dynamics
+    - representation
+    purpose: 'Timer-S1 (ByteDance, 2026): 1B+ param decoder-only foundation model for time series; top-1 of GIFT-Eval at snapshot (MASE 0.693, CRPS 0.485). GPU-only; true SOTA horizon for foundation forecasters.'
+    real_life_examples:
+    - Absolute SOTA zero-shot reference
+    config:
+      model_id: str
+    benchmark_results:
+    - benchmark: GIFT_Eval
+      benchmark_url: https://github.com/SalesforceAIResearch/gift-eval
+      algorithm: Timer-S1
+      algorithm_source_url: https://github.com/thuml/Timer
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: univariate forecasting
+      n_datasets: null
+      metric: mase
+      value: 0.693
+      std: null
+      note: 'GIFT-Eval snapshot 2026: MASE 0.693, CRPS 0.485 - best of pretrained models at release. 1B+ params; GPU required; not CPU-feasible for CADW. SOTA horizon only.'
+    model_class: pretrained_ts
+    learning_mode: zero_shot
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: real_benchmark
+    dgp_source: null
+    dgp_overlap_risk: unknown
+    leakage:
+      pretraining_corpus: 'not disclosed (ByteDance)'
+      pretraining_overlap_risk: unknown
+      temporal_split: true
+      target_leakage_checked: null
+      notes: 'Reference-only; absolute SOTA horizon; 1B+ params GPU-only.'
+  - name: t0-beta
+    tier: sota
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - temporal_dynamics
+    - representation
+    purpose: 't0-beta (2026): foundation model second on GIFT-Eval (MASE 0.687, CRPS 0.474) - marginally beats Timer-S1 on MASE/CRPS. Included for completeness; only one of {Timer-S1, t0-beta} needed in ensemble_recommendation horizon.'
+    real_life_examples:
+    - Alternative SOTA zero-shot reference
+    config:
+      model_id: str
+    benchmark_results:
+    - benchmark: GIFT_Eval
+      benchmark_url: https://github.com/SalesforceAIResearch/gift-eval
+      algorithm: t0-beta
+      algorithm_source_url: https://github.com/SalesforceAIResearch/gift-eval
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: univariate forecasting
+      n_datasets: null
+      metric: mase
+      value: 0.687
+      std: null
+      note: 'GIFT-Eval snapshot 2026: MASE 0.687, CRPS 0.474. Marginally better than Timer-S1 on MASE; same GPU-only constraint.'
+    model_class: pretrained_ts
+    learning_mode: zero_shot
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: real_benchmark
+    dgp_source: null
+    dgp_overlap_risk: unknown
+    leakage:
+      pretraining_corpus: 'not disclosed'
+      pretraining_overlap_risk: unknown
+      temporal_split: true
+      target_leakage_checked: null
+      notes: 'Reference-only; SOTA horizon; GPU-only.'
   metrics:
   - name: mase
     combination: anchor

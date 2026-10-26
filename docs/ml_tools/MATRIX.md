@@ -30,6 +30,14 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | D | D1 Univariate forecasting | ETS | baseline | tier1_core | temporal_dynamics, probabilistic | desc | mase |
 | D | D1 Univariate forecasting | SARIMA | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | GBDTForecaster | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | mase |
+| D | D1 Univariate forecasting | Chronos-Bolt-Tiny | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
+| D | D1 Univariate forecasting | Chronos-Bolt-Mini | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
+| D | D1 Univariate forecasting | Chronos-Bolt-Small | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
+| D | D1 Univariate forecasting | Chronos-Bolt-Base | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
+| D | D1 Univariate forecasting | Chronos-2-small | sota | tier3_export | temporal_dynamics, representation, nonlinear_interactions | desc, export | mase |
+| D | D1 Univariate forecasting | AutoGluon-TS | sota | tier3_export | nonlinear_interactions, temporal_dynamics, calibration | desc, export | mase |
+| D | D1 Univariate forecasting | Timer-S1 | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
+| D | D1 Univariate forecasting | t0-beta | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
 | D | D2 Multivariate forecasting | VAR | baseline | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D2 Multivariate forecasting | GBDT_multiseries | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D3.1 TS anomaly — point | zscore | baseline | tier1_core | local_structure | ✓ cadw, ✓ agent | vus_pr |
