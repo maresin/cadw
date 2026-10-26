@@ -370,6 +370,427 @@ subtypes:
       value: 3.174
       std: null
       note: 'CADW-native: fit_time_s=0.6 @n=100k and 3.174 @n=1M (matrix_profile.json); NOT comparable to external LB. No std across runs.'
+  - name: DWT-MLEAD
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - temporal_dynamics
+    purpose: 'Multilevel Haar DWT on subsequences; Mahalanobis distance in each level; aggregate across levels.'
+    real_life_examples:
+    - Sensor drift, ECG morphology
+    config: {}
+    cadw_module: cadw.ml.dwt_mlead
+    cadw_function: fit_dwt_mlead
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/dwt_mlead.json
+      algorithm: cadw.ml.dwt_mlead.fit_dwt_mlead
+      algorithm_source_url: cadw/ml/dwt_mlead.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 0.76
+      std: null
+      note: 'CADW-native: recall=0.76, fit_time=0.51s, RSS=35MB on gen_ts_point_anomaly (n=100000). Thill 2017. Density leader (TAB 5.2.1).'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: Sub-PCA
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - representation
+    purpose: 'PCA reconstruction error on sliding windows; small k for point anomalies; mean aggregation for spike spread decay.'
+    real_life_examples:
+    - Server metric anomaly, IoT sensor
+    config: {}
+    cadw_module: cadw.ml.sub_pca
+    cadw_function: fit_sub_pca
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/sub_pca.json
+      algorithm: cadw.ml.sub_pca.fit_sub_pca
+      algorithm_source_url: cadw/ml/sub_pca.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.00, fit_time=0.12s, RSS=196MB on gen_ts_point_anomaly (n=100000). VUS-PR 0.42 U (TSB-AD). Fastest strong model (0.03s at n=30k).'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: KShapeAD
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - local_structure
+    purpose: 'k-Shape clustering with SBD (FFT-based cross-correlation, z-norm, shift alignment); shape-based distance to nearest centroid.'
+    real_life_examples:
+    - ECG morphology, gesture recognition
+    config: {}
+    cadw_module: cadw.ml.kshape
+    cadw_function: fit_kshape
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/kshape.json
+      algorithm: cadw.ml.kshape.fit_kshape
+      algorithm_source_url: cadw/ml/kshape.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 0.414
+      std: null
+      note: 'CADW-native: recall=0.41, fit_time=23.53s, RSS=156MB on gen_ts_shape_anomaly (n=10000). VUS-PR 0.40 U (TSB-AD).'
+    model_class: ml
+    learning_mode: unsupervised
+    anomaly_type: shape
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_shape_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: EIF
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - nonlinear_interactions
+    purpose: 'Extended Isolation Forest with random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed multivariate series.'
+    real_life_examples:
+    - Multivariate sensor outliers, network anomaly
+    config: {}
+    cadw_module: cadw.ml.eif
+    cadw_function: fit_eif
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/eif.json
+      algorithm: cadw.ml.eif.fit_eif
+      algorithm_source_url: cadw/ml/eif.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 0.7983
+      std: null
+      note: 'CADW-native: recall=0.80, fit_time=34.64s, RSS=8MB on gen_multivariate_outliers (n=50000). Hariri 2019. TAB Fig 8a best group.'
+    model_class: ml
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: both
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_multivariate_outliers
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: Hampel
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - local_structure
+    purpose: 'Rolling median plus MAD filter; sigma equals 1.4826 times MAD; simple univariate point baseline.'
+    real_life_examples:
+    - Sensor threshold alarms
+    config: {}
+    cadw_module: cadw.ml.hampel
+    cadw_function: fit_hampel
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/hampel.json
+      algorithm: cadw.ml.hampel.fit_hampel
+      algorithm_source_url: cadw/ml/hampel.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.00, fit_time=0.06s, RSS=15MB on gen_ts_point_anomaly (n=100000). Tukey filter family; cheapest baseline.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: ZMS
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - local_structure
+    purpose: 'Trailing rolling z-score based on abs(x minus mu) over sigma; threshold or contamination.'
+    real_life_examples:
+    - Server metric anomaly
+    config: {}
+    cadw_module: cadw.ml.zms
+    cadw_function: fit_zms
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/zms.json
+      algorithm: cadw.ml.zms.fit_zms
+      algorithm_source_url: cadw/ml/zms.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.00, fit_time=0.03s, RSS=41MB on gen_ts_point_anomaly (n=100000). Merlion ZMS core. More precise than Hampel (85 vs 2197 flagged).'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: STRAY
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - local_structure
+    purpose: 'Robust standardize plus k-th NN distance plus GPD tail fit plus negative log p-value; streaming with drift.'
+    real_life_examples:
+    - IoT sensor drift, healthcare
+    config: {}
+    cadw_module: cadw.ml.stray
+    cadw_function: fit_stray
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/stray.json
+      algorithm: cadw.ml.stray.fit_stray
+      algorithm_source_url: cadw/ml/stray.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.00, fit_time=1.43s, RSS=478MB on gen_ts_point_anomaly (n=10000). Talagala 2021. MoM GPD not MLE; brute-force KNN O(n^2) n<=20k.'
+    model_class: ml
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: both
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: Autoencoder
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - representation
+    purpose: 'MLP encoder-decoder on sliding windows; SGD with momentum; per-window MSE reconstruction error.'
+    real_life_examples:
+    - Generic tabular anomaly
+    config: {}
+    cadw_module: cadw.ml.autoencoder
+    cadw_function: fit_autoencoder
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/autoencoder.json
+      algorithm: cadw.ml.autoencoder.fit_autoencoder
+      algorithm_source_url: cadw/ml/autoencoder.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.00, fit_time=12.21s, RSS=125MB on gen_ts_point_anomaly (n=50000). Scale-sensitive: n=50k needed to avoid memorizing 600 affected windows.'
+    model_class: dl_from_scratch
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: KMeansAD
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - local_structure
+    purpose: 'k-means++ on windowed subsequences; distance to nearest centroid as anomaly score.'
+    real_life_examples:
+    - IoT sensor, general clustering baseline
+    config: {}
+    cadw_module: cadw.ml.kmeans_ad
+    cadw_function: fit_kmeans_ad
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/kmeans_ad.json
+      algorithm: cadw.ml.kmeans_ad.fit_kmeans_ad
+      algorithm_source_url: cadw/ml/kmeans_ad.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 0.9
+      std: null
+      note: 'CADW-native: recall=0.90, fit_time=0.28s, RSS=42MB on gen_ts_point_anomaly (n=50000). VUS-PR 0.37 U (TSB-AD). Ties Sub-PCA on synthetic (all 1.0 at 0.1s).'
+    model_class: ml
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: PatchMemoryAD
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - representation
+    purpose: 'PaAno-inspired patch splitting plus MLP encoder plus memory bank with momentum; triplet loss often inactive; score equals min distance to memory.'
+    real_life_examples:
+    - Generic tabular anomaly (patch-based)
+    config: {}
+    cadw_module: cadw.ml.patch_memory_ad
+    cadw_function: fit_patch_memory_ad
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/patch_memory_ad.json
+      algorithm: cadw.ml.patch_memory_ad.fit_patch_memory_ad
+      algorithm_source_url: cadw/ml/patch_memory_ad.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.00, fit_time=24.41s, RSS=64MB on gen_ts_point_anomaly (n=30000). Triplet loss not active (loss=0); MLP-flattened not 1D-conv; point specialist (segments recall 0.04).'
+    model_class: dl_from_scratch
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+
   metrics:
   - name: auprc
     combination: anchor
@@ -456,6 +877,91 @@ subtypes:
       value: 0.51
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+  - name: T-squared+Q
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - temporal_dynamics
+    purpose: 'Hotelling T^2 (PCA score-space) plus Q (SPE residual); OR-threshold; percentiles per stat.'
+    real_life_examples:
+    - Industrial SPC, sensor calibration shift
+    config: {}
+    cadw_module: cadw.ml.tspq
+    cadw_function: fit_t2q
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/tspq.json
+      algorithm: cadw.ml.tspq.fit_t2q
+      algorithm_source_url: cadw/ml/tspq.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series change-point detection
+      n_datasets: 1
+      metric: recall
+      value: 0.962
+      std: null
+      note: 'CADW-native: recall=0.96, fit_time=0.03s, RSS=5MB on gen_ts_changepoint (n=20000). SKAB F1 0.76 (best CPU-friendly non-learning).'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: changepoint
+    data_modality: multi
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_changepoint
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+  - name: CUSUM
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - temporal_dynamics
+    purpose: 'Two-sided CUSUM with reset after alarm; cumulative deviation from mean in sigma units.'
+    real_life_examples:
+    - Quality control, finance
+    config: {}
+    cadw_module: cadw.ml.cusum
+    cadw_function: fit_cusum
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/cusum.json
+      algorithm: cadw.ml.cusum.fit_cusum
+      algorithm_source_url: cadw/ml/cusum.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series change-point detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.00, fit_time=1.28s, RSS=4MB on gen_ts_changepoint (n=100000). Standard CUSUM reset; alternating mean shifts in bench.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: changepoint
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_changepoint
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+
   metrics:
   - name: auprc
     combination: anchor
@@ -573,6 +1079,49 @@ subtypes:
       value: 0.5
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+  - name: S2G
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - local_structure
+    purpose: 'Series2Graph: local convolution plus PCA 3D plus rotation plus angle nodes plus transition graph plus path normalcy (paper faithful).'
+    real_life_examples:
+    - ECG, gesture, subsequence motif
+    config: {}
+    cadw_module: cadw.ml.s2g
+    cadw_function: fit_s2g
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/s2g.json
+      algorithm: cadw.ml.s2g.fit_s2g
+      algorithm_source_url: cadw/ml/s2g.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 0.5833
+      std: null
+      note: 'CADW-native: recall=0.58, fit_time=4.81s, RSS=105MB on gen_ts_shape_anomaly (n=50000). VUS-PR 0.39 U (TSB-AD). Paper-faithful; segments recall 0.58, motifs 0.34 at n=50k.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: shape
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_shape_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [recall, fit_time_s, peak_rss_mb]
+
   metrics:
   - name: auprc
     combination: anchor
