@@ -221,11 +221,39 @@ def _is_string_method(call: ast.Call) -> bool:
     return isinstance(base, ast.Constant) and isinstance(base.value, str)
 
 
+# v0.9.64: NumPy/math/scipy receivers are never pyarrow/pandas
+# allocation calls. HIGH_RISK_ATTRS guards O(n log n) Arrow/pandas
+# operations (pc.quantile on Table, to_pandas, sort_indices, group_by)
+# that materialize unbounded memory. np.quantile/np.percentile/np.median
+# partition in-place on a copy of an existing numpy array — O(n) time,
+# no Arrow materialization. Guard was flagging np.quantile as
+# false-positive (v0.9.52 DWT-MLEAD cadw/ml/dwt_mlead.py:264).
+_SAFE_NUMPY_MODULES = frozenset({"np", "numpy", "math", "scipy"})
+
+
+def _is_safe_numpy_receiver(node: ast.AST) -> bool:
+    """Return True if `node` is np/numpy/math/scipy (directly or as prefix).
+
+    For `np.quantile(arr, 0.5)`, node = Name(id='np'). For
+    `np.random.quantile(...)` (hypothetical), node = Attribute(
+    value=Name(id='np'), attr='random'), recurses to Name(id='np') -> True.
+    """
+    if isinstance(node, ast.Name):
+        return node.id in _SAFE_NUMPY_MODULES
+    if isinstance(node, ast.Attribute):
+        return _is_safe_numpy_receiver(node.value)
+    return False
+
+
 def _get_high_risk_calls(func: ast.AST):
     """Yield (attr, lineno) for high-risk calls in `func`'s own body.
 
     Nested function/class definitions are NOT descended into — their
     calls are attributed to their own qualname (K1.1).
+
+    v0.9.64: calls on np/numpy/math/scipy receivers are skipped —
+    np.quantile is not pyarrow's pc.quantile; no unbounded Arrow
+    allocation.
     """
     stack: list[ast.AST] = [func]
     while stack:
@@ -241,6 +269,7 @@ def _get_high_risk_calls(func: ast.AST):
                 and isinstance(child.func, ast.Attribute)
                 and child.func.attr in HIGH_RISK_ATTRS
                 and not _is_string_method(child)
+                and not _is_safe_numpy_receiver(child.func.value)
             ):
                 attr = child.func.attr
                 skip = False
@@ -567,3 +596,65 @@ def test_calibrate_uses_thread_join_not_table_join():
             f"calibrate .join() receiver {recv!r} is not thread-like — "
             f"whitelist may hide real Table.join. Receivers: {join_receivers}"
         )
+
+# ============================================================
+# v0.9.64: np-quantile false-positive fix
+# ============================================================
+
+def test_np_quantile_not_flagged():
+    """np.quantile(arr, q) is in-place partition on a copy — not a
+    pyarrow/pandas allocation. Guard must not flag it.
+
+    Regression: v0.9.52 DWT-MLEAD (cadw/ml/dwt_mlead.py:264) was
+    flagged as 'unguarded quantile()' but uses np.quantile, not
+    pc.quantile / df.quantile."""
+    import ast
+    src = """
+def f(x):
+    return np.quantile(x, 0.99)
+"""
+    tree = ast.parse(src)
+    fn = tree.body[0]
+    calls = list(_get_high_risk_calls(fn))
+    assert not calls, f"np.quantile wrongly flagged: {calls}"
+
+
+def test_pandas_quantile_still_flagged():
+    """df.quantile() and pc.quantile() MUST still be flagged — pandas
+    and pyarrow receivers are real high-risk allocation calls."""
+    import ast
+    src = """
+def f(df, table):
+    a = df.quantile(0.5)
+    b = pc.quantile(table, q=0.5)
+    return a, b
+"""
+    tree = ast.parse(src)
+    fn = tree.body[0]
+    calls = list(_get_high_risk_calls(fn))
+    attrs = [a for a, _ in calls]
+    assert attrs.count("quantile") == 2, (
+        f"expected 2 quantile flags (df + pc), got {calls}")
+
+
+def test_nested_numpy_attribute_not_flagged():
+    """np.random.quantile (if existed) still resolves to np receiver."""
+    import ast
+    src = """
+def f(x):
+    return np.random.quantile(x, 0.5)
+"""
+    tree = ast.parse(src)
+    fn = tree.body[0]
+    calls = list(_get_high_risk_calls(fn))
+    assert not calls, f"nested np receiver wrongly flagged: {calls}"
+
+
+def test_dwt_mlead_guard_now_passes():
+    """End-to-end: current cadw/ml/dwt_mlead.py has no violations."""
+    from pathlib import Path as _P
+    root = _P(__file__).parent.parent
+    files = [root / "cadw/ml/dwt_mlead.py"]
+    violations = _collect_violations(files)
+    assert not violations, (
+        "dwt_mlead.py still flagged: " + "\n".join(violations))
