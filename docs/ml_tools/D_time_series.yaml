@@ -874,13 +874,15 @@ subtypes:
     special: Strict; no credit for near-miss detections.
   ensemble_recommendation:
   - roles:
+    - temporal_dynamics
+    - representation
     - local_structure
-    - nonlinear_interactions
     models:
-    - MatrixProfile
-    - IForest
+    - DWT-MLEAD
+    - Sub-PCA
+    - KShapeAD
     max_per_role: 1
-    note: Average z-scored anomaly scores; MP catches periodic patterns, IForest catches global outliers.
+    note: '3 complementary inductive biases: DWT-MLEAD (frequency decomposition), Sub-PCA (linear subspace reconstruction), KShapeAD (shape clustering). All verified_in_cadw with cadw_measured recall >= 0.4 on synthetic. avg z-scored anomaly scores. v0.9.72b: IForest and MatrixProfile moved to baseline (out of ensemble) after tier corrections.'
 - id: D3.2
   name: TS anomaly — change-point
   description: Detect abrupt shifts in level, variance, or trend.
@@ -941,6 +943,53 @@ subtypes:
     source_library: native
     evaluation_scope: synthetic
     dgp_source: synthetic_alternating_mean_shifts
+  - name: BOCPD
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - probabilistic
+    purpose: 'Bayesian online change-point detection with Student-t predictive likelihood (Adams & MacKay 2007). Run-length posterior plus NIG conjugate prior; score = P(change at t) = R[0], threshold 0.5. Student-t critical for heavy-tailed industrial data (SKAB: 32 percent DR at 13 percent FAR vs BOCPD-Gaussian ~0 percent DR).'
+    real_life_examples:
+    - Industrial sensor changepoint
+    - Online regime detection
+    config:
+      hazard_rate: float
+      mu0: float
+      kappa0: float
+      alpha0: float
+      beta0: float
+      burn_in: int
+    cadw_module: cadw.ml.bocpd
+    cadw_function: fit_bocpd
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/bocpd.json
+      algorithm: cadw.ml.bocpd.fit_bocpd
+      algorithm_source_url: cadw/ml/bocpd.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series change-point detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.0 (5/5 cp exact), median_detection_delay=0.0, fit_time=7.3s, RSS=32MB on synthetic_alternating_mean_shifts (n=20000). hazard=1/500, contamination=0.02, burn_in=20; threshold=max(percentile(1-c), 0.5) per Adams & MacKay.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: changepoint
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: synthetic_alternating_mean_shifts
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
   - name: PELT
     tier: sota
     tier_level: tier1_core
@@ -977,8 +1026,8 @@ subtypes:
       verified_in_cadw: true
       verified_by_agent: false
     roles:
-    - temporal_dynamics
-    purpose: 'Hotelling T^2 (PCA score-space) plus Q (SPE residual); OR-threshold; percentiles per stat.'
+    - representation
+    purpose: 'Hotelling T^2 (PCA score-space) plus Q (SPE residual); OR-threshold; percentiles per stat. v0.9.72b role temporal_dynamics -> representation (PCA subspace SPC is a representation-based detector; different inductive bias from PELT/BOCPD temporal_dynamics).'
     real_life_examples:
     - Industrial SPC, sensor calibration shift
     config: {}
@@ -1098,10 +1147,14 @@ subtypes:
   ensemble_recommendation:
   - roles:
     - temporal_dynamics
+    - representation
+    - probabilistic
     models:
     - PELT
+    - T-squared+Q
+    - BOCPD
     max_per_role: 1
-    note: Single model — BinarySeg is baseline only.
+    note: '3 paradigms: PELT (exact batch pruning, O(n) with early pruning), T-squared+Q (PCA subspace SPC, batch), BOCPD-StudentT (Bayesian online run-length). avg change scores. v0.9.72b: 3-role ensemble after BOCPD implementation + T-squared+Q retier.'
 - id: D3.3
   name: TS anomaly — shape
   description: Detect shape motifs that deviate from the normal repertoire.
@@ -1223,6 +1276,50 @@ subtypes:
       value: 0.5
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+  - name: EIF
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: false
+    roles:
+    - nonlinear_interactions
+    purpose: 'Extended Isolation Forest (Hariri 2019): random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed univariate shape anomalies. Same algorithm as D3.1 EIF, different role (shape vs point).'
+    real_life_examples:
+    - ECG morphology segments
+    - Gesture anomaly segments
+    config:
+      n_estimators: int
+      window_size: int
+      extension_level: int
+    cadw_module: cadw.ml.eif
+    cadw_function: fit_eif
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/eif.json
+      algorithm: cadw.ml.eif.fit_eif
+      algorithm_source_url: cadw/ml/eif.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 0.7983
+      std: null
+      note: 'CADW-native: segments recall=0.80 (479/600), fit_time=34.6s, RSS=8MB on univariate sine+segments (n=50000). Same fit_eif as D3.1; D3.3 role is shape (segment) not point.'
+    model_class: ml
+    learning_mode: unsupervised
+    anomaly_type: shape
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_shape_anomaly
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
   - name: S2G
     tier: sota
     tier_level: tier1_core
@@ -1315,13 +1412,15 @@ subtypes:
     special: Strict; no credit for near-miss detections.
   ensemble_recommendation:
   - roles:
-    - representation
     - local_structure
+    - representation
+    - nonlinear_interactions
     models:
+    - S2G
     - MiniRocket_embedding
-    - MatrixProfile_discord
+    - EIF
     max_per_role: 1
-    note: Concatenate embeddings + MP distance into a 2D score.
+    note: '3 families: S2G (graph subsequence, paper-faithful), MiniRocket (random convolution embedding), EIF (random hyperplane trees). avg anomaly scores. v0.9.72b: MatrixProfile_discord moved to baseline (out of ensemble); EIF added as nonlinear_interactions representative.'
 - id: D4
   name: TS classification
   description: Predict a categorical label per series.
