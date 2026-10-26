@@ -1,0 +1,17 @@
+{
+  "model": "tspq",
+  "n": 20000,
+  "n_channels": 5,
+  "n_changes": 5,
+  "seg_len": 200,
+  "n_anomaly_points": 1000,
+  "detected": 962,
+  "recall": 0.962,
+  "total_flagged": 1961,
+  "n_components": 4,
+  "t2_limit": 8.6837,
+  "q_limit": 1.84,
+  "contamination": 0.05,
+  "fit_time_s": 0.032,
+  "peak_rss_mb": 5.36
+}

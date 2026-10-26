@@ -168,3 +168,34 @@ def gen_multivariate_outliers(n: int = 5000, n_channels: int = 3,
         # amplitude burst in all channels, opposite phase
         X[p] = -3.0 * X[p]
     return X, pos
+
+
+def gen_ts_changepoint(n: int = 5000, n_channels: int = 3,
+                       n_changes: int = 3, seed: int = 0) -> tuple:
+    """Multi-channel sine with mean shifts at random changepoint positions.
+
+    Returns
+    -------
+    X : np.ndarray, shape (n, n_channels)
+    changepoints : np.ndarray, shape (n_changes,)
+        Indices where the mean level shifts.
+    anomaly_positions : np.ndarray
+        All timestamps in anomaly zone (after each changepoint until
+        the next baseline segment ends). For SKAB-style scoring, the
+        post-changepoint region is flagged anomalous.
+    """
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    X = np.empty((n, n_channels), dtype=np.float64)
+    for ch in range(n_channels):
+        period = 100.0 + 20.0 * ch
+        X[:, ch] = np.sin(2 * np.pi * t / period) + 0.1 * rng.standard_normal(n)
+    cps = np.sort(rng.choice(n - 500, size=n_changes, replace=False)) + 500
+    pos = []
+    shift_per_ch = rng.choice([-2.5, -1.5, 1.5, 2.5], size=n_channels)
+    for cp in cps:
+        end = min(cp + 300, n)
+        X[cp:end] += shift_per_ch  # mean shift in all channels
+        pos.extend(range(cp, end))
+    return X, cps, np.array(sorted(pos))
