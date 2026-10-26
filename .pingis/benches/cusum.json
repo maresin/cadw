@@ -1,0 +1,14 @@
+{
+  "model": "cusum",
+  "n": 100000,
+  "n_changes": 10,
+  "n_anomaly_points": 2000,
+  "detected": 2000,
+  "recall": 1.0,
+  "total_flagged": 2000,
+  "k": 0.5,
+  "h": 5.0,
+  "threshold": 5.0,
+  "fit_time_s": 1.2792,
+  "peak_rss_mb": 3.91
+}

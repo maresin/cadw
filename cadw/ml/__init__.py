@@ -49,3 +49,5 @@ from .tspq import T2QResult, fit_t2q  # noqa: E402,F401
 # v0.9.57: Hampel filter + ZMS (rolling baselines)
 from .hampel import HampelResult, fit_hampel  # noqa: E402,F401
 from .zms import ZMSResult, fit_zms  # noqa: E402,F401
+# v0.9.58: CUSUM (cumulative sum control chart)
+from .cusum import CUSUMResult, fit_cusum  # noqa: E402,F401
