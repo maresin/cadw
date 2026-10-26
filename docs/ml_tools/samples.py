@@ -116,3 +116,26 @@ def gen_ts_point_anomaly(n: int = 1000, n_spikes: int = 20,
     spike_pos = rng.choice(n, size=n_spikes, replace=False)
     x[spike_pos] += 5.0
     return x, spike_pos
+
+
+def gen_ts_shape_anomaly(n: int = 1000, n_segments: int = 3,
+                         seg_len: int = 30, seed: int = 0) -> tuple:
+    """Sine baseline with square-wave segments injected as shape anomalies.
+
+    Returns
+    -------
+    x : np.ndarray, shape (n,)
+    anomaly_positions : np.ndarray
+        All indices belonging to injected segments.
+    """
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    x = np.sin(2 * np.pi * t / 100.0) + 0.1 * rng.standard_normal(n)
+    starts = rng.choice(n - seg_len, size=n_segments, replace=False)
+    anomaly_positions = []
+    for s in starts:
+        lt = np.arange(seg_len)
+        x[s:s + seg_len] = np.sign(np.sin(2 * np.pi * lt / 20.0)) * 1.0
+        anomaly_positions.extend(range(s, s + seg_len))
+    return x, np.array(sorted(anomaly_positions))
