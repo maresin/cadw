@@ -42,3 +42,5 @@ from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
 from .kshape import KShapeResult, fit_kshape  # noqa: E402,F401
 # v0.9.54: Sub-PCA (windowed PCA reconstruction error)
 from .sub_pca import SubPCAResult, fit_sub_pca  # noqa: E402,F401
+# v0.9.55: Extended Isolation Forest (Hariri et al. 2019)
+from .eif import EIFResult, fit_eif  # noqa: E402,F401

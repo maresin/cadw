@@ -119,29 +119,59 @@ def _resolve_k(n_components, eigvals: np.ndarray, w: int) -> int:
     return max(1, min(k, m))
 
 
-def _map_max(window_scores: np.ndarray, w: int, n: int) -> np.ndarray:
-    """Per-timestamp max over covering windows (vectorized)."""
+def _map_max(window_scores: np.ndarray, w: int, n: int,
+             stride: int = 1) -> np.ndarray:
+    """Per-timestamp max over covering windows.
+
+    stride=1 (default): fast path via sliding_window_view + vectorized max.
+    stride>1: loop path (window i covers [i*stride, i*stride+w)).
+    """
     n_w = len(window_scores)
-    padded = np.concatenate([
-        np.full(w - 1, -np.inf), window_scores, np.full(w - 1, -np.inf),
-    ])
-    sw = np.lib.stride_tricks.sliding_window_view(padded, w)
-    result = sw.max(axis=1)
-    return np.where(np.isfinite(result), result, 0.0)[:n]
+    if stride == 1:
+        padded = np.concatenate([
+            np.full(w - 1, -np.inf), window_scores, np.full(w - 1, -np.inf),
+        ])
+        sw = np.lib.stride_tricks.sliding_window_view(padded, w)
+        result = sw.max(axis=1)
+        return np.where(np.isfinite(result), result, 0.0)[:n]
+    scores = np.full(n, -np.inf, dtype=np.float64)
+    for i in range(n_w):
+        start = i * stride
+        end = min(start + w, n)
+        if start < n:
+            np.maximum(scores[start:end], window_scores[i],
+                       out=scores[start:end])
+    scores[~np.isfinite(scores)] = 0.0
+    return scores
 
 
-def _map_mean(window_scores: np.ndarray, w: int, n: int) -> np.ndarray:
-    """Per-timestamp mean over covering windows (cumsum trick)."""
+def _map_mean(window_scores: np.ndarray, w: int, n: int,
+              stride: int = 1) -> np.ndarray:
+    """Per-timestamp mean over covering windows.
+
+    stride=1 (default): cumsum delta trick. stride>1: loop path.
+    """
     n_w = len(window_scores)
-    sums_delta = np.zeros(n + w + 1, dtype=np.float64)
-    sums_delta[:n_w] += window_scores
-    sums_delta[w:n_w + w] -= window_scores
-    sums = np.cumsum(sums_delta)[:n]
+    if stride == 1:
+        sums_delta = np.zeros(n + w + 1, dtype=np.float64)
+        sums_delta[:n_w] += window_scores
+        sums_delta[w:n_w + w] -= window_scores
+        sums = np.cumsum(sums_delta)[:n]
 
-    counts_delta = np.zeros(n + w + 1, dtype=np.float64)
-    counts_delta[:n_w] += 1.0
-    counts_delta[w:n_w + w] -= 1.0
-    counts = np.cumsum(counts_delta)[:n]
+        counts_delta = np.zeros(n + w + 1, dtype=np.float64)
+        counts_delta[:n_w] += 1.0
+        counts_delta[w:n_w + w] -= 1.0
+        counts = np.cumsum(counts_delta)[:n]
+        counts = np.maximum(counts, 1.0)
+        return sums / counts
+    sums = np.zeros(n, dtype=np.float64)
+    counts = np.zeros(n, dtype=np.float64)
+    for i in range(n_w):
+        start = i * stride
+        end = min(start + w, n)
+        if start < n:
+            sums[start:end] += window_scores[i]
+            counts[start:end] += 1.0
     counts = np.maximum(counts, 1.0)
     return sums / counts
 

@@ -139,3 +139,32 @@ def gen_ts_shape_anomaly(n: int = 1000, n_segments: int = 3,
         x[s:s + seg_len] = np.sign(np.sin(2 * np.pi * lt / 20.0)) * 1.0
         anomaly_positions.extend(range(s, s + seg_len))
     return x, np.array(sorted(anomaly_positions))
+
+
+def gen_multivariate_outliers(n: int = 5000, n_channels: int = 3,
+                              n_outliers: int = 50, seed: int = 0) -> tuple:
+    """Multi-channel Gaussian process + scattered multivariate outliers.
+
+    Baseline: n_channels independent sine waves with phase offsets
+    (correlated across channels in time); outliers are injected as
+    amplitude/phase changes in *all* channels simultaneously.
+
+    Returns
+    -------
+    X : np.ndarray, shape (n, n_channels)
+    outlier_positions : np.ndarray, shape (n_outliers,)
+    """
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    X = np.empty((n, n_channels), dtype=np.float64)
+    for ch in range(n_channels):
+        period = 100.0 + 20.0 * ch
+        phase = 0.5 * ch
+        X[:, ch] = np.sin(2 * np.pi * t / period + phase) \
+            + 0.1 * rng.standard_normal(n)
+    pos = rng.choice(n, size=n_outliers, replace=False)
+    for p in pos:
+        # amplitude burst in all channels, opposite phase
+        X[p] = -3.0 * X[p]
+    return X, pos
