@@ -38,14 +38,17 @@
 ### ETS — baseline / tier1_core
 
 **Roles:** temporal_dynamics, probabilistic
-**Status:** desc
+**Status:** ✓ cadw, ✓ agent
 
-**Purpose:** Exponential smoothing with explicit trend+seasonality components.
+**Purpose:** Holt-Winters exponential smoothing (additive-error, additive/multiplicative seasonality, damped trend). Classical decomposition init + bounded Nelder-Mead grid search over (alpha, beta, gamma, phi); analytic Gaussian prediction intervals. Reference: Hyndman et al. 2002.
 
 **Use cases:**
 - Inventory replenishment
+- Retail demand forecast
 
-**Config:** `{'trend': 'str', 'seasonal': 'str'}`
+**Config:** `{'seasonal_period': 'int', 'seasonal': 'str', 'trend': 'bool', 'damped': 'bool'}`
+
+**CADW:** `cadw.ts.ets.ETSForecaster`
 
 **Benchmarks:**
 - **[literature]** M4 → smape=13.52
@@ -53,6 +56,11 @@
   - number: https://github.com/Mcompetitions/M4-methods
   - code/paper: https://www.statsmodels.org/stable/generated/statsmodels.tsa.holtwinters.ExponentialSmoothing.html
   - note: [legacy v0.9.44, migrated v0.9.50]
+- **[cadw_measured]** cadw_internal → fit_time_s=17.153 (n=3)
+  - algorithm: `cadw.ts.ets.ETSForecaster` (code)
+  - number: .pingis/benches/ets.json
+  - code/paper: cadw/ts/ets.py
+  - note: CADW-native: fit_predict_s=0.18/1.74/17.15 @n=500/5k/50k (seasonal_period=12; scripts/bench_ets.py, .pingis/benches/ets.json). Residual sigma=0.61/0.54/0.52. Peak RSS 4.9/0.1/1.4 MB. Hardware-specific; NOT comparable to external LB. Range 1000x across n - O(n * grid_size) fit; no cross-n comparable fit_time.
 
 ### SARIMA — sota / tier1_core
 

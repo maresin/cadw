@@ -59,16 +59,23 @@ subtypes:
     tier: baseline
     tier_level: tier1_core
     implementation_status:
-      described_only: true
+      verified_in_cadw: true
+      verified_by_agent: true
+      described_only: false
     roles:
     - temporal_dynamics
     - probabilistic
-    purpose: Exponential smoothing with explicit trend+seasonality components.
+    purpose: 'Holt-Winters exponential smoothing (additive-error, additive/multiplicative seasonality, damped trend). Classical decomposition init + bounded Nelder-Mead grid search over (alpha, beta, gamma, phi); analytic Gaussian prediction intervals. Reference: Hyndman et al. 2002.'
     real_life_examples:
     - Inventory replenishment
+    - Retail demand forecast
     config:
-      trend: str
+      seasonal_period: int
       seasonal: str
+      trend: bool
+      damped: bool
+    cadw_module: cadw.ts.ets
+    cadw_function: ETSForecaster
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -82,6 +89,33 @@ subtypes:
       value: 13.52
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/ets.json
+      algorithm: cadw.ts.ets.ETSForecaster
+      algorithm_source_url: cadw/ts/ets.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: univariate forecasting
+      n_datasets: 3
+      metric: fit_time_s
+      value: 17.153
+      std: null
+      note: 'CADW-native: fit_predict_s=0.18/1.74/17.15 @n=500/5k/50k (seasonal_period=12; scripts/bench_ets.py, .pingis/benches/ets.json). Residual sigma=0.61/0.54/0.52. Peak RSS 4.9/0.1/1.4 MB. Hardware-specific; NOT comparable to external LB. Range 1000x across n - O(n * grid_size) fit; no cross-n comparable fit_time.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: both
+    dgp_source: synthetic_seasonal_linear
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [mase, fit_time_s, peak_rss_mb]
   - name: SARIMA
     tier: sota
     tier_level: tier1_core
