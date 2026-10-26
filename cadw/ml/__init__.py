@@ -46,3 +46,6 @@ from .sub_pca import SubPCAResult, fit_sub_pca  # noqa: E402,F401
 from .eif import EIFResult, fit_eif  # noqa: E402,F401
 # v0.9.56: T-squared + Q (Hotelling SPC on PCA)
 from .tspq import T2QResult, fit_t2q  # noqa: E402,F401
+# v0.9.57: Hampel filter + ZMS (rolling baselines)
+from .hampel import HampelResult, fit_hampel  # noqa: E402,F401
+from .zms import ZMSResult, fit_zms  # noqa: E402,F401

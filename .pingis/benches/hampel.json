@@ -1,0 +1,13 @@
+{
+  "model": "hampel",
+  "n": 100000,
+  "n_spikes": 50,
+  "detected": 50,
+  "recall": 1.0,
+  "total_flagged": 2197,
+  "window_size": 7,
+  "n_sigma": 3.0,
+  "threshold": 3.0,
+  "fit_time_s": 0.0572,
+  "peak_rss_mb": 14.76
+}

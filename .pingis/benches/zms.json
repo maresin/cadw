@@ -1,0 +1,12 @@
+{
+  "model": "zms",
+  "n": 100000,
+  "n_spikes": 50,
+  "detected": 50,
+  "recall": 1.0,
+  "total_flagged": 85,
+  "window_size": 50,
+  "threshold": 3.0,
+  "fit_time_s": 0.0294,
+  "peak_rss_mb": 41.2
+}
