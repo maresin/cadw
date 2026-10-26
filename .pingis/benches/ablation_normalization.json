@@ -1,0 +1,55 @@
+{
+  "n": 30000,
+  "n_spikes": 20,
+  "contamination": 0.08,
+  "results": [
+    {
+      "config": "easy",
+      "amplitude": 20.0,
+      "noise": 0.1,
+      "pma_none": 1.0,
+      "pma_window": 1.0,
+      "pma_patch": 0.35,
+      "ae_none": 1.0,
+      "ae_window": 1.0,
+      "sub_pca": 1.0,
+      "kmeans_ad": 1.0
+    },
+    {
+      "config": "subtle",
+      "amplitude": 5.0,
+      "noise": 0.1,
+      "pma_none": 1.0,
+      "pma_window": 1.0,
+      "pma_patch": 0.35,
+      "ae_none": 1.0,
+      "ae_window": 0.9,
+      "sub_pca": 1.0,
+      "kmeans_ad": 1.0
+    },
+    {
+      "config": "noisy",
+      "amplitude": 20.0,
+      "noise": 0.5,
+      "pma_none": 1.0,
+      "pma_window": 0.0,
+      "pma_patch": 0.0,
+      "ae_none": 1.0,
+      "ae_window": 0.0,
+      "sub_pca": 1.0,
+      "kmeans_ad": 1.0
+    },
+    {
+      "config": "hard",
+      "amplitude": 5.0,
+      "noise": 0.5,
+      "pma_none": 0.95,
+      "pma_window": 0.1,
+      "pma_patch": 0.0,
+      "ae_none": 0.6,
+      "ae_window": 0.0,
+      "sub_pca": 1.0,
+      "kmeans_ad": 1.0
+    }
+  ]
+}

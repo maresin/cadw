@@ -1,0 +1,103 @@
+{
+  "n": 30000,
+  "n_spikes": 20,
+  "contamination": 0.08,
+  "results": [
+    {
+      "config": "easy",
+      "amplitude": 20.0,
+      "noise": 0.1,
+      "n": 30000,
+      "n_spikes": 20,
+      "contamination": 0.08,
+      "patch_memory_ad": {
+        "recall": 1.0,
+        "time_s": 14.62
+      },
+      "autoencoder": {
+        "recall": 1.0,
+        "time_s": 3.2
+      },
+      "sub_pca": {
+        "recall": 1.0,
+        "time_s": 0.03
+      },
+      "kmeans_ad": {
+        "recall": 1.0,
+        "time_s": 0.1
+      }
+    },
+    {
+      "config": "subtle",
+      "amplitude": 5.0,
+      "noise": 0.1,
+      "n": 30000,
+      "n_spikes": 20,
+      "contamination": 0.08,
+      "patch_memory_ad": {
+        "recall": 1.0,
+        "time_s": 14.58
+      },
+      "autoencoder": {
+        "recall": 0.9,
+        "time_s": 3.2
+      },
+      "sub_pca": {
+        "recall": 1.0,
+        "time_s": 0.03
+      },
+      "kmeans_ad": {
+        "recall": 1.0,
+        "time_s": 0.11
+      }
+    },
+    {
+      "config": "noisy",
+      "amplitude": 20.0,
+      "noise": 0.5,
+      "n": 30000,
+      "n_spikes": 20,
+      "contamination": 0.08,
+      "patch_memory_ad": {
+        "recall": 0.0,
+        "time_s": 14.56
+      },
+      "autoencoder": {
+        "recall": 0.0,
+        "time_s": 3.2
+      },
+      "sub_pca": {
+        "recall": 1.0,
+        "time_s": 0.03
+      },
+      "kmeans_ad": {
+        "recall": 1.0,
+        "time_s": 0.17
+      }
+    },
+    {
+      "config": "hard",
+      "amplitude": 5.0,
+      "noise": 0.5,
+      "n": 30000,
+      "n_spikes": 20,
+      "contamination": 0.08,
+      "patch_memory_ad": {
+        "recall": 0.1,
+        "time_s": 14.6
+      },
+      "autoencoder": {
+        "recall": 0.0,
+        "time_s": 3.2
+      },
+      "sub_pca": {
+        "recall": 1.0,
+        "time_s": 0.03
+      },
+      "kmeans_ad": {
+        "recall": 1.0,
+        "time_s": 0.19
+      }
+    }
+  ]
+}

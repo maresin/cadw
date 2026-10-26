@@ -28,12 +28,25 @@ Other deviations:
   - Single head (PaAno: multi-head).
   - Trained in-sample (unsupervised).
 
-USE CASE: point anomaly specialist. Bench at n=30000 shows recall 1.0
-on point spikes (20/20) but recall ~0.04 on segment anomalies. Segment
-anomalies produce flat patches indistinguishable from normal flat
-regions; point spikes produce unique patches far from all memory
-slots. This matches TSB-AD: PaAno is SOTA on point, not on segment.
-For segments prefer KMeansAD, Sub-PCA (mean aggregation), or CUSUM.
+NORMALIZATION (v0.9.63-fix2, per HYDRA SIGMOD 2026 + PaAno ICLR 2026):
+  HYDRA §1: "while normalization reduces scale bias and can enhance
+  anomaly detectability, it may also suppress amplitude-driven
+  anomalies (e.g., spikes), such normalization inadvertently attenuates
+  the large magnitude deviations that signal anomalous behavior."
+  PaAno normalises each PATCH (instance norm, patch_len 8-16), NOT the
+  whole window — a spike in a 10-point patch stays an outlier; a spike
+  in a 50-point flattened window is diluted.
+  Default "none": preserves amplitude spikes (ablation: recall 1.0 on
+  noisy sigma=0.5; z-norm "window" gave recall 0.0).
+  Options: "none" | "window" (old) | "patch" (PaAno-faithful, best for
+  drift/scale-shifted series).
+
+USE CASE (updated): point/amplitude anomaly specialist with
+normalization="none"; with "patch" normalization also handles
+scale-shifted series. Segment anomalies: earlier version (with window
+z-norm) missed them; "none" improves segment detection too. Prefer
+KMeansAD, Sub-PCA (mean aggregation), or CUSUM when segment
+boundaries matter.
 
 Pure numpy — no sklearn/scipy/torch in cadw/ (AST-guard
 test_no_bench_deps_in_core.py).
@@ -67,6 +80,7 @@ class PatchMemoryADResult:
     contamination: float
     aggregate: str
     encoder_weights: list
+    normalization: str
 
 
 def _probe_memory_limit_mb(guard) -> float | None:
@@ -164,6 +178,7 @@ def fit_patch_memory_ad(
     triplet_margin: float = 0.5,
     contamination: float = 0.1,
     aggregate: str = "max",
+    normalization: str = "none",
     random_state: int | None = 42,
     guard=None,
 ) -> PatchMemoryADResult:
@@ -203,7 +218,35 @@ def fit_patch_memory_ad(
     windows = np.lib.stride_tricks.sliding_window_view(
         x, window_size).copy()
     X_patches = _extract_patches(windows, patch_len)  # (n_w, d)
-    X_norm = _znormalize_rows(X_patches)
+    # v0.9.63-fix2: normalization strategies per HYDRA (SIGMOD 2026) and
+    # PaAno (ICLR 2026) findings:
+    #   "while normalization reduces scale bias and can enhance anomaly
+    #    detectability, it may also suppress amplitude-driven anomalies"
+    #   (HYDRA §1, https://dl.acm.org/doi/10.1145/...)
+    # PaAno normalises each PATCH (instance norm, patch_len 8-16), NOT
+    # the whole window — spike in a 10-point patch stays an outlier;
+    # spike in a 50-point flattened window is diluted.
+    #   "none":   raw values — best for amplitude/point spikes
+    #             (Sub-PCA/KMeansAD baseline behaviour; bench recall 1.0)
+    #   "window": z-norm per window — old behaviour, hides spikes at
+    #             sigma>=0.5 (ablation: recall 0.0 on noisy DGP)
+    #   "patch":  instance norm per patch (PaAno-faithful) — preserves
+    #             per-patch spike signature, removes global scale drift
+    if normalization == "none":
+        X_norm = X_patches
+    elif normalization == "window":
+        X_norm = _znormalize_rows(X_patches)
+    elif normalization == "patch":
+        n_patches = window_size // patch_len
+        p2 = X_patches.reshape(X_patches.shape[0], n_patches, patch_len)
+        mu = p2.mean(axis=2, keepdims=True)
+        sd = p2.std(axis=2, keepdims=True)
+        sd = np.where(sd < 1e-12, 1.0, sd)
+        X_norm = ((p2 - mu) / sd).reshape(X_patches.shape)
+    else:
+        raise ValueError(
+            f"normalization must be 'none'|'window'|'patch', "
+            f"got {normalization!r}")
     d = X_norm.shape[1]
 
     rng = np.random.default_rng(random_state)
@@ -303,5 +346,6 @@ def fit_patch_memory_ad(
         contamination=contamination,
         aggregate=aggregate,
         encoder_weights=[W1.copy(), b1.copy(), W2.copy(), b2.copy()],
+        normalization=normalization,
     )
 

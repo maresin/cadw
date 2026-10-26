@@ -155,27 +155,72 @@ def test_fit_patch_memory_ad_detects_spikes():
     assert recall >= 0.3, f"recall={recall:.2f} on {len(pos)} spikes"
 
 
-def test_fit_patch_memory_ad_segments_are_not_primary():
-    """Patch-based memory is a POINT-anomaly specialist.
+def test_fit_patch_memory_ad_segments_detected_without_z_norm():
+    """With normalization='none' segments ARE detected.
 
-    A +20 spike in a 10-point patch makes the patch unique (distance to
-    all memory slots large -> high score). A 30-point constant segment
-    spans ~3 patches, but each patch is FLAT — indistinguishable from
-    normal flat regions of a sine at its peaks/troughs. So segment
-    recall is near-zero by design, matching TSB-AD results: PaAno is
-    SOTA on point anomalies, not on segment/shape ones.
+    Earlier version (v0.9.63, normalize_windows=True) missed segments:
+    z-norm over a 50-point window with a 30-point constant region of
+    amplitude 5 diluted the deviation to ~(30/50)*5/sigma_window —
+    below memory-bank distance threshold. Ablation on 'noisy' DGP
+    (amp=20, sigma=0.5) gave recall 0.0 with z-norm.
 
-    For segments prefer KMeansAD, Sub-PCA (mean agg), or CUSUM.
+    v0.9.63-fix2 default normalization='none': segment constant (5.0)
+    creates patches with mean 5.0, std 0.0 — very different from normal
+    sine patches in raw coordinates -> far from memory -> flagged.
+
+    This aligns with HYDRA (SIGMOD 2026): z-score "may suppress
+    amplitude-driven anomalies".
     """
     x, pos = _sine_segments(n=10000, n_segments=10, seg_len=30, seed=0)
     r = fit_patch_memory_ad(x, window_size=50, patch_len=10,
                             n_memory=64, n_epochs=5,
-                            contamination=0.05, random_state=0)
+                            contamination=0.05, normalization="none",
+                            random_state=0)
     recall = float(np.mean(r.labels[pos] == 1))
-    # Honest expectation: near zero; only boundary patches might flag
-    assert recall < 0.3, (
-        f"unexpected: segments flagged at recall={recall:.2f} "
-        f"(documented limitation: patch-based memory is point specialist)")
+    # Without z-norm, segments should be clearly detectable
+    assert recall >= 0.3, (
+        f"segment recall={recall:.2f} (expected >=0.3 with "
+        f"normalization='none')")
+
+
+def test_fit_patch_memory_ad_window_norm_hides_segments():
+    """Counter-test: normalization='window' (old) hides segments.
+
+    Confirms the fix is meaningful: same data, same model, only
+    normalization differs -> window-norm -> lower segment recall.
+    """
+    x, pos = _sine_segments(n=10000, n_segments=10, seg_len=30, seed=0)
+    r_none = fit_patch_memory_ad(x, window_size=50, patch_len=10,
+                                 n_memory=64, n_epochs=5,
+                                 contamination=0.05, normalization="none",
+                                 random_state=0)
+    r_win = fit_patch_memory_ad(x, window_size=50, patch_len=10,
+                                n_memory=64, n_epochs=5,
+                                contamination=0.05, normalization="window",
+                                random_state=0)
+    rec_none = float(np.mean(r_none.labels[pos] == 1))
+    rec_win = float(np.mean(r_win.labels[pos] == 1))
+    # 'none' must be at least as good as 'window' for amplitude anomalies
+    assert rec_none >= rec_win - 0.05, (
+        f"normalization='none' recall={rec_none:.2f} should not be "
+        f"worse than 'window' recall={rec_win:.2f}")
+
+
+def test_fit_patch_memory_ad_patch_norm_valid():
+    """PaAno-faithful 'patch' normalization runs and returns valid output."""
+    x, _ = _sine_spikes(n=3000, n_spikes=5, seed=0)
+    r = fit_patch_memory_ad(x, window_size=50, patch_len=10,
+                            n_memory=32, n_epochs=2,
+                            normalization="patch", random_state=0)
+    assert r.normalization == "patch"
+    assert r.decision_scores.shape == (3000,)
+
+
+def test_fit_patch_memory_ad_bad_normalization_raises():
+    x = np.random.default_rng(0).standard_normal(200)
+    with pytest.raises(ValueError, match="normalization"):
+        fit_patch_memory_ad(x, window_size=50, patch_len=10,
+                            normalization="median")
 
 
 def test_fit_patch_memory_ad_constant_series():

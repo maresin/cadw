@@ -44,6 +44,7 @@ class AutoencoderResult:
     reconstruction_error: str
     encoder_weights: list
     decoder_weights: list
+    normalization: str
 
 
 def _probe_memory_limit_mb(guard) -> float | None:
@@ -130,6 +131,7 @@ def fit_autoencoder(
     contamination: float = 0.1,
     aggregate: str = "max",
     reconstruction_error: str = "mean",
+    normalization: str = "none",
     random_state: int | None = 42,
     guard=None,
 ) -> AutoencoderResult:
@@ -186,7 +188,17 @@ def fit_autoencoder(
                     f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
     windows = np.lib.stride_tricks.sliding_window_view(x, window_size).copy()
-    X = _znormalize_rows(windows)
+    # v0.9.63-fix2: normalization strategies per HYDRA (SIGMOD 2026) —
+    # z-score "may also suppress amplitude-driven anomalies". Default
+    # "none" preserves spike amplitude; "window" is old behaviour.
+    if normalization == "none":
+        X = windows
+    elif normalization == "window":
+        X = _znormalize_rows(windows)
+    else:
+        raise ValueError(
+            f"normalization must be 'none'|'window', "
+            f"got {normalization!r}")
 
     rng = np.random.default_rng(random_state)
     W1 = _xavier_init(window_size, hidden_size, rng)
@@ -263,5 +275,6 @@ def fit_autoencoder(
         reconstruction_error=reconstruction_error,
         encoder_weights=[W1.copy(), b1.copy(), W2.copy(), b2.copy()],
         decoder_weights=[W3.copy(), b3.copy(), W4.copy(), b4.copy()],
+        normalization=normalization,
     )
 

@@ -121,10 +121,14 @@ def test_fit_autoencoder_detects_spikes():
     ±w before/after) / 50000 ≈ 6%. Use 8% for margin.
     """
     x, pos = _sine_spikes(n=50000, n_spikes=30, seed=0)
+    # v0.9.63-fix2: normalization='none' (default) preserves spike
+    # amplitude; z-norm 'window' suppresses amplitude anomalies per
+    # HYDRA (SIGMOD 2026).
     r = fit_autoencoder(x, window_size=50, hidden_size=32, latent_size=8,
                         n_epochs=30, lr=0.01, batch_size=64,
                         contamination=0.08, aggregate="max",
-                        reconstruction_error="median", random_state=0)
+                        reconstruction_error="median",
+                        normalization="none", random_state=0)
     recall = float(np.mean(r.labels[pos] == 1))
     assert recall >= 0.4, f"recall={recall:.2f} on {len(pos)} spikes"
 
