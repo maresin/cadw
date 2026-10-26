@@ -40,3 +40,5 @@ __all__ = [
 from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
 # v0.9.53: KShapeAD (Paparrizos & Gravano 2015)
 from .kshape import KShapeResult, fit_kshape  # noqa: E402,F401
+# v0.9.54: Sub-PCA (windowed PCA reconstruction error)
+from .sub_pca import SubPCAResult, fit_sub_pca  # noqa: E402,F401

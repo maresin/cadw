@@ -1,0 +1,15 @@
+{
+  "model": "sub_pca",
+  "n": 100000,
+  "n_spikes": 50,
+  "detected": 50,
+  "recall": 1.0,
+  "total_flagged": 1000,
+  "window_size": 50,
+  "n_components": 5,
+  "contamination": 0.01,
+  "aggregate": "mean",
+  "threshold": 15.5188,
+  "fit_time_s": 0.1206,
+  "peak_rss_mb": 196.0
+}
