@@ -95,3 +95,24 @@ def gen_recsys_like(n_users=200, n_items=50, n_factors=5, density=0.10,
         users.extend([u] * len(top))
         items.extend(top.tolist())
     return np.array(users, dtype=np.int64), np.array(items, dtype=np.int64)
+
+
+# ── v0.9.52: TS anomaly DGPs ──────────────────────────────────────
+
+def gen_ts_point_anomaly(n: int = 1000, n_spikes: int = 20,
+                         seed: int = 0) -> tuple:
+    """Sine + isolated spikes at random positions.
+
+    Returns
+    -------
+    x : np.ndarray, shape (n,)
+    spike_positions : np.ndarray, shape (n_spikes,)
+        Indices of injected anomalies.
+    """
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    x = np.sin(2 * np.pi * t / 100.0) + 0.1 * rng.standard_normal(n)
+    spike_pos = rng.choice(n, size=n_spikes, replace=False)
+    x[spike_pos] += 5.0
+    return x, spike_pos

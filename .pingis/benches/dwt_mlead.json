@@ -1,0 +1,14 @@
+{
+  "model": "dwt_mlead",
+  "n": 100000,
+  "n_spikes": 50,
+  "detected": 38,
+  "recall": 0.76,
+  "total_flagged": 62848,
+  "fit_time_s": 0.5063,
+  "peak_rss_mb": 35.14,
+  "start_level": 3,
+  "max_level": 17,
+  "quantile_epsilon": 0.01,
+  "min_anomaly_consistency": 2
+}

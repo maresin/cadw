@@ -36,3 +36,5 @@ __all__ = [
     "permutation_importance",
     "GMMModel", "fit_gmm",
 ]
+# v0.9.52: DWT-MLEAD (Thill, Konen, Baeck 2017)
+from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
