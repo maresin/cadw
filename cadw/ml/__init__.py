@@ -63,3 +63,5 @@ from .kmeans_ad import KMeansADResult, fit_kmeans_ad  # noqa: E402,F401
 from .patch_memory_ad import (  # noqa: E402,F401
     PatchMemoryADResult, fit_patch_memory_ad,
 )
+# v0.9.70: BinarySegmentation (greedy top-down L2 splitting)
+from .binseg import BinSegResult, fit_binseg  # noqa: E402,F401

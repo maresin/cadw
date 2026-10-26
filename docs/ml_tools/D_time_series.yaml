@@ -274,8 +274,9 @@ subtypes:
     tier: baseline
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
       verified_by_agent: true
-      described_only: true
+      described_only: false
     roles:
     - local_structure
     purpose: Rolling-window z-score threshold; simplest detector.
@@ -284,6 +285,8 @@ subtypes:
     config:
       window: int
       threshold: float
+    cadw_module: cadw.ml.zms
+    cadw_function: fit_zms
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -297,6 +300,25 @@ subtypes:
       value: 0.41
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/zms.json
+      algorithm: cadw.ml.zms.fit_zms
+      algorithm_source_url: cadw/ml/zms.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.0, fit_time=0.03s, RSS=41MB on gen_ts_point_anomaly (n=100000). Trailing rolling z-score, threshold=3; matches Hampel recall.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: point
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_point_anomaly
   - name: IForest
     # v0.9.65 P0: sota -> baseline. TSB-AD VUS-PR 0.30 vs Sub-PCA 0.42,
     # KShapeAD 0.40; IForest is a tabular outlier detector applied to
@@ -875,7 +897,9 @@ subtypes:
     tier: baseline
     tier_level: tier1_core
     implementation_status:
-      described_only: true
+      verified_in_cadw: true
+      verified_by_agent: false
+      described_only: false
     roles:
     - temporal_dynamics
     purpose: Greedy top-down recursive splitting on L2 cost.
@@ -883,6 +907,8 @@ subtypes:
     - Simple regime detection
     config:
       n_bkps: int
+    cadw_module: cadw.ml.binseg
+    cadw_function: fit_binseg
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -896,6 +922,25 @@ subtypes:
       value: 0.38
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/binseg.json
+      algorithm: cadw.ml.binseg.fit_binseg
+      algorithm_source_url: cadw/ml/binseg.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series change-point detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.0 (10/10 cp within +/-10), fit_time=12.3s, RSS=2MB on synthetic_alternating_mean_shifts (n=100000). Greedy top-down L2 splitting; n_bkps=10, min_size=50.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: changepoint
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: synthetic_alternating_mean_shifts
   - name: PELT
     tier: sota
     tier_level: tier1_core
@@ -1043,6 +1088,13 @@ subtypes:
     responsibility: Point-wise F1 without tolerance.
     special: Strict for changepoint (single timestamp); use
       detection_delay as the timing-aware alternative.
+  - name: recall
+    combination: diagnostic
+    direction: higher
+    responsibility: Fraction of true change-points detected within
+      tolerance; used by CADW cadw_measured synthetic-bench entries.
+    special: Tolerance-window dependent; report detection_delay
+      alongside.
   ensemble_recommendation:
   - roles:
     - temporal_dynamics
@@ -1066,8 +1118,9 @@ subtypes:
     tier: baseline
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
       verified_by_agent: true
-      described_only: true
+      described_only: false
     roles:
     - local_structure
     purpose: Rolling-window z-score threshold; simplest baseline for shape-agnostic outlier detection.
@@ -1076,6 +1129,8 @@ subtypes:
     config:
       window: int
       threshold: float
+    cadw_module: cadw.ml.zms
+    cadw_function: fit_zms
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -1089,6 +1144,25 @@ subtypes:
       value: 0.32
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/zms.json
+      algorithm: cadw.ml.zms.fit_zms
+      algorithm_source_url: cadw/ml/zms.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series anomaly detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: recall=1.0, fit_time=0.03s, RSS=41MB on gen_ts_point_anomaly (n=100000). Same fit_zms function as D3.1 zscore; different role (shape-agnostic baseline).'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: shape
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: gen_ts_shape_anomaly
   - name: MatrixProfile_discord
     tier: sota
     tier_level: tier1_core
@@ -1380,7 +1454,9 @@ subtypes:
     tier: baseline
     tier_level: tier1_core
     implementation_status:
-      described_only: true
+      verified_in_cadw: true
+      verified_by_agent: false
+      described_only: false
     roles:
     - temporal_dynamics
     purpose: Greedy top-down recursive splitting on L2 cost; simplest change-point baseline.
@@ -1388,6 +1464,8 @@ subtypes:
     - Simple regime detection
     config:
       n_bkps: int
+    cadw_module: cadw.ml.binseg
+    cadw_function: fit_binseg
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -1401,6 +1479,25 @@ subtypes:
       value: 0.38
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/binseg.json
+      algorithm: cadw.ml.binseg.fit_binseg
+      algorithm_source_url: cadw/ml/binseg.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: time series change-point detection
+      n_datasets: 1
+      metric: recall
+      value: 1.0
+      std: null
+      note: 'CADW-native: same fit_binseg as D3.2 BinarySegmentation; D5 is DEPRECATED alias of D3.2.'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: changepoint
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: synthetic_alternating_mean_shifts
   - name: PELT
     tier: sota
     tier_level: tier1_core

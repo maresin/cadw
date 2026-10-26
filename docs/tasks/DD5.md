@@ -15,7 +15,7 @@
 ### BinarySegmentation — baseline / tier1_core
 
 **Roles:** temporal_dynamics
-**Status:** desc
+**Status:** ✓ cadw
 
 **Purpose:** Greedy top-down recursive splitting on L2 cost; simplest change-point baseline.
 
@@ -24,12 +24,19 @@
 
 **Config:** `{'n_bkps': 'int'}`
 
+**CADW:** `cadw.ml.binseg.fit_binseg`
+
 **Benchmarks:**
 - **[literature]** UCR_Anomaly → auprc=0.38
   - algorithm: `ruptures Binseg` (docs)
   - number: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
   - code/paper: https://centre-borelli.github.io/ruptures-docs/user-guide/detection/binseg/
   - note: [legacy v0.9.44, migrated v0.9.50]
+- **[cadw_measured]** cadw_internal → recall=1.0 (n=1)
+  - algorithm: `cadw.ml.binseg.fit_binseg` (code)
+  - number: .pingis/benches/binseg.json
+  - code/paper: cadw/ml/binseg.py
+  - note: CADW-native: same fit_binseg as D3.2 BinarySegmentation; D5 is DEPRECATED alias of D3.2.
 
 ### PELT — sota / tier1_core
 
