@@ -321,27 +321,27 @@ def test_binary_classifier_still_works(tmp_path):
 
 
 def test_multiclass_est_state_includes_y_all():
-    """v0.9.87-P1a-2: est_n_state = n·8·(1 + 2K) (grad/hess to disk).
+    """v0.9.87-P1a-3a: est_n_state = n·8·(K + 2).
 
     History:
       v0.9.22: (1 + 4K) — pred + grad + hess + round_cur_leaves
                + y_all all in RAM.
       v0.9.87-P1a-2: grad_all/hess_all moved to per-round memmap
-               (SpillDir-managed disk). RAM = y_all (n·8) +
-               pred (n·K·8) + round_cur_leaves (K·n·8) =
-               n·8·(1 + 2K). 2x reduction for K >= 3.
+               (disk). RAM: pred + y_all + K cur_leafs = (1 + 2K).
+      v0.9.87-P1a-3a: pred update inside class loop; only ONE
+               cur_leaf_c at a time. RAM: pred (n·K·8) +
+               y_all (n·8) + one cur_leaf_c (n·8) = n·8·(K + 2).
+               K=10: 168n -> 96n. K=3: 56n -> 40n.
     """
     from cadw.ml.gbdt import _fit_boosting_multiclass
     import inspect
     src = inspect.getsource(_fit_boosting_multiclass)
-    assert "n_total * 8 * (1 + 2 * K)" in src, (
-        "multiclass state formula must be n·8·(1+2K) after P1a-2 "
-        "(grad/hess on disk)."
+    assert "n_total * 8 * (K + 2)" in src, (
+        "multiclass state formula must be n·8·(K+2) after P1a-3a."
     )
-    # Defensive: ensure old formula is NOT present
-    assert "n_total * 8 * (1 + 4 * K)" not in src, (
-        "old formula (1+4K) should be gone after P1a-2."
-    )
+    # Defensive: ensure prior formulas are NOT present
+    assert "n_total * 8 * (1 + 4 * K)" not in src
+    assert "n_total * 8 * (1 + 2 * K)" not in src
     assert "n_total * K * 8 * 3" not in src, (
         "old formula n·K·8·3 must be removed"
     )
@@ -566,4 +566,23 @@ def test_multiclass_grad_hess_are_memmap(monkeypatch, tmp_path):
     hess_calls = [f for f in captured if "hess_r" in f]
     assert len(grad_calls) >= 2, f"grad memmaps: {grad_calls}"
     assert len(hess_calls) >= 2, f"hess memmaps: {hess_calls}"
+
+def test_multiclass_no_round_cur_leaves_list():
+    """P1a-3a: no round_cur_leaves / round_leaf_maps accumulator.
+
+    Checks assignment + append patterns (comment mentions are fine;
+    comments may reference the removed variables to document the change).
+    """
+    from cadw.ml.gbdt import _fit_boosting_multiclass
+    import inspect
+    src = inspect.getsource(_fit_boosting_multiclass)
+    # Accumulator patterns (assignment + append) must be gone
+    assert "round_cur_leaves = []" not in src, (
+        "round_cur_leaves accumulator should be gone (P1a-3a)")
+    assert "round_leaf_maps = []" not in src, (
+        "round_leaf_maps accumulator should be gone (P1a-3a)")
+    assert "round_cur_leaves.append" not in src, (
+        "round_cur_leaves.append should be gone (P1a-3a)")
+    assert "round_leaf_maps.append" not in src, (
+        "round_leaf_maps.append should be gone (P1a-3a)")
 

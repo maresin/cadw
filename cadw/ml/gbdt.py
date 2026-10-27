@@ -1595,12 +1595,13 @@ def _fit_boosting_multiclass(
     if n_total == 0:
         raise ValueError("fit_gbdt_multiclass: no rows")
 
-    # v0.9.87-P1a-2: grad_all/hess_all moved to disk (memmap,
-    # SpillDir-managed). RAM: y_all (n·8) + pred (n·K·8) +
-    # round_cur_leaves (K·n·8) = n·8·(1 + 2K). Was n·8·(1 + 4K)
-    # (v0.9.22). 2x reduction for K >= 3 (K=10: 328n -> 168n).
-    # True OOC still requires memmap pred + cur_leaf (P1a-3).
-    est_n_state = n_total * 8 * (1 + 2 * K)
+    # v0.9.87-P1a-3a: pred update moved INSIDE class loop; only ONE
+    # cur_leaf_c held at a time (was K). RAM: pred (n·K·8) +
+    # y_all (n·8) + one cur_leaf_c (n·8) = n·8·(K + 2). Was
+    # n·8·(1 + 2K) (P1a-2), n·8·(1 + 4K) (v0.9.22).
+    # K=10: 168n -> 96n (P1a-3a). K=3: 56n -> 40n.
+    # True OOC still requires memmap pred (P1a-3b).
+    est_n_state = n_total * 8 * (K + 2)
     try:
         mg.check_state(est_n_state, name="gbdt.multiclass_state")
     except MemoryLimitExceeded:
@@ -1661,9 +1662,10 @@ def _fit_boosting_multiclass(
             hess_all.flush()
 
             # 5. Fit K trees per class — codes-based hist+assign
+            # P1a-3a: only round_trees kept (per-class tree dicts,
+            # small). round_leaf_maps + round_cur_leaves removed —
+            # pred update moved inside loop, cur_leaf_c freed per class.
             round_trees = []
-            round_leaf_maps = []
-            round_cur_leaves = []
             for c in range(K):
                 tree = {0: None}
                 cur_leaf_c = np.zeros(n_total, dtype=np.int64)
@@ -1732,18 +1734,22 @@ def _fit_boosting_multiclass(
                     "structure": dict(tree),
                     "leaf_values": dict(leaf_values_c),
                 })
-                round_leaf_maps.append(dict(leaf_values_c))
-                round_cur_leaves.append(cur_leaf_c)
 
-            # 7. Update pred (unchanged)
-            for c in range(K):
-                lv = round_leaf_maps[c]
-                if lv:
-                    max_lid = max(lv.keys())
+                # v0.9.87-P1a-3a: update pred FOR THIS CLASS immediately
+                # (was: after all K classes). Bit-identical: grad_all/
+                # hess_all computed once at round start; hist/assign for
+                # class c reads grad_all[:, c] only; pred[:, c] update is
+                # column-independent of other classes.
+                if leaf_values_c:
+                    max_lid = max(leaf_values_c.keys())
                     arr = np.zeros(max_lid + 1, dtype=np.float64)
-                    for lid, v in lv.items():
+                    for lid, v in leaf_values_c.items():
                         arr[lid] = v
-                    pred[:, c] += learning_rate * arr[round_cur_leaves[c]]
+                    pred[:, c] += learning_rate * arr[cur_leaf_c]
+
+                # Free cur_leaf_c (was: kept in round_cur_leaves list,
+                # K copies × n·8 = K·n·8 bytes; now: one at a time).
+                del cur_leaf_c
 
             # v0.9.87-P1a-2: free grad/hess memmap files after round.
             del grad_all, hess_all
