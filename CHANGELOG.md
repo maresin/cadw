@@ -1,5 +1,206 @@
 ## [Unreleased]
 
+### v0.9.86.3 (2026-10-27) - Remove HybridETSGBDT (redundant with EnsembleForecaster)
+
+Removes HybridETSGBDTForecaster (introduced v0.9.86, corrected
+v0.9.86.2). Not a bug fix; architectural cleanup.
+
+DECISION CONTEXT (user observation):
+  HybridETSGBDT = ETS(y) + GBDT(y - ETS(y)) is additive composition.
+  EnsembleForecaster = w1*ETS(y) + w2*GBDT(y) is weighted averaging.
+  For general-purpose TS these are FUNCTIONALLY REDUNDANT: Ensemble
+  already provides the "combine ETS + GBDT" capability with
+  inverse-MASE weighting, and beats or ties Hybrid on 4 of 5
+  benchmark DGPs:
+    ets_friendly:       both NEUTRAL (~+1%)
+    linear AR(1):       Ensemble wins (weight->0), Hybrid LOSS +7.5%
+    threshold_ar:       Ensemble wins, Hybrid LOSS +4.3-8.4%
+    interaction:        Ensemble wins, Hybrid NEUTRAL/LOSS +0.4-14.4%
+    sinusoidal_p5:      Hybrid direct mode -74% WIN; Ensemble does
+                        NOT reproduce this (GBDT on full y cannot
+                        capture period-5 residual) -- the only
+                        non-redundant case, and narrow (direct mode +
+                        trend-feature memorization of short-period
+                        residual; loses with recursive mode).
+
+  The narrow WIN does not justify:
+    - 200 LOC + 14 tests + 3 bench scripts of maintenance
+    - false 'tier: sota' claim in card (v0.9.86.2 only partially
+      corrected: purpose rewritten, tier left at sota)
+    - documented false attribution 'M4-winner family' (v0.9.86.2
+      corrected to Zhang 2003; residual taint in card history)
+    - STL residual gap: Hybrid was the ONLY verified D1 model that
+      did NOT apply STL (Theta/AutoTheta use stl_decompose; ETS
+      natively handles trend+season; Hybrid fed raw residual to
+      GBDT without STL decomposition)
+    - reproduces as 4 lines of user code:
+        ets = ETSForecaster(s=12).fit(df, 'y')
+        resid = y - ets.predict_in_sample()
+        gbdt = GBDTForecaster(mode='direct').fit(resid_df, 'y')
+        final = ets.predict(h) + gbdt.predict(h)
+
+REMOVED (git history retains all code):
+  - cadw/ts/hybrid.py (~200 LOC)
+  - tests/test_hybrid.py (14 tests)
+  - scripts/bench_hybrid.py, bench_hybrid_tuning.py,
+    bench_hybrid_nonlinear.py
+  - .pingis/benches/hybrid.json, hybrid_tuning.json,
+    hybrid_nonlinear.json
+  - docs/ml_tools/D_time_series.yaml D1 card HybridETSGBDT
+    (2 benchmark entries)
+  - cadw/ts/__init__.py: import + __all__ entry
+
+PRESERVED (history):
+  - CHANGELOG v0.9.86, v0.9.86.1, v0.9.86.2 unchanged. Prior entries
+    document what we did and what we learned; the removal is
+    additive, not a rewrite.
+  - MATRIX.md and 40 docs/tasks/*.md regenerated (Hybrid row gone).
+
+RECOVERY:
+  Fully reversible: `git revert <v0.9.86.3_sha>` restores code + tests
+  + benches. If a future niche case genuinely needs short-period-
+  residual composition (period-5 residual with s=12, direct mode),
+  re-introduce as a script (not a class) or wait for ARNN/ES-RNN in
+  cadw/ts (proper multi-series residual modeling; backlog).
+
+BACKLOG:
+  - Hybrid-related items from v0.9.86.2 (use_trend=False,
+    auto_lag_selection, ARNN residual neural) REMOVED as moot.
+  - 'HybridETSGBDT PI combined-variance' (v0.9.86.1) REMOVED as moot.
+  - 'Hybrid tuning' (v0.9.86) was CLOSED in v0.9.86.2; now moot.
+  - Net backlog: 21 -> 18 (3 hybrid items closed as 'model removed').
+  - New conceptual note (informational, not actionable): "Zhang 2003
+    residual modeling with GBDT residual is redundant with weighted
+    ensemble for general-purpose TS; only distinct on short-period
+    deterministic residual". Not a work item; a design lesson for
+    future per-model wrappers.
+
+DESIGN LESSON:
+  Not every named literature method deserves a class in cadw. Composition
+  models (ETS+GBDT, ARIMA+ANN) are 4-line user recipes when the
+  constituents are already shipped. Reserve class slots for models
+  whose composition requires non-trivial state (learning weights,
+  end-to-end joint training, custom PIs), otherwise the codebase
+  accumulates redundant wrappers with false tier claims.
+
+Version 0.9.86.2 -> 0.9.86.3.
+
+Focused: schema 73; render 52; version 6; changelog 2+2s; AST-guard
+136 (was 137; hybrid.py gone); WL 34 OK; audit_leakage 7 warnings
+(pretrained, unchanged); audit_url_log 0 errors.
+
+Fast suite: 3549 -> 3534 passed (-15: -14 test_hybrid, -1 AST
+parametrization for removed hybrid.py), 8 skipped.
+
+Next: D2 (multi forecast) -- VARMAX + foundation-model reference;
+currently 2 models (VAR, ?), 0 ensemble. Real gap, unlike Hybrid
+which was redundant.
+### v0.9.86.2 (2026-10-27) - Hybrid attribution correction + nonlinear bench
+
+Corrects a factual error in v0.9.86/v0.9.86.1 and adds the
+literature-valid nonlinear benchmark. No model code change.
+
+ATTRIBUTION CORRECTION:
+  v0.9.86/v0.9.86.1 labelled HybridETSGBDT "M4-winner family".
+  This is factually wrong. The M4 competition winner is ES-RNN
+  (Smyl 2018, "A hybrid method of exponential smoothing and
+  recurrent neural networks for time series forecasting"), which is
+  a GLOBAL cross-series model with shared ES + RNN parameters.
+  HybridETSGBDT is a per-series ETS + residual model:
+    - Zhang (2003) "Time series forecasting using a hybrid ARIMA
+      and neural network model" (Neurocomputing 50:159-175) -- the
+      original per-series residual-modeling family.
+    - hybridts::ets_arnn (Chakraborty 2023, CRAN) -- the closest
+      reference: ETS + ARNN on residual. Our model replaces ARNN
+      with GBDT.
+  Card purpose corrected; CHANGELOG v0.9.86 + v0.9.86.1 remain
+  intact (they record what we did); this entry is the correction.
+
+BENCH VALIDITY FINDING:
+  v0.9.86 bench used AR(1) phi=-0.6 residual (linear autocorrelation).
+  This was an INVALID test for a nonlinear residual model: GBDT is
+  weaker than ANN on smooth linear residuals, and Zhang 2003-type
+  residual modeling is designed for NONLINEAR structure. Honest
+  negative on linear AR(1) is not evidence against the architecture.
+
+NEW BENCH (scripts/bench_hybrid_nonlinear.py,
+.pingis/benches/hybrid_nonlinear.json):
+  3 nonlinear DGPs, n=500 s=12 h=12, 5 seeds, 5 variants.
+  DGP1 threshold_ar: e[t] = +0.7*e[t-1] + eps (if e[t-1]>0) else
+                     -0.7*e[t-1] + eps (sign-dependent AR).
+    ALL LOSS: hybrid_default +4.3%, hybrid_direct +6.0%,
+    hybrid_lags6 +4.5%, hybrid_direct_lags6 +8.4%.
+    Interpretation: GBDT 50 trees x depth 3 x lr 0.1 cannot
+    recover the sign-dependent threshold; residual prediction is
+    noise around 0.
+  DGP2 sinusoidal_p5: e[t] = 1.2*sin(2*pi*t/5) + 0.2*eps
+                     (period 5; ETS seasonal_period=12).
+    hybrid_direct: -74.1% WIN (MASE 0.060 vs ETS 0.232).
+    hybrid_direct_lags6: -71.2% WIN.
+    hybrid_default (recursive): +37.2% LOSS.
+    hybrid_lags6 (recursive): +90.8% LOSS.
+    Interpretation: WIN is real but NARROW. Direct mode + GBDT
+    trend feature memorizes (t mod 5) -> offset, and test range
+    (t=500..511) still contains 2+ full periods of 5. Recursive
+    feedback destroys the phase in 1 step.
+  DGP3 interaction: e[t] = 0.5*e[t-1]*e[t-2] + eps.
+    All NEUTRAL/LOSS (+0.4 to +14.4%). Depth-3 trees underfit
+    second-order interactions at this signal level.
+
+VERDICT:
+  HybridETSGBDT is a NARROW tool, not a general-purpose ETS
+  improver. Wins only when (a) residual has short-period structure
+  (shorter than ETS seasonal_period), (b) direct mode (recursive
+  destroys periodicity), (c) test range still within memorizable
+  trend-feature extrapolation. Loses on linear AR(1), sign-dependent
+  AR, second-order interactions with current defaults.
+
+YAML card (docs/ml_tools/D_time_series.yaml, D1 HybridETSGBDT):
+  - purpose: rewritten to remove "M4-winner", replace with
+    "Zhang (2003) residual-modeling family; reference
+    hybridts::ets_arnn; NOT M4-winner". Explicit narrow-win
+    description, explicit loss list, explicit "defaults are safe
+    but not winning config".
+  - benchmark_results: appended second cadw_measured entry
+    (sinusoidal_p5 direct mode, MASE 0.0600 +/- 0.0102, -74.1% vs
+    ETS, n_datasets=3, note documents both WIN and other two DGP
+    LOSS results). First entry (linear AR(1)) augmented with
+    VALIDITY CAVEAT noting it is not a valid test for a nonlinear
+    residual model.
+  - ensemble_recommendation: unchanged. Not added to primary D1
+    ensemble (narrow win, not general-purpose).
+  MATRIX.md 157 lines + 40 tasks regenerated.
+
+Backlog additions:
+  - HybridETSGBDT: use_trend=False for non-periodic residual
+    (trend feature causes boundary overfit when residual has no
+    t-dependence).
+  - HybridETSGBDT: auto_lag_selection (literature ARNN auto-picks
+    lags; ours fixed (1,2,3)).
+  - HybridETSGBDT: ARNN residual (neural) vs GBDT residual
+    (Zhang 2003 original uses ANN, which handles smooth
+    nonlinearities better than depth-3 GBDT).
+
+Design notes:
+  - No model code change. The v0.9.86 API is correct as-is;
+    only attribution and bench coverage were wrong.
+  - Recursive default remains (safe: GBDT idles on non-periodic
+    residual; does not harm ETS). Direct mode is an opt-in for
+    short-period residual cases.
+
+Version 0.9.86.1 -> 0.9.86.2.
+
+Focused: schema 73; render 52; version 6; changelog 2+2s;
+AST-guard 137; WL 34 OK; audit_leakage 7 warnings (pretrained);
+audit_url_log 0 errors (new cadw_measured entry: algorithm=cadw.*,
+benchmark=cadw_internal, note required -- all present).
+
+Fast suite: 3549 passed, 8 skipped (unchanged -- no new tests).
+
+Next: Hybrid tuning item now CLOSED (tried 5 variants x 3 nonlinear
+DGPs; narrow win documented, general-purpose loss confirmed). Next
+direction: DU-1 (supervised tabular) OR D2 multi forecast OR D4 TS
+classification.
 ### v0.9.86.1 (2026-10-27) - HybridETSGBDT YAML card + PI combined-variance
 
 Closes v0.9.86 honestly: registers HybridETSGBDT in the D1 matrix

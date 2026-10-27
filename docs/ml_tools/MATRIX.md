@@ -32,7 +32,6 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | D | D1 Univariate forecasting | Theta | baseline | tier1_core | temporal_dynamics, probabilistic | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | AutoTheta | sota | tier1_core | temporal_dynamics, probabilistic | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | SARIMA | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | mase |
-| D | D1 Univariate forecasting | HybridETSGBDT | sota | tier1_core | temporal_dynamics, nonlinear_interactions | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | GBDTForecaster | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | Chronos-Bolt-Tiny | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |
 | D | D1 Univariate forecasting | Chronos-Bolt-Mini | sota | tier3_export | temporal_dynamics, representation | desc, export | mase |

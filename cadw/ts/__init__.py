@@ -24,7 +24,6 @@ from .ensemble import EnsembleForecaster  # noqa: E402,F401  v0.9.81a
   # noqa: E402,F401  v0.9.78a
 
 from .var import VARModel
-from .hybrid import HybridETSGBDTForecaster  # noqa: E402,F401  v0.9.86
 
 __all__ = sorted([
     # features
@@ -40,8 +39,7 @@ __all__ = sorted([
     "backtest_forecaster",
     # temporal hierarchy
     "TemporalHierarchy",
-    "ETSForecaster", "HybridETSGBDTForecaster",
-    "ThetaForecaster", "VARModel",
+    "ETSForecaster", "ThetaForecaster", "VARModel",
 ])
 # v0.9.79a: Transforms (Differencer, TransformedTargetForecaster)
 from .transforms import (  # noqa: E402,F401
