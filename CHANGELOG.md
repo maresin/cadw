@@ -1,5 +1,129 @@
 ## [Unreleased]
 
+### v0.9.86 (2026-10-27) - HybridETSGBDT forecaster (M4-winner family)
+
+Closes the last major D1 gap: hybrid ETS+GBDT (Zhang 2003 M4-winner
+approach family). Complements AutoTheta (M3-winner class). D1 now
+ships both M-competition winner approaches.
+
+HybridETSGBDTForecaster (cadw/ts/hybrid.py, ~200 LOC, 12 tests):
+  Wraps ETSForecaster (trend+season) and GBDTForecaster (residual).
+  Final forecast = ETS_fc + GBDT_fc(residuals). Residual GBDT is fit
+  on y - ETS.predict_in_sample().
+
+  Parameters:
+    ets_kwargs      passed to ETSForecaster
+    gbdt_kwargs     passed to GBDTForecaster (default mode='recursive',
+                    lags=(1,2,3))
+    min_resid_train minimum finite residuals to fit GBDT (default 20);
+                    if fewer, hybrid == ETS (GBDT skipped silently)
+
+  Behavior:
+    - ETS in-sample warmup is finite (unlike SARIMA with d>0 or D>0),
+      so residual is finite everywhere in the common case, hence GBDT
+      gets full training rows.
+    - GBDT residual fit exception: warn, ETS-only fallback.
+    - predict_in_sample: ETS_in + GBDT_in where GBDT is finite; else
+      ETS_in unchanged (no NaN leak into public API).
+    - PI: ETS PI shifted by GBDT point forecast (additive point
+      shift). GBDT uncertainty is NOT added to width. Documented
+      limitation; proper combined-variance PI in backlog v0.9.87.
+
+  Not supported in v0.9.86:
+    - Multi-series (group_col): NotImplementedError (v1.0).
+    - Nested transforms (differencing=, decompose=): not applicable.
+      ETS handles trend+season natively; GBDT operates on the
+      already-stationary residual. To stationarize a hybrid forecast
+      pipeline, wrap Hybrid in AutoForecastPipeline.
+
+  12 tests (tests/test_hybrid.py):
+    contract_basic, does_not_hurt_on_pure_ets_dgp (2x tolerance;
+    real not-hurt assertion in bench across seeds),
+    predict_in_sample_applies_gbdt_component,
+    predict_before_fit_raises, steps_validation, short_series_raises,
+    group_col_raises, gbdt_skipped_when_resid_too_small,
+    capability_flags, prediction_interval_shifted_by_gbdt,
+    determinism, gbdt_mode_direct_works.
+
+Bench (scripts/bench_hybrid.py, .pingis/benches/hybrid.json):
+  Two DGPs, n=500, s=12, h=12, seeds=3:
+    ets_friendly:       trend + season + iid noise (ETS expected to win)
+    nonlinear_residual: trend + season + AR(1) phi=-0.6 (fast
+                       alternation ETS smoothing misses; GBDT should
+                       recover some signal)
+
+  Measured MASE (seed-mean):
+    ets_friendly:       ets=0.0811  hybrid=0.0818  gbdt=0.9860
+                        hybrid vs ets: +0.9% (within noise; GBDT
+                        correctly idles when residual has no signal)
+    nonlinear_residual: ets=0.1372  hybrid=0.1475  gbdt=0.9132
+                        hybrid vs ets: +7.5% (hybrid HURTS)
+
+  HONEST NEGATIVE RESULT: on the DGP designed for hybrid to win
+  (AR(1) phi=-0.6 residual), hybrid is +7.5% WORSE than plain
+  ETS. Direction is consistent across 3 seeds; sample stds
+  0.0091 vs 0.0177; n=3 seeds is small but directional. Diagnosis:
+  (a) ETS with additive trend absorbs alpha*residual into y_hat,
+      so the residual fed to GBDT is smaller than the true AR(1)
+      component and correlated with y_hat;
+  (b) recursive mode feeds GBDT's own near-mean predictions back
+      as lags, so steps 2+ regress to mean faster than the true
+      AR(1) alternation;
+  (c) 50 trees x depth 3 x lr 0.1 undertrains a weak phi=-0.6
+      signal at n=500;
+  (d) GBDT's 'trend' feature causes boundary overfit at test
+      (test trend n_train+1 .. n_train+h was never seen during
+      fit).
+
+  The model does NOT harm ETS-friendly data (+0.9% within noise;
+  GBDT predictions are ~0). But on our synthetic nonlinear case,
+  hybrid's M4-winner promise does not materialize. Real M4
+  datasets have stronger, longer-range residual structure;
+  whether hybrid helps there is untested and blocked on M4-scale
+  data availability.
+
+  YAML card + cadw_measured deferred to v0.9.86.1. Backlog item
+  opened: 'Hybrid tuning: test direct mode, lags subset, remove
+  trend feature, min_resid_train=100 on nonlinear_residual DGP'.
+
+Design notes:
+  - Chose ETS over SARIMA as base because ETS predict_in_sample
+    works for all configs (SARIMA returns all-NaN for d>0 or D>0,
+    making residual construction undefined). ETS is the safest base
+    for residual extraction.
+  - Chose 'recursive' as GBDT default: residual has no trend (ETS
+    removed it), so no extrapolation issue; recursive avoids
+    per-horizon models. 'direct' supported for parity.
+  - Silent GBDT skip via min_resid_train (expected short-series
+    case); warn on exception (unexpected failure).
+
+Fix iterations:
+  - v0.9.86-fix1: bench_hybrid.py contained a print(f-string) whose
+    contents began with a backslash-n followed by a bracketed label.
+    The backslash-n was written through the outer heredoc as a
+    literal newline inside the f-string, breaking the source. Fixed
+    by splitting into a bare print() followed by a print(f-string)
+    on separate lines.
+
+Version 0.9.85 -> 0.9.86.
+
+Backlog: 16 items; item 9 (HybridETS_GBDT) CLOSED via P1. New
+backlog item: HybridETSGBDT PI combined-variance (v0.9.87).
+
+Fast suite: 3534 -> 3547 passed (+13: +12 hybrid + +1 AST
+parametrization for new hybrid.py), 8 skipped. Focused:
+test_hybrid 12 passed. WL 34 OK. AST-guard 137 passed (baseline 136; +1 for hybrid.py). audit_leakage 7 warnings (pretrained).
+audit_url_log 0 errors.
+
+Doc-rot noted: prior CHANGELOG entries claim "AST-guard 129
+passed"; actual count at v0.9.85 was 136 (grew as cadw/ gained
+files across v0.9.76-v0.9.85). Not retroactively fixed; new
+backlog item "AST count in CHANGELOG: replace per-release
+stale 129 with actuals or add per-release note".
+
+Next: v0.9.86.1 - HybridETSGBDT YAML card + bench numbers + PI
+combined-variance fix; OR pivot to DU-1 (supervised tabular;
+pipeline + metrics + hybrid all reusable).
 ### v0.9.85 (2026-10-27) - Forecast metrics extension (interval + robust + quantile)
 
 Extends cadw/ts/backtest.py with 7 new metric families used by
