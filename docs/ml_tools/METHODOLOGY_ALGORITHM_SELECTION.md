@@ -30,6 +30,29 @@ FINAL_REPORT.md`, d07072d) showed:
 Root cause: no written rule distinguishing "out-of-core by design"
 from "in-core for small n." This document is that rule.
 
+## §1.1 Basic cases, not exceptions
+
+The following are *basic* cases, not exceptional. They must work at
+any n (given disk). If any of them fails, this is a bug in CADW, not
+in user data.
+
+- A list of unique categories (dict / set / `np.unique` / `pd.unique`)
+  whose cardinality exceeds `state_limit`.
+- A whole column (n values of one feature) that does not fit in
+  `state_limit`.
+- Intermediate state of an iterative algorithm (pred in boosting, X
+  stack in rank, residuals in OLS with diagnostics) that does not fit.
+- One feature matrix for model training that does not fit.
+- Sorting, grouping, joining, ranking, deduplicating a dataset that
+  does not fit.
+
+**Consequence.** No escape hatches in public API: no `read_all()`, no
+`collect()`, no `to_numpy()` for n-sized results. If a model needs all
+data in RAM, it is not out-of-core: it is either refactored to
+O(batch) state, or marked `described_only: true` (not implemented in
+CADW). The framework exists precisely to make these cases work at
+arbitrary scale — anything less is a bug.
+
 ## §2. Five-step process
 
 Any algorithm added to CADW MUST progress through these five steps.

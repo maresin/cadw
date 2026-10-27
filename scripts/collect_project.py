@@ -37,6 +37,28 @@ EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".so", ".dylib", ".pyd",
 ROOT_FILES_FULL = ["README.md", "pyproject.toml", "METHODOLOGY.md"]
 SEP = "# " + "=" * 76
 
+# v0.9.87-phase0a-fix1: tiny-mode context upgrade.
+# Ensures future sessions see primitives + principles even in tiny
+# mode. Full contents for small/foundational files; skeletons for
+# large files whose signatures carry the essential patterns.
+TINY_FULL = {
+    "README.md",
+    "docs/ml_tools/METHODOLOGY_ALGORITHM_SELECTION.md",
+    "docs/ml_tools/PRIMITIVES_AND_PRINCIPLES.md",
+    ".pingis/plan_v0.9.87_refactor.md",
+    "cadw/io/batch_writer.py",
+    "cadw/io/batch_reader.py",
+    "cadw/core/models.py",
+    "cadw/core/models_reduce.py",
+}
+TINY_SKELETON = {
+    "cadw/core/memory_guard.py",
+    "cadw/core/models_sort.py",
+    "cadw/core/models_shuffle.py",
+    "cadw/ops/shuffle.py",
+    "cadw/ops/groupby.py",
+}
+
 
 def _is_excluded(path: Path, root: Path) -> bool:
     rel_parts = path.relative_to(root).parts
@@ -106,6 +128,75 @@ def _truncate_decisions_13_4(text: str, n_keep: int) -> tuple[str, int]:
     )
     new_sec = sec[:eps[0].start()] + marker + sec[cut_rel:]
     return text[:start] + new_sec + text[end:], n_omitted
+
+
+import re as _re
+
+_SKEL_KEEP_RE = _re.compile(
+    r'^(@|async\s+def\s|def\s|class\s)'
+)
+
+
+def _skeletonize(text: str) -> str:
+    """Keep imports, class/def/decorator signatures, # v0.9 comments.
+
+    Skips function bodies. Purpose: give context reader enough to see
+    what API exists without loading 800 lines of implementation.
+    """
+    lines = text.splitlines(keepends=True)
+    keep: list[tuple[int, str]] = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Version-annotated comments (# v0.9...)
+        if stripped.startswith("# v0.9"):
+            keep.append((i, line))
+            continue
+        # Module-level imports only (no leading whitespace)
+        if not line[0].isspace():
+            if stripped.startswith(("import ", "from ")) and (
+                " import" in stripped
+            ):
+                keep.append((i, line))
+                continue
+        # Class / function / decorator lines at any indent
+        if _SKEL_KEEP_RE.match(stripped):
+            keep.append((i, line))
+            continue
+    if not keep:
+        return text
+    out: list[str] = []
+    prev_i = -2
+    for i, line in keep:
+        if i > prev_i + 1 and out:
+            out.append("    # ... (body omitted)\n")
+        out.append(line if line.endswith("\n") else line + "\n")
+        prev_i = i
+    return "".join(out)
+
+
+def _generate_changelog_index(
+    text: str, max_summary_chars: int = 70,
+) -> str:
+    """One line per version entry. Replaces full CHANGELOG in tiny mode."""
+    out = ["# CHANGELOG index (one line per version, newest first)\n",
+           "# Full entries in --mode=full / --mode=smart.\n\n"]
+    pattern = _re.compile(
+        r"^### (v[\d.]+[^\s]*)\s*\((\d{4}-\d{2}-\d{2})\)\s*-\s*(.+)$",
+        _re.MULTILINE,
+    )
+    n = 0
+    for m in pattern.finditer(text):
+        ver = m.group(1)
+        date = m.group(2)
+        summary = m.group(3).strip()
+        if len(summary) > max_summary_chars:
+            summary = summary[:max_summary_chars - 3] + "..."
+        out.append(f"{ver:20s} ({date}) {summary}\n")
+        n += 1
+    out.append(f"\n# ({n} versions total)\n")
+    return "".join(out)
 
 
 def _print_tree(root: Path, max_depth: int = 6) -> None:
@@ -186,8 +277,14 @@ def main() -> int:
             elif p.name == "DECISIONS.md":
                 mode = "decisions"
         elif args.mode == "tiny":
-            if p.suffix == ".md" and p.name in ("README.md", "CHANGELOG.md"):
-                mode = "changelog" if p.name == "CHANGELOG.md" else "full"
+            # v0.9.87-phase0a-fix1: context-rich tiny mode.
+            rel = p.relative_to(root).as_posix()
+            if rel in TINY_FULL:
+                mode = "full"
+            elif rel in TINY_SKELETON:
+                mode = "skeleton"
+            elif rel == "CHANGELOG.md":
+                mode = "changelog_index"
             else:
                 mode = "stub"
         else:
@@ -223,6 +320,10 @@ def main() -> int:
                 content = "\n".join(lines[:50]) + (
                     f"\n# ... ({len(lines) - 50} more lines)\n"
                 )
+        elif mode == "skeleton":
+            content = _skeletonize(content)
+        elif mode == "changelog_index":
+            content = _generate_changelog_index(content)
         return content
 
     def _stub_marker(p: Path, size: int) -> str:
