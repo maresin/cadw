@@ -205,3 +205,25 @@ def test_kmeans_ad_no_bench_deps_in_source():
             top = (node.module or "").split(".")[0]
             assert top not in forbidden, f"forbidden: {node.module}"
 
+def test_fit_kmeans_ad_guard_raises_before_allocation(monkeypatch):
+    """v0.9.87-fix1b(2/2): guard fires BEFORE _prepare_windows."""
+    from cadw.ml import kmeans_ad as km_mod
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    called = {"n": 0}
+    orig = km_mod._prepare_windows
+
+    def spy(*a, **kw):
+        called["n"] += 1
+        return orig(*a, **kw)
+
+    monkeypatch.setattr(km_mod, "_prepare_windows", spy)
+
+    guard = MemoryGuard(max_memory_mb=10)
+    x = np.random.default_rng(0).standard_normal(100_000)
+    with pytest.raises(MemoryLimitExceeded):
+        km_mod.fit_kmeans_ad(x, window_size=64, guard=guard)
+    assert called["n"] == 0, (
+        f"guard should fire BEFORE _prepare_windows; "
+        f"_prepare_windows was called {called['n']} time(s)")
+

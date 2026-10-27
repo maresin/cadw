@@ -156,3 +156,25 @@ def test_tspq_no_bench_deps_in_source():
             assert top not in forbidden, (
                 f"forbidden import-from: {mod}")
 
+def test_fit_t2q_guard_raises_before_allocation(monkeypatch):
+    """v0.9.87-fix1b(2/2): guard fires BEFORE _make_windows."""
+    from cadw.ml import tspq as tspq_mod
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    called = {"n": 0}
+    orig = tspq_mod._make_windows
+
+    def spy(*a, **kw):
+        called["n"] += 1
+        return orig(*a, **kw)
+
+    monkeypatch.setattr(tspq_mod, "_make_windows", spy)
+
+    guard = MemoryGuard(max_memory_mb=10)
+    x = np.random.default_rng(0).standard_normal(100_000)
+    with pytest.raises(MemoryLimitExceeded):
+        tspq_mod.fit_t2q(x, window_size=64, guard=guard)
+    assert called["n"] == 0, (
+        f"guard should fire BEFORE _make_windows; "
+        f"_make_windows was called {called['n']} time(s)")
+

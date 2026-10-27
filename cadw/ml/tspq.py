@@ -210,21 +210,35 @@ def fit_t2q(
                 f"univariate per-sample T2Q is degenerate; "
                 f"need n >= 40 (got n={n})")
 
-    samples = _make_windows(X, window_size, stride)
-    n_s, d = samples.shape
-    if n_s < 2:
+    # v0.9.87-fix1b(2/2) (audit HIGH-1): guard check BEFORE
+    # _make_windows allocation. Validation order matches original
+    # _make_windows semantics: '< window_size' first, then
+    # 'too few samples'.
+    if n < window_size:
         raise ValueError(
-            f"too few samples ({n_s}) for PCA (need >= 2)")
+            f"series length {n} < window_size {window_size}")
+    n_s_pre = (n - window_size) // stride + 1
+    if n_s_pre < 2:
+        raise ValueError(
+            f"too few samples ({n_s_pre}) for PCA (need >= 2)")
+    d_pre = window_size * c
 
     if guard is not None:
-        est_bytes = 8 * n_s * d
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            if est_bytes > limit_mb * 1024 * 1024:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"T2Q estimated {est_bytes} bytes > "
-                    f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+        est_bytes = 8 * n_s_pre * d_pre
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="tspq.windows")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                if est_bytes > limit_mb * 1024 * 1024:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"T2Q estimated {est_bytes} bytes > "
+                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+
+    # Allocation happens ONLY after guard passes.
+    samples = _make_windows(X, window_size, stride)
+    n_s, d = samples.shape
 
     mean = samples.mean(axis=0)
     centered = samples - mean
