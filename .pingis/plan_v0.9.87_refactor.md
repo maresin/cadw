@@ -65,3 +65,42 @@ Each entry = a real code smell. Remove on fix commit.
 - D2, D4 — blocked until Phase 0 complete (methodology first).
 - DU-1 — starts after Phase 0 + at least P1/P2 (so the section
   inherits a working SpillArray).
+
+## Gate whitelist (machine-readable)
+
+Entries below are ACTIVE violations that gates G1-G4 permit until
+refactored. Each entry references a phase (P1-P7) in the plan above.
+
+Removal of an entry = its corresponding refactor commit landed.
+When the block is empty, refactor is complete; gates become pure
+regression guards.
+
+<!-- gate-whitelist
+G1: cadw/ml/gbdt.py::_fit_boosting_multiclass
+G3: cadw/ml/sub_pca.py::_sliding_windows
+G3: cadw/ml/s2g.py::_score_queries
+G3: cadw/ml/s2g.py::fit_s2g
+G3: cadw/ml/kshape.py::_sliding_windows
+G3: cadw/ml/dwt_mlead.py::_sliding_windows
+G3: cadw/ml/patch_memory_ad.py::fit_patch_memory_ad
+G4: A.*
+G4: D1.*
+G4: D2.*
+G4: D3.1.*
+G4: D3.2.*
+G4: D3.3.*
+G4: D4.*
+G4: D5.*
+G4: E.*
+G4: F.*
+G4: G.*
+G4: H.*
+G4: I.*
+G4: J.*
+G4: K.*
+G4: L.*
+G4: M.*
+G4: N.*
+G4: O.*
+-->
+
