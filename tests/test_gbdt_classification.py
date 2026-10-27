@@ -258,3 +258,35 @@ def test_regressor_still_works(tmp_path):
     ss_tot = ((y - y.mean()) ** 2).sum()
     r2 = 1.0 - ss_res / ss_tot
     assert r2 > 0.9
+
+def test_fit_gbdt_classifier_uses_codes_path(monkeypatch, tmp_path):
+    """P1a-1c: binary classifier fit uses codes-based hist/assign ops."""
+    from cadw.ml import gbdt as gbdt_mod
+    hist_codes_calls = [0]
+    assign_codes_calls = [0]
+    orig_hist = gbdt_mod._AllNodeHistOpCodes
+    orig_assign = gbdt_mod._AssignLeavesOpCodes
+
+    class SpyHist(orig_hist):
+        def update(self, state, batch):
+            hist_codes_calls[0] += 1
+            return super().update(state, batch)
+
+    class SpyAssign(orig_assign):
+        def update(self, state, batch):
+            assign_codes_calls[0] += 1
+            return super().update(state, batch)
+
+    monkeypatch.setattr(gbdt_mod, "_AllNodeHistOpCodes", SpyHist)
+    monkeypatch.setattr(gbdt_mod, "_AssignLeavesOpCodes", SpyAssign)
+
+    n = 200
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=n)
+    y = (x > 0).astype(int).tolist()
+    df = make_df(tmp_path, {"x": x.tolist(), "y": y})
+    fit_gbdt_classifier(df, ["x"], "y", n_estimators=3, max_depth=2)
+
+    assert hist_codes_calls[0] >= 1
+    assert assign_codes_calls[0] >= 1
+

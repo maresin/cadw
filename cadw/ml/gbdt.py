@@ -1011,13 +1011,13 @@ def _fit_boosting(
             f"materializing gradients. See §13.4/92."
         )
 
-    # 1. Global min/max
-    mm_op = _MinMaxOp(X_cols)
-    mm_res = reduce(df._iter_filtered_batches(), mm_op, mg, log=False)
-    mn = mm_res["min"]
-    mx = mm_res["max"]
-    if np.any(np.isinf(mn)) or np.any(np.isinf(mx)):
-        raise ValueError("fit_gbdt: no valid (non-null) rows")
+    # v0.9.87-P1a-1c: one-time binning (min/max + codes fill via
+    # _binning_pass). Replaces _MinMaxOp reduce; provides persistent
+    # codes (n, d) uint8 for hist/assign passes. Guard formula below
+    # (n_total * 32) unchanged: RAM is pred+cur_leaf+y+working col;
+    # codes live on disk (memmap via SpillDir).
+    mn, mx, _range_, codes_mm, nan_mask, binning_spill = _binning_pass(
+        df, X_cols, bins=int(bins), memory_guard=mg, guard=mg)
 
     # 2. Base prediction (loss-specific) — needs y_sum and n_valid.
     # v0.7.6.1 (I5): reuse precomputed values from _validate_binary_y
@@ -1044,36 +1044,48 @@ def _fit_boosting(
 
     trees = []
 
+    _d = len(X_cols)
+
     def _iter_with_state():
-        """Yield enriched batches with __g, __h, __leaf."""
+        """Yield codes-based enriched batches (P1a-1c).
+
+        Columns: __code_0..__code_{d-1} (uint8), __g (float64),
+        __h (float64), __leaf (int64), __nan_mask (bool).
+        """
         off = 0
         for b in df._iter_filtered_batches():
             n = b.num_rows
-            X = _stack_numeric(b, X_cols)
             y = _column_to_f64(b.column(y_col))
             p = pred[off:off + n]
             lf = cur_leaf[off:off + n]
-            valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
+            nm = np.asarray(nan_mask[off:off + n])
+            valid = ~nm & ~np.isnan(y)
             g, h = _grad_hess(p, y, loss, pos_weight=scale_pos_weight)
             g = np.where(valid, g, 0.0)
             h = np.where(valid, h, 0.0)
-            cols = [b.column(c) for c in X_cols]
+            codes_b = np.asarray(codes_mm[off:off + n])
+            cols = [pa.array(codes_b[:, j], type=pa.uint8())
+                    for j in range(_d)]
             cols.append(pa.array(g, type=pa.float64()))
             cols.append(pa.array(h, type=pa.float64()))
             cols.append(pa.array(lf, type=pa.int64()))
-            names = list(X_cols) + ["__g", "__h", "__leaf"]
+            cols.append(pa.array(nm))
+            names = ([f"__code_{j}" for j in range(_d)]
+                     + ["__g", "__h", "__leaf", "__nan_mask"])
             yield pa.RecordBatch.from_arrays(cols, names=names)
             off += n
 
     def _iter_for_leaves():
+        # v0.9.87-P1a-1c: nan_mask replaces per-batch _stack_numeric
+        # for the X-NaN check (bit-identical: same source, same offset).
         off = 0
         for b in df._iter_filtered_batches():
             n = b.num_rows
-            X = _stack_numeric(b, X_cols)
             y = _column_to_f64(b.column(y_col))
             p = pred[off:off + n]
             lf = cur_leaf[off:off + n]
-            valid = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
+            nm = np.asarray(nan_mask[off:off + n])
+            valid = ~nm & ~np.isnan(y)
             g, h = _grad_hess(p, y, loss, pos_weight=scale_pos_weight)
             g = np.where(valid, g, 0.0)
             h = np.where(valid, h, 0.0)
@@ -1095,7 +1107,7 @@ def _fit_boosting(
             if not internal:
                 break
 
-            hist_op = _AllNodeHistOp(X_cols, internal, mn, mx, bins)
+            hist_op = _AllNodeHistOpCodes(X_cols, internal, bins)
             hist_res = reduce(_iter_with_state(), hist_op, mg, log=False)
             gh = hist_res["g_hist"]
             hh = hist_res["h_hist"]
@@ -1122,9 +1134,10 @@ def _fit_boosting(
                 tree[left_id] = None
                 tree[right_id] = None
 
-            assign_op = _AssignLeavesOp(X_cols, mn, mx, bins, tree)
+            assign_op = _AssignLeavesOpCodes(X_cols, tree)
             cur_leaf = reduce(
-                df._iter_filtered_batches(), assign_op, mg, log=False,
+                _iter_x_with_codes(df, X_cols, codes_mm, nan_mask),
+                assign_op, mg, log=False,
             )
 
         lv_op = _LeafValuesOp(reg_lambda=reg_lambda)
@@ -1148,6 +1161,13 @@ def _fit_boosting(
             for lid, v in leaf_values.items():
                 lv_arr[lid] = v
             pred += learning_rate * lv_arr[cur_leaf]
+
+    # v0.9.87-P1a-1c: release codes memmap + SpillDir.
+    # No try/finally — if fit raises before this point (rare: guard
+    # rejects, validation), codes_mm/spill remain → tempfile in /tmp
+    # leaks. Documented limitation (same pattern as lambdamart P2b).
+    del codes_mm
+    binning_spill.__exit__(None, None, None)
 
     return {
         "trees_": trees,

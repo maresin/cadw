@@ -311,3 +311,38 @@ def test_fit_gbdt_filtered(tmp_path):
     y_eval = np.sin(X_eval.flatten())
     r2 = _r2(y_eval, pred)
     assert r2 > 0.5
+
+def test_fit_gbdt_uses_codes_path(monkeypatch, tmp_path):
+    """P1a-1c: regression fit uses codes-based hist/assign ops."""
+    from cadw.ml import gbdt as gbdt_mod
+
+    hist_codes_calls = [0]
+    assign_codes_calls = [0]
+    orig_hist = gbdt_mod._AllNodeHistOpCodes
+    orig_assign = gbdt_mod._AssignLeavesOpCodes
+
+    class SpyHist(orig_hist):
+        def update(self, state, batch):
+            hist_codes_calls[0] += 1
+            return super().update(state, batch)
+
+    class SpyAssign(orig_assign):
+        def update(self, state, batch):
+            assign_codes_calls[0] += 1
+            return super().update(state, batch)
+
+    monkeypatch.setattr(gbdt_mod, "_AllNodeHistOpCodes", SpyHist)
+    monkeypatch.setattr(gbdt_mod, "_AssignLeavesOpCodes", SpyAssign)
+
+    n = 200
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=n)
+    y = x + 0.1 * rng.normal(size=n)
+    df = make_df(tmp_path, {"x": x.tolist(), "y": y.tolist()})
+    fit_gbdt_regressor(df, ["x"], "y", n_estimators=3, max_depth=2)
+
+    assert hist_codes_calls[0] >= 1, (
+        f"_AllNodeHistOpCodes.update called {hist_codes_calls[0]} times")
+    assert assign_codes_calls[0] >= 1, (
+        f"_AssignLeavesOpCodes.update called {assign_codes_calls[0]} times")
+
