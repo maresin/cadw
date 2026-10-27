@@ -1,5 +1,135 @@
 ## [Unreleased]
 
+### v0.9.82 (2026-10-27) - TS transforms + AutoForecastPipeline + Ensemble
+
+Closes the TS pipeline section (v0.9.79-v0.9.81): composable per-model
+target transforms, capability-aware pipeline, and weighted ensemble.
+Enables correct handling of trend/seasonality for any forecaster
+without double-stationarization, and preserves diversity in ensembles.
+
+Transforms foundation (cadw/ts/transforms.py, ~800 LOC total, v0.9.79a+b):
+
+  BaseTransformer (ABC): fit / transform / inverse_transform /
+  get_params contract for stateful target transforms.
+
+  Differencer: regular d and seasonal D differencing with inverse.
+    Forward: d regular diffs then D seasonal diffs.
+    Inverse (v0.9.79a-fix2): closed-form binomial —
+      d-th: y[t] = y_t[t] + sum_{k=1..d} (-1)^(k+1) C(d,k) y[t-k]
+      D-th: y[t] = y_t[t] + sum_{k=1..D} (-1)^(k+1) C(D,k) y[t-k*s]
+    Initial buggy loop didn't track tails for d>1/D>1; replaced with
+    binomial closed-form (verified on d=2 quadratic).
+
+  TransformedTargetForecaster: pipeline wrapper. Fit: apply transforms
+  in order, fit base on fully-transformed y. Predict: base.predict
+  then inverse in reverse order. predict_in_sample + PI also inverted.
+
+  STLTransformer (v0.9.79b): STL decomposition, transform = y - seasonal,
+  inverse = forecast + seasonal. In-sample (roundtrip) uses full
+  seasonal; forecast uses last cycle tiled (v0.9.79b-fix1).
+
+  MSTLTransformer (v0.9.79b): iterative STL for multiple periods
+  (ascending); transform = y - sum(seasonals); inverse per above.
+
+  AutoStationarizer (v0.9.79b, subclass of Differencer): auto-selects
+  d and D. d: iterate while |acf(lag=1)| > acf_threshold (default
+  0.8), cap max_d (default 2). D: after d-diff, STL seasonal
+  strength F_S = max(0, 1 - Var(R)/Var(S+R)); if F_S > threshold
+  (default 0.5), D = 1; cap max_D (default 1). Formal ADF/KPSS in
+  backlog; heuristic fast, no scipy/statsmodels dependency.
+
+  38 tests: Differencer (d1/d2/d0 forward, d1/d2 inverse roundtrip,
+  seasonal forward/inverse, combined d1_D1, identity recovers last
+  value, bad params, short-series raise); STL (removes season,
+  inverse roundtrip, forecast continuation, bad period, short raise);
+  MSTL (removes both seasonals, roundtrip, bad periods); pipeline
+  (basic flow, flat naive-without-diff sanity, PI, capability flags,
+  bad params, get_params); AutoStationarizer (random noise d0,
+  random walk d1, trending d1, seasonal D1, is-Differencer-subclass,
+  transform/inverse after fit, bad params); AST guard.
+
+Capability flags (v0.9.80): handles_trend / handles_seasonality /
+handles_multi_seasonality on ForecasterBase models:
+  - SARIMAForecaster: True / True / False (natively handles both)
+  - ETSForecaster: True / True / False
+  - AutoETSForecaster: True / True / False
+  - ThetaForecaster (STM), OTMThetaForecaster, AutoThetaForecaster:
+    True / True / False (declared in v0.9.77/v0.9.78a/v0.9.78b)
+  - NaiveForecaster, GBDTForecaster: flags undeclared -> getattr
+    defaults to False; pipeline adds transforms.
+
+AutoForecastPipeline (v0.9.80, in transforms.py): wraps any
+ForecasterBase. Reads capability flags; adds transforms only where
+the base cannot handle natively. Transform ordering (STL-then-diff,
+literature convention for STL+ARIMA):
+  1. STLTransformer / MSTLTransformer (if model needs seasonality)
+  2. AutoStationarizer (if model needs trend)
+If base handles both, pipeline is "naked" (delegates directly).
+12 new tests: naive+trend -> differencing (trend continues vs flat),
+naive+stationary -> d=0 (matches plain naive), naive+seasonal ->
+STL+diff (non-flat), sarima/ets/autotheta naked, capability flags
+after wrap, MSTL for 2 periods, empty forecaster raises, get_params,
+predict_in_sample shape, AST guard.
+
+EnsembleForecaster (v0.9.81a, cadw/ts/ensemble.py, ~370 LOC):
+  Wraps each member in its own AutoForecastPipeline (per-member
+  capability-based transforms). Predictions inverse-transformed
+  per-member, then weighted-averaged. Preserves diversity: if all
+  members see the same detrended series, they produce the same flat
+  forecast; inverse adds back the same trend -> zero ensemble gain.
+
+  Weight strategies: 'equal' (mean), 'inverse_mase' (default;
+  weights ∝ 1/val_MASE on holdout), 'median' (robust to 1 outlier),
+  custom list. Weights validated at __init__ (fail fast).
+
+  Bench (n=500, s=12, M3-like):
+    naive_last             MASE=2.184  0.18s
+    theta                  MASE=0.201  0.05s
+    auto_theta             MASE=0.209  0.23s
+    ensemble inverse_mase  MASE=0.203  0.56s
+      weights = [0.017 (naive), 0.311 (theta), 0.672 (auto_theta)]
+      val_mase = [47.06, 2.59, 1.20]
+    auto_ets               MASE=0.276  3.33s
+  Ensemble ≈ best-member on single DGP. Honest: on a single synthetic
+  DGP ensemble rarely beats best member; expected gain on M3/M4-scale
+  multi-DGP from inverse-MASE picking good members per series.
+
+  HONEST LIMITATION (documented in bench + backlog 17): AutoStat
+  heuristic (acf_threshold=0.8) chose d=0 on trend+noise DGP, so
+  naive+STL gave flat forecast (val MASE=47). Ensemble correctly
+  downweighted naive to 0.017 — capability works, but AutoStat
+  heuristic itself misleads on raw trended series. Fix in backlog:
+  lower acf_threshold 0.8 -> 0.5-0.6, or formal ADF/KPSS.
+
+  Fix iterations: v0.9.81a-fix1 validate weights at __init__ (bad
+  spec raised from fit initially); test fixes (NaiveForecaster has
+  no 'mean' strategy -> 'drift'; pipeline wraps naive in AutoStat
+  so ens != naked-naive avg -> use ThetaForecaster for bare-naked
+  pipeline tests).
+
+Version 0.9.78 -> 0.9.82.
+
+Combined with v0.9.79a-b and v0.9.80 (uncommitted between v0.9.78
+and v0.9.81a), the full pipeline stack is now usable:
+  TransformedTargetForecaster(Differencer, NaiveForecaster) for
+  trended series; AutoForecastPipeline(GBDTForecaster) auto-adds
+  transforms; EnsembleForecaster([SARIMA, AutoTheta, GBDT]) uses
+  per-member pipelines with inverse-MASE weights.
+
+Backlog: 17 items (AutoStationarizer heuristic on trended data
+added; AutoTheta k-fold CV from v0.9.78; others).
+
+Fast suite: 3418 -> 3486 passed (+68: transforms 50 + ensemble 16 +
+2 misc), 8 skipped. Focused: 234 (transforms 50 + theta 17 + otm 15
++ auto_theta 17 + ensemble 16 + ets/auto_ets 47 + AST 129 net).
+WL 34 OK. AST-guard 129 passed. audit_leakage 7 warnings (pretrained).
+audit_url_log 0 errors. MATRIX.md + 40 docs/tasks/*.md unchanged
+(no card changes in this cycle).
+
+Next: v0.9.83 — GBDTForecaster(differencing='auto', decompose='stl')
+integration; then AnomalyPipeline (P0+P1 anomaly stationarity);
+then HybridETS_GBDT; then metrics extension.
+
 ### v0.9.78 (2026-10-27) - OTM + AutoTheta (CV-selected STM/OTM)
 
 Closes D1 uni-forecast with SOTA-class classical: OTM (weight-
