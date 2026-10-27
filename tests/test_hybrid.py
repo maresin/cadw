@@ -148,8 +148,9 @@ def test_capability_flags():
     assert m.handles_multi_seasonality is False
 
 
-# 10. PI is ETS PI shifted by GBDT point forecast
+# 10. PI: mid = ETS mid + GBDT point; width >= ETS width (v0.9.86.1)
 def test_prediction_interval_shifted_by_gbdt():
+    """v0.9.86.1: PI mid = ETS mid + GBDT point; width >= ETS width."""
     y = _seasonal_trend(seed=7)
     df = _mk(y, ts=_ts(len(y)))
     hyb = HybridETSGBDTForecaster(
@@ -159,8 +160,10 @@ def test_prediction_interval_shifted_by_gbdt():
     lo, hi = hyb.prediction_interval(6)
     ets_lo, ets_hi = hyb._ets.prediction_interval(6)
     gbdt_fc = hyb._gbdt.predict(6)
-    assert np.allclose(lo, ets_lo + gbdt_fc)
-    assert np.allclose(hi, ets_hi + gbdt_fc)
+    mid = (lo + hi) / 2.0
+    ets_mid = (ets_lo + ets_hi) / 2.0
+    assert np.allclose(mid, ets_mid + gbdt_fc)
+    assert np.all((hi - lo) >= (ets_hi - ets_lo) - 1e-9)
 
 
 # 11. Determinism
@@ -184,3 +187,31 @@ def test_gbdt_mode_direct_works():
     fc = hyb.predict(6)
     assert fc.shape == (6,)
     assert np.all(np.isfinite(fc))
+
+def test_prediction_interval_widens_with_residual():
+    """v0.9.86.1: combined PI strictly wider than ETS PI when sigma_resid>0."""
+    y = _seasonal_trend(seed=10)
+    df = _mk(y, ts=_ts(len(y)))
+    hyb = HybridETSGBDTForecaster(
+        ets_kwargs={'seasonal_period': 12, 'seasonal': 'additive'},
+    ).fit(df, 'y')
+    assert hyb._gbdt is not None
+    lo, hi = hyb.prediction_interval(6)
+    ets_lo, ets_hi = hyb._ets.prediction_interval(6)
+    assert np.all((hi - lo) > (ets_hi - ets_lo))
+
+
+def test_prediction_interval_equals_ets_when_gbdt_skipped():
+    """v0.9.86.1: no GBDT -> PI == ETS PI (no widening)."""
+    y = _seasonal_trend(n=30, seed=11)
+    df = _mk(y, ts=_ts(30))
+    hyb = HybridETSGBDTForecaster(
+        ets_kwargs={'seasonal_period': 12},
+        min_resid_train=10**6,
+    ).fit(df, 'y')
+    assert hyb._gbdt is None
+    lo, hi = hyb.prediction_interval(6)
+    ets_lo, ets_hi = hyb._ets.prediction_interval(6)
+    assert np.allclose(lo, ets_lo)
+    assert np.allclose(hi, ets_hi)
+

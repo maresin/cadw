@@ -184,7 +184,22 @@ class HybridETSGBDTForecaster(ForecasterBase):
             return ets_lo, ets_hi
         gbdt_fc = np.asarray(
             self._gbdt.predict(steps), dtype=np.float64)
-        return ets_lo + gbdt_fc, ets_hi + gbdt_fc
+        # v0.9.86.1: combined-variance PI (was: point-shift only).
+        # Model: y_hat = ETS + GBDT(resid); independent errors ->
+        #   sigma_hybrid^2 = sigma_ets^2 + sigma_resid^2
+        # ETS half-width already equals z * sigma_ets (z baked in).
+        from statistics import NormalDist
+        z = NormalDist().inv_cdf(0.5 + 0.5 * float(level))
+        sigma_resid = float(
+            np.nanstd(self._y - self._y_hat_ets_in_sample))
+        ets_half = (ets_hi - ets_lo) / 2.0
+        mid = (ets_lo + ets_hi) / 2.0 + gbdt_fc
+        if not np.isfinite(sigma_resid) or sigma_resid <= 0:
+            # Defensive fallback: no residual variance info -> use
+            # ETS width (v0.9.86 point-shift semantics).
+            return mid - ets_half, mid + ets_half
+        combined_half = np.sqrt(ets_half**2 + (z * sigma_resid)**2)
+        return mid - combined_half, mid + combined_half
 
     def state_nbytes(self):
         total = 0

@@ -154,6 +154,28 @@
   - code/paper: https://www.statsmodels.org/stable/generated/statsmodels.tsa.statespace.sarimax.SARIMAX.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### HybridETSGBDT — sota / tier1_core
+
+**Roles:** temporal_dynamics, nonlinear_interactions
+**Status:** ✓ cadw, ✓ agent
+
+**Purpose:** Hybrid ETS+GBDT on residuals (Zhang 2003 M4-winner family). Final forecast = ETS_fc + GBDT_fc(residuals); ETS captures trend+seasonality, GBDT captures nonlinear residual patterns ETS leaves behind. HONEST LIMITATION: on the synthetic nonlinear residual DGP designed for it, hybrid does NOT improve over plain ETS (see note). Ships as M4-family alternative to AutoTheta (M3-family). Real M4-scale residuals have stronger structure; untested due to M4 data unavailability.
+
+**Use cases:**
+- M4-style univariate series where ETS residuals show AR/nonlinear structure
+- Industrial demand with trend + weekly season + nonlinear shocks
+
+**Config:** `{'ets_kwargs': 'dict', 'gbdt_kwargs': 'dict', 'min_resid_train': 'int'}`
+
+**CADW:** `cadw.ts.hybrid.HybridETSGBDTForecaster`
+
+**Benchmarks:**
+- **[cadw_measured]** cadw_internal → mase=0.1475 ± 0.0091 (n=2)
+  - algorithm: `cadw.ts.hybrid.HybridETSGBDTForecaster` (code)
+  - number: .pingis/benches/hybrid.json
+  - code/paper: cadw/ts/hybrid.py
+  - note: CADW-native: n=500, s=12, h=12, 3 seeds. Two DGPs. ets_friendly: ETS 0.0811 / hybrid 0.0818 (+0.9%, within noise; GBDT correctly idles). nonlinear_residual (AR(1) phi=-0.6): ETS 0.1372 / hybrid 0.1475 (+7.5%). HONEST LIMITATION: hybrid does NOT improve over plain ETS on the DGP designed for it. Four structural causes: (a) ETS absorbs alpha*resid into y_hat so GBDT sees weakened residual correlated with y_hat; (b) recursive mode over-smooths AR(1) alternation by feeding back near-mean predictions; (c) shrinkage 0.1x50 undertrains weak phi=-0.6; (d) GBDT trend feature boundary-overfits at test (test trend range never seen in fit). Does NOT harm ETS-friendly data. Real M4 residuals stronger; untested. Backlog: hybrid tuning (direct mode, lags subset, drop trend feature, min_resid_train=100).
+
 ### GBDTForecaster — sota / tier1_core
 
 **Roles:** nonlinear_interactions

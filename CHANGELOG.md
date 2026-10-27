@@ -1,5 +1,82 @@
 ## [Unreleased]
 
+### v0.9.86.1 (2026-10-27) - HybridETSGBDT YAML card + PI combined-variance
+
+Closes v0.9.86 honestly: registers HybridETSGBDT in the D1 matrix
+and fixes prediction-interval width (was point-shift only;
+combined-variance now). No new model code; net +2 tests.
+
+PI combined-variance (cadw/ts/hybrid.py, ~15 LOC in
+prediction_interval):
+  Old: PI = ETS PI shifted by GBDT point forecast. Width == ETS
+  width, ignoring residual variance.
+  New: mid = ETS_mid + gbdt_fc; half = sqrt(ets_half^2 +
+  (z*sigma_resid)^2) with z = NormalDist().inv_cdf(0.5 +
+  level/2) and sigma_resid = nanstd(y - ETS_in_sample). Assumes
+  ETS and GBDT errors independent (approximate; GBDT is fit on
+  ETS residual, so near-independence is expected but not exact -
+  documented). Defensive fallback: sigma_resid NaN/0 -> ETS width
+  (old point-shift semantics). _gbdt is None -> ETS PI as-is.
+
+  3 tests touched (tests/test_hybrid.py now 14, was 12):
+    - test_prediction_interval_shifted_by_gbdt rewritten:
+      mid == ETS_mid + gbdt_fc; width >= ETS width (old assertions
+      lo==ets_lo+gbdt_fc / hi==ets_hi+gbdt_fc fail on wider
+      combined PI, expected).
+    - test_prediction_interval_widens_with_residual (new):
+      strictly wider when sigma_resid > 0.
+    - test_prediction_interval_equals_ets_when_gbdt_skipped (new):
+      min_resid_train=10^6 -> _gbdt is None -> PI == ETS PI
+      exactly (np.allclose).
+
+YAML D1 card (docs/ml_tools/D_time_series.yaml, before
+GBDTForecaster card):
+  - name: HybridETSGBDT
+    tier: sota (M4-winner family, consistent with AutoTheta=sota)
+    tier_level: tier1_core
+    roles: [temporal_dynamics, nonlinear_interactions]
+    purpose: >- (honest limitation inline)
+    cadw_module: cadw.ts.hybrid
+    cadw_function: HybridETSGBDTForecaster
+    benchmark_results: cadw_measured (n_datasets=2, metric=mase,
+              value=0.1475, std=0.0091, from
+              .pingis/benches/hybrid.json; note carries 4-cause
+              diagnosis)
+    evaluation_scope: synthetic
+    dgp_source: synthetic_nonlinear_residual
+  MATRIX.md + 40 docs/tasks/*.md regenerated.
+
+Design notes:
+  - YAML cards have no capability_flags:/special: (anchor-only
+    fields); honest limitation goes in purpose: and note:
+    (Theta precedent).
+  - cadw_measured schema rule: algorithm must be cadw.*, benchmark
+    must be cadw_internal. benchmark_url points to per-file JSON
+    matching ETS/AutoETS/Theta/AutoTheta precedent.
+  - n_datasets=2 = number of DGPs (not seeds); matches AutoTheta.
+  - ensemble_recommendation unchanged: Hybrid NOT added to primary
+    D1 ensemble due to honest negative; diagnostic-only.
+
+Fix iterations:
+  - v0.9.86.1-fix1: initial patch attempt had (a) test anchor with
+    assumed docstring (actual v0.9.86 test has none); (b) YAML
+    anchor '  - name: GBDTForecaster\n  tier:' with 2-space
+    indent (actual: 4-space). Both fixed; script made idempotent
+    with explicit anchor-miss diagnostics.
+
+Version 0.9.86 -> 0.9.86.1.
+
+Backlog: 19 items unchanged. Hybrid tuning and PI now consistent
+with implementation; AST-count doc-rot note remains (v0.9.87).
+
+Focused: test_hybrid 14 passed; render 52; schema 73; version 6;
+changelog 2+2s. WL 34 OK. AST-guard 137. audit_leakage 7 warnings.
+audit_url_log 0 errors.
+
+Fast suite: 3547 -> 3549 passed (+2), 8 skipped.
+
+Next: Hybrid tuning (backlog) OR pivot to DU-1 (supervised
+tabular; pipeline + metrics + hybrid all reusable).
 ### v0.9.86 (2026-10-27) - HybridETSGBDT forecaster (M4-winner family)
 
 Closes the last major D1 gap: hybrid ETS+GBDT (Zhang 2003 M4-winner
