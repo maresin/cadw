@@ -723,12 +723,38 @@ class GBDTForecaster(ForecasterBase):
     def __init__(
         self, mode="direct", lags=(1, 2, 3), seasonal_periods=(),
         n_estimators=50, max_depth=3, learning_rate=0.1,
+        differencing="none", decompose="none",
+        decompose_periods=None,
     ):
         super().__init__()
         if mode not in ("direct", "recursive", "multi_output"):
             raise ValueError(
                 f"GBDTForecaster: mode must be 'direct', 'recursive', "
                 f"or 'multi_output'; got {mode!r}"
+            )
+        # v0.9.83: capability-based transforms (GBDT can't extrapolate
+        # trend; external differencing/STL via AutoForecastPipeline
+        # machinery).
+        if differencing not in ("none", "auto", None):
+            if not (isinstance(differencing, int) and differencing > 0):
+                raise ValueError(
+                    f"GBDTForecaster: differencing={differencing!r} "
+                    f"must be 'none', 'auto', None, or positive int"
+                )
+        if decompose not in ("none", "stl", "mstl", None):
+            raise ValueError(
+                f"GBDTForecaster: decompose={decompose!r} "
+                f"must be 'none', 'stl', 'mstl', or None"
+            )
+        if decompose in ("stl", "mstl") and not decompose_periods:
+            raise ValueError(
+                f"GBDTForecaster: decompose={decompose!r} requires "
+                f"decompose_periods non-empty"
+            )
+        if decompose == "mstl" and len(decompose_periods) < 2:
+            raise ValueError(
+                f"GBDTForecaster: decompose='mstl' requires "
+                f">= 2 decompose_periods; got {len(decompose_periods)}"
             )
         self.mode = mode
         self.lags = tuple(int(k) for k in lags)
@@ -745,11 +771,78 @@ class GBDTForecaster(ForecasterBase):
         self._all_lags = None
         self._n_horizons = 0
         self._is_fitted = False
+        # v0.9.83: capability-based transforms
+        self.differencing = differencing
+        self.decompose = decompose
+        self.decompose_periods = (
+            list(decompose_periods) if decompose_periods else None)
+        self._inner_pipeline = None
+        # Instance-level capability flags (override class defaults — GBDT
+        # has no class-level flags, so getattr(...) would return False).
+        # When transforms are configured, GBDT reports handles_* = True so
+        # an outer AutoForecastPipeline will not double-wrap.
+        has_trend = (
+            differencing == "auto"
+            or (isinstance(differencing, int) and differencing > 0))
+        has_season = decompose in ("stl", "mstl")
+        self.handles_trend = has_trend
+        self.handles_seasonality = has_season
+        self.handles_multi_seasonality = (decompose == "mstl")
+
+    def _build_inner_pipeline(self):
+        """Construct TransformedTargetForecaster wrapping a copy of self.
+
+        v0.9.83: lazy import of transforms to avoid circular dependency
+        (transforms.py imports ForecasterBase from models.py).
+        Returns None if no transforms configured.
+        """
+        from cadw.ts.transforms import (
+            AutoStationarizer, Differencer, MSTLTransformer,
+            STLTransformer, TransformedTargetForecaster,
+        )
+        import copy
+        transformers = []
+        if self.decompose == "stl":
+            transformers.append(
+                STLTransformer(int(self.decompose_periods[0])))
+        elif self.decompose == "mstl":
+            transformers.append(
+                MSTLTransformer(list(self.decompose_periods)))
+        if self.differencing == "auto":
+            transformers.append(
+                AutoStationarizer(seasonal_period=None))
+        elif isinstance(self.differencing, int) and self.differencing > 0:
+            transformers.append(Differencer(lags=self.differencing))
+        if not transformers:
+            return None
+        inner = copy.copy(self)
+        inner.differencing = "none"
+        inner.decompose = "none"
+        inner.decompose_periods = None
+        inner._inner_pipeline = None
+        inner._models = None
+        inner._y = None
+        inner._X = None
+        inner._idx = None
+        inner._tail_features = None
+        inner._is_fitted = False
+        return TransformedTargetForecaster(transformers, inner)
 
     def fit(
         self, df, target_col, *, time_col=None, group_col=None,
         horizons=None,
     ):
+        # v0.9.83: if transforms configured, delegate to inner pipeline
+        if (self.differencing not in ("none", None)
+                or self.decompose not in ("none", None)):
+            if self._inner_pipeline is None:
+                self._inner_pipeline = self._build_inner_pipeline()
+            if self._inner_pipeline is not None:
+                self._inner_pipeline.fit(
+                    df, target_col, time_col=time_col,
+                    group_col=group_col)
+                self._is_fitted = True
+                return self
         _check_df(df, target_col, time_col, group_col)
         y = _extract_series(df, target_col, time_col=time_col)
         if len(y) < 5:
@@ -819,6 +912,37 @@ class GBDTForecaster(ForecasterBase):
             arr[i] = y_hist[-k]
         arr[-1] = float(len(y_hist))
         return arr
+
+    def predict(self, steps):
+        # v0.9.83: in transform mode, delegate to inner pipeline (which
+        # holds fit state on the inner GBDT copy); naked mode uses the
+        # existing _predict path.
+        if self._inner_pipeline is not None:
+            return self._inner_pipeline.predict(steps)
+        return self._predict(steps)
+
+    def predict_in_sample(self):
+        # v0.9.83: pipeline predict_in_sample has a length mismatch
+        # (GBDT returns NaN-padded n-length; transforms were fit on
+        # n - d). Not supported in transform mode; naked mode works
+        # normally.
+        if self._inner_pipeline is not None:
+            raise NotImplementedError(
+                "GBDTForecaster.predict_in_sample with transforms "
+                "(differencing/decompose): not supported due to length "
+                "mismatch. Use naked GBDT for in-sample, or call "
+                "pipeline.forecaster.predict_in_sample() directly to "
+                "inspect the inner model's in-sample residual on the "
+                "transformed series.")
+        return self._predict_in_sample()
+
+    def state_nbytes(self):
+        if self._inner_pipeline is not None:
+            return self._inner_pipeline.state_nbytes()
+        try:
+            return super().state_nbytes()
+        except (AttributeError, TypeError):
+            return 0
 
     def _predict(self, steps):
         if self.mode == "recursive":
