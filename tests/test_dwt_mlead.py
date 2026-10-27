@@ -159,32 +159,67 @@ def test_dwt_mlead_reference_aeon_smoke():
     result = fit_dwt_mlead(x)
     assert result.is_anomaly.shape == (500,)
 
-def test_fit_dwt_mlead_guard_fires_before_windows(monkeypatch):
-    """v0.9.87-fix1b: est_bytes safe upper bound; guard fires BEFORE
-    per-level _sliding_windows allocation.
+def test_fit_dwt_mlead_guard_fires_before_streaming(monkeypatch):
+    """P4b: guard fires BEFORE per-level streaming begins.
 
-    n=100k, max_level~16: old est 8*n*L=12.8 MB (underestimates),
-    new est 8*(n/2^start)*2^((L-start)//2)*4 with start=1:
-    8*50k*128*4=205 MB. Guard at 20 MB -> new raises (old passed then
-    allocated per-level ~51 MB at level 1 -> OOM possible).
+    Was fix1b's test (_sliding_windows); P4b removes _sliding_windows
+    and uses _stream_mahalanobis. Spy the latter; tight guard; expect
+    raise AND spy untouched.
     """
     from cadw.ml import dwt_mlead as dm
     from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 
     called = {"n": 0}
-    orig = dm._sliding_windows
+    orig = dm._stream_mahalanobis
 
     def spy(*a, **kw):
         called["n"] += 1
         return orig(*a, **kw)
 
-    monkeypatch.setattr(dm, "_sliding_windows", spy)
+    monkeypatch.setattr(dm, "_stream_mahalanobis", spy)
 
-    guard = MemoryGuard(max_memory_mb=20)
+    guard = MemoryGuard(max_memory_mb=1)  # 1 MB, forces raise
     x = np.random.default_rng(0).standard_normal(100_000)
     with pytest.raises(MemoryLimitExceeded):
         dm.fit_dwt_mlead(x, guard=guard)
     assert called["n"] == 0, (
-        f"guard should fire BEFORE _sliding_windows; "
-        f"_sliding_windows was called {called['n']} time(s)")
+        f"guard should fire BEFORE streaming; "
+        f"_stream_mahalanobis was called {called['n']} time(s)")
+
+def test_streaming_mahalanobis_matches_batch():
+    """P4b: _stream_mahalanobis bit-identical to batch reference."""
+    from cadw.ml.dwt_mlead import (
+        _mahalanobis_distances, _stream_mahalanobis,
+    )
+    # Build small 2D windows array as reference source
+    rng = np.random.default_rng(42)
+    detail = rng.standard_normal(2000)
+    w = 16
+    # Batch reference (windows materialized)
+    windows = np.lib.stride_tricks.sliding_window_view(detail, w).copy()
+    ref = _mahalanobis_distances(windows)
+    # Streaming
+    got = _stream_mahalanobis(detail, w, chunk_nw=256)
+    assert got.shape == ref.shape
+    np.testing.assert_allclose(got, ref, rtol=1e-10, atol=1e-10)
+
+
+def test_streaming_mahalanobis_no_dense_windows(monkeypatch):
+    """P4b: verify per-level chunks bounded, not full (n_w, w)."""
+    from cadw.ml import dwt_mlead as dm
+
+    max_chunk = [0]
+    orig = dm._iter_detail_window_chunks
+
+    def spy(*args, **kwargs):
+        for chunk, start in orig(*args, **kwargs):
+            max_chunk[0] = max(max_chunk[0], chunk.shape[0])
+            yield chunk, start
+
+    monkeypatch.setattr(dm, "_iter_detail_window_chunks", spy)
+
+    x = np.random.default_rng(0).standard_normal(50_000)
+    dm.fit_dwt_mlead(x)
+    assert max_chunk[0] <= 10_000, (
+        f"chunk size {max_chunk[0]} > 10_000 (streaming broken)")
 

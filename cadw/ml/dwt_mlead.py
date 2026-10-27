@@ -83,13 +83,91 @@ def _multilevel_haar_dwt(x: np.ndarray) -> list[np.ndarray]:
     return details
 
 
-def _sliding_windows(x: np.ndarray, w: int) -> np.ndarray:
-    """Return (n-w+1, w) array of sliding windows over x."""
-    if w < 1 or w > len(x):
-        return np.empty((0, w), dtype=x.dtype)
-    return np.lib.stride_tricks.sliding_window_view(x, w).copy()
+# v0.9.87-P4b: _sliding_windows removed (dead helper after streaming
+# refactor; was the only G3 violation in this module).
 
 
+# v0.9.87-P4b (audit HIGH-1 full fix): streaming chunk helpers for
+# per-level mahalanobis distances. Peak RAM O(chunk_nw*w + w^2)
+# regardless of n. See METHODOLOGY §5 (windowed state_type).
+
+
+def _resolve_chunk_nw(d: int, guard=None) -> int:
+    """Chunk size so per-chunk peak RAM stays within budget.
+
+    Default target: 8 MB per chunk. If guard exposes
+    state_limit_bytes, cap target to state_limit // 8.
+    """
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        state_limit = getattr(guard, "state_limit_bytes", None)
+        if (isinstance(state_limit, (int, float))
+                and state_limit > 0):
+            target_bytes = min(int(target_bytes),
+                               max(1, int(state_limit) // 8))
+    bytes_per_window = 8 * max(int(d), 1) * 6
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
+def _iter_detail_window_chunks(detail_1d: np.ndarray, w: int,
+                               chunk_nw: int):
+    """Yield (chunk, start) chunks of shape (nb, w) from 1D detail.
+
+    Only `chunk_nw` windows materialized at a time (nb <= chunk_nw).
+    """
+    n = len(detail_1d)
+    if w < 1 or w > n:
+        return
+    n_w = n - w + 1
+    offsets = np.arange(w, dtype=np.int64)
+    for start in range(0, n_w, chunk_nw):
+        end = min(start + chunk_nw, n_w)
+        nb = end - start
+        abs_starts = np.arange(start, end, dtype=np.int64)
+        idx = abs_starts[:, None] + offsets[None, :]
+        yield detail_1d[idx], start
+
+
+def _stream_mahalanobis(detail_1d: np.ndarray, w: int,
+                        chunk_nw: int) -> np.ndarray:
+    """Streaming mahalanobis distances; 3 passes, O(chunk_nw*w + w^2) peak."""
+    n = len(detail_1d)
+    if w < 1 or w > n:
+        return np.zeros(0, dtype=np.float64)
+    n_w = n - w + 1
+    if n_w < 2:
+        return np.zeros(n_w, dtype=np.float64)
+
+    total = np.zeros(w, dtype=np.float64)
+    for chunk, _ in _iter_detail_window_chunks(detail_1d, w, chunk_nw):
+        total += chunk.sum(axis=0)
+    mean = total / n_w
+
+    M2 = np.zeros((w, w), dtype=np.float64)
+    for chunk, _ in _iter_detail_window_chunks(detail_1d, w, chunk_nw):
+        centered = chunk - mean
+        M2 += centered.T @ centered
+    cov = M2 / max(n_w - 1, 1) + np.eye(w) * 1e-8
+    try:
+        inv_cov = np.linalg.inv(cov)
+    except np.linalg.LinAlgError:
+        inv_cov = np.linalg.pinv(cov)
+
+    scores_chunks = []
+    for chunk, _ in _iter_detail_window_chunks(detail_1d, w, chunk_nw):
+        centered = chunk - mean
+        md_sq = np.einsum("ij,jk,ik->i", centered, inv_cov, centered)
+        scores_chunks.append(np.sqrt(np.maximum(md_sq, 0.0)))
+    if not scores_chunks:
+        return np.zeros(0, dtype=np.float64)
+    return np.concatenate(scores_chunks)
+
+
+# NOTE: _mahalanobis_distances below is kept as a numerical reference
+# for test_streaming_mahalanobis_matches_batch; production code uses
+# _stream_mahalanobis. Do not call from non-test code.
 def _mahalanobis_distances(windows: np.ndarray) -> np.ndarray:
     """Mahalanobis distance of each row from the mean row.
 
@@ -229,20 +307,17 @@ def fit_dwt_mlead(
             min_anomaly_consistency=min_anomaly_consistency,
         )
 
+    # v0.9.87-P4b (audit HIGH-1 full fix): chunked mahalanobis per
+    # level. Peak RAM = details list (~n*8, already in RAM before
+    # this guard) + per-chunk buffers (chunk_nw*w*8*4) + w^2*8*2.
+    _w_peak = max(2, 1 << ((max_level - start_level) // 2))
+    _chunk_nw = _resolve_chunk_nw(_w_peak, guard)
     if guard is not None:
-        # v0.9.87-fix1b (audit HIGH-1): safe upper bound for per-level
-        # window allocations. Previous 8*n*max_level underestimates
-        # for max_level >~ 6: per-level detail shrinks as n/2^l, but
-        # w_l = 2^((max_level-l)//2) — product (n/2^l)*w_l is
-        # dominated by the first level (smallest l). Peak at
-        # start_level: ~8*(n/2^start_level)*w_peak.
-        # w_peak = 2^((max_level-start_level)//2); conservative
-        # estimate: 4x (window + centered + safety margin).
-        _w_peak = max(2, 1 << ((max_level - start_level) // 2))
-        _n_peak = max(1, n >> start_level)
-        est_bytes = 8 * _n_peak * _w_peak * 4
+        est_details = int(n * 8 * 1.5)  # ~n*8 sum + 1.5x safety
+        est_chunk = _chunk_nw * _w_peak * 8 * 4 + _w_peak * _w_peak * 8 * 2
+        est_bytes = int(est_details + est_chunk)
         if hasattr(guard, "check_state") and callable(guard.check_state):
-            guard.check_state(est_bytes, name="dwt_mlead.windows")
+            guard.check_state(est_bytes, name="dwt_mlead.state")
         else:
             limit_mb = _probe_memory_limit_mb(guard)
             if limit_mb is not None and limit_mb > 0:
@@ -269,8 +344,8 @@ def fit_dwt_mlead(
         if len(detail) < w:
             continue
 
-        windows = _sliding_windows(detail, w)
-        md = _mahalanobis_distances(windows)
+        # v0.9.87-P4b: streaming (no full (n_w, w) materialization)
+        md = _stream_mahalanobis(detail, w, _chunk_nw)
         if len(md) == 0:
             continue
 
