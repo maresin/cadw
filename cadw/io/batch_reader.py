@@ -110,6 +110,33 @@ class ArrowIPCBatchReader(BatchReader):
         self._current += 1
         return batch
 
+    def get_batch(self, idx: int) -> pa.RecordBatch:
+        """Return record batch at index idx (O(1) via IPC footer).
+
+        v0.9.87-phase0b: added for random access pattern in
+        cadw/core/spill.py (SpillArray-style reads). Does not
+        advance iterator state — safe to mix with `for rb in reader`.
+
+        Raises IndexError if idx out of range, RuntimeError if
+        reader was closed.
+        """
+        if self._reader is None:
+            raise RuntimeError("reader is closed")
+        if idx < 0 or idx >= self._num_batches:
+            raise IndexError(
+                f"batch idx {idx} out of range [0, {self._num_batches})")
+        batch = self._reader.get_batch(idx)
+        if self._columns is not None:
+            cols = [batch.column(c) for c in self._columns]
+            batch = pa.RecordBatch.from_arrays(
+                cols, names=self._columns)
+        return batch
+
+    @property
+    def num_batches(self) -> int:
+        """Number of record batches (for bounds when using get_batch)."""
+        return self._num_batches
+
     @property
     def schema(self) -> pa.Schema:
         full = self._reader.schema
