@@ -52,6 +52,9 @@ class KShapeResult:
 
 # ── MemoryGuard probe (same defensive logic as dwt_mlead) ─────────
 
+from cadw.core.spill import SpillDir
+
+
 def _probe_memory_limit_mb(guard) -> float | None:
     def _is_pos(v):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
@@ -204,8 +207,67 @@ def _compute_centroid(members: np.ndarray) -> np.ndarray:
 
 # ── Sliding windows ───────────────────────────────────────────────
 
-def _sliding_windows(x: np.ndarray, w: int) -> np.ndarray:
-    return np.lib.stride_tricks.sliding_window_view(x, w).copy()
+# v0.9.87-P3 (audit HIGH-1 full fix): streaming kshape.
+# windows + window_ffts stored in memmap (SpillDir); assignment
+# chunked; centroid update via streaming Q = sum(chunk.T @ chunk).
+# Peak Python-side RAM O(chunk_nw*(m+L) + k*L + m²).
+
+
+def _resolve_chunk_nw_ks(m: int, L: int, k: int,
+                         guard=None) -> int:
+    """Chunk size so per-chunk peak RAM stays within budget."""
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        state_limit = getattr(guard, "state_limit_bytes", None)
+        if (isinstance(state_limit, (int, float))
+                and state_limit > 0):
+            target_bytes = min(int(target_bytes),
+                               max(1, int(state_limit) // 8))
+    # per-window bytes in _assign_all_chunked:
+    #   windows(chunk)      : 8m
+    #   ffts(chunk)         : 16L
+    #   cc                  : 16kL   (complex128)
+    #   cc_full / ncc       : 8k(2m-1) each ~= 16k(2m-1)/2 = 8k(2m-1)
+    #   norms/shifts/etc    : ~24k
+    bytes_per_window = (m * 8 + L * 16 + k * L * 16
+                        + k * (2 * m - 1) * 8 + k * 8)
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
+def _iter_x_window_chunks_ks(x: np.ndarray, w: int, chunk_nw: int):
+    """Yield (chunk(nb, w), start) chunks from 1D x."""
+    n = len(x)
+    n_w = n - w + 1
+    if n_w < 1:
+        return
+    offsets = np.arange(w, dtype=np.int64)
+    for start in range(0, n_w, chunk_nw):
+        end = min(start + chunk_nw, n_w)
+        abs_starts = np.arange(start, end, dtype=np.int64)
+        idx = abs_starts[:, None] + offsets[None, :]
+        yield x[idx], start
+
+
+def _compute_centroid_from_stats(Q: np.ndarray, mean_member: np.ndarray,
+                                  n_members: int,
+                                  m: int) -> np.ndarray:
+    """Centroid from pre-accumulated Q = sum(member.T @ member) and
+    mean_member. Same math as _compute_centroid, streaming input.
+    """
+    if n_members == 0:
+        return np.zeros(m, dtype=np.float64)
+    if n_members == 1:
+        return _znormalize(mean_member)
+    M = np.eye(m) - Q / n_members
+    _, eigvecs = np.linalg.eigh(M)
+    centroid = eigvecs[:, 0]
+    if float(np.dot(mean_member, centroid)) < 0:
+        centroid = -centroid
+    return _znormalize(centroid)
+
+
 
 
 # ── Map window scores to timestamps (max aggregation) ─────────────
@@ -222,78 +284,105 @@ def _map_scores_to_timestamps(window_scores: np.ndarray, w: int,
 
 # ── Core k-Shape loop ─────────────────────────────────────────────
 
-def _assign_all(windows: np.ndarray, centroids: np.ndarray,
-                window_ffts: np.ndarray, L: int) -> tuple:
-    """Vectorized assignment: all windows x all centroids via batched FFT.
+def _assign_all_chunked(windows_mm, centroids: np.ndarray,
+                        ffts_mm, L: int, m: int,
+                        chunk_nw: int, n_w: int) -> tuple:
+    """Chunked assignment (was _assign_all). Same math, bounded RAM.
 
-    Returns (labels (n_windows,), distances (n_windows,), shifts (n_windows,)).
+    Returns (labels, distances, shifts) — each (n_w,) numpy array.
     """
-    n_windows, m = windows.shape
     k = len(centroids)
     centroid_ffts = np.fft.fft(centroids, L, axis=1)  # (k, L)
-    # Cross-correlation: ifft(window_fft * conj(centroid_fft))
-    # -> (n_windows, k, L)
-    cc = np.real(np.fft.ifft(
-        window_ffts[:, None, :] * np.conj(centroid_ffts[None, :, :]),
-        axis=2))
-    # Rearrange into 2m-1 lags: full[-(m-1):] + cc[:m]
-    cc_full = np.concatenate([cc[:, :, -(m - 1):], cc[:, :, :m]],
-                             axis=2)  # (n_windows, k, 2m-1)
-    norms_w = np.linalg.norm(windows, axis=1)  # (n_windows,)
     norms_c = np.linalg.norm(centroids, axis=1)  # (k,)
-    norms = norms_w[:, None] * norms_c[None, :]  # (n_windows, k)
-    safe = np.where(norms < 1e-10, 1.0, norms)
-    ncc = cc_full / safe[:, :, None]  # (n_windows, k, 2m-1)
-    # Replace tiny-norm entries with -inf so argmax doesn't pick them
-    ncc = np.where(norms[:, :, None] < 1e-10, -np.inf, ncc)
-    idx = np.argmax(ncc, axis=2)  # (n_windows, k)
-    max_ncc = np.take_along_axis(ncc, idx[:, :, None], axis=2)[:, :, 0]
-    dists_per_centroid = np.clip(1.0 - max_ncc, 0.0, 2.0)  # (n_windows, k)
-    # Zero-norm centroid -> distance 2
-    dists_per_centroid = np.where(norms < 1e-10, 2.0, dists_per_centroid)
-    best = np.argmin(dists_per_centroid, axis=1)  # (n_windows,)
-    labels = best
-    distances = dists_per_centroid[np.arange(n_windows), best]
-    shifts = idx[np.arange(n_windows), best] - (m - 1)
-    return labels, distances, shifts, dists_per_centroid
+    labels = np.empty(n_w, dtype=np.int64)
+    distances = np.empty(n_w, dtype=np.float64)
+    shifts = np.empty(n_w, dtype=np.int64)
+
+    for start in range(0, n_w, chunk_nw):
+        end = min(start + chunk_nw, n_w)
+        w_chunk = np.asarray(windows_mm[start:end])
+        f_chunk = np.asarray(ffts_mm[start:end])
+        nb = end - start
+        cc = np.real(np.fft.ifft(
+            f_chunk[:, None, :] * np.conj(centroid_ffts[None, :, :]),
+            axis=2))
+        cc_full = np.concatenate(
+            [cc[:, :, -(m - 1):], cc[:, :, :m]], axis=2)
+        norms_w = np.linalg.norm(w_chunk, axis=1)
+        norms = norms_w[:, None] * norms_c[None, :]
+        safe = np.where(norms < 1e-10, 1.0, norms)
+        ncc = cc_full / safe[:, :, None]
+        ncc = np.where(norms[:, :, None] < 1e-10, -np.inf, ncc)
+        idx = np.argmax(ncc, axis=2)
+        max_ncc = np.take_along_axis(
+            ncc, idx[:, :, None], axis=2)[:, :, 0]
+        dists_per = np.clip(1.0 - max_ncc, 0.0, 2.0)
+        dists_per = np.where(norms < 1e-10, 2.0, dists_per)
+        best = np.argmin(dists_per, axis=1)
+        labels[start:end] = best
+        distances[start:end] = dists_per[np.arange(nb), best]
+        shifts[start:end] = idx[np.arange(nb), best] - (m - 1)
+
+    return labels, distances, shifts
 
 
-def _kshape(windows: np.ndarray, n_clusters: int, max_iter: int,
-            rng: np.random.RandomState,
-            tol: float = 0.01) -> tuple:
-    n_windows, m = windows.shape
-    indices = rng.choice(n_windows, size=n_clusters, replace=False)
-    centroids = np.array([_znormalize(windows[i]) for i in indices])
-    labels = np.full(n_windows, -1, dtype=int)
-    distances = np.full(n_windows, np.inf, dtype=np.float64)
-    L = _fft_size(m)
-    # Pre-compute FFT for all windows ONCE (biggest speedup)
-    window_ffts = np.fft.fft(windows, L, axis=1)
+def _kshape_chunked(windows_mm, ffts_mm, n_w: int, m: int, L: int,
+                    n_clusters: int, max_iter: int,
+                    rng: np.random.RandomState,
+                    chunk_nw: int) -> tuple:
+    """Chunked k-Shape. Same math as v0.9.86, bounded RAM.
+
+    windows_mm, ffts_mm: memmap-backed (n_w, m) and (n_w, L).
+    windows_mm must contain z-normalized windows (fit_kshape does
+    that when filling).
+    """
+    indices = rng.choice(n_w, size=n_clusters, replace=False)
+    centroids = np.array([
+        _znormalize(np.asarray(windows_mm[int(i)])) for i in indices
+    ])
+    labels = np.full(n_w, -1, dtype=np.int64)
+    distances = np.full(n_w, np.inf, dtype=np.float64)
     n_iter_run = 0
 
     for iteration in range(max_iter):
         old_labels = labels.copy()
-        labels, distances, shifts, _ = _assign_all(
-            windows, centroids, window_ffts, L)
+        labels, distances, shifts = _assign_all_chunked(
+            windows_mm, centroids, ffts_mm, L, m, chunk_nw, n_w)
         if np.array_equal(labels, old_labels):
             n_iter_run = iteration + 1
             break
-        # Update (still Python loop per cluster, but fewer iterations now)
         for k in range(n_clusters):
-            members_idx = np.where(labels == k)[0]
-            if len(members_idx) == 0:
-                idx = int(rng.randint(n_windows))
-                centroids[k] = _znormalize(windows[idx])
+            Q = np.zeros((m, m), dtype=np.float64)
+            mean_sum = np.zeros(m, dtype=np.float64)
+            n_members = 0
+            for start in range(0, n_w, chunk_nw):
+                end = min(start + chunk_nw, n_w)
+                chunk_labels = labels[start:end]
+                sel = np.where(chunk_labels == k)[0]
+                if len(sel) == 0:
+                    continue
+                w_chunk = np.asarray(windows_mm[start:end])
+                chunk_shifts = shifts[start:end]
+                aligned = np.empty((len(sel), m), dtype=np.float64)
+                for j, li in enumerate(sel):
+                    aligned[j] = _znormalize(
+                        _shift_align(w_chunk[li],
+                                     int(chunk_shifts[li]), m))
+                Q += aligned.T @ aligned
+                mean_sum += aligned.sum(axis=0)
+                n_members += len(sel)
+            if n_members == 0:
+                idx = int(rng.randint(n_w))
+                centroids[k] = _znormalize(
+                    np.asarray(windows_mm[idx]))
                 continue
-            aligned = np.empty((len(members_idx), m), dtype=np.float64)
-            for j, idx in enumerate(members_idx):
-                aligned[j] = _znormalize(
-                    _shift_align(windows[idx], int(shifts[idx]), m))
-            centroids[k] = _compute_centroid(aligned)
+            mean_member = mean_sum / n_members
+            centroids[k] = _compute_centroid_from_stats(
+                Q, mean_member, n_members, m)
         n_iter_run = iteration + 1
 
-    # Final distances with converged centroids
-    _, distances, _, _ = _assign_all(windows, centroids, window_ffts, L)
+    _, distances, _ = _assign_all_chunked(
+        windows_mm, centroids, ffts_mm, L, m, chunk_nw, n_w)
     return centroids, labels, distances, n_iter_run
 
 
@@ -346,7 +435,17 @@ def fit_kshape(
     # second allocation `znorm_windows = np.array([...])` right
     # after `_sliding_windows`. Both are (n_w, w) float64 arrays.
     if guard is not None:
-        est_bytes = 8 * n_windows * window_size * 2
+        # v0.9.87-P3: per-chunk buffers + output + model params.
+        _m_pre = window_size
+        _L_pre = _fft_size(_m_pre)
+        _chunk_pre = _resolve_chunk_nw_ks(
+            _m_pre, _L_pre, n_clusters, guard)
+        _per_chunk = _chunk_pre * (
+            _m_pre * 8 + _L_pre * 16 + n_clusters * _L_pre * 16
+            + n_clusters * (2 * _m_pre - 1) * 8 + n_clusters * 8)
+        _output = (n - _m_pre + 1) * 24
+        _model = _m_pre * _m_pre * 8 + n_clusters * _m_pre * 8 + 16
+        est_bytes = int(_per_chunk + _output + _model)
         if hasattr(guard, "check_state") and callable(guard.check_state):
             guard.check_state(est_bytes, name="kshape.windows+znorm")
         else:
@@ -359,12 +458,46 @@ def fit_kshape(
                         f"KShape estimated {est_bytes} bytes > "
                         f"guard {max_bytes} bytes (limit_mb={limit_mb})")
 
-    windows = _sliding_windows(x, window_size)
-    znorm_windows = np.array([_znormalize(w) for w in windows])
+    # v0.9.87-P3: memmap-backed windows + precomputed ffts; chunked
+    # assignment + streaming centroid. Peak Python-side RAM
+    # O(chunk_nw*(m+L) + k*L + m²). Bit-identical within float.
+    m = window_size
+    n_w_actual = n - m + 1
+    L = _fft_size(m)
+    _chunk_nw = _resolve_chunk_nw_ks(m, L, n_clusters, guard)
 
     rng = np.random.RandomState(random_state)
-    centroids, _, window_distances, n_iter_run = _kshape(
-        znorm_windows, n_clusters, max_iter, rng)
+    with SpillDir(guard=guard, name="kshape") as _sdir:
+        win_path = _sdir.path("windows.bin")
+        ffts_path = _sdir.path("ffts.bin")
+        windows_mm = np.memmap(
+            str(win_path), dtype=np.float64, mode="w+",
+            shape=(n_w_actual, m))
+        ffts_mm = np.memmap(
+            str(ffts_path), dtype=np.complex128, mode="w+",
+            shape=(n_w_actual, L))
+
+        for chunk, _start in _iter_x_window_chunks_ks(
+                x, m, _chunk_nw):
+            nb = chunk.shape[0]
+            zn = np.empty_like(chunk)
+            for j in range(nb):
+                zn[j] = _znormalize(chunk[j])
+            windows_mm[_start:_start + nb] = zn
+        windows_mm.flush()
+
+        for _start in range(0, n_w_actual, _chunk_nw):
+            _end = min(_start + _chunk_nw, n_w_actual)
+            w_chunk = np.asarray(windows_mm[_start:_end])
+            ffts_mm[_start:_end] = np.fft.fft(w_chunk, L, axis=1)
+        ffts_mm.flush()
+
+        centroids, _labels, window_distances, n_iter_run = (
+            _kshape_chunked(
+                windows_mm, ffts_mm, n_w_actual, m, L,
+                n_clusters, max_iter, rng, _chunk_nw))
+
+        del windows_mm, ffts_mm
 
     decision_scores = _map_scores_to_timestamps(
         window_distances, window_size, n)

@@ -174,34 +174,77 @@ def test_kshape_reference_pyod_smoke():
     except AssertionError as e:
         pytest.skip(f"pyod reference differs (eigenvector degeneracy?): {e}")
 
-def test_fit_kshape_guard_accounts_for_znorm(monkeypatch):
-    """v0.9.87-fix1b: guard estimate covers BOTH windows and znorm.
+def test_fit_kshape_guard_raises_before_streaming(monkeypatch):
+    """P3: guard fires BEFORE streaming begins.
 
-    Before: est = 8*n_w*w (windows only) — znorm (same size) unchecked.
-    After: est = 8*n_w*w*2.
-    Pick n_w*w such that 8*n_w*w < limit < 8*n_w*w*2 -> new guard
-    raises, old did not.
+    Was fix1b's test (_sliding_windows); P3 removes _sliding_windows
+    and streams via _iter_x_window_chunks_ks. Spy on that generator;
+    tight guard; expect raise AND no chunks yielded.
     """
     from cadw.ml import kshape as ks_mod
-    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+    from cadw.core.memory_guard import MemoryLimitExceeded
 
-    called = {"n": 0}
-    orig = ks_mod._sliding_windows
+    chunks_seen = [0]
+    orig = ks_mod._iter_x_window_chunks_ks
 
     def spy(*a, **kw):
-        called["n"] += 1
-        return orig(*a, **kw)
+        for item in orig(*a, **kw):
+            chunks_seen[0] += 1
+            yield item
 
-    monkeypatch.setattr(ks_mod, "_sliding_windows", spy)
+    monkeypatch.setattr(ks_mod, "_iter_x_window_chunks_ks", spy)
 
-    # n=20k, w=64 -> n_w ~ 19937, 8*n_w*w ~= 10.2 MB (windows only);
-    # x2 = 20.4 MB. Guard at 15 MB -> old est (10.2) < 15 -> alloc
-    # then fail; new est (20.4) > 15 -> raise BEFORE alloc.
-    guard = MemoryGuard(max_memory_mb=15)
+    class _TightGuard:
+        max_memory_mb = 0.5
+
     x = np.random.default_rng(0).standard_normal(20_000)
     with pytest.raises(MemoryLimitExceeded):
-        ks_mod.fit_kshape(x, window_size=64, n_clusters=3, guard=guard)
-    assert called["n"] == 0, (
-        f"guard should fire BEFORE _sliding_windows; "
-        f"_sliding_windows called {called['n']} time(s)")
+        ks_mod.fit_kshape(x, window_size=64, n_clusters=3,
+                           guard=_TightGuard())
+    assert chunks_seen[0] == 0, (
+        f"guard should fire BEFORE streaming; "
+        f"{chunks_seen[0]} chunks were yielded")
+
+def test_fit_kshape_streaming_no_dense_windows(monkeypatch):
+    """P3: verify chunks bounded (no full (n_w, w) alloc)."""
+    from cadw.ml import kshape as ks_mod
+
+    max_chunk = [0]
+    orig = ks_mod._iter_x_window_chunks_ks
+
+    def spy(*args, **kwargs):
+        for chunk, start in orig(*args, **kwargs):
+            max_chunk[0] = max(max_chunk[0], chunk.shape[0])
+            yield chunk, start
+
+    monkeypatch.setattr(ks_mod, "_iter_x_window_chunks_ks", spy)
+
+    x = np.random.default_rng(0).standard_normal(50_000)
+    ks_mod.fit_kshape(x, window_size=64, n_clusters=3, max_iter=3)
+    assert max_chunk[0] <= 10_000, (
+        f"chunk size {max_chunk[0]} > 10_000 (streaming broken)")
+
+
+def test_fit_kshape_spilldir_cleanup(monkeypatch):
+    """P3: SpillDir used + tempdir deleted on success."""
+    from cadw.ml import kshape as ks_mod
+    from cadw.core import spill as spill_mod
+
+    paths_created = []
+    orig_enter = spill_mod.SpillDir.__enter__
+
+    def spy_enter(self):
+        result = orig_enter(self)
+        paths_created.append(self._tmpdir)
+        return result
+
+    monkeypatch.setattr(
+        spill_mod.SpillDir, "__enter__", spy_enter)
+
+    x = np.random.default_rng(0).standard_normal(2_000)
+    ks_mod.fit_kshape(x, window_size=64, n_clusters=3, max_iter=3)
+
+    assert len(paths_created) == 1, "SpillDir should be entered once"
+    assert not paths_created[0].exists(), (
+        "SpillDir temp dir was not cleaned up on success")
 
