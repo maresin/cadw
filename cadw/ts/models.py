@@ -915,10 +915,25 @@ class GBDTForecaster(ForecasterBase):
 
     def predict(self, steps):
         # v0.9.83: in transform mode, delegate to inner pipeline (which
-        # holds fit state on the inner GBDT copy); naked mode uses the
-        # existing _predict path.
+        # holds fit state on the inner GBDT copy); naked mode calls
+        # self._predict (existing code path).
+        # v0.9.84-fix1: explicit _is_fitted and steps > 0 validation
+        # (original GBDTForecaster.predict did NOT validate; tests
+        # test_predict_before_fit_raises and test_steps_validation
+        # exercise this via the base-class contract).
         if self._inner_pipeline is not None:
             return self._inner_pipeline.predict(steps)
+        if not getattr(self, "_is_fitted", False):
+            raise RuntimeError(
+                f"{type(self).__name__}.predict called before fit")
+        if not isinstance(steps, int):
+            raise TypeError(
+                f"GBDTForecaster.predict: steps must be int, "
+                f"got {type(steps).__name__}")
+        if steps < 1:
+            raise ValueError(
+                f"GBDTForecaster.predict: steps must be >= 1, "
+                f"got {steps}")
         return self._predict(steps)
 
     def predict_in_sample(self):
@@ -926,6 +941,8 @@ class GBDTForecaster(ForecasterBase):
         # (GBDT returns NaN-padded n-length; transforms were fit on
         # n - d). Not supported in transform mode; naked mode works
         # normally.
+        # v0.9.84-fix2: explicit _is_fitted check (test_predict_before_
+        # fit_raises expects RuntimeError when called before fit).
         if self._inner_pipeline is not None:
             raise NotImplementedError(
                 "GBDTForecaster.predict_in_sample with transforms "
@@ -934,6 +951,10 @@ class GBDTForecaster(ForecasterBase):
                 "pipeline.forecaster.predict_in_sample() directly to "
                 "inspect the inner model's in-sample residual on the "
                 "transformed series.")
+        if not getattr(self, "_is_fitted", False):
+            raise RuntimeError(
+                f"{type(self).__name__}.predict_in_sample called "
+                f"before fit")
         return self._predict_in_sample()
 
     def state_nbytes(self):

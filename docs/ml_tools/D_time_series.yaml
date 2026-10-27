@@ -820,7 +820,15 @@ subtypes:
     special: Ignores hierarchy; use WRMSSE as the decision metric.
 - id: D3.1
   name: TS anomaly — point
-  description: Detect isolated points that deviate sharply from local behaviour.
+  description: 'Detect isolated points that deviate sharply from local
+    behaviour. STATIONARITY NOTE: most detectors (Sub-PCA, EIF, KMeansAD,
+    Autoencoder, PatchMemoryAD, ZMS, STRAY, KShapeAD, DWT-MLEAD,
+    MiniRocket) assume stationary baseline; on trended/seasonal series
+    they produce false positives. Wrap in cadw.ml.anomaly_pipeline.
+    AnomalyPipeline(detector_fn, mode="contextual", seasonal_period=s)
+    to STL-decompose before detection (v0.9.84). Native changepoint
+    detectors (PELT, BOCPD, BinSeg, CUSUM, T-squared+Q) handle trend as
+    signal — use mode="structural" for them.'
   real_life:
   - IoT sensor glitch detection
   - Transaction fraud in a stream
@@ -1446,7 +1454,12 @@ subtypes:
     note: '3 complementary inductive biases: DWT-MLEAD (frequency decomposition), Sub-PCA (linear subspace reconstruction), KShapeAD (shape clustering). All verified_in_cadw with cadw_measured recall >= 0.4 on synthetic. avg z-scored anomaly scores. v0.9.72b: IForest and MatrixProfile moved to baseline (out of ensemble) after tier corrections.'
 - id: D3.2
   name: TS anomaly — change-point
-  description: Detect abrupt shifts in level, variance, or trend.
+  description: 'Detect abrupt shifts in level, variance, or trend. All
+    D3.2 detectors (PELT, BOCPD, BinarySegmentation, CUSUM, T-squared+Q)
+    natively model trend and are appropriate for STRUCTURAL anomalies
+    (change in the trend/level/seasonal itself). Do NOT wrap in
+    AnomalyPipeline contextual mode: detrending would erase the signal.
+    Use AnomalyPipeline(..., mode="structural") or call detector directly.'
   real_life:
   - Price regime change
   - Sensor calibration shift
@@ -1718,7 +1731,14 @@ subtypes:
     note: '3 paradigms: PELT (exact batch pruning, O(n) with early pruning), T-squared+Q (PCA subspace SPC, batch), BOCPD-StudentT (Bayesian online run-length). avg change scores. v0.9.72b: 3-role ensemble after BOCPD implementation + T-squared+Q retier.'
 - id: D3.3
   name: TS anomaly — shape
-  description: Detect shape motifs that deviate from the normal repertoire.
+  description: 'Detect shape motifs that deviate from the normal
+    repertoire. STATIONARITY NOTE: shape anomalies are typically
+    CONTEXTUAL — a valid shape at the wrong phase/level. On trended or
+    seasonal series, wrap in AnomalyPipeline(detector_fn,
+    mode="contextual", seasonal_period=s) to remove trend+seasonal
+    before shape comparison (v0.9.84). EIF works on both raw windows
+    (structural) and STL residuals (contextual) with different
+    semantics; Sub-PCA/KShapeAD/S2G benefit most from contextual mode.'
   real_life:
   - ECG morphology anomalies
   - Gesture anomalies

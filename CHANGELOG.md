@@ -1,5 +1,94 @@
 ## [Unreleased]
 
+### v0.9.84 (2026-10-27) - AnomalyPipeline + GBDT transforms integration
+
+Closes the anomaly-stationarity gap (backlog item 3) and wires GBDT
+into the transforms foundation. P0 documentation and P1 code from
+the v0.9.77b backlog decision.
+
+GBDTForecaster transforms integration (v0.9.83, cadw/ts/models.py
++~120 LOC, tests/test_gbdt_transforms.py +14 tests):
+  New kwargs: differencing='none'|'auto'|int>0, decompose='none'|
+  'stl'|'mstl', decompose_periods=list[int]|None. Defaults preserve
+  v0.9.82 API (no-op).
+  - differencing='auto': AutoStationarizer wraps y before GBDT fit;
+    fixes GBDT's inability to extrapolate trend (Pritzsche: GBDT/
+    GBM/gamboost cannot forecast trend without detrending).
+  - decompose='stl'|'mstl': STL/MSTL wraps y; seasonality removed
+    before fit, added back at predict.
+  - _build_inner_pipeline uses lazy import (avoid circular dep —
+    transforms.py imports ForecasterBase from models.py).
+  - Instance-level capability flags (handles_trend/seas/multi)
+    override class defaults; with transforms enabled GBDT reports
+    True so outer AutoForecastPipeline does not double-wrap (verified
+    via pipeline_idempotent_with_autoforecastpipeline test).
+  - predict_in_sample raises NotImplementedError in transform mode
+    (length mismatch: GBDT NaN-padded n-length vs transforms fit on
+    n-d). Naked mode unchanged.
+
+AnomalyPipeline (v0.9.84, cadw/ml/anomaly_pipeline.py, ~250 LOC,
+tests/test_anomaly_pipeline.py +21 tests):
+  Wraps any anomaly detector function (signature
+  detector_fn(series, **kwargs) -> result with .decision_scores and
+  .labels). Three modes:
+    - 'structural': detect on raw; suits level/trend/seasonal-shift
+      anomalies; native changepoint detectors (PELT/BOCPD/BinSeg/
+      CUSUM/T-squared+Q) already handle trend as signal.
+    - 'contextual': STL decompose (if seasonal_period>=2) or
+      Differencer(lags=1) (if detrend=True); run detector on residual;
+      map scores back 1:1 (STL preserves length) or with first
+      timestamp unknown (differencing).
+    - 'auto': contextual if transform available, else structural.
+  Addresses backlog item 3 (v0.9.77b): 11 of 15 D3.x detectors assume
+  stationary baseline; on trended/seasonal series they produce false
+  positives. Verified in test: on pure seasonal y=5*sin(2πt/12),
+  structural naive threshold flags >=10 points; contextual STL flags
+  0 (residual near zero). On linear trend + spike, contextual detrend
+  isolates spike (<=3 flagged) vs structural (~50 trend points
+  flagged).
+  Result object: AnomalyPipelineResult(decision_scores (n,), labels
+  (n,), mode, transforms_applied, base_result, threshold).
+  get_params records resolved mode and transforms for audit.
+  Pure numpy; lazy import of transforms and _decomposition (AST-guard
+  enforced).
+
+P0 documentation (D_time_series.yaml):
+  D3.1 / D3.2 / D3.3 subtype descriptions extended with stationarity
+  notes:
+    D3.1: 11 detectors assume stationary; use AnomalyPipeline
+          contextual (v0.9.84) on trended/seasonal series.
+    D3.2: all detectors model trend natively; use structural mode,
+          do NOT wrap in contextual (would erase signal).
+    D3.3: shape anomalies are contextual by nature; contextual STL
+          preferred for Sub-PCA/KShapeAD/S2G.
+  MATRIX.md + 40 docs/tasks/*.md regenerated.
+
+Design notes:
+  - Detectors are functions (not classes) in cadw/ml/; pipeline
+    therefore takes detector_fn + kwargs, not an object with capability
+    flags. A registry of flags per detector would add complexity
+    without benefit — caller chooses mode explicitly.
+  - STL preserves length -> 1:1 mapping is exact. Differencing loses
+    first timestamp (score[0]=0, label[0]=0 — "unknown").
+  - AnomalyPipeline can wrap any tier1 detector, but its core value
+    is for the 11 stationary-assuming ones. Native changepoint
+    detectors work equally well naked in structural mode.
+
+Version 0.9.82 -> 0.9.84.
+
+Backlog: item 3 (Anomaly stationarity) closed via P0+P1.
+
+Fast suite: 3486 -> 3521 passed (+35: GBDT 14 + AnomalyPipeline 21),
+8 skipped. Focused: test_gbdt_transforms 14 passed,
+test_anomaly_pipeline 21 passed, regression 152 passed (AST 129 +
+decomposition 16 + misc). WL 34 OK. AST-guard 129 passed.
+audit_leakage 7 warnings (pretrained). audit_url_log 0 errors.
+MATRIX.md + 40 docs/tasks/*.md regenerated (P0 doc changes).
+
+Next: v0.9.85 — HybridETS_GBDT (M4 winner idea: ETS fit -> residual
+-> GBDT on residual features); then metrics extension (MSIS, pinball,
+MQLIKE, WAPE, CRPS) v0.9.86.
+
 ### v0.9.82 (2026-10-27) - TS transforms + AutoForecastPipeline + Ensemble
 
 Closes the TS pipeline section (v0.9.79-v0.9.81): composable per-model
