@@ -59,6 +59,10 @@ class BOCPDResult:
     beta0: float
     run_length_threshold: int
     contamination: float | None
+    # v0.9.87-fix1c: posterior_keep = effective keep size for
+    # run_length_posterior (compact mode); None means full
+    # (n rows, opt-in via full_posterior=True).
+    posterior_keep: int | None = None
 
 
 def _probe_memory_limit_mb(guard) -> float | None:
@@ -128,6 +132,8 @@ def fit_bocpd(
     max_run: int | None = None,
     burn_in: int | None = None,
     guard=None,
+    full_posterior: bool = False,
+    posterior_keep: int = 64,
 ) -> BOCPDResult:
     """BOCPD with Student-t predictive likelihood.
 
@@ -192,15 +198,38 @@ def fit_bocpd(
         burn_in = 2 * run_length_threshold
     burn_in = max(0, min(int(burn_in), n))
 
+    # v0.9.87-fix1c: compact rolling buffer (default) or full
+    # posterior (opt-in via full_posterior=True). Audit HIGH: full
+    # R_history is 8*n*(max_run+1) bytes -> 1.6 GB @ n=1M,
+    # max_run=200. Compact keeps only last `_keep` posteriors in
+    # a ring buffer + full-length argmax_run + anomaly_score arrays.
+    if full_posterior:
+        _keep = n
+    else:
+        if (isinstance(posterior_keep, bool)
+                or not isinstance(posterior_keep, int)
+                or posterior_keep < 1):
+            raise ValueError(
+                f"posterior_keep must be int >= 1, got {posterior_keep!r}")
+        _keep = max(1, min(int(posterior_keep), n))
+
     if guard is not None:
-        est_bytes = 8 * n * (max_run + 1) * 4
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            if est_bytes > limit_mb * 1024 * 1024:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"BOCPD estimated {est_bytes} bytes > "
-                    f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+        # v0.9.87-fix1c: est = R_hist + argmax_run + anomaly_score
+        # (R_hist dominates when _keep == n; 16*n for the two n-sized
+        # 8-byte arrays). Old est 8*n*(max_run+1)*4 overestimated by
+        # ~4x, blocking moderately-tight guards even though real
+        # usage was lower. Now matches actual.
+        est_bytes = 8 * _keep * (max_run + 1) + 16 * n
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="bocpd.history")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                if est_bytes > limit_mb * 1024 * 1024:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"BOCPD estimated {est_bytes} bytes > "
+                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
     H = hazard_rate
 
@@ -234,7 +263,9 @@ def fit_bocpd(
 
     anomaly_score = np.zeros(n, dtype=np.float64)
     argmax_run = np.zeros(n, dtype=np.int64)
-    R_history = np.zeros((n, max_run + 1), dtype=np.float64)
+    # v0.9.87-fix1c: R_hist is (_keep, max_run+1) compact or
+    # (n, max_run+1) full — governed by full_posterior.
+    R_hist = np.zeros((_keep, max_run + 1), dtype=np.float64)
     k_ = min(run_length_threshold, max_run + 1)
 
     for t in range(n):
@@ -293,7 +324,22 @@ def fit_bocpd(
         # no effect on score).
         anomaly_score[t] = float(R[0])
         argmax_run[t] = int(np.argmax(R))
-        R_history[t] = R
+        # v0.9.87-fix1c: ring-buffer write in compact mode
+        R_hist[t if full_posterior else t % _keep] = R
+
+    # v0.9.87-fix1c: reorder ring buffer into chronological order.
+    # R_hist[t % _keep] = R leaves rows in ring order; reorder so
+    # run_length_posterior[i] = R at time (n - _keep + i).
+    #   n=10, keep=3: writes at slots 0,1,2,0,1,2,0,1,2,0.
+    #   After loop: R_hist[0]=R[9], R_hist[1]=R[7], R_hist[2]=R[8].
+    #   Chronological last 3: R[7], R[8], R[9] = slots 1,2,0.
+    #   offset = 10 % 3 = 1; vstack([R_hist[1:], R_hist[:1]]) = correct.
+    if not full_posterior and _keep < n:
+        _offset = n % _keep
+        run_length_posterior = np.vstack(
+            [R_hist[_offset:], R_hist[:_offset]])
+    else:
+        run_length_posterior = R_hist
 
     # v0.9.72-fix2: mask burn-in period (no data yet).
     if burn_in > 0:
@@ -320,7 +366,7 @@ def fit_bocpd(
         labels=labels,
         threshold=threshold,
         changepoints=changepoints,
-        run_length_posterior=R_history,
+        run_length_posterior=run_length_posterior,
         argmax_run_length=argmax_run,
         hazard_rate=H,
         mu0=mu0,
@@ -329,5 +375,6 @@ def fit_bocpd(
         beta0=beta0,
         run_length_threshold=run_length_threshold,
         contamination=contamination,
+        posterior_keep=(None if full_posterior else _keep),
     )
 

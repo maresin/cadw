@@ -68,8 +68,15 @@ def test_fit_bocpd_shape():
     assert isinstance(r, BOCPDResult)
     assert r.decision_scores.shape == (500,)
     assert r.labels.shape == (500,)
-    assert r.run_length_posterior.shape[0] == 500
+    # v0.9.87-fix1c: default compact posterior (last posterior_keep=64)
+    assert r.run_length_posterior.shape[0] == 64
+    assert r.posterior_keep == 64
     assert r.argmax_run_length.shape == (500,)
+
+    # full_posterior=True restores original (n, max_run+1)
+    r_full = fit_bocpd(x, hazard_rate=1.0 / 100.0, full_posterior=True)
+    assert r_full.run_length_posterior.shape[0] == 500
+    assert r_full.posterior_keep is None
 
 
 def test_fit_bocpd_detects_mean_shifts():
@@ -190,4 +197,51 @@ def test_bocpd_no_bench_deps_in_source():
         elif isinstance(node, ast.ImportFrom):
             top = (node.module or "").split(".")[0]
             assert top not in forbidden, f"forbidden: {node.module}"
+
+def test_fit_bocpd_compact_posterior_chronological():
+    """v0.9.87-fix1c: ring buffer reordered correctly.
+
+    Compact mode (default) returns last `posterior_keep` posteriors
+    in CHRONOLOGICAL order, not ring order. Verify against full mode.
+    """
+    x, _ = _mean_shift(n=500, seed=0)
+    r_compact = fit_bocpd(x, hazard_rate=1.0 / 100.0, posterior_keep=64)
+    r_full = fit_bocpd(x, hazard_rate=1.0 / 100.0, full_posterior=True)
+    np.testing.assert_allclose(
+        r_compact.run_length_posterior,
+        r_full.run_length_posterior[-64:],
+        atol=1e-10,
+    )
+
+
+def test_fit_bocpd_full_posterior_opt_in():
+    """v0.9.87-fix1c: full_posterior=True restores original shape."""
+    x, _ = _mean_shift(n=500, seed=0)
+    r = fit_bocpd(x, hazard_rate=1.0 / 100.0, full_posterior=True)
+    assert r.run_length_posterior.shape[0] == 500
+    assert r.posterior_keep is None
+
+
+def test_fit_bocpd_posterior_keep_validation():
+    """v0.9.87-fix1c: posterior_keep must be int >= 1."""
+    x = np.random.default_rng(0).standard_normal(100)
+    with pytest.raises(ValueError, match="posterior_keep"):
+        fit_bocpd(x, posterior_keep=0)
+    with pytest.raises(ValueError, match="posterior_keep"):
+        fit_bocpd(x, posterior_keep=-5)
+    with pytest.raises(ValueError, match="posterior_keep"):
+        fit_bocpd(x, posterior_keep=64.5)
+
+
+def test_fit_bocpd_compact_reduces_memory_footprint():
+    """v0.9.87-fix1c: default (compact) stores min(n,64) rows vs n."""
+    x, _ = _mean_shift(n=1000, seed=0)
+    r_compact = fit_bocpd(x, hazard_rate=1.0 / 100.0)
+    r_full = fit_bocpd(x, hazard_rate=1.0 / 100.0, full_posterior=True)
+    assert r_compact.run_length_posterior.shape[0] == 64
+    assert r_full.run_length_posterior.shape[0] == 1000
+    # ~15.6x reduction on posterior alone
+    ratio = (r_full.run_length_posterior.nbytes
+             / r_compact.run_length_posterior.nbytes)
+    assert ratio > 10
 
