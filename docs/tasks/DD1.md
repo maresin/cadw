@@ -84,6 +84,28 @@
   - code/paper: cadw/ts/auto_ets.py
   - note: CADW-native: MASE=0.4998 on synthetic_seasonal_linear (n=500, seasonal_period=12); 9 configs evaluated, selected ETS(A,A,N) (trend dominates seasonal in this DGP); fit_time 44.1s. WARNING: 44s fit time is slow for n=500 — grid search is O(9 configs * 600 evals * n) Python loop. Backlog item "AutoETS grid search optimization" tracks vectorization / coordinate-descent fix.
 
+### Theta — baseline / tier1_core
+
+**Roles:** temporal_dynamics, probabilistic
+**Status:** ✓ cadw, ✓ agent
+
+**Purpose:** Theta method (STM variant): STL decomposition -> OLS theta_0 (trend) + SES theta_2 (curvature) -> 0.5/0.5 combine -> reseasonalize. Capability flags: handles_trend=True, handles_seasonality=True. KNOWN LIMITATION: STM underperforms on trend-dominated series (MASE 1.4 vs AutoETS 0.5 on synthetic trend=0.3,season_amp=3) — SES on theta_2 lags behind trend by (1-alpha)/alpha*slope per step; STL fixes decomposition leak but not SES lag. This is the STM baseline; OTM variant (weight optimisation) in backlog. Use for M3-like series where seasonality dominates trend.
+
+**Use cases:**
+- M3-competition-style seasonal demand
+- Fast baseline for univariate forecast
+
+**Config:** `{'seasonal_period': 'int', 'n_iter': 'int'}`
+
+**CADW:** `cadw.ts.theta.ThetaForecaster`
+
+**Benchmarks:**
+- **[cadw_measured]** cadw_internal → fit_time_s=0.981 (n=3)
+  - algorithm: `cadw.ts.theta.ThetaForecaster` (code)
+  - number: .pingis/benches/theta.json
+  - code/paper: cadw/ts/theta.py
+  - note: CADW-native: fit_predict_s=0.012/0.103/0.981 @n=1k/10k/100k (seasonal_period=12; scripts/bench_theta.py; .pingis/benches/theta.json). alpha=0.65 stable across n; sigma 0.677/0.674/0.680. Peak RSS 4.9/0.6/6.1 MB. Hardware-specific; NOT comparable to external LB. ~40x faster than AutoETS on same DGP (single alpha grid vs 600-eval grid).
+
 ### SARIMA — sota / tier1_core
 
 **Roles:** temporal_dynamics

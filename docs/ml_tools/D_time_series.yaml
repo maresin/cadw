@@ -174,6 +174,52 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+  - name: Theta
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - temporal_dynamics
+    - probabilistic
+    purpose: 'Theta method (STM variant): STL decomposition -> OLS theta_0 (trend) + SES theta_2 (curvature) -> 0.5/0.5 combine -> reseasonalize. Capability flags: handles_trend=True, handles_seasonality=True. KNOWN LIMITATION: STM underperforms on trend-dominated series (MASE 1.4 vs AutoETS 0.5 on synthetic trend=0.3,season_amp=3) — SES on theta_2 lags behind trend by (1-alpha)/alpha*slope per step; STL fixes decomposition leak but not SES lag. This is the STM baseline; OTM variant (weight optimisation) in backlog. Use for M3-like series where seasonality dominates trend.'
+    real_life_examples:
+    - M3-competition-style seasonal demand
+    - Fast baseline for univariate forecast
+    config:
+      seasonal_period: int
+      n_iter: int
+    cadw_module: cadw.ts.theta
+    cadw_function: ThetaForecaster
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/theta.json
+      algorithm: cadw.ts.theta.ThetaForecaster
+      algorithm_source_url: cadw/ts/theta.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: univariate forecasting
+      n_datasets: 3
+      metric: fit_time_s
+      value: 0.981
+      std: null
+      note: 'CADW-native: fit_predict_s=0.012/0.103/0.981 @n=1k/10k/100k (seasonal_period=12; scripts/bench_theta.py; .pingis/benches/theta.json). alpha=0.65 stable across n; sigma 0.677/0.674/0.680. Peak RSS 4.9/0.6/6.1 MB. Hardware-specific; NOT comparable to external LB. ~40x faster than AutoETS on same DGP (single alpha grid vs 600-eval grid).'
+    model_class: non_learning
+    learning_mode: unsupervised
+    anomaly_type: none
+    data_modality: uni
+    source_library: native
+    evaluation_scope: synthetic
+    dgp_source: synthetic_seasonal_linear
+    dgp_overlap_risk: none
+    leakage:
+      pretraining_corpus: null
+      pretraining_overlap_risk: none
+      temporal_split: true
+      target_leakage_checked: true
+    coverage: broad
+    pareto_axes: [mase, fit_time_s, peak_rss_mb]
   - name: SARIMA
     tier: sota
     tier_level: tier1_core

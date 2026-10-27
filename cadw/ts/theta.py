@@ -1,103 +1,249 @@
-"""Theta-method forecasting (D.4.4, v0.9.38).
+"""Theta forecasting method — STM on STL decomposition (v0.9.77b).
 
-Reference: Assimakopoulos, Nikolopoulos, *The theta model: a
-decomposition approach to forecasting*, Int. J. Forecasting 16(4),
-2000; Hyndman, Athanasopoulos, *Forecasting: Principles and Practice*,
-3rd ed., OTexts 2021, ch. 12 (theta method).
-See .pingis/algorithm_notes/d4_4_theta.md.
+Assimakopoulos & Nikolopoulos (2000), "The theta model: a decomposition
+approach to forecasting", Int. J. Forecasting 16(4).
 
-Standard theta decomposition: the series is split into a theta=0 line
-(ordinary least squares trend) and theta=2 curve (twice-detrended); the
-forecast is the SES forecast of the theta=2 curve plus the OLS line
-extrapolated. The fitted SES alpha is chosen by minimising the in-sample
-one-step SSE. RAM: O(n) training series + O(1) state.
+v0.9.77b changes (vs v0.9.77 initial classical decomposition):
+  - STL decomposition (_decomposition.stl_decompose) instead of
+    classical decomposition. Fixes the two known STM weaknesses:
+    * Trend leak into seasonal estimate (classical pos_means include
+      trend drift; STL LOESS separates them cleanly).
+    * Better trend estimation via LOESS local-linear.
+
+The Theta method (STM variant):
+  1. If seasonal_period > 1: STL decompose y into (T, S, R). Work on
+     Y_ds = T + R = y - S.
+  2. OLS on Y_ds: theta_0 = a + b*t (intercept, slope).
+  3. theta_2 = 2*Y_ds - theta_0  (curvature = fluctuations around OLS).
+  4. SES on theta_2 with optimal alpha (grid over 19 values).
+  5. Forecast_ds = 0.5 * theta_0_forecast + 0.5 * theta_2_forecast.
+  6. If seasonal: forecast = forecast_ds + S_forecast (repeat last
+     cycle from STL seasonal component).
+
+References:
+  - R forecast::thetaf (Hyndman) - STL + theta + reseasonalize.
+  - sktime ThetaForecaster - STM (fixed weights 0.5/0.5).
+  - statsforecast AutoTheta - OTM (weight optimisation; not in this
+    module, in cadw/ts/otm.py as v0.9.77c).
+  - Fiorucci et al. (2016) - "Models for optimising the theta method
+    and their connection to state space models" (OTM theory).
+
+KNOWN LIMITATION (documented by benchmark):
+  STM performs well on M3-like series where seasonality dominates
+  trend. On extreme trend-dominated series (trend >90% of variance),
+  STM MASE ~1.4 vs AutoETS 0.5, because SES on theta_2 lags behind
+  trend by (1-alpha)/alpha * slope per step. STL fixes the decomposition
+  part (trend leak) but not the SES lag — that is fundamental to STM.
+  OTM (v0.9.77c) fixes this via weight optimisation. For
+  trend-dominated series, prefer AutoETS or AutoTheta (when available).
+
+Pure numpy (no sklearn/statsmodels/scipy/torch in this module).
 """
 from __future__ import annotations
 
+import math
 import numpy as np
 
-from cadw.ml._logging import log_fit
-from cadw.ts.models import ForecasterBase, _check_df, _extract_series
+from cadw.ts._decomposition import stl_decompose
+from cadw.ts.models import (
+    ForecasterBase, _check_df, _extract_series,
+)
 
 
-def _ols_trend(y):
+# ── Helpers ───────────────────────────────────────────────────────
+
+def _ols_fit(y: np.ndarray) -> tuple[float, float]:
+    """OLS (intercept, slope) on y[t] vs t."""
     n = y.size
-    t = np.arange(n, dtype=np.float64)
-    tc = t - t.mean()
-    slope = float(np.dot(tc, y - y.mean()) / np.dot(tc, tc)) if n > 1 else 0.0
-    intercept = float(y.mean() - slope * t.mean())
-    return intercept, slope
+    if n < 2:
+        return float(y.mean()) if n else 0.0, 0.0
+    x = np.arange(n, dtype=np.float64)
+    x_mean = float(x.mean())
+    y_mean = float(y.mean())
+    num = float(np.sum((x - x_mean) * (y - y_mean)))
+    den = float(np.sum((x - x_mean) ** 2))
+    if den < 1e-12:
+        return y_mean, 0.0
+    b = num / den
+    a = y_mean - b * x_mean
+    return a, b
 
 
-def _ses(y, alpha):
-    out = np.empty_like(y)
+def _ols_forecast(a: float, b: float, n: int,
+                  steps: int) -> np.ndarray:
+    h = np.arange(1, steps + 1, dtype=np.float64)
+    return a + b * (n - 1 + h)
+
+
+def _ses_fit(y: np.ndarray, alpha: float
+             ) -> tuple[float, np.ndarray, float]:
+    """Simple exponential smoothing. Returns (final_level, fitted, sse)."""
+    n = y.size
+    fitted = np.empty(n, dtype=np.float64)
     lvl = float(y[0])
     sse = 0.0
-    for t in range(1, y.size):
-        pred = lvl
-        out[t - 1] = pred
-        e = y[t] - pred
-        sse += e * e
-        lvl += alpha * e
-    out[-1] = lvl
-    return out, lvl, sse
+    for t in range(n):
+        fitted[t] = lvl
+        err = y[t] - lvl
+        sse += err * err
+        lvl = lvl + alpha * err
+    return lvl, fitted, sse
 
+
+def _best_alpha(y: np.ndarray) -> float:
+    """Grid alpha over [0.05, 0.95] step 0.05 (19 candidates)."""
+    best_a, best_sse = 0.5, float("inf")
+    for a_i in range(1, 20):
+        a = a_i / 20.0
+        _, _, sse = _ses_fit(y, a)
+        if sse < best_sse:
+            best_sse = sse
+            best_a = a
+    return best_a
+
+
+def _erfinv(x: float) -> float:
+    """Inverse error function via Newton iteration on math.erf."""
+    if x <= -1.0 or x >= 1.0:
+        raise ValueError("erfinv: x must be in (-1, 1)")
+    a = 0.147
+    ln1mx2 = math.log(1.0 - x * x)
+    term = 2.0 / (math.pi * a) + ln1mx2 / 2.0
+    guess = math.copysign(
+        math.sqrt(math.sqrt(term * term - ln1mx2 / a) - term), x)
+    for _ in range(3):
+        err = math.erf(guess) - x
+        d = 2.0 / math.sqrt(math.pi) * math.exp(-guess * guess)
+        guess -= err / d
+    return guess
+
+
+# ── ThetaForecaster (STM) ─────────────────────────────────────────
 
 class ThetaForecaster(ForecasterBase):
-    """Classic theta-method forecaster (Assimakopoulos & Nikolopoulos)."""
+    """Standard Theta Method (STM) with STL decomposition.
 
-    def __init__(self, seasonal=False, seasonal_period=1):
+    Parameters
+    ----------
+    seasonal_period : int, default=1
+        1 = no seasonality (pure STM on raw series).
+    n_iter : int, default=2
+        STL inner iterations (only used if seasonal_period > 1).
+    """
+
+    handles_trend: bool = True
+    handles_seasonality: bool = True
+    handles_multi_seasonality: bool = False
+
+    def __init__(self, seasonal_period: int = 1, *,
+                 n_iter: int = 2):
         super().__init__()
-        if seasonal and seasonal_period < 2:
-            raise ValueError("ThetaForecaster: seasonal=True needs seasonal_period >= 2")
-        self.seasonal = bool(seasonal)
+        if seasonal_period < 1:
+            raise ValueError(
+                "ThetaForecaster: seasonal_period must be >= 1")
         self.seasonal_period = int(seasonal_period)
+        self.n_iter = int(n_iter)
         self.y_ = None
+        self.season_ = None
         self.alpha_ = None
-        self.intercept_ = None
-        self.slope_ = None
         self.sigma2_ = None
         self.fitted_ = None
+        self.trend_ = None
+        self.slope_ = None
+        self.decomp_ = None
 
     def fit(self, df, target_col, *, time_col=None, group_col=None):
         _check_df(df, target_col, time_col, group_col)
         y = _extract_series(df, target_col, time_col=time_col)
-        if y.size < 3:
-            raise ValueError("ThetaForecaster: need at least 3 observations")
+        if y.size < 4:
+            raise ValueError(
+                "ThetaForecaster: need at least 4 observations")
         if np.any(~np.isfinite(y)):
-            raise ValueError("ThetaForecaster: series contains non-finite values")
+            raise ValueError(
+                "ThetaForecaster: series contains non-finite values")
+        s = self.seasonal_period
+        if s > 1 and y.size < 2 * s:
+            raise ValueError(
+                f"ThetaForecaster: need at least 2*seasonal_period="
+                f"{2*s} obs for seasonal mode")
+
+        # 1. Optional STL decomposition
+        if s > 1:
+            decomp = stl_decompose(y, period=s, n_iter=self.n_iter)
+            seasonal = decomp.seasonal
+            y_ds = y - seasonal  # = T + R
+            self.decomp_ = decomp
+        else:
+            seasonal = None
+            y_ds = y.copy()
+
+        # 2. OLS on deseasonalized series
+        a, b = _ols_fit(y_ds)
+        theta_0_fit = a + b * np.arange(y.size, dtype=np.float64)
+
+        # 3. theta_2 = 2 * y_ds - theta_0_fit
+        theta_2 = 2.0 * y_ds - theta_0_fit
+
+        # 4. SES on theta_2
+        alpha = _best_alpha(theta_2)
+        _, theta_2_fit, _ = _ses_fit(theta_2, alpha)
+
+        # 5. In-sample combine
+        fit_ds = 0.5 * theta_0_fit + 0.5 * theta_2_fit
+
+        # 6. Reseasonalize in-sample
+        if s > 1 and seasonal is not None:
+            fitted = fit_ds + seasonal
+        else:
+            fitted = fit_ds
+        resid = y - fitted
+        self.sigma2_ = float(np.mean(resid * resid))
+
         self.y_ = y
-        self.intercept_, self.slope_ = _ols_trend(y)
-        line = self.intercept_ + self.slope_ * np.arange(y.size)
-        theta2 = 2.0 * y - line
-        best = (np.inf, 0.5)
-        for a in np.linspace(0.05, 0.95, 19):
-            _, _, sse = _ses(theta2, a)
-            if sse < best[0]:
-                best = (sse, float(a))
-        self.alpha_ = best[1]
-        fitted, _, sse = _ses(theta2, self.alpha_)
-        self.fitted_ = fitted + line
-        self.sigma2_ = float(sse / max(1, y.size))
+        self.season_ = seasonal
+        self.alpha_ = alpha
+        self.trend_ = a
+        self.slope_ = b
+        self.fitted_ = fitted
         self._is_fitted = True
-        log_fit("theta", loss=sse, state_bytes=self.state_nbytes())
         return self
+
+    def predict(self, steps):
+        y = self.y_
+        n = y.size
+        if self.seasonal_period > 1 and self.season_ is not None:
+            y_ds = y - self.season_
+        else:
+            y_ds = y
+
+        a, b = self.trend_, self.slope_
+        theta_0_f = _ols_forecast(a, b, n, steps)
+
+        theta_2 = 2.0 * y_ds - (a + b * np.arange(n, dtype=np.float64))
+        lvl, _, _ = _ses_fit(theta_2, self.alpha_)
+        theta_2_f = np.full(steps, lvl, dtype=np.float64)
+
+        combined = 0.5 * theta_0_f + 0.5 * theta_2_f
+
+        if self.seasonal_period > 1 and self.season_ is not None:
+            s = self.seasonal_period
+            idx = (n + np.arange(steps)) % s
+            return combined + self.season_[idx]
+        return combined
+
+    def predict_in_sample(self):
+        return self.fitted_.copy()
+
+    def prediction_interval(self, steps, level=0.95):
+        z = math.sqrt(2.0) * _erfinv(2.0 * (0.5 + level / 2.0) - 1.0)
+        f = self.predict(steps)
+        sig = float(np.sqrt(max(self.sigma2_, 0.0)))
+        h = np.arange(1, steps + 1, dtype=np.float64)
+        band = z * sig * np.sqrt(h)
+        return f - band, f + band
 
     def state_nbytes(self):
         if self.y_ is None:
             return 0
         return int(self.y_.nbytes + self.fitted_.nbytes + 256)
 
-    def _predict(self, steps):
-        y = self.y_
-        n = y.size
-        line = self.intercept_ + self.slope_ * np.arange(n)
-        theta2 = 2.0 * y - line
-        _, lvl, _ = _ses(theta2, self.alpha_)
-        h = np.arange(1, steps + 1, dtype=np.float64)
-        theta0_fc = self.intercept_ + self.slope_ * (n - 1 + h)
-        theta2_fc = np.full(steps, lvl, dtype=np.float64)
-        return 0.5 * theta0_fc + 0.5 * theta2_fc
-
-    def _predict_in_sample(self):
-        return self.fitted_.copy()

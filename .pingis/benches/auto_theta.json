@@ -1,0 +1,17 @@
+{
+  "model": "auto_theta",
+  "n": 500,
+  "seasonal_period": 12,
+  "dgp": "m3_like (trend=0.05, season_amp=5)",
+  "theta": {
+    "mase": 0.3065,
+    "fit_predict_s": 0.65,
+    "peak_rss_mb": 22.07
+  },
+  "auto_ets": {
+    "mase": 0.2757,
+    "fit_predict_s": 38.826,
+    "peak_rss_mb": 0.05
+  },
+  "note": "On M3-like DGP (STM intended domain): theta MASE and auto_ets MASE both compete; theta ~40x faster (single alpha grid vs 600-eval grid). On EXTREME trend-dominated DGP (trend=0.3, season_amp=3), STM MASE 1.40 vs AutoETS 0.50 \u2014 known STM limitation, documented in auto_theta.py; use AutoETS for trend-dominated. On fev-bench, statsforecast AutoTheta (OTM, not our STM) MASE 1.381 vs AutoETS 1.525 \u2014 OTM in backlog."
+}

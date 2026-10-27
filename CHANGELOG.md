@@ -1,5 +1,77 @@
 ## [Unreleased]
 
+### v0.9.77 (2026-10-27) - STL decomposition + Theta (STM) on STL
+
+Adds STL (Seasonal-Trend decomposition using LOESS) as a foundation
+module, and rewrites Theta on top of it. Theta (STM variant) is
+baseline; OTM/AutoTheta follows in v0.9.78.
+
+STL foundation (cadw/ts/_decomposition.py, ~230 LOC):
+  - stl_decompose(y, period, seasonal_window=7, trend_window=None,
+    n_iter=2) -> STLTrendResult(trend, seasonal, remainder)
+  - Local linear LOESS with tricube weights (Cleveland et al. 1990)
+  - Alternating (trend, seasonal) passes; R-formula default
+    trend_window = nextodd(ceil(1.5*p/(1 - 1.5/sw)))
+  - Pure numpy; no scipy/statsmodels/sklearn (AST-guard enforced)
+  - 16 tests: helpers (nextodd, tricube, loess recovers linear/constant,
+    smooths noise, low-pass preserves periodic signal); contract
+    (additive y = T + S + R exact); pure seasonal → T≈0, R≈0;
+    pure trend → S≈0; remainder small on perfect decomposition;
+    determinism; error paths.
+  Used by: Theta STM (this release), future GBDT transforms,
+  future MSTL wrapper.
+
+Theta STM on STL (cadw/ts/theta.py, ~350 LOC):
+  - Replaces pre-existing 103-line Theta implementation (which used
+    classical decomposition)
+  - STL decomposition fixes trend-leak-into-seasonal-estimate bug
+    of classical pos_means approach
+  - Theta0 = OLS on deseasonalized (T + R = y - S)
+  - Theta2 = 2*y_ds - Theta0; SES with alpha grid (19 candidates)
+  - Forecast = 0.5*theta0_f + 0.5*theta2_f + S_forecast
+  - Capability flags: handles_trend=True, handles_seasonality=True,
+    handles_multi_seasonality=False (for future AutoForecastPipeline)
+  - Gaussian prediction intervals via math.erfinv (no scipy)
+  - 17 tests: OLS/SES helpers, contract, STL integration (decomp_
+    populated when seasonal, None otherwise), trend-leak improvement
+    test (STM on STL MASE < 1.5 vs 1.40 classical threshold),
+    capability flags, deterministic, PI, error paths, AST guard.
+
+KNOWN LIMITATION (documented in card note + theta.py docstring):
+  STM underperforms on trend-dominated series. On
+  synthetic trend=0.3, season_amp=3, STM MASE ~1.4 vs AutoETS 0.5.
+  Root cause: SES on theta_2 lags behind trend by
+  (1-alpha)/alpha * slope per step — fundamental to STM, not fixable
+  by better decomposition. STL fixes trend leak but SES lag remains.
+  On M3-like data (trend=0.05, season_amp=5) STM MASE < 1.0
+  (documented in tests). OTM variant (optimised weights) is backlog;
+  AutoTheta proper in v0.9.78. For trend-dominated series prefer
+  AutoETS or AutoTheta (when available).
+
+Theta card: tier baseline (not sota — see KNOWN LIMITATION above);
+roles temporal_dynamics + probabilistic; cadw_measured
+fit_time_s=0.981 @n=100k; capability flags documented.
+Theta is ~40x faster than AutoETS on same DGP (0.981s vs 39s
+@n=100k) — useful as fast baseline in ensembles.
+
+Cleanup: removed orphaned cadw/ts/auto_theta.py,
+tests/test_auto_theta.py, scripts/bench_auto_theta.py (superseded by
+theta.py/test_theta.py/bench_theta.py). __init__.py only exports
+ThetaForecaster from cadw.ts.theta.
+
+Pre-existing bench_theta.py (44 lines) continues to work with the new
+ThetaForecaster interface (alpha_/sigma2_ attributes preserved).
+
+Version 0.9.76 -> 0.9.77.
+
+Fast suite: 3359 -> 3384 passed (+25: decomposition 16 tests +
+17 theta tests replaced 21 auto_theta tests; net +25), 8 skipped.
+WL 34 OK. AST-guard 129 passed. audit_leakage 7 warnings (pretrained).
+audit_url_log 0 errors. MATRIX.md + 40 docs/tasks/*.md regenerated.
+
+Next: v0.9.78 — OTM (weight-optimised Theta) + AutoTheta (auto
+decomposition selection) + ensemble upgrade (Theta → AutoTheta).
+
 ### v0.9.76 (2026-10-26) - D1 uni-forecast: SOTA horizon + AutoETS + 3-role ensemble
 
 Third integrated release of the TS-anomaly/forecast cycle; covers

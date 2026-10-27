@@ -3,26 +3,26 @@
   "runs": [
     {
       "n": 1000,
-      "fit_predict_s": 0.01,
+      "fit_predict_s": 0.012,
       "alpha": 0.65,
-      "sigma": 1.3533,
-      "peak_mb": 0.5,
+      "sigma": 0.6766,
+      "peak_mb": 4.9,
       "state_b": 16256
     },
     {
       "n": 10000,
-      "fit_predict_s": 0.093,
+      "fit_predict_s": 0.103,
       "alpha": 0.65,
-      "sigma": 1.3485,
-      "peak_mb": 0.4,
+      "sigma": 0.6743,
+      "peak_mb": 0.6,
       "state_b": 160256
     },
     {
       "n": 100000,
-      "fit_predict_s": 0.917,
+      "fit_predict_s": 0.981,
       "alpha": 0.65,
-      "sigma": 1.3604,
-      "peak_mb": 6.5,
+      "sigma": 0.6802,
+      "peak_mb": 6.1,
       "state_b": 1600256
     }
   ]
