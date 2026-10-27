@@ -337,6 +337,36 @@
 - **smape** (diagnostic, lower)
   - Symmetric percentage error; M4/M5 competition standard.
   - *special:* Punishes over-forecast more than under-forecast; not comparable with MASE.
+- **mape** (diagnostic, lower)
+  - Mean absolute percentage error (%).
+  - *special:* NaN when any actual is zero; not comparable across scales.
+- **rmse** (diagnostic, lower)
+  - Root mean squared error in y units.
+  - *special:* Sensitive to outliers; prefer mase for cross-series comparison.
+- **mae** (diagnostic, lower)
+  - Mean absolute error in y units.
+  - *special:* Same units as target; not comparable across different series.
+- **wape** (diagnostic, lower)
+  - Weighted absolute percentage error (sum|y-f|/sum|y| * 100).
+  - *special:* Robust to zeros in actuals (unlike MAPE, which NaNs); NaN when sum|y|=0.
+- **mqlike** (diagnostic, lower)
+  - Mean QLIKE (variance-robust volatility loss).
+  - *special:* Requires y>0, f>0; NaN otherwise. Standard for volatility forecast.
+- **msis** (diagnostic, lower)
+  - Mean Scaled Interval Score (Gneiting & Raftery 2007) — width plus penalty for misses at level 1-misis_alpha.
+  - *special:* Requires forecaster.prediction_interval; skipped if unsupported. Not comparable to point metrics; measures calibration + width.
+- **pinball** (diagnostic, lower)
+  - Pinball loss at quantile q (a.k.a. quantile loss).
+  - *special:* Requires forecaster quantile support; report per-q (pinball_0.1, pinball_0.5, pinball_0.9 separately, not summed).
+- **wql** (diagnostic, lower)
+  - Weighted Quantile Loss (weighted mean pinball across quantile levels).
+  - *special:* Requires forecaster quantile support and `quantiles` parameter. Primary metric for probabilistic forecast in fev-bench (GIFT-Eval-style).
+- **sql** (diagnostic, lower)
+  - Scaled Quantile Loss (WQL / naive_MAE) — scale-free WQL for cross-series comparison.
+  - *special:* Requires forecaster quantile support; NaN when naive_MAE=0.
+- **crps** (diagnostic, lower)
+  - Continuous Ranked Probability Score (approximate from quantile losses; CRPS ~ 2 * mean pinball).
+  - *special:* Requires forecaster quantile support; approximate, not exact integral.
 
 ## Ensemble rules
 - **[temporal_dynamics, probabilistic, nonlinear_interactions]** → SARIMA + AutoTheta + GBDTForecaster (max_per_role=2)

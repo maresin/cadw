@@ -1,5 +1,92 @@
 ## [Unreleased]
 
+### v0.9.85 (2026-10-27) - Forecast metrics extension (interval + robust + quantile)
+
+Extends cadw/ts/backtest.py with 7 new metric families used by
+TSB-AD/TAB/fev-bench evaluations. Complements the existing 5 point
+metrics (MAE, RMSE, MAPE, sMAPE, MASE).
+
+New metrics (cadw/ts/backtest.py, ~200 LOC + refactor of _mase):
+
+  Point metrics:
+    WAPE    = sum|y-f| / sum|y| * 100; robust to zero actuals (unlike
+              MAPE, which NaNs); NaN when sum|y|=0.
+    MQLIKE  = mean(y/f - log(y/f) - 1); variance-robust for volatility
+              forecasts; requires y>0, f>0; NaN otherwise.
+
+  Interval metric:
+    MSIS    = Mean Scaled Interval Score (Gneiting & Raftery 2007):
+              mean[(hi-lo) + (2/alpha)*(miss_lo) + (2/alpha)*(miss_hi)]
+              / naive_MAE(m).
+              Requires forecaster.prediction_interval(steps, level).
+              Skipped (warning) if unsupported. Configurable via new
+              msis_alpha parameter (default 0.05 => 95% interval).
+
+  Quantile metrics (require `quantiles` parameter + forecaster support):
+    pinball  = per-q pinball loss (existing; now complemented by
+               aggregations below).
+    WQL      = weighted quantile loss: mean over q of w(q)*pinball(q)
+               with w(q)=2q for q<=0.5, 2(1-q) for q>0.5. Primary
+               probabilistic metric in fev-bench.
+    SQL      = WQL / naive_MAE(m); scale-free WQL for cross-series
+               comparison.
+    CRPS     = 2 * mean pinball over quantile levels; approximate
+               CRPS from quantile losses (not exact integral).
+
+  Helper refactor: _mase now delegates its scale computation to new
+  _mase_scale helper (shared by MSIS/SQL).
+  _predict_interval helper wraps forecaster.prediction_interval.
+
+Integration (backtest_forecaster):
+  - `metrics` validation extended from 5 to 11 valid names.
+  - `msis_alpha=0.05` new kwarg (must be in (0, 1)).
+  - If wql/sql/crps requested without `quantiles`, emit warning and
+    drop them from the effective metric set (do not silently compute
+    wrong values).
+  - If MSIS requested but forecaster lacks prediction_interval: emit
+    warning once per fold sequence, drop msis from summary (row absent).
+  - Empty per_metric lists (e.g. msis unsupported) are skipped from
+    summary (no NaN mean row).
+
+12 new tests (tests/test_ts_backtest.py, total now 22 + 1 skip):
+  wape_perfect_forecast_zero (positive value); wape_zero_actuals_nan;
+  mqlike_perfect_zero (constant y=2, naive=2 -> 0); mqlike_negative_y_
+  nan; msis_skipped_for_naive (warning + row absent); msis_perfect_
+  interval_zero (Spy PI on y_train with variation -> 0);
+  msis_nonzero_interval (skip if scale=0); wql_requires_quantiles
+  (warning + drop); wql_crps_sql_from_quantiles (Spy quantile=2 on
+  y=2 -> all ~0); invalid_metric_raises; msis_alpha_validation
+  (must be in (0,1)); wape_matches_hand_compute (Spy predicts 0 ->
+  WAPE=100 on y=1).
+
+  Spy test doubles (_SpyPI, _SpyQuantile) isolate interval and
+  quantile paths from real forecaster specifics.
+
+YAML D1 metrics (+7 diagnostic): mape, rmse, mae, wape, mqlike,
+msis, pinball (per-q), wql, sql, crps. Anchor remains MASE; smape
+unchanged. Total D1 metrics now: 1 anchor + 12 diagnostic (was 1 + 2).
+MATRIX.md + 40 docs/tasks/*.md regenerated.
+
+Fixup (v0.9.85-fix1): initial YAML patch used a multi-line plain
+scalar with a colon-space inside (`quantile losses: CRPS ~ ...`) —
+YAML scanner rejected it. Collapsed CRPS responsibility/special to
+single lines; render_matrix OK.
+
+Version 0.9.84 -> 0.9.85 (skipped HybridETS_GBDT for now; hybrid is
+M4-specialized marginal gain over AutoTheta, lower priority than
+metrics — needed for ALL future forecast sections).
+
+Fast suite: 3522 -> 3534 passed (+12), 8 skipped. Focused:
+test_ts_backtest 22 passed + 1 skipped. WL 34 OK. AST-guard 129
+passed. audit_leakage 7 warnings (pretrained). audit_url_log 0
+errors.
+
+Backlog: 16 items unchanged (no item closed, no item added).
+
+Next: v0.9.86 — HybridETS_GBDT (M4 winner idea: ETS fit -> residual
+-> GBDT on residual features); OR pivot to DU-1 (supervised tabular
+section) which needs the pipeline + metrics now in place.
+
 ### v0.9.84 (2026-10-27) - AnomalyPipeline + GBDT transforms integration
 
 Closes the anomaly-stationarity gap (backlog item 3) and wires GBDT

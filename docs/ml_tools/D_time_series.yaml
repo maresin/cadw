@@ -702,6 +702,63 @@ subtypes:
     direction: lower
     responsibility: Symmetric percentage error; M4/M5 competition standard.
     special: Punishes over-forecast more than under-forecast; not comparable with MASE.
+  - name: mape
+    combination: diagnostic
+    direction: lower
+    responsibility: Mean absolute percentage error (%).
+    special: NaN when any actual is zero; not comparable across scales.
+  - name: rmse
+    combination: diagnostic
+    direction: lower
+    responsibility: Root mean squared error in y units.
+    special: Sensitive to outliers; prefer mase for cross-series comparison.
+  - name: mae
+    combination: diagnostic
+    direction: lower
+    responsibility: Mean absolute error in y units.
+    special: Same units as target; not comparable across different series.
+  - name: wape
+    combination: diagnostic
+    direction: lower
+    responsibility: Weighted absolute percentage error (sum|y-f|/sum|y| * 100).
+    special: Robust to zeros in actuals (unlike MAPE, which NaNs); NaN when
+      sum|y|=0.
+  - name: mqlike
+    combination: diagnostic
+    direction: lower
+    responsibility: Mean QLIKE (variance-robust volatility loss).
+    special: Requires y>0, f>0; NaN otherwise. Standard for volatility forecast.
+  - name: msis
+    combination: diagnostic
+    direction: lower
+    responsibility: Mean Scaled Interval Score (Gneiting & Raftery 2007) — width
+      plus penalty for misses at level 1-misis_alpha.
+    special: Requires forecaster.prediction_interval; skipped if unsupported.
+      Not comparable to point metrics; measures calibration + width.
+  - name: pinball
+    combination: diagnostic
+    direction: lower
+    responsibility: Pinball loss at quantile q (a.k.a. quantile loss).
+    special: Requires forecaster quantile support; report per-q (pinball_0.1,
+      pinball_0.5, pinball_0.9 separately, not summed).
+  - name: wql
+    combination: diagnostic
+    direction: lower
+    responsibility: Weighted Quantile Loss (weighted mean pinball across
+      quantile levels).
+    special: Requires forecaster quantile support and `quantiles` parameter.
+      Primary metric for probabilistic forecast in fev-bench (GIFT-Eval-style).
+  - name: sql
+    combination: diagnostic
+    direction: lower
+    responsibility: Scaled Quantile Loss (WQL / naive_MAE) — scale-free WQL
+      for cross-series comparison.
+    special: Requires forecaster quantile support; NaN when naive_MAE=0.
+  - name: crps
+    combination: diagnostic
+    direction: lower
+    responsibility: Continuous Ranked Probability Score (approximate from quantile losses; CRPS ~ 2 * mean pinball).
+    special: Requires forecaster quantile support; approximate, not exact integral.
   ensemble_recommendation:
   - roles:
     - temporal_dynamics

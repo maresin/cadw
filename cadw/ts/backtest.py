@@ -63,10 +63,8 @@ def _smape(y, f):
 
 
 def _mase(y, f, train, m=1):
-    if len(train) <= m:
-        return float("nan")
-    scale = float(np.mean(np.abs(train[m:] - train[:-m])))
-    if scale == 0 or not np.isfinite(scale):
+    scale = _mase_scale(train, m)
+    if not np.isfinite(scale):
         return float("nan")
     return float(np.mean(np.abs(y - f)) / scale)
 
@@ -74,6 +72,93 @@ def _mase(y, f, train, m=1):
 def _pinball(y, f, q):
     resid = y - f
     return float(np.mean(np.maximum(q * resid, (q - 1.0) * resid)))
+
+
+# v0.9.86: extended metrics (interval + robust + quantile family)
+def _mase_scale(train, m=1):
+    """MASE / MSIS / SQL scale denominator (naive MAE at lag m)."""
+    if len(train) <= m:
+        return float("nan")
+    scale = float(np.mean(np.abs(train[m:] - train[:-m])))
+    if not np.isfinite(scale) or scale == 0:
+        return float("nan")
+    return scale
+
+
+def _wape(y, f):
+    """Weighted absolute percentage error * 100 (sum|y-f|/sum|y|)."""
+    denom = float(np.sum(np.abs(y)))
+    if denom == 0:
+        return float("nan")
+    return float(np.sum(np.abs(y - f)) / denom * 100.0)
+
+
+def _mqlike(y, f):
+    """Mean QLIKE (variance-robust). Requires y>0, f>0; NaN otherwise."""
+    if np.any(y <= 0) or np.any(f <= 0):
+        return float("nan")
+    r = y / f
+    return float(np.mean(r - np.log(r) - 1.0))
+
+
+def _msis(y, lo, hi, train, m, alpha):
+    """Mean Scaled Interval Score (Gneiting & Raftery 2007)."""
+    scale = _mase_scale(train, m)
+    if not np.isfinite(scale):
+        return float("nan")
+    width = hi - lo
+    miss_lo = np.maximum(lo - y, 0.0)
+    miss_hi = np.maximum(y - hi, 0.0)
+    is_term = (width + (2.0 / alpha) * miss_lo
+               + (2.0 / alpha) * miss_hi)
+    return float(np.mean(is_term) / scale)
+
+
+def _wql(y, qfc_dict):
+    """Weighted Quantile Loss (mean over q of w(q)*pinball(q))."""
+    if not qfc_dict:
+        return float("nan")
+    weighted_sum = 0.0
+    weight_sum = 0.0
+    for q, qfc in qfc_dict.items():
+        w = 2.0 * q if q <= 0.5 else 2.0 * (1.0 - q)
+        pl = _pinball(y, qfc, q)
+        weighted_sum += w * pl
+        weight_sum += w
+    if weight_sum == 0:
+        return float("nan")
+    return float(weighted_sum / weight_sum)
+
+
+def _sql(y, qfc_dict, train, m):
+    """Scaled Quantile Loss = WQL / naive_MAE(m)."""
+    wql = _wql(y, qfc_dict)
+    if not np.isfinite(wql):
+        return float("nan")
+    scale = _mase_scale(train, m)
+    if not np.isfinite(scale):
+        return float("nan")
+    return float(wql / scale)
+
+
+def _crps_quantiles(y, qfc_dict):
+    """Approximate CRPS = 2 * mean pinball over quantile levels."""
+    if not qfc_dict:
+        return float("nan")
+    pls = [_pinball(y, qfc, q) for q, qfc in qfc_dict.items()]
+    return float(2.0 * np.mean(pls))
+
+
+def _predict_interval(model, steps, level=0.95):
+    """Return (lo, hi) arrays of length `steps` or (None, None)."""
+    if not hasattr(model, "prediction_interval"):
+        return None, None
+    try:
+        lo, hi = model.prediction_interval(steps, level=level)
+        return (np.asarray(lo, dtype=np.float64)[:steps],
+                np.asarray(hi, dtype=np.float64)[:steps])
+    except Exception:
+        return None, None
 
 
 def _folds_expanding(n, horizon, n_folds, initial_train, step):
@@ -129,6 +214,7 @@ def backtest_forecaster(
     metrics=_DEFAULT_METRICS,
     quantiles=None,
     seasonal_period=1,
+    msis_alpha=0.05,
 ):
     """Backtest a CADW forecaster on a CadwDataFrame.
 
@@ -165,12 +251,30 @@ def backtest_forecaster(
             "backtest: strategy='sliding' requires train_size"
         )
     metrics = tuple(metrics)
+    _VALID_METRICS = (
+        "mae", "rmse", "mape", "smape", "mase",
+        "wape", "mqlike", "msis",
+        "wql", "sql", "crps",
+    )
     for m in metrics:
-        if m not in ("mae", "rmse", "mape", "smape", "mase"):
+        if m not in _VALID_METRICS:
             raise ValueError(
                 f"backtest: unknown metric {m!r}; valid: "
-                f"mae, rmse, mape, smape, mase"
+                f"{', '.join(_VALID_METRICS)}"
             )
+    if (any(m in metrics for m in ("wql", "sql", "crps"))
+            and quantiles is None):
+        warnings.warn(
+            "backtest: metrics wql/sql/crps require `quantiles` "
+            "parameter; they will be skipped",
+            stacklevel=2,
+        )
+        metrics = tuple(
+            m for m in metrics if m not in ("wql", "sql", "crps")
+        )
+    if not (0.0 < msis_alpha < 1.0):
+        raise ValueError(
+            f"backtest: msis_alpha must be in (0, 1); got {msis_alpha}")
     if target_col not in df._columns:
         raise KeyError(f"backtest: target_col {target_col!r} not in df")
     if time_col not in df._columns:
@@ -243,6 +347,7 @@ def backtest_forecaster(
 
         per_metric = {m: [] for m in metrics}
         pinball_supported = True
+        msis_skip = False
         if quantiles is not None:
             per_metric_q = {q: [] for q in quantiles}
         for fi, (te, test_end) in enumerate(folds):
@@ -280,6 +385,30 @@ def backtest_forecaster(
                     v = _smape(y_test, fc)
                 elif m == "mase":
                     v = _mase(y_test, fc, y_train, seasonal_period)
+                elif m == "wape":
+                    v = _wape(y_test, fc)
+                elif m == "mqlike":
+                    v = _mqlike(y_test, fc)
+                elif m == "msis":
+                    if msis_skip:
+                        continue
+                    lo_, hi_ = _predict_interval(
+                        model, horizon, level=1.0 - msis_alpha)
+                    if lo_ is None:
+                        warnings.warn(
+                            f"backtest: forecaster "
+                            f"{type(forecaster).__name__} does not "
+                            f"support prediction_interval; msis skipped",
+                            stacklevel=2,
+                        )
+                        msis_skip = True
+                        per_metric[m] = []
+                        continue
+                    v = _msis(y_test, lo_, hi_, y_train,
+                              seasonal_period, msis_alpha)
+                else:
+                    # wql/sql/crps handled post-quantile-loop below
+                    continue
                 folds_rows.append({
                     "group": gv, "fold": fi, "metric": m,
                     "value": v, "n_train": n_train, "n_test": n_test,
@@ -287,6 +416,7 @@ def backtest_forecaster(
                 per_metric[m].append(v)
 
             if quantiles is not None and pinball_supported:
+                qfc_dict = {}
                 for q in quantiles:
                     qfc = _predict_quantiles(model, horizon, q)
                     if qfc is None:
@@ -300,14 +430,34 @@ def backtest_forecaster(
                         break
                     if len(qfc) != horizon:
                         qfc = qfc[:horizon]
+                    qfc_dict[q] = qfc
                     v = _pinball(y_test, qfc, q)
                     folds_rows.append({
                         "group": gv, "fold": fi, "metric": f"pinball_{q}",
                         "value": v, "n_train": n_train, "n_test": n_test,
                     })
                     per_metric_q[q].append(v)
+                if pinball_supported:
+                    for m_q in ("wql", "sql", "crps"):
+                        if m_q not in metrics:
+                            continue
+                        if m_q == "wql":
+                            v = _wql(y_test, qfc_dict)
+                        elif m_q == "sql":
+                            v = _sql(y_test, qfc_dict, y_train,
+                                     seasonal_period)
+                        else:  # crps
+                            v = _crps_quantiles(y_test, qfc_dict)
+                        folds_rows.append({
+                            "group": gv, "fold": fi, "metric": m_q,
+                            "value": v, "n_train": n_train,
+                            "n_test": n_test,
+                        })
+                        per_metric[m_q].append(v)
 
         for m, vals in per_metric.items():
+            if not vals:
+                continue  # e.g. msis unsupported for this forecaster
             arr = np.asarray(vals, dtype=np.float64)
             valid = arr[~np.isnan(arr)]
             summary_rows.append({

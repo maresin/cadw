@@ -227,3 +227,261 @@ def test_memory_guard_smoke():
     )
     r = _summ(summ, None, "mae")
     assert r is not None
+
+
+# ============================================================
+# v0.9.86: extended metrics (wape, mqlike, msis, wql, sql, crps)
+# ============================================================
+
+class _SpyPI:
+    """Spy forecaster with configurable prediction interval."""
+    def __init__(self, lo, hi):
+        self._lo = lo
+        self._hi = hi
+        self._is_fitted = False
+
+    def fit(self, df, target_col, *, time_col=None, group_col=None):
+        self._is_fitted = True
+        return self
+
+    def predict(self, steps):
+        return np.zeros(steps, dtype=np.float64)
+
+    def prediction_interval(self, steps, level=0.95):
+        return (np.full(steps, self._lo, dtype=np.float64),
+                np.full(steps, self._hi, dtype=np.float64))
+
+    def predict_in_sample(self):
+        return np.array([])
+
+
+class _SpyQuantile:
+    """Spy forecaster with predict_quantile(steps, q)."""
+    def __init__(self, q_values):
+        # q_values: dict {q: scalar_forecast}
+        self._q = dict(q_values)
+        self._is_fitted = False
+
+    def fit(self, df, target_col, *, time_col=None, group_col=None):
+        self._is_fitted = True
+        return self
+
+    def predict(self, steps):
+        return np.zeros(steps, dtype=np.float64)
+
+    def predict_quantile(self, steps, q):
+        v = self._q.get(q, 0.0)
+        return np.full(steps, v, dtype=np.float64)
+
+    def predict_in_sample(self):
+        return np.array([])
+
+
+def test_wape_perfect_forecast_zero():
+    n = 20
+    y = list(range(1, n + 1))
+    df = _mk(y, ts=_ts(n))
+    summ, _ = backtest_forecaster(
+        df, NaiveForecaster(strategy="last"),
+        target_col="y", time_col="ts",
+        horizon=1, n_folds=3, strategy="expanding",
+        train_size=10, step=1, metrics=("wape",),
+    )
+    r = _summ(summ, None, "wape")
+    # naive-last on linear: err=1, sum|y|>0 -> wape > 0
+    assert r["mean"] > 0
+
+
+def test_wape_zero_actuals_nan():
+    # Test window all zeros -> sum|y|=0 -> WAPE NaN
+    y = [0.0] * 15
+    df = _mk(y, ts=_ts(15))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        summ, _ = backtest_forecaster(
+            df, NaiveForecaster(strategy="last"),
+            target_col="y", time_col="ts",
+            horizon=1, n_folds=1, strategy="expanding",
+            train_size=10, step=1, metrics=("wape",),
+        )
+    r = _summ(summ, None, "wape")
+    assert math.isnan(r["mean"])
+
+
+def test_mqlike_perfect_zero():
+    y = [2.0] * 15
+    df = _mk(y, ts=_ts(15))
+    summ, _ = backtest_forecaster(
+        df, NaiveForecaster(strategy="last"),
+        target_col="y", time_col="ts",
+        horizon=1, n_folds=2, strategy="expanding",
+        train_size=10, step=1, metrics=("mqlike",),
+    )
+    r = _summ(summ, None, "mqlike")
+    # All values =2, naive=2 -> r=1 -> qlike=0
+    assert abs(r["mean"]) < 1e-9
+
+
+def test_mqlike_negative_y_nan():
+    y = [-1.0, 2.0, 3.0] * 6 + [4.0, 5.0, 6.0]
+    df = _mk(y[:20], ts=_ts(20))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        summ, _ = backtest_forecaster(
+            df, NaiveForecaster(strategy="last"),
+            target_col="y", time_col="ts",
+            horizon=1, n_folds=1, strategy="expanding",
+            train_size=10, step=1, metrics=("mqlike",),
+        )
+    r = _summ(summ, None, "mqlike")
+    assert math.isnan(r["mean"])
+
+
+def test_msis_skipped_for_naive():
+    """NaiveForecaster has no prediction_interval -> msis warning + skip."""
+    n = 20
+    y = list(range(1, n + 1))
+    df = _mk(y, ts=_ts(n))
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        summ, _ = backtest_forecaster(
+            df, NaiveForecaster(strategy="last"),
+            target_col="y", time_col="ts",
+            horizon=1, n_folds=2, strategy="expanding",
+            train_size=10, step=1, metrics=("msis", "mae"),
+        )
+    # msis row absent; mae present
+    assert _summ(summ, None, "msis") is None
+    assert _summ(summ, None, "mae") is not None
+    assert any("prediction_interval" in str(wi.message) for wi in w)
+
+
+def test_msis_perfect_interval_zero():
+    """Spy with exact (y_test, y_test) interval -> MSIS=0.
+
+    y_train must have variation (naive scale denominator).
+    y_test = 2.0 at the fold's test point; Spy returns lo=hi=2.0.
+    """
+    # Train [1,2,3,1,2,3,1,2,3,1] has variation; test = [2.0].
+    y = [1.0, 2.0, 3.0] * 4 + [1.0, 2.0, 2.0]
+    df = _mk(y, ts=_ts(15))
+    summ, _ = backtest_forecaster(
+        df, _SpyPI(lo=2.0, hi=2.0),
+        target_col="y", time_col="ts",
+        horizon=1, n_folds=1, strategy="expanding",
+        train_size=14, step=1, metrics=("msis",),
+        seasonal_period=1,
+    )
+    r = _summ(summ, None, "msis")
+    # y_test[-1]=2.0, interval [2.0, 2.0]: width=0, miss=0 -> MSIS=0
+    assert abs(r["mean"]) < 1e-9
+
+
+def test_msis_nonzero_interval():
+    """Spy with wide interval + off-target y -> positive MSIS.
+
+    y_train must have variation (naive MAE scale denominator > 0).
+    y_test = 1.0, interval [0, 5]: width=5, no misses.
+    MSIS = 5 / scale > 0.
+    """
+    # Train = [1,2,3]*4 + [1] (13 items, variation -> scale>0);
+    # test = last item = [1.0].
+    y = [1.0, 2.0, 3.0] * 4 + [1.0, 1.0]
+    df = _mk(y, ts=_ts(14))
+    summ, _ = backtest_forecaster(
+        df, _SpyPI(lo=0.0, hi=5.0),
+        target_col="y", time_col="ts",
+        horizon=1, n_folds=1, strategy="expanding",
+        train_size=13, step=1, metrics=("msis",),
+        seasonal_period=1,
+    )
+    r = _summ(summ, None, "msis")
+    assert r is not None
+    assert not math.isnan(r["mean"])
+    assert r["mean"] > 0  # width 5, no misses, scale > 0
+
+
+def test_wql_requires_quantiles():
+    """wql requested without quantiles -> warn + skipped."""
+    n = 20
+    y = list(range(1, n + 1))
+    df = _mk(y, ts=_ts(n))
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        summ, _ = backtest_forecaster(
+            df, NaiveForecaster(strategy="last"),
+            target_col="y", time_col="ts",
+            horizon=1, n_folds=2, strategy="expanding",
+            train_size=10, step=1, metrics=("wql", "mae"),
+        )
+    assert _summ(summ, None, "wql") is None
+    assert _summ(summ, None, "mae") is not None
+    assert any("wql" in str(wi.message) for wi in w)
+
+
+def test_wql_crps_sql_from_quantiles():
+    """Spy quantile forecaster with exact quantile = y_test -> WQL,
+    CRPS, SQL should all be ~0."""
+    y = [2.0] * 15
+    df = _mk(y, ts=_ts(15))
+    q_values = {0.1: 2.0, 0.5: 2.0, 0.9: 2.0}
+    summ, _ = backtest_forecaster(
+        df, _SpyQuantile(q_values),
+        target_col="y", time_col="ts",
+        horizon=1, n_folds=2, strategy="expanding",
+        train_size=10, step=1,
+        metrics=("wql", "sql", "crps"),
+        quantiles=[0.1, 0.5, 0.9],
+        seasonal_period=1,
+    )
+    # All three computed; y=2, quantiles all 2 -> perfect
+    for m in ("wql", "crps"):
+        r = _summ(summ, None, m)
+        assert r is not None
+        assert abs(r["mean"]) < 1e-9, f"{m} = {r['mean']}"
+
+
+def test_invalid_metric_raises():
+    n = 20
+    y = list(range(1, n + 1))
+    df = _mk(y, ts=_ts(n))
+    with pytest.raises(ValueError, match="unknown metric"):
+        backtest_forecaster(
+            df, NaiveForecaster(strategy="last"),
+            target_col="y", time_col="ts",
+            horizon=1, n_folds=2, strategy="expanding",
+            train_size=10, step=1, metrics=("nope",),
+        )
+
+
+def test_msis_alpha_validation():
+    n = 20
+    y = list(range(1, n + 1))
+    df = _mk(y, ts=_ts(n))
+    with pytest.raises(ValueError, match="msis_alpha"):
+        backtest_forecaster(
+            df, NaiveForecaster(strategy="last"),
+            target_col="y", time_col="ts",
+            horizon=1, n_folds=1, strategy="expanding",
+            train_size=10, step=1, metrics=("mae",),
+            msis_alpha=1.5,
+        )
+
+
+def test_wape_matches_hand_compute():
+    """Spy that always predicts 0; y=[1,2,3,...]. WAPE = sum|y|/sum|y|*100=100."""
+    class _SpyZero(NaiveForecaster):
+        def _predict(self, steps):
+            return np.zeros(steps, dtype=np.float64)
+    y = [1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0,
+         1.0, 2.0, 3.0, 4.0, 5.0]
+    df = _mk(y, ts=_ts(15))
+    summ, _ = backtest_forecaster(
+        df, _SpyZero(strategy="last"),
+        target_col="y", time_col="ts",
+        horizon=1, n_folds=1, strategy="expanding",
+        train_size=10, step=1, metrics=("wape",),
+    )
+    r = _summ(summ, None, "wape")
+    # y_test[10]=1, fc=0 -> |1-0|=1, sum|y_test|=1 -> WAPE=100
+    assert abs(r["mean"] - 100.0) < 1e-6
