@@ -1595,13 +1595,12 @@ def _fit_boosting_multiclass(
     if n_total == 0:
         raise ValueError("fit_gbdt_multiclass: no rows")
 
-    # v0.9.22 (§13.4/241, AUDIT_ML §1.1): state formula corrected.
-    # Persistent: y_all (n·8) + pred (n·K·8) + grad_all (n·K·8)
-    # + hess_all (n·K·8) + round_cur_leaves (K·n·8, one per class
-    # held through round) = n·8·(1 + 4K). Prior n·K·8·3 missed
-    # y_all and the K-th round_cur_leaves array: at N=10M K=10,
-    # formula 2.4 GB vs actual 3.28 GB (880 MB miss).
-    est_n_state = n_total * 8 * (1 + 4 * K)
+    # v0.9.87-P1a-2: grad_all/hess_all moved to disk (memmap,
+    # SpillDir-managed). RAM: y_all (n·8) + pred (n·K·8) +
+    # round_cur_leaves (K·n·8) = n·8·(1 + 2K). Was n·8·(1 + 4K)
+    # (v0.9.22). 2x reduction for K >= 3 (K=10: 328n -> 168n).
+    # True OOC still requires memmap pred + cur_leaf (P1a-3).
+    est_n_state = n_total * 8 * (1 + 2 * K)
     try:
         mg.check_state(est_n_state, name="gbdt.multiclass_state")
     except MemoryLimitExceeded:
@@ -1635,9 +1634,16 @@ def _fit_boosting_multiclass(
         trees: list = []
 
         for round_i in range(n_estimators):
-            # 4. grad_all/hess_all (unchanged — P1a-2 will drop these)
-            grad_all = np.zeros((n_total, K), dtype=np.float64)
-            hess_all = np.zeros((n_total, K), dtype=np.float64)
+            # v0.9.87-P1a-2: grad/hess on disk (memmap); 2x RAM cut.
+            # Reused across round only. Cleaned up after this round.
+            _g_path = binning_spill.path(f"grad_r{round_i:04d}.bin")
+            _h_path = binning_spill.path(f"hess_r{round_i:04d}.bin")
+            grad_all = np.memmap(
+                str(_g_path), dtype=np.float64, mode="w+",
+                shape=(n_total, K))
+            hess_all = np.memmap(
+                str(_h_path), dtype=np.float64, mode="w+",
+                shape=(n_total, K))
             offset = 0
             for b in df._iter_filtered_batches():
                 n = b.num_rows
@@ -1651,6 +1657,8 @@ def _fit_boosting_multiclass(
                     grad_all[offset:offset + n][valid] = g_valid
                     hess_all[offset:offset + n][valid] = h_valid
                 offset += n
+            grad_all.flush()
+            hess_all.flush()
 
             # 5. Fit K trees per class — codes-based hist+assign
             round_trees = []
@@ -1736,6 +1744,11 @@ def _fit_boosting_multiclass(
                     for lid, v in lv.items():
                         arr[lid] = v
                     pred[:, c] += learning_rate * arr[round_cur_leaves[c]]
+
+            # v0.9.87-P1a-2: free grad/hess memmap files after round.
+            del grad_all, hess_all
+            binning_spill.cleanup_file(_g_path)
+            binning_spill.cleanup_file(_h_path)
 
             trees.append(round_trees)
     finally:

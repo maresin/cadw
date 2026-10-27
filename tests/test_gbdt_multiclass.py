@@ -321,16 +321,26 @@ def test_binary_classifier_still_works(tmp_path):
 
 
 def test_multiclass_est_state_includes_y_all():
-    """v0.9.22: est_n_state = n·8·(1 + 4K), not n·K·8·3.
+    """v0.9.87-P1a-2: est_n_state = n·8·(1 + 2K) (grad/hess to disk).
 
-    Prior formula missed y_all (n·8) and K-th round_cur_leaves (K·n·8).
+    History:
+      v0.9.22: (1 + 4K) — pred + grad + hess + round_cur_leaves
+               + y_all all in RAM.
+      v0.9.87-P1a-2: grad_all/hess_all moved to per-round memmap
+               (SpillDir-managed disk). RAM = y_all (n·8) +
+               pred (n·K·8) + round_cur_leaves (K·n·8) =
+               n·8·(1 + 2K). 2x reduction for K >= 3.
     """
     from cadw.ml.gbdt import _fit_boosting_multiclass
     import inspect
     src = inspect.getsource(_fit_boosting_multiclass)
-    assert "n_total * 8 * (1 + 4 * K)" in src, (
-        "multiclass state formula must be n·8·(1+4K) "
-        "(AUDIT_ML §1.1). Prior n·K·8·3 under-reports."
+    assert "n_total * 8 * (1 + 2 * K)" in src, (
+        "multiclass state formula must be n·8·(1+2K) after P1a-2 "
+        "(grad/hess on disk)."
+    )
+    # Defensive: ensure old formula is NOT present
+    assert "n_total * 8 * (1 + 4 * K)" not in src, (
+        "old formula (1+4K) should be gone after P1a-2."
     )
     assert "n_total * K * 8 * 3" not in src, (
         "old formula n·K·8·3 must be removed"
@@ -525,4 +535,35 @@ def test_fit_multiclass_uses_codes_path(monkeypatch, tmp_path):
         f"_AllNodeHistOpCodes.update called {hist_codes_calls[0]} times")
     assert assign_codes_calls[0] >= 3, (
         f"_AssignLeavesOpCodes.update called {assign_codes_calls[0]} times")
+
+def test_multiclass_grad_hess_are_memmap(monkeypatch, tmp_path):
+    """P1a-2: grad_all/hess_all are np.memmap (not RAM arrays)."""
+    from cadw.ml import gbdt as gbdt_mod
+
+    captured = []
+    orig_memmap = np.memmap
+
+    def spy_memmap(filename, *args, **kwargs):
+        # Only spy on calls from _fit_boosting_multiclass round loop
+        # (filename contains "grad_r" or "hess_r")
+        fname = str(filename)
+        if "grad_r" in fname or "hess_r" in fname:
+            captured.append(fname)
+        return orig_memmap(filename, *args, **kwargs)
+
+    monkeypatch.setattr(np, "memmap", spy_memmap)
+
+    n = 300
+    data, X, y = _synth_multiclass(n, n_classes=3, seed=0)
+    df = make_df(tmp_path, data)
+    fit_gbdt_multiclass(
+        df, ["x0", "x1"], "y",
+        n_estimators=2, max_depth=2, learning_rate=0.2, bins=16,
+    )
+
+    # Should have created round 0 and round 1 grad/hess pairs
+    grad_calls = [f for f in captured if "grad_r" in f]
+    hess_calls = [f for f in captured if "hess_r" in f]
+    assert len(grad_calls) >= 2, f"grad memmaps: {grad_calls}"
+    assert len(hess_calls) >= 2, f"hess memmaps: {hess_calls}"
 
