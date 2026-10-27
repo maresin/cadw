@@ -487,3 +487,42 @@ def test_all_node_hist_op_codes_multi_node():
     np.testing.assert_allclose(new["h_hist"], golden["h_hist"], atol=1e-12)
     np.testing.assert_array_equal(new["n_tot"], golden["n_tot"])
 
+def test_fit_multiclass_uses_codes_path(monkeypatch, tmp_path):
+    """P1a-1b: fit uses codes-based hist/assign ops.
+
+    Verifies _AllNodeHistOpCodes and _AssignLeavesOpCodes are called
+    (not the raw-X variants). Ensures we don't silently fall back.
+    """
+    from cadw.ml import gbdt as gbdt_mod
+
+    hist_codes_calls = [0]
+    assign_codes_calls = [0]
+    orig_hist = gbdt_mod._AllNodeHistOpCodes
+    orig_assign = gbdt_mod._AssignLeavesOpCodes
+
+    class SpyHist(orig_hist):
+        def update(self, state, batch):
+            hist_codes_calls[0] += 1
+            return super().update(state, batch)
+
+    class SpyAssign(orig_assign):
+        def update(self, state, batch):
+            assign_codes_calls[0] += 1
+            return super().update(state, batch)
+
+    monkeypatch.setattr(gbdt_mod, "_AllNodeHistOpCodes", SpyHist)
+    monkeypatch.setattr(gbdt_mod, "_AssignLeavesOpCodes", SpyAssign)
+
+    n = 300
+    data, X, y = _synth_multiclass(n, n_classes=3, seed=0)
+    df = make_df(tmp_path, data)
+    fit_gbdt_multiclass(
+        df, ["x0", "x1"], "y",
+        n_estimators=3, max_depth=2, learning_rate=0.2, bins=16,
+    )
+    # 3 classes * 2 depth * 3 rounds = 18 hist calls, 18 assign calls
+    assert hist_codes_calls[0] >= 3, (
+        f"_AllNodeHistOpCodes.update called {hist_codes_calls[0]} times")
+    assert assign_codes_calls[0] >= 3, (
+        f"_AssignLeavesOpCodes.update called {assign_codes_calls[0]} times")
+

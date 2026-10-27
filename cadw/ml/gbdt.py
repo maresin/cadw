@@ -470,6 +470,72 @@ class _AssignLeavesOp(ReduceOp):
         return np.concatenate(state) if state else np.array([], dtype=np.int64)
 
 
+
+
+class _AssignLeavesOpCodes(ReduceOp):
+    """Leaf assignment from pre-binned codes (uint8).
+
+    Tree thr is a bin index (from _find_best_split against histogram bins),
+    so no bin recomputation needed: leaf = right if code > thr else left.
+    Bit-identical to _AssignLeavesOp within same tree.
+
+    Reads __code_0..__code_{d-1} + __nan_mask only.
+    """
+
+    def __init__(
+        self,
+        feature_cols: Sequence[str],
+        tree: dict,
+        root_id: int = 0,
+    ) -> None:
+        self.feature_cols = list(feature_cols)
+        self.f = len(feature_cols)
+        self.tree = dict(tree)
+        self.root_id = int(root_id)
+
+    def init(self):
+        return []
+
+    def update(self, state, batch):
+        n = batch.num_rows
+        codes = np.stack(
+            [batch.column(f"__code_{j}").to_numpy(zero_copy_only=False)
+             for j in range(self.f)], axis=1)
+        nan_mask = batch.column("__nan_mask").to_numpy(zero_copy_only=False)
+        leaf = np.full(n, self.root_id, dtype=np.int64)
+        max_iter = 32
+        for _ in range(max_iter):
+            any_change = False
+            for nid, spec in self.tree.items():
+                if spec is None:
+                    continue
+                j, thr, left, right = spec[:4]
+                m = (leaf == nid) & ~nan_mask
+                if not m.any():
+                    continue
+                new_ids = np.where(codes[m, j] <= thr, left, right)
+                leaf[m] = new_ids
+                any_change = True
+            if not any_change:
+                break
+        state.append(leaf)
+        return state
+
+    def merge(self, a, b):
+        return a + b
+
+    def state_nbytes(self, state):
+        return int(sum(x.nbytes for x in state) + 8)
+
+    def estimate_state_nbytes(self):
+        return 0
+
+    def batch_memory_factor(self):
+        return 4.0
+
+    def finalize(self, state):
+        return np.concatenate(state) if state else np.array([], dtype=np.int64)
+
 class _LeafValuesOp(ReduceOp):
     """Per-leaf: sum_grad, sum_hess → Newton step for any loss."""
 
@@ -1258,24 +1324,68 @@ def _validate_multiclass_y(df, y_col: str) -> tuple[int, int]:
 def _iter_class_enriched(
     df, X_cols, grad_all: np.ndarray, hess_all: np.ndarray,
     cur_leaf_c: np.ndarray, c: int,
+    codes_mm=None, nan_mask=None,
 ):
-    """Per-class batch iterator with __g, __h, __leaf for _AllNodeHistOp."""
+    """Per-class batch iterator with __g, __h, __leaf for _AllNodeHistOp.
+
+    v0.9.87-P1a-1b: if codes_mm provided, yields __code_0..__code_{d-1}
+    and __nan_mask (for _AllNodeHistOpCodes) instead of raw X columns.
+    Faster: reads uint8 codes from memmap, no _stack_numeric.
+    """
     off = 0
+    d = len(X_cols)
     for b in df._iter_filtered_batches():
         n = b.num_rows
-        X = _stack_numeric(b, X_cols)
-        valid = ~np.isnan(X).any(axis=1)
-        g = np.where(valid, grad_all[off:off + n, c], 0.0)
-        h = np.where(valid, hess_all[off:off + n, c], 0.0)
-        lf = cur_leaf_c[off:off + n]
-        cols = [b.column(cc) for cc in X_cols]
-        cols.append(pa.array(g, type=pa.float64()))
-        cols.append(pa.array(h, type=pa.float64()))
-        cols.append(pa.array(lf, type=pa.int64()))
-        names = list(X_cols) + ["__g", "__h", "__leaf"]
+        if codes_mm is not None:
+            codes_b = np.asarray(codes_mm[off:off + n])
+            nm_b = np.asarray(nan_mask[off:off + n])
+            g = np.where(~nm_b, grad_all[off:off + n, c], 0.0)
+            h = np.where(~nm_b, hess_all[off:off + n, c], 0.0)
+            lf = cur_leaf_c[off:off + n]
+            cols = [pa.array(codes_b[:, j], type=pa.uint8())
+                    for j in range(d)]
+            cols.append(pa.array(g, type=pa.float64()))
+            cols.append(pa.array(h, type=pa.float64()))
+            cols.append(pa.array(lf, type=pa.int64()))
+            cols.append(pa.array(nm_b))
+            names = ([f"__code_{j}" for j in range(d)]
+                     + ["__g", "__h", "__leaf", "__nan_mask"])
+        else:
+            X = _stack_numeric(b, X_cols)
+            valid = ~np.isnan(X).any(axis=1)
+            g = np.where(valid, grad_all[off:off + n, c], 0.0)
+            h = np.where(valid, hess_all[off:off + n, c], 0.0)
+            lf = cur_leaf_c[off:off + n]
+            cols = [b.column(cc) for cc in X_cols]
+            cols.append(pa.array(g, type=pa.float64()))
+            cols.append(pa.array(h, type=pa.float64()))
+            cols.append(pa.array(lf, type=pa.int64()))
+            names = list(X_cols) + ["__g", "__h", "__leaf"]
         yield pa.RecordBatch.from_arrays(cols, names=names)
         off += n
 
+
+
+
+def _iter_x_with_codes(df, X_cols, codes_mm, nan_mask):
+    """Yield batches with __code_* + __nan_mask only (no raw X, no __g/__h).
+
+    Used by _AssignLeavesOpCodes path; cheaper than _iter_class_enriched.
+    """
+    off = 0
+    d = len(X_cols)
+    for b in df._iter_filtered_batches():
+        n = b.num_rows
+        codes_b = np.asarray(codes_mm[off:off + n])
+        nm_b = np.asarray(nan_mask[off:off + n])
+        code_cols = [pa.array(codes_b[:, j], type=pa.uint8())
+                     for j in range(d)]
+        code_names = [f"__code_{j}" for j in range(d)]
+        yield pa.RecordBatch.from_arrays(
+            code_cols + [pa.array(nm_b)],
+            names=code_names + ["__nan_mask"],
+        )
+        off += n
 
 def _iter_class_for_leaves(
     df, X_cols, grad_all: np.ndarray, hess_all: np.ndarray,
@@ -1482,127 +1592,138 @@ def _fit_boosting_multiclass(
             f"See §13.4/92."
         )
 
-    # 1. Global min/max
-    mm_res = reduce(
-        df._iter_filtered_batches(), _MinMaxOp(X_cols), mg, log=False,
-    )
-    mn = mm_res["min"]
-    mx = mm_res["max"]
-    if np.any(np.isinf(mn)) or np.any(np.isinf(mx)):
-        raise ValueError("fit_gbdt_multiclass: no valid rows")
+    # v0.9.87-P1a-1b: one-time binning -> codes_mm (uint8 memmap);
+    # subsequent hist/assign passes use codes, no per-pass re-stack.
+    mn, mx, range_, codes_mm, nan_mask, binning_spill = _binning_pass(
+        df, X_cols, bins=int(bins), memory_guard=mg, guard=mg)
 
-    # 2. y as int64 (with -1 for null)
-    y_all = np.full(n_total, -1, dtype=np.int64)
-    offset = 0
-    for b in df._iter_filtered_batches():
-        y = _column_to_f64(b.column(y_col))
-        valid = ~np.isnan(y)
-        y_all[offset:offset + b.num_rows] = np.where(valid, y, -1).astype(np.int64)
-        offset += b.num_rows
-
-    # 3. Init pred — zeros (base_prediction = zeros, trees find shift)
-    base_pred = np.zeros(K, dtype=np.float64)
-    pred = np.tile(base_pred, (n_total, 1))  # (n, K)
-
-    trees: list = []  # list[n_estimators], each = list[K]
-
-    for round_i in range(n_estimators):
-        # 4. Compute grad_all, hess_all ONCE per round (softmax)
-        grad_all = np.zeros((n_total, K), dtype=np.float64)
-        hess_all = np.zeros((n_total, K), dtype=np.float64)
+    try:
+        # 2. y as int64 (with -1 for null)
+        y_all = np.full(n_total, -1, dtype=np.int64)
         offset = 0
         for b in df._iter_filtered_batches():
-            n = b.num_rows
-            X = _stack_numeric(b, X_cols)
-            p = pred[offset:offset + n]
-            y_idx = y_all[offset:offset + n]
-            valid = (~np.isnan(X).any(axis=1)) & (y_idx >= 0)
-            if valid.any():
-                # Use only valid rows for grad/hess; fill others with 0
-                g_valid, h_valid = _grad_hess_multiclass(
-                    p[valid], y_idx[valid], K,
-                )
-                grad_all[offset:offset + n][valid] = g_valid
-                hess_all[offset:offset + n][valid] = h_valid
-            offset += n
+            y = _column_to_f64(b.column(y_col))
+            valid = ~np.isnan(y)
+            y_all[offset:offset + b.num_rows] = np.where(
+                valid, y, -1).astype(np.int64)
+            offset += b.num_rows
 
-        # 5. Fit K trees per class
-        round_trees = []
-        round_leaf_maps = []
-        round_cur_leaves = []
-        for c in range(K):
-            tree = {0: None}
-            cur_leaf_c = np.zeros(n_total, dtype=np.int64)
-            next_node_id = 1
+        # 3. Init pred — zeros
+        base_pred = np.zeros(K, dtype=np.float64)
+        pred = np.zeros((n_total, K), dtype=np.float64)
 
-            for level in range(max_depth):
-                internal = [nid for nid, t in tree.items() if t is None]
-                if not internal:
-                    break
+        trees: list = []
 
-                hist_op = _AllNodeHistOp(X_cols, internal, mn, mx, bins)
-                hist_res = reduce(
-                    _iter_class_enriched(
-                        df, X_cols, grad_all, hess_all, cur_leaf_c, c,
-                    ),
-                    hist_op, mg, log=False,
-                )
-                gh = hist_res["g_hist"]
-                hh = hist_res["h_hist"]
-                gt = hist_res["g_tot"]
-                ht = hist_res["h_tot"]
-                nt = hist_res["n_tot"]
-
-                for slot, nid in enumerate(internal):
-                    if ht[slot] < min_child_weight * 2:
-                        continue
-                    best = _find_best_split(
-                        slot, gh[slot], hh[slot],
-                        float(gt[slot]), float(ht[slot]), int(nt[slot]),
-                        bins, min_child_weight, min_gain, reg_lambda,
+        for round_i in range(n_estimators):
+            # 4. grad_all/hess_all (unchanged — P1a-2 will drop these)
+            grad_all = np.zeros((n_total, K), dtype=np.float64)
+            hess_all = np.zeros((n_total, K), dtype=np.float64)
+            offset = 0
+            for b in df._iter_filtered_batches():
+                n = b.num_rows
+                p = pred[offset:offset + n]
+                y_idx = y_all[offset:offset + n]
+                valid = (~nan_mask[offset:offset + n]) & (y_idx >= 0)
+                if valid.any():
+                    g_valid, h_valid = _grad_hess_multiclass(
+                        p[valid], y_idx[valid], K,
                     )
-                    if best is None:
-                        continue
-                    j, thr, gain = best
-                    left_id = next_node_id
-                    right_id = next_node_id + 1
-                    next_node_id += 2
-                    tree[nid] = (j, thr, left_id, right_id, float(gain))
-                    tree[left_id] = None
-                    tree[right_id] = None
+                    grad_all[offset:offset + n][valid] = g_valid
+                    hess_all[offset:offset + n][valid] = h_valid
+                offset += n
 
-                assign_op = _AssignLeavesOp(X_cols, mn, mx, bins, tree)
-                cur_leaf_c = reduce(
-                    df._iter_filtered_batches(), assign_op, mg, log=False,
+            # 5. Fit K trees per class — codes-based hist+assign
+            round_trees = []
+            round_leaf_maps = []
+            round_cur_leaves = []
+            for c in range(K):
+                tree = {0: None}
+                cur_leaf_c = np.zeros(n_total, dtype=np.int64)
+                next_node_id = 1
+
+                for level in range(max_depth):
+                    internal = [nid for nid, t in tree.items()
+                                if t is None]
+                    if not internal:
+                        break
+
+                    hist_op = _AllNodeHistOpCodes(X_cols, internal, bins)
+                    hist_res = reduce(
+                        _iter_class_enriched(
+                            df, X_cols, grad_all, hess_all,
+                            cur_leaf_c, c,
+                            codes_mm=codes_mm, nan_mask=nan_mask,
+                        ),
+                        hist_op, mg, log=False,
+                    )
+                    gh = hist_res["g_hist"]
+                    hh = hist_res["h_hist"]
+                    gt = hist_res["g_tot"]
+                    ht = hist_res["h_tot"]
+                    nt = hist_res["n_tot"]
+
+                    for slot, nid in enumerate(internal):
+                        if ht[slot] < min_child_weight * 2:
+                            continue
+                        best = _find_best_split(
+                            slot, gh[slot], hh[slot],
+                            float(gt[slot]), float(ht[slot]),
+                            int(nt[slot]),
+                            bins, min_child_weight, min_gain,
+                            reg_lambda,
+                        )
+                        if best is None:
+                            continue
+                        j, thr, gain = best
+                        left_id = next_node_id
+                        right_id = next_node_id + 1
+                        next_node_id += 2
+                        tree[nid] = (j, thr, left_id, right_id,
+                                     float(gain))
+                        tree[left_id] = None
+                        tree[right_id] = None
+
+                    assign_op = _AssignLeavesOpCodes(X_cols, tree)
+                    cur_leaf_c = reduce(
+                        _iter_x_with_codes(
+                            df, X_cols, codes_mm, nan_mask),
+                        assign_op, mg, log=False,
+                    )
+
+                # 6. Leaf values (unchanged — reads __g/__h/__leaf)
+                lv_op = _LeafValuesOp(reg_lambda=reg_lambda)
+                leaf_values_c = reduce(
+                    _iter_class_for_leaves(
+                        df, X_cols, grad_all, hess_all,
+                        cur_leaf_c, c,
+                    ),
+                    lv_op, mg, log=False,
                 )
 
-            # 6. Leaf values for this class
-            lv_op = _LeafValuesOp(reg_lambda=reg_lambda)
-            leaf_values_c = reduce(
-                _iter_class_for_leaves(
-                    df, X_cols, grad_all, hess_all, cur_leaf_c, c,
-                ),
-                lv_op, mg, log=False,
-            )
+                round_trees.append({
+                    "structure": dict(tree),
+                    "leaf_values": dict(leaf_values_c),
+                })
+                round_leaf_maps.append(dict(leaf_values_c))
+                round_cur_leaves.append(cur_leaf_c)
 
-            round_trees.append({
-                "structure": dict(tree),
-                "leaf_values": dict(leaf_values_c),
-            })
-            round_leaf_maps.append(dict(leaf_values_c))
-            round_cur_leaves.append(cur_leaf_c)
+            # 7. Update pred (unchanged)
+            for c in range(K):
+                lv = round_leaf_maps[c]
+                if lv:
+                    max_lid = max(lv.keys())
+                    arr = np.zeros(max_lid + 1, dtype=np.float64)
+                    for lid, v in lv.items():
+                        arr[lid] = v
+                    pred[:, c] += learning_rate * arr[round_cur_leaves[c]]
 
-        # 7. Update pred[:, c] (after all K trees of this round)
-        for c in range(K):
-            lv = round_leaf_maps[c]
-            if lv:
-                max_lid = max(lv.keys())
-                arr = np.zeros(max_lid + 1, dtype=np.float64)
-                for lid, v in lv.items():
-                    arr[lid] = v
-                pred[:, c] += learning_rate * arr[round_cur_leaves[c]]
-
-        trees.append(round_trees)
+            trees.append(round_trees)
+    finally:
+        try:
+            del codes_mm
+        except Exception:
+            pass
+        binning_spill.__exit__(None, None, None)
 
     return {
         "trees_": trees,
