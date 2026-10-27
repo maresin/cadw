@@ -410,6 +410,10 @@ class SARIMAForecaster(ForecasterBase):
     data, forecasts will mean-revert toward the fitted intercept.
     """
 
+    handles_trend: bool = True
+    handles_seasonality: bool = True
+    handles_multi_seasonality: bool = False
+
     DEFAULT_P_GRID = (0, 1, 2)
     DEFAULT_D_GRID = (0, 1)
     DEFAULT_Q_GRID = (0, 1, 2)

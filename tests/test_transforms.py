@@ -380,3 +380,164 @@ def test_auto_stat_bad_params():
         AutoStationarizer(max_d=-1)
     with pytest.raises(ValueError, match="max_D"):
         AutoStationarizer(max_D=-1)
+
+# ── AutoForecastPipeline ────────────────────────────────────────
+
+def test_autopipeline_naive_on_trend_applies_differencing():
+    """NaiveForecaster has no capability flags -> pipeline must add
+    differencing -> trend continues (vs plain naive flat)."""
+    from cadw.ts.transforms import AutoForecastPipeline
+    y = 10.0 + 0.5 * np.arange(60)
+    pipe = AutoForecastPipeline(
+        forecaster=NaiveForecaster(strategy="last"),
+        seasonal_periods=None,
+    ).fit(_df(y), "y")
+    # Pipeline has 1 transformer (AutoStationarizer)
+    assert len(pipe.transformers) == 1
+    f = pipe.predict(5)
+    expected = 10.0 + 0.5 * (60 + np.arange(5))
+    # Naive-last on diff = constant 0.5 -> cumsum continues trend
+    np.testing.assert_allclose(f, expected, atol=0.2)
+
+
+def test_autopipeline_naive_on_stationary_no_diff():
+    """On white noise, AutoStationarizer chooses d=0 -> pipeline
+    effectively identity -> matches plain naive."""
+    from cadw.ts.transforms import AutoForecastPipeline
+    rng = np.random.RandomState(0)
+    y = rng.normal(5.0, 1.0, 200)
+    pipe = AutoForecastPipeline(
+        forecaster=NaiveForecaster(strategy="last"),
+    ).fit(_df(y), "y")
+    # AutoStationarizer chosen d=0 -> len 1 transformer
+    assert len(pipe.transformers) == 1
+    f_pipe = pipe.predict(3)
+    # Plain naive
+    m_naive = NaiveForecaster(strategy="last").fit(_df(y), "y")
+    f_naive = m_naive.predict(3)
+    np.testing.assert_allclose(f_pipe, f_naive, atol=1e-9)
+
+
+def test_autopipeline_naive_on_seasonal_applies_stl_and_diff():
+    """NaiveForecaster + seasonal data + seasonal_periods -> STL + diff
+    -> prediction captures seasonality (vs plain naive flat)."""
+    from cadw.ts.transforms import AutoForecastPipeline
+    n = 200
+    s = 12
+    t = np.arange(n, dtype=np.float64)
+    y = 10.0 + 3.0 * np.sin(2 * np.pi * t / s)
+    pipe = AutoForecastPipeline(
+        forecaster=NaiveForecaster(strategy="last"),
+        seasonal_periods=[s],
+    ).fit(_df(y), "y")
+    # STL + AutoStationarizer
+    assert len(pipe.transformers) == 2
+    f = pipe.predict(s)
+    # Forecast should have meaningful variation (seasonal)
+    assert f.std() > 1.0, f"forecast flat: std={f.std():.2f}"
+
+
+def test_autopipeline_sarima_naked():
+    """SARIMA handles trend+seasonality -> no transforms."""
+    from cadw.ts.transforms import AutoForecastPipeline
+    from cadw.ts.models import SARIMAForecaster
+    # SARIMA signature: order=(p,d,q), seasonal_order=(P,D,Q), s=period.
+    pipe = AutoForecastPipeline(
+        forecaster=SARIMAForecaster(
+            order=(1, 1, 0), seasonal_order=(0, 0, 0), s=12),
+        seasonal_periods=[12],
+    )
+    assert pipe.transformers == []
+    assert pipe._pipeline is None
+
+
+def test_autopipeline_ets_naked():
+    """ETS handles both -> no transforms."""
+    from cadw.ts.transforms import AutoForecastPipeline
+    from cadw.ts.ets import ETSForecaster
+    pipe = AutoForecastPipeline(
+        forecaster=ETSForecaster(seasonal_period=12),
+        seasonal_periods=[12],
+    )
+    assert pipe.transformers == []
+
+
+def test_autopipeline_autotheta_naked():
+    """AutoTheta handles both -> no transforms."""
+    from cadw.ts.transforms import AutoForecastPipeline
+    from cadw.ts.auto_theta import AutoThetaForecaster
+    pipe = AutoForecastPipeline(
+        forecaster=AutoThetaForecaster(seasonal_period=12),
+        seasonal_periods=[12],
+    )
+    assert pipe.transformers == []
+
+
+def test_autopipeline_capability_flags_after_wrap():
+    """Pipeline with transforms sets handles_trend/seas True."""
+    from cadw.ts.transforms import AutoForecastPipeline
+    pipe = AutoForecastPipeline(
+        forecaster=NaiveForecaster(strategy="last"),
+        seasonal_periods=[12],
+    )
+    assert pipe.handles_trend is True
+    assert pipe.handles_seasonality is True
+
+
+def test_autopipeline_multiperiod_mstl():
+    """Multiple periods + base handles single -> MSTL."""
+    from cadw.ts.transforms import AutoForecastPipeline, MSTLTransformer
+    pipe = AutoForecastPipeline(
+        forecaster=NaiveForecaster(strategy="last"),
+        seasonal_periods=[7, 30],
+    )
+    assert any(isinstance(t, MSTLTransformer)
+               for t in pipe.transformers)
+
+
+def test_autopipeline_none_forecaster_raises():
+    from cadw.ts.transforms import AutoForecastPipeline
+    with pytest.raises(ValueError, match="forecaster is required"):
+        AutoForecastPipeline(forecaster=None)
+
+
+def test_autopipeline_get_params():
+    from cadw.ts.transforms import AutoForecastPipeline
+    pipe = AutoForecastPipeline(
+        forecaster=NaiveForecaster(strategy="last"),
+        seasonal_periods=[12],
+    )
+    p = pipe.get_params()
+    assert p["forecaster"] == "NaiveForecaster"
+    assert p["seasonal_periods"] == [12]
+    assert p["n_transformers"] == 2
+
+
+def test_autopipeline_predict_in_sample_shape():
+    from cadw.ts.transforms import AutoForecastPipeline
+    y = 10.0 + 0.5 * np.arange(50)
+    pipe = AutoForecastPipeline(
+        forecaster=NaiveForecaster(strategy="last"),
+    ).fit(_df(y), "y")
+    fit = pipe.predict_in_sample()
+    assert fit.size > 0
+
+
+def test_autopipeline_ast_no_bench_deps():
+    """transforms.py AST guard — no forbidden imports after pipeline add."""
+    import ast
+    from pathlib import Path
+    src = Path("cadw/ts/transforms.py").read_text()
+    tree = ast.parse(src)
+    forbidden = ("sklearn", "statsmodels", "torch", "pyod", "aeon",
+                 "merlion", "kats", "lifelines", "implicit", "ruptures")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                assert top not in forbidden, (
+                    f"forbidden import: {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            top = (node.module or "").split(".")[0]
+            assert top not in forbidden, (
+                f"forbidden import-from: {node.module}")

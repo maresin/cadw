@@ -63,6 +63,10 @@ class AutoETSForecaster(ForecasterBase):
         Wall-clock fit time.
     """
 
+    handles_trend: bool = True
+    handles_seasonality: bool = True
+    handles_multi_seasonality: bool = False
+
     def __init__(self, seasonal_period: int = 1, *,
                  warn_slow_fit: bool = True,
                  slow_fit_threshold_s: float = 30.0):

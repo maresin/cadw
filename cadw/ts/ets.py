@@ -107,6 +107,10 @@ def _grid_search(y, s, seasonal, damped, phi_fixed=False):
 class ETSForecaster(ForecasterBase):
     """Additive-error ETS(A,A,A) / ETS(A,A,N) with optional damping."""
 
+    handles_trend: bool = True
+    handles_seasonality: bool = True
+    handles_multi_seasonality: bool = False
+
     def __init__(self, seasonal_period=1, seasonal="additive",
                  trend=True, damped=False):
         super().__init__()

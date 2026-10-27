@@ -619,3 +619,157 @@ class AutoStationarizer(Differencer):
             "chosen_d": self.chosen_d_,
             "chosen_D": self.chosen_D_,
         }
+
+# ── AutoForecastPipeline ─────────────────────────────────────────
+
+class AutoForecastPipeline(ForecasterBase):
+    """Capability-based per-model transform pipeline.
+
+    Wraps any ForecasterBase. Reads its capability flags
+    (handles_trend, handles_seasonality, handles_multi_seasonality);
+    applies transforms only where the underlying model cannot handle
+    that component natively.
+
+    Transform ordering (v0.9.80):
+      1. Seasonal removal (if model cannot handle): STLTransformer
+         (single period) or MSTLTransformer (multiple periods).
+      2. Trend removal (if model cannot handle): AutoStationarizer
+         (differencing with auto d; seasonal_period=None because
+         seasonality was handled by STL above).
+
+    Forward: y -> [STL: y - S] -> [AutoStat: Delta^d(y - S)]
+    Inverse: forecast -> [AutoStat: cumsum] -> [STL: + S]
+    Order matches literature convention (STL+ARIMA: STL first,
+    differencing on deseasonalized series).
+
+    If the base model already handles both trend and seasonality
+    (e.g. SARIMA, ETS, AutoETS, AutoTheta), the pipeline stays
+    "naked" (no transforms added) and delegates directly to the base.
+
+    Parameters
+    ----------
+    forecaster : ForecasterBase
+    seasonal_periods : list[int] | None
+        Seasonal period(s). If None/empty and base needs seasonality,
+        STL is not added (differencing still applied for trend). User
+        may accept degraded seasonality or set these explicitly.
+    max_d : int, default=2
+    max_D : int, default=1  (only used by AutoStationarizer's D
+        heuristic; here AutoStationarizer is created with
+        seasonal_period=None so D=0)
+    acf_threshold, seasonal_strength_threshold : float
+        Passed to AutoStationarizer.
+    """
+
+    def __init__(self, forecaster: ForecasterBase, *,
+                 seasonal_periods: list | None = None,
+                 max_d: int = 2, max_D: int = 1,
+                 acf_threshold: float = 0.8,
+                 seasonal_strength_threshold: float = 0.5):
+        super().__init__()
+        if forecaster is None:
+            raise ValueError(
+                "AutoForecastPipeline: forecaster is required")
+        self.forecaster = forecaster
+        self.seasonal_periods = (list(seasonal_periods)
+                                 if seasonal_periods is not None else [])
+        self.max_d = int(max_d)
+        self.max_D = int(max_D)
+        self.acf_threshold = float(acf_threshold)
+        self.seasonal_strength_threshold = float(
+            seasonal_strength_threshold)
+
+        transformers = self._build_transformers()
+        self.transformers = transformers
+        self._pipeline = (
+            TransformedTargetForecaster(transformers, forecaster)
+            if transformers else None)
+
+        # Capability flags: base handles OR transformer covers
+        self.handles_trend = (
+            getattr(forecaster, "handles_trend", False)
+            or any(isinstance(t, Differencer) and t.lags > 0
+                   for t in transformers)
+            or any(isinstance(t, AutoStationarizer)
+                   for t in transformers))
+        self.handles_seasonality = (
+            getattr(forecaster, "handles_seasonality", False)
+            or any(isinstance(t, STLTransformer) for t in transformers)
+            or any(isinstance(t, MSTLTransformer) for t in transformers))
+        self.handles_multi_seasonality = (
+            getattr(forecaster, "handles_multi_seasonality", False)
+            or any(isinstance(t, MSTLTransformer)
+                   for t in transformers))
+
+    def _build_transformers(self) -> list:
+        transformers = []
+        needs_seasonal = not getattr(self.forecaster,
+                                     "handles_seasonality", False)
+        needs_multi = not getattr(self.forecaster,
+                                  "handles_multi_seasonality", False)
+        needs_trend = not getattr(self.forecaster,
+                                  "handles_trend", False)
+
+        # 1. Seasonal (STL / MSTL)
+        if needs_seasonal and self.seasonal_periods:
+            if len(self.seasonal_periods) >= 2 and needs_multi:
+                transformers.append(MSTLTransformer(self.seasonal_periods))
+            else:
+                # If multi-period requested but base handles multi,
+                # just use first period (base handles rest natively).
+                transformers.append(
+                    STLTransformer(self.seasonal_periods[0]))
+        # 2. Trend (differencing on deseasonalized)
+        if needs_trend:
+            transformers.append(AutoStationarizer(
+                seasonal_period=None,  # seasonality handled by STL
+                max_d=self.max_d, max_D=0,
+                acf_threshold=self.acf_threshold,
+                seasonal_strength_threshold=(
+                    self.seasonal_strength_threshold)))
+        return transformers
+
+    def fit(self, df, target_col, *, time_col=None, group_col=None):
+        if self._pipeline is not None:
+            self._pipeline.fit(df, target_col,
+                               time_col=time_col, group_col=group_col)
+        else:
+            self.forecaster.fit(df, target_col,
+                                time_col=time_col, group_col=group_col)
+        # Extract y for state/roundtrip.
+        from cadw.ts.models import _extract_series
+        self.y_ = _extract_series(df, target_col, time_col=time_col)
+        self._is_fitted = True
+        return self
+
+    def predict(self, steps):
+        if self._pipeline is not None:
+            return self._pipeline.predict(steps)
+        return self.forecaster.predict(steps)
+
+    def predict_in_sample(self):
+        if self._pipeline is not None:
+            return self._pipeline.predict_in_sample()
+        return self.forecaster.predict_in_sample()
+
+    def prediction_interval(self, steps, level=0.95):
+        target = (self._pipeline if self._pipeline is not None
+                  else self.forecaster)
+        if hasattr(target, "prediction_interval"):
+            return target.prediction_interval(steps, level)
+        f = self.predict(steps)
+        return f, f
+
+    def state_nbytes(self):
+        target = (self._pipeline if self._pipeline is not None
+                  else self.forecaster)
+        return int(target.state_nbytes())
+
+    def get_params(self) -> dict:
+        return {
+            "forecaster": type(self.forecaster).__name__,
+            "seasonal_periods": list(self.seasonal_periods),
+            "n_transformers": len(self.transformers),
+            "transformers": [t.get_params()
+                             for t in self.transformers],
+        }
