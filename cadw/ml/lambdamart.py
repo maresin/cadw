@@ -235,21 +235,38 @@ def fit_lambdamart(df, X_cols, y_col, query_col, *, n_estimators=100,
             raise KeyError(f"fit_lambdamart: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
 
-    Xs, ys, qs = [], [], []
-    n_rows = 0
+    # v0.9.87-P2a (audit MEDIUM): pre-allocate X + y from df.count();
+    # no Xs list, no np.vstack -> eliminate transient 2*n*d*8 peak.
+    # Peak = n*(d*8+16). Bit-identical output (same values, same
+    # order; only the transient duplicates are gone).
+    # q kept as small per-batch list (~8 bytes/row across concat; not
+    # the audit concern, 25x smaller than X at d=10).
+    n_total = df.count()
+    if n_total == 0:
+        raise ValueError("fit_lambdamart: empty input")
+    d_cols = len(cols)
+    mg.check_state(n_total * (d_cols * 8 + 16),
+                   name="lambdamart.state")
+
+    X = np.empty((n_total, d_cols), dtype=np.float64)
+    y = np.empty(n_total, dtype=np.float64)
+    qs = []
+    off = 0
     for b in df._iter_filtered_batches():
         mg.check_batch(b, name="lambdamart.pass1", extra_factor=2.0)
-        Xs.append(_stack_numeric(b, cols))
-        ys.append(b.column(y_col).cast(pa.float64(), safe=False)
-                  .to_numpy(zero_copy_only=False))
+        nb = b.num_rows
+        X[off:off + nb] = _stack_numeric(b, cols)
+        y[off:off + nb] = b.column(y_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
         qs.append(b.column(query_col).to_numpy(zero_copy_only=False))
-        n_rows += b.num_rows
-        mg.check_state(n_rows * (len(cols) * 8 + 16), name="lambdamart.state")
-    if n_rows == 0:
-        raise ValueError("fit_lambdamart: empty input")
-    X = np.vstack(Xs)
-    y = np.concatenate(ys)
-    q = np.concatenate(qs)
+        off += nb
+    n_rows = off
+    if n_rows != n_total:
+        # df changed between count and iterate - defensive truncate.
+        X = X[:n_rows]
+        y = y[:n_rows]
+        n_total = n_rows
+    q = np.concatenate(qs) if qs else np.array([], dtype=np.int64)
     if np.isnan(X).any() or np.isnan(y).any():
         raise ValueError("fit_lambdamart: nulls in features or labels")
     if y.min() < 0:

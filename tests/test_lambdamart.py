@@ -145,3 +145,23 @@ def test_source_contract():
     fit_src = inspect.getsource(lm.fit_lambdamart)
     assert "check_state" in fit_src
     assert "log_fit" in fit_src
+
+def test_fit_lambdamart_no_vstack_xs():
+    """P2a: Xs list + np.vstack(Xs) eliminated via pre-allocation."""
+    import inspect
+    src = inspect.getsource(lm.fit_lambdamart)
+    assert "Xs.append" not in src, (
+        "Xs list accumulation should be removed (P2a)")
+    assert "np.vstack(Xs" not in src
+    assert "np.vstack(xs" not in src
+
+
+def test_fit_lambdamart_preallocate_uses_df_count():
+    """P2a: n_total from df.count(); X pre-allocated as np.empty."""
+    import inspect
+    src = inspect.getsource(lm.fit_lambdamart)
+    assert "df.count()" in src, (
+        "pre-allocation requires df.count() for n_total")
+    assert "np.empty((n_total" in src, (
+        "X pre-allocation should use np.empty((n_total, d_cols), ...)")
+
