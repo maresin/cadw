@@ -198,3 +198,74 @@ P2b-full DEFERRED (2-3 sessions, architecture change):
 Whitelist G1 for lambdamart STAYS (y = np.empty(n_total),
 codes = np.empty((n, d), uint8) still RAM). Full removal requires
 P2b-full.
+
+## P5 (Pass 2 audit) — DONE 2026-10-28
+
+Audit output:
+  - .pingis/audits/state_class_pass2_ml.md (48 files, 417 fns)
+  - .pingis/audits/state_class_pass2_ops_ts.md (28 files, 301 fns)
+  - scripts/audit_pass2_ml.py --dirs/--out flags for future re-scan
+
+Triage:
+
+### Real new issues (P5a-fix candidates)
+
+- [ ] **P5a-fix-gmm**: gmm.py::_responsibilities — np.empty((n, k))
+      per EM iteration. Same pattern as GBDT multiclass (O(n·k) RAM,
+      2-3 alloc per iter). Estimated fix: 1-2 sessions (chunked
+      E-step + M-step via Reduce-like accumulator).
+- [ ] **P5a-fix-coxph**: coxph.py::fit_coxph — vstack@L189 builds
+      risk matrix (n, d). P2a-class fix: pre-allocate (n, d). 0.5 session.
+- [ ] **P5a-fix-lda**: lda.py::fit_lda — vstack@L257 builds
+      (n, vocab) matrix. P2a-class fix: pre-allocate or memmap.
+      0.5 session (vocab can be large — memmap preferred).
+- [ ] **P5a-review-als**: als.py::fit_als — concat@L154. Check if
+      events (O(n)) or per-user factors (O(n_users), bounded).
+- [ ] **P5a-review-feature_select**: feature_select.py::_collect —
+      vstack@L51. Check if (n, d) fit-path or (n_models, d) bounded.
+
+### Acceptable by design (document in P6 YAML)
+
+- TS models with n-scaling (STL, SES, SARIMA design matrix):
+  bounded_state: false, n_scalability: linear,
+  tier1_core_exception: single-series TS, n ≤ 1e6 typical.
+  Modules: _decomposition.stl_decompose, ets._ses_fit,
+  theta._ses_fit, otm._ses, models._ar_fit, _hannan_rissanen,
+  _arma_forecast (in-sample).
+
+- Predict-path n-alloc: n = batch size (by design, per-batch output).
+  ~30 functions across predict/transform/_iter_pred — all OK.
+
+- Output-not-state: sub_pca._map_max/_map_mean, kshape._map_scores_*,
+  s2g._aggregate_to_timestamps, dwt_mlead._reverse_window_boolean —
+  (n,) scores returned, not persistent state.
+
+- Bounded fit state: coxph._breslow (n_events), pelt.pelt (DP n+1),
+  stray._kth_nn_distances (documented n<=20k),
+  _ar_fit (n·p, p small).
+
+### False positives (tool limitation, not issues)
+
+- shuffle._vectorized_hash_numeric, _string_hash_column — n = batch
+- models._predict_in_sample x2 — n = output
+- ensemble.prediction_interval, thf.predict, var._companion — bounded
+- s2g._local_convolution — n_w = chunk size after P4c streaming
+
+### Updated phase plan
+
+P5 phase closed. Remaining refactor by priority:
+
+1. **C = P1a-b (GBDT multiclass parallel rewrite)** — HIGH ROI,
+   biggest MEDIUM issue, same pattern as gmm._responsibilities
+   (so P1a-b fixes both). Estimated 2-3 sessions.
+2. **P2b-full (lambdamart codes/y/scores)** — MEDIUM ROI,
+   2-3 sessions. May defer if lambdamart not used at huge n.
+3. **P5a-fix-coxph + lda + gmm** — MEDIUM, 1-2 sessions total
+   (all P2a-class narrow fixes).
+4. **P5a-review-als + feature_select** — review first, fix if real.
+5. **P6 (YAML state fields)** — 1-2 sessions, after refactors settle.
+6. **P7 (flip G4, whitelist empty)** — 0.5 session.
+
+P5a-fix-gmm overlaps with P1a-b (same pattern O(n·k) per-iteration).
+Consolidate: do P1a-b first, then P5a-fix-gmm as separate narrow
+task OR skip if GBDT-parallel infrastructure applies.
