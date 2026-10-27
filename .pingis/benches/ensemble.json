@@ -1,0 +1,37 @@
+{
+  "n": 500,
+  "seasonal_period": 12,
+  "dgp": "m3_like (trend=0.05, season_amp=5)",
+  "results": {
+    "naive_last": {
+      "mase": 2.184,
+      "fit_predict_s": 0.176
+    },
+    "theta": {
+      "mase": 0.2012,
+      "fit_predict_s": 0.051
+    },
+    "auto_theta": {
+      "mase": 0.2093,
+      "fit_predict_s": 0.228
+    },
+    "ensemble_inverse_mase": {
+      "mase": 0.203,
+      "fit_predict_s": 0.557,
+      "member_weights": [
+        0.0171,
+        0.3111,
+        0.6718
+      ],
+      "member_val_mase": [
+        47.0589,
+        2.5941,
+        1.2013
+      ]
+    },
+    "auto_ets": {
+      "mase": 0.2757,
+      "fit_predict_s": 3.328
+    }
+  }
+}
