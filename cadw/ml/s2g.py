@@ -109,6 +109,140 @@ def _local_convolution(windows: np.ndarray, lam: int) -> np.ndarray:
     return (cs_padded[:, lam:] - cs_padded[:, :-lam]) / float(lam)
 
 
+# v0.9.87-P4c (audit HIGH-1 full fix): streaming s2g pipeline.
+# Peak RAM O(chunk_nw * (w + 3*d_z)) regardless of n. Output
+# pattern_nodes(n_w,) + points_2d(n_w,2) kept (public S2GResult
+# fields). See METHODOLOGY §5 (windowed state_type).
+
+
+def _resolve_chunk_nw_s2g(w: int, d_z: int, guard=None) -> int:
+    """Chunk size so per-chunk peak RAM stays within budget."""
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        state_limit = getattr(guard, "state_limit_bytes", None)
+        if (isinstance(state_limit, (int, float))
+                and state_limit > 0):
+            target_bytes = min(int(target_bytes),
+                               max(1, int(state_limit) // 8))
+    bytes_per_window = (w + 3 * d_z + 6) * 8
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
+def _iter_x_window_chunks(x: np.ndarray, window_size: int,
+                          chunk_nw: int):
+    """Yield (chunk(nb, w), start) chunks from 1D x.
+
+    Strided read + bounded materialization: only chunk_nw windows
+    resident at a time.
+    """
+    n = len(x)
+    n_w = n - window_size + 1
+    if n_w < 1:
+        return
+    offsets = np.arange(window_size, dtype=np.int64)
+    for start in range(0, n_w, chunk_nw):
+        end = min(start + chunk_nw, n_w)
+        abs_starts = np.arange(start, end, dtype=np.int64)
+        idx = abs_starts[:, None] + offsets[None, :]
+        yield x[idx], start
+
+
+def _basis_from_v1(v1: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Orthonormal (e1, e2, e3) with e1 = v1 (unit)."""
+    v2_seed = np.array([0.0, 1.0, 0.0])
+    if abs(float(np.dot(v1, v2_seed))) > 0.9:
+        v2_seed = np.array([1.0, 0.0, 0.0])
+    e1 = v1
+    e2 = v2_seed - np.dot(v2_seed, e1) * e1
+    n2 = float(np.linalg.norm(e2))
+    if n2 < 1e-12:
+        e2 = np.array([0.0, 0.0, 1.0])
+        e2 = e2 - np.dot(e2, e1) * e1
+        n2 = float(np.linalg.norm(e2))
+    e2 = e2 / max(n2, 1e-12)
+    e3 = np.cross(e1, e2)
+    return e1, e2, e3
+
+
+def _stream_embed_to_nodes(x: np.ndarray, window_size: int,
+                           convolution_size: int, n_nodes: int,
+                           chunk_nw: int):
+    """Streaming (n,) -> (pattern_nodes(n_w,), points_2d(n_w,2)).
+
+    4 passes:
+      1. mean_z = sum(z)/n_w
+      2. cov_z = sum((z-mean)^T (z-mean)) / (n_w-1)
+      3. proj3 min/max for v1 rotation axis
+      4. final: proj3 -> rotate -> points_2d -> angles -> nodes
+    Peak O(chunk_nw * (w + 3*d_z) + d_z^2).
+    """
+    n = len(x)
+    n_w = n - window_size + 1
+    if n_w < 2:
+        raise ValueError(f"too few windows: n_w={n_w} < 2")
+    d_z = window_size - convolution_size + 1
+
+    # Pass 1: mean_z
+    total = np.zeros(d_z, dtype=np.float64)
+    for cw, _ in _iter_x_window_chunks(x, window_size, chunk_nw):
+        z = _local_convolution(cw, convolution_size)
+        total += z.sum(axis=0)
+    mean_z = total / n_w
+
+    # Pass 2: cov_z
+    M2 = np.zeros((d_z, d_z), dtype=np.float64)
+    for cw, _ in _iter_x_window_chunks(x, window_size, chunk_nw):
+        z = _local_convolution(cw, convolution_size)
+        centered = z - mean_z
+        M2 += centered.T @ centered
+    cov_z = M2 / max(n_w - 1, 1)
+
+    # Eigh -> top-3 components (deterministic order)
+    eigvals, eigvecs = np.linalg.eigh(cov_z)
+    order = np.argsort(eigvals)[::-1][:3]
+    components = eigvecs[:, order]  # (d_z, 3)
+
+    # Pass 3: proj3 min/max (for v1 axis)
+    proj_min = np.full(3, np.inf, dtype=np.float64)
+    proj_max = np.full(3, -np.inf, dtype=np.float64)
+    for cw, _ in _iter_x_window_chunks(x, window_size, chunk_nw):
+        z = _local_convolution(cw, convolution_size)
+        centered = z - mean_z
+        proj3 = centered @ components
+        proj_min = np.minimum(proj_min, proj3.min(axis=0))
+        proj_max = np.maximum(proj_max, proj3.max(axis=0))
+
+    v1 = proj_max - proj_min
+    norm1 = float(np.linalg.norm(v1))
+    if norm1 < 1e-12:
+        v1 = np.array([1.0, 0.0, 0.0])
+    else:
+        v1 = v1 / norm1
+    e1, e2, e3 = _basis_from_v1(v1)
+    R = np.stack([e1, e2, e3], axis=0)
+
+    # Pass 4: final embed + quantize
+    edges = np.linspace(-np.pi, np.pi, n_nodes + 1)
+    points_chunks = []
+    nodes_chunks = []
+    for cw, _ in _iter_x_window_chunks(x, window_size, chunk_nw):
+        z = _local_convolution(cw, convolution_size)
+        centered = z - mean_z
+        proj3 = centered @ components
+        proj_rot = proj3 @ R.T
+        p2 = proj_rot[:, 1:3]
+        angles = np.arctan2(p2[:, 1], p2[:, 0])
+        ids = np.digitize(angles, edges) - 1
+        nodes = np.clip(ids, 0, n_nodes - 1)
+        points_chunks.append(p2)
+        nodes_chunks.append(nodes)
+
+    return (np.concatenate(nodes_chunks),
+            np.concatenate(points_chunks))
+
+
 # ── 3D PCA + rotation (Section 4.1, steps 2–3) ────────────────────
 
 def _embed_shape(z_matrix: np.ndarray
@@ -136,19 +270,7 @@ def _embed_shape(z_matrix: np.ndarray
         v1 = np.array([1.0, 0.0, 0.0])
     else:
         v1 = v1 / norm1
-    # Orthonormal basis with v1 as first axis
-    v2_seed = np.array([0.0, 1.0, 0.0])
-    if abs(float(np.dot(v1, v2_seed))) > 0.9:
-        v2_seed = np.array([1.0, 0.0, 0.0])
-    e1 = v1
-    e2 = v2_seed - np.dot(v2_seed, e1) * e1
-    n2 = float(np.linalg.norm(e2))
-    if n2 < 1e-12:
-        e2 = np.array([0.0, 0.0, 1.0])
-        e2 = e2 - np.dot(e2, e1) * e1
-        n2 = float(np.linalg.norm(e2))
-    e2 = e2 / max(n2, 1e-12)
-    e3 = np.cross(e1, e2)
+    e1, e2, e3 = _basis_from_v1(v1)
 
     # Rotate projections so v1 → x-axis
     R = np.stack([e1, e2, e3], axis=0)  # (3, 3)
@@ -222,29 +344,25 @@ def _path_normalcy(path_nodes: np.ndarray, W: np.ndarray,
 
 # ── Query scoring (Section 4.4) ───────────────────────────────────
 
-def _score_queries(x: np.ndarray, *, window_size: int,
-                   query_window_size: int, convolution_size: int,
-                   n_nodes: int, W: np.ndarray, deg: np.ndarray
-                   ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return (all_pattern_nodes, query_scores, query_starts).
+def _score_queries(pattern_nodes: np.ndarray, n: int, *,
+                   window_size: int, query_window_size: int,
+                   W: np.ndarray, deg: np.ndarray
+                   ) -> tuple[np.ndarray, np.ndarray]:
+    """Return (query_scores, query_starts).
 
-    Trajectory of pattern nodes over the whole series is computed once;
-    each query re-uses a slice of length (ℓ_q − ℓ + 1).
+    v0.9.87-P4c: accepts pre-computed pattern_nodes (was: recomputed
+    windows from x internally — duplicate work + second G3 violation).
+    Caller (fit_s2g) passes pattern_nodes from _stream_embed_to_nodes.
+
+    pattern_nodes: (n_patterns,) int64 pattern trajectory.
+    n: original series length (needed for n_q = n - query_window + 1).
     """
-    n = len(x)
-    n_patterns = n - window_size + 1
+    n_patterns = len(pattern_nodes)
     if n_patterns < 1:
         raise ValueError(
             f"series length {n} < window_size {window_size}")
-    windows = np.lib.stride_tricks.sliding_window_view(x, window_size).copy()
-    z = _local_convolution(windows, convolution_size)
-    points_2d, _, _ = _embed_shape(z)
-    angles = _angles_from_points(points_2d)
-    pattern_nodes = _quantize_to_nodes(angles, n_nodes)
-
     n_q = n - query_window_size + 1
     if n_q < 1:
-        # query_window_size longer than series: use one window covering all
         n_q = 1
     query_starts = np.arange(n_q)
     path_len = query_window_size - window_size + 1
@@ -256,8 +374,8 @@ def _score_queries(x: np.ndarray, *, window_size: int,
     for i, start in enumerate(query_starts):
         path = pattern_nodes[start:start + path_len]
         normalcy = _path_normalcy(path, W, deg)
-        scores[i] = -normalcy  # higher = more anomalous
-    return pattern_nodes, scores, query_starts
+        scores[i] = -normalcy
+    return scores, query_starts
 
 
 # ── Aggregation: max over covering queries ────────────────────────
@@ -319,18 +437,23 @@ def fit_s2g(
 
     lam = max(1, window_size // 3)  # TimeEval: convolution_size = ℓ/3
 
-    # v0.9.87-fix1b (audit HIGH-1): est_bytes must cover BOTH
-    # (n_w, w) window arrays — one in fit_s2g (pattern_windows) and
-    # one inside _score_queries. Plus z = _local_convolution output
-    # (n_w, w-lam+1). Previous formula
-    # 8*(n_w)*(w-lam+1)*2 underestimates by ~1.5x.
+    # v0.9.87-P4c (audit HIGH-1 full fix): streaming embed + nodes;
+    # dedupe _score_queries (was: recomputed pattern_nodes from x).
+    # Peak RAM = O(chunk_nw*(w+3*d_z)) + output pattern_nodes(n_w,)
+    # + points_2d(n_w,2) + W(n_nodes^2) — none of which is O(n*w).
+    _n_w = n - window_size + 1
+    _d_z = window_size - lam + 1
+    _chunk_nw = _resolve_chunk_nw_s2g(window_size, _d_z, guard)
+
     if guard is not None:
-        _n_w = n - window_size + 1
-        # window (fit_s2g) + conv output (z) + window (_score_queries)
-        # conservative: 4 * (n_w, w)
-        est_bytes = 8 * _n_w * window_size * 4
+        # input x (n*8) + per-chunk buffers + output (nodes 8*n_w +
+        # points 16*n_w) + W/deg (n_nodes^2*8)
+        per_chunk = _chunk_nw * (window_size + 3 * _d_z + 6) * 8
+        output = _n_w * 24
+        W_bounded = n_nodes * n_nodes * 8
+        est_bytes = int(n * 8 + per_chunk + output + W_bounded)
         if hasattr(guard, "check_state") and callable(guard.check_state):
-            guard.check_state(est_bytes, name="s2g.windows")
+            guard.check_state(est_bytes, name="s2g.state")
         else:
             limit_mb = _probe_memory_limit_mb(guard)
             if limit_mb is not None and limit_mb > 0:
@@ -340,22 +463,19 @@ def fit_s2g(
                         f"S2G estimated {est_bytes} bytes > "
                         f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
-    # Compute pattern node trajectory (needed for graph)
-    pattern_windows = np.lib.stride_tricks.sliding_window_view(
-        x, window_size).copy()
-    z = _local_convolution(pattern_windows, lam)
-    points_2d, components, mean = _embed_shape(z)
-    angles = _angles_from_points(points_2d)
-    pattern_nodes = _quantize_to_nodes(angles, n_nodes)
+    # Streaming embed: (n,) -> pattern_nodes(n_w,), points_2d(n_w,2)
+    pattern_nodes, points_2d = _stream_embed_to_nodes(
+        x, window_size, lam, n_nodes, _chunk_nw)
 
-    # Graph
+    # Graph (bounded by n_nodes^2)
     W = _build_graph(pattern_nodes, n_nodes)
     deg = _compute_degrees(W)
 
-    # Query scoring (re-uses pattern trajectory; no recompute)
-    _, query_scores, query_starts = _score_queries(
-        x, window_size=window_size, query_window_size=query_window_size,
-        convolution_size=lam, n_nodes=n_nodes, W=W, deg=deg)
+    # Query scoring (uses pre-computed pattern_nodes — no recompute)
+    query_scores, query_starts = _score_queries(
+        pattern_nodes, n,
+        window_size=window_size, query_window_size=query_window_size,
+        W=W, deg=deg)
 
     # Aggregate to timestamps
     ts_scores = _aggregate_to_timestamps(

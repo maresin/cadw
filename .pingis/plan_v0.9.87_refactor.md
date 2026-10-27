@@ -98,8 +98,6 @@ regression guards.
 
 <!-- gate-whitelist
 G1: cadw/ml/gbdt.py::_fit_boosting_multiclass
-G3: cadw/ml/s2g.py::_score_queries
-G3: cadw/ml/s2g.py::fit_s2g
 G3: cadw/ml/kshape.py::_sliding_windows
 G3: cadw/ml/patch_memory_ad.py::fit_patch_memory_ad
 G4: A.*

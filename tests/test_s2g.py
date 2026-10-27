@@ -285,32 +285,78 @@ def test_s2g_no_bench_deps_in_source():
             top = (node.module or "").split(".")[0]
             assert top not in forbidden, f"forbidden: {node.module}"
 
-def test_fit_s2g_guard_covers_score_queries(monkeypatch):
-    """v0.9.87-fix1b: est_bytes covers both pattern_windows AND
-    _score_queries windows.
+def test_fit_s2g_guard_raises_before_streaming(monkeypatch):
+    """P4c: guard fires BEFORE streaming begins.
 
-    n=10k, w=64 (lam=21): old est ~7 MB (old formula), new est
-    ~20 MB. Guard at 10 MB -> new raises BEFORE calling
-    _score_queries; old would have allocated first then raised (or
-    passed and OOM'd during _score_queries).
+    Was fix1b's test (_score_queries spy); P4c streams from
+    _stream_embed_to_nodes (single source of windows) and dedupes
+    _score_queries. Spy _stream_embed_to_nodes; tight guard; expect
+    raise AND spy untouched.
     """
     from cadw.ml import s2g as s2g_mod
-    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+    from cadw.core.memory_guard import MemoryLimitExceeded
 
     called = {"n": 0}
-    orig = s2g_mod._score_queries
+    orig = s2g_mod._stream_embed_to_nodes
 
     def spy(*a, **kw):
         called["n"] += 1
         return orig(*a, **kw)
 
-    monkeypatch.setattr(s2g_mod, "_score_queries", spy)
+    monkeypatch.setattr(s2g_mod, "_stream_embed_to_nodes", spy)
 
-    guard = MemoryGuard(max_memory_mb=10)
+    class _TightGuard:
+        max_memory_mb = 0.5
+
     x = np.random.default_rng(0).standard_normal(10_000)
     with pytest.raises(MemoryLimitExceeded):
-        s2g_mod.fit_s2g(x, window_size=64, guard=guard)
+        s2g_mod.fit_s2g(x, window_size=64, guard=_TightGuard())
     assert called["n"] == 0, (
-        f"guard should fire BEFORE _score_queries; "
-        f"_score_queries was called {called['n']} time(s)")
+        f"guard should fire BEFORE streaming; "
+        f"_stream_embed_to_nodes was called {called['n']} time(s)")
+
+def test_streaming_embed_matches_batch():
+    """P4c: streaming embed = batch reference within float precision."""
+    from cadw.ml import s2g as s2g_mod
+    rng = np.random.default_rng(42)
+    x = rng.standard_normal(3000)
+    w, lam, nn = 32, 11, 50
+    # Batch reference (materialized windows)
+    windows = np.lib.stride_tricks.sliding_window_view(x, w).copy()
+    z = s2g_mod._local_convolution(windows, lam)
+    points_ref, _, _ = s2g_mod._embed_shape(z)
+    angles_ref = s2g_mod._angles_from_points(points_ref)
+    nodes_ref = s2g_mod._quantize_to_nodes(angles_ref, nn)
+    # Streaming
+    nodes_got, points_got = s2g_mod._stream_embed_to_nodes(
+        x, w, lam, nn, chunk_nw=256)
+    assert nodes_got.shape == nodes_ref.shape
+    assert points_got.shape == points_ref.shape
+    np.testing.assert_allclose(points_got, points_ref,
+                                rtol=1e-9, atol=1e-9)
+    # Nodes derived from points; tiny float drift can flip bins
+    # near edges — allow <= 1% mismatch.
+    n_diff = int((nodes_got != nodes_ref).sum())
+    assert n_diff <= max(1, len(nodes_ref) // 100), (
+        f"too many node flips: {n_diff}/{len(nodes_ref)}")
+
+
+def test_fit_s2g_streaming_no_dense_windows(monkeypatch):
+    """P4c: verify chunks are bounded (no full (n_w, w) alloc)."""
+    from cadw.ml import s2g as s2g_mod
+
+    max_chunk = [0]
+    orig = s2g_mod._iter_x_window_chunks
+
+    def spy(*args, **kwargs):
+        for chunk, start in orig(*args, **kwargs):
+            max_chunk[0] = max(max_chunk[0], chunk.shape[0])
+            yield chunk, start
+
+    monkeypatch.setattr(s2g_mod, "_iter_x_window_chunks", spy)
+
+    x = np.random.default_rng(0).standard_normal(50_000)
+    s2g_mod.fit_s2g(x, window_size=64)
+    assert max_chunk[0] <= 10_000, (
+        f"chunk size {max_chunk[0]} > 10_000 (streaming broken)")
 
