@@ -207,3 +207,176 @@ def test_transforms_no_bench_deps_in_source():
             assert top not in forbidden, (
                 f"forbidden import-from: {node.module}")
 
+# ── STLTransformer ──────────────────────────────────────────────
+
+def test_stl_transformer_removes_seasonal():
+    from cadw.ts.transforms import STLTransformer
+    from cadw.ts._decomposition import stl_decompose
+    t = np.arange(120, dtype=np.float64)
+    s = 12
+    y = 10.0 + 5.0 * np.sin(2 * np.pi * t / s)
+    tr = STLTransformer(period=s).fit(y)
+    y_ds = tr.transform(y)
+    r_orig = stl_decompose(y, period=s)
+    r_ds = stl_decompose(y_ds, period=s)
+    # Seasonal amplitude after transform should be much smaller
+    assert r_ds.seasonal.std() < 0.3 * r_orig.seasonal.std()
+
+
+def test_stl_transformer_inverse_roundtrip():
+    from cadw.ts.transforms import STLTransformer
+    t = np.arange(120, dtype=np.float64)
+    s = 12
+    y = 10.0 + 0.2 * t + 5.0 * np.sin(2 * np.pi * t / s)
+    tr = STLTransformer(period=s).fit(y)
+    y_ds = tr.transform(y)
+    y_back = tr.inverse_transform(y_ds, steps=y.size)
+    np.testing.assert_allclose(y_back, y, atol=1e-9)
+
+
+def test_stl_transformer_forecast_continuation():
+    from cadw.ts.transforms import STLTransformer
+    t = np.arange(120, dtype=np.float64)
+    s = 12
+    y = 10.0 + 0.2 * t + 5.0 * np.sin(2 * np.pi * t / s)
+    tr = STLTransformer(period=s).fit(y)
+    steps = 12
+    f = tr.inverse_transform(np.zeros(steps), steps=steps)
+    # Non-flat: repeating seasonal should have std > 1
+    assert f.std() > 1.0, f"f.std()={f.std():.2f}"
+
+
+def test_stl_transformer_short_series_raises():
+    from cadw.ts.transforms import STLTransformer
+    with pytest.raises(ValueError, match="at least 2"):
+        STLTransformer(period=12).fit(np.arange(10, dtype=np.float64))
+
+
+def test_stl_transformer_bad_period():
+    from cadw.ts.transforms import STLTransformer
+    with pytest.raises(ValueError, match="period"):
+        STLTransformer(period=1)
+
+
+def test_stl_transformer_get_params():
+    from cadw.ts.transforms import STLTransformer
+    tr = STLTransformer(period=12, n_iter=3)
+    p = tr.get_params()
+    assert p["period"] == 12 and p["n_iter"] == 3
+
+
+# ── MSTLTransformer ────────────────────────────────────────────
+
+def test_mstl_removes_both_seasonals():
+    from cadw.ts.transforms import MSTLTransformer
+    n = 500
+    t = np.arange(n, dtype=np.float64)
+    y = (10.0
+         + 3.0 * np.sin(2 * np.pi * t / 7)
+         + 2.0 * np.sin(2 * np.pi * t / 30))
+    tr = MSTLTransformer(periods=[7, 30]).fit(y)
+    y_ds = tr.transform(y)
+    assert y_ds.std() < 0.5 * y.std()
+
+
+def test_mstl_inverse_roundtrip():
+    from cadw.ts.transforms import MSTLTransformer
+    n = 300
+    t = np.arange(n, dtype=np.float64)
+    y = (10.0 + 0.05 * t
+         + 2.0 * np.sin(2 * np.pi * t / 7)
+         + 1.5 * np.sin(2 * np.pi * t / 30))
+    tr = MSTLTransformer(periods=[7, 30]).fit(y)
+    y_ds = tr.transform(y)
+    y_back = tr.inverse_transform(y_ds, steps=n)
+    np.testing.assert_allclose(y_back, y, atol=1e-9)
+
+
+def test_mstl_bad_periods():
+    from cadw.ts.transforms import MSTLTransformer
+    with pytest.raises(ValueError, match="at least one"):
+        MSTLTransformer(periods=[])
+    with pytest.raises(ValueError, match=">= 2"):
+        MSTLTransformer(periods=[1])
+
+
+def test_mstl_short_series_raises():
+    from cadw.ts.transforms import MSTLTransformer
+    with pytest.raises(ValueError, match="at least 2"):
+        MSTLTransformer(periods=[30]).fit(np.arange(40, dtype=np.float64))
+
+
+def test_mstl_get_params():
+    from cadw.ts.transforms import MSTLTransformer
+    p = MSTLTransformer(periods=[7, 30], n_iter=3).get_params()
+    assert p["periods"] == [7, 30] and p["n_iter"] == 3
+
+
+# ── AutoStationarizer ──────────────────────────────────────────
+
+def test_auto_stat_random_noise_d0():
+    from cadw.ts.transforms import AutoStationarizer
+    y = np.random.RandomState(0).normal(5.0, 1.0, 200)
+    st = AutoStationarizer().fit(y)
+    assert st.chosen_d_ == 0, f"got d={st.chosen_d_}"
+
+
+def test_auto_stat_random_walk_d1():
+    from cadw.ts.transforms import AutoStationarizer
+    rng = np.random.RandomState(1)
+    y = np.cumsum(rng.normal(0, 1, 200))
+    st = AutoStationarizer().fit(y)
+    assert st.chosen_d_ == 1, f"got d={st.chosen_d_}"
+
+
+def test_auto_stat_trending_d1():
+    from cadw.ts.transforms import AutoStationarizer
+    y = (5.0 + 0.5 * np.arange(200)
+         + np.random.RandomState(2).normal(0, 0.3, 200))
+    st = AutoStationarizer().fit(y)
+    assert st.chosen_d_ >= 1
+
+
+def test_auto_stat_seasonal_D1():
+    from cadw.ts.transforms import AutoStationarizer
+    n = 200
+    t = np.arange(n, dtype=np.float64)
+    y = (10.0 + 5.0 * np.sin(2 * np.pi * t / 12)
+         + np.random.RandomState(3).normal(0, 0.3, n))
+    st = AutoStationarizer(seasonal_period=12).fit(y)
+    assert st.chosen_D_ == 1, (
+        f"got D={st.chosen_D_} strength={st.seasonal_strength_}")
+
+
+def test_auto_stat_is_differencer_subclass():
+    from cadw.ts.transforms import AutoStationarizer, Differencer
+    st = AutoStationarizer()
+    assert isinstance(st, Differencer)
+
+
+def test_auto_stat_transform_after_fit():
+    from cadw.ts.transforms import AutoStationarizer
+    rng = np.random.RandomState(4)
+    y = np.cumsum(rng.normal(0, 1, 100))
+    st = AutoStationarizer().fit(y)
+    y_t = st.transform(y)
+    assert y_t.size == y.size - st.chosen_d_
+
+
+def test_auto_stat_inverse_after_fit():
+    from cadw.ts.transforms import AutoStationarizer
+    rng = np.random.RandomState(5)
+    y = np.cumsum(rng.normal(0, 1, 100))
+    st = AutoStationarizer().fit(y)
+    # Identity diff forecast -> next value = last observed (for d=1)
+    if st.chosen_d_ == 1:
+        f = st.inverse_transform(np.zeros(1), steps=1)
+        np.testing.assert_allclose(f[0], y[-1], atol=1e-9)
+
+
+def test_auto_stat_bad_params():
+    from cadw.ts.transforms import AutoStationarizer
+    with pytest.raises(ValueError, match="max_d"):
+        AutoStationarizer(max_d=-1)
+    with pytest.raises(ValueError, match="max_D"):
+        AutoStationarizer(max_D=-1)

@@ -42,7 +42,10 @@ __all__ = sorted([
 ])
 # v0.9.79a: Transforms (Differencer, TransformedTargetForecaster)
 from .transforms import (  # noqa: E402,F401
+    AutoStationarizer,
     BaseTransformer,
     Differencer,
+    MSTLTransformer,
+    STLTransformer,
     TransformedTargetForecaster,
 )

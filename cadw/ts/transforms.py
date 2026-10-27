@@ -49,6 +49,8 @@ from cadw.ts.models import (
     ForecasterBase, _check_df, _extract_series,
 )
 
+from cadw.ts._decomposition import stl_decompose
+
 
 # ── Base ──────────────────────────────────────────────────────────
 
@@ -352,3 +354,268 @@ class TransformedTargetForecaster(ForecasterBase):
             "forecaster": type(self.forecaster).__name__,
         }
 
+# ── STLTransformer ────────────────────────────────────────────────
+
+class STLTransformer(BaseTransformer):
+    """Remove seasonal component via STL; add back at forecast.
+
+    fit(y) learns trend/seasonal/remainder via stl_decompose(y, period).
+    transform(y) = y - seasonal.
+    inverse_transform(forecast, steps) = forecast + seasonal_forecast,
+    where seasonal_forecast is the last cycle of learned seasonal
+    pattern, repeated.
+
+    After transform the base forecaster sees y - seasonal (trend +
+    remainder). Trend is still present; combine with Differencer for
+    full stationarization.
+    """
+
+    def __init__(self, period: int, n_iter: int = 2):
+        super().__init__()
+        if period < 2:
+            raise ValueError("STLTransformer: period must be >= 2")
+        self.period = int(period)
+        self.n_iter = int(n_iter)
+        self.seasonal_ = None
+        self.trend_ = None
+        self.remainder_ = None
+
+    def fit(self, y: np.ndarray) -> "STLTransformer":
+        y = np.asarray(y, dtype=np.float64).ravel()
+        if y.size < 2 * self.period:
+            raise ValueError(
+                f"STLTransformer: need at least 2*period="
+                f"{2 * self.period} obs, got {y.size}")
+        result = stl_decompose(y, period=self.period,
+                                n_iter=self.n_iter)
+        self.seasonal_ = result.seasonal
+        self.trend_ = result.trend
+        self.remainder_ = result.remainder
+        self._is_fitted = True
+        return self
+
+    def transform(self, y: np.ndarray) -> np.ndarray:
+        if not self._is_fitted:
+            raise RuntimeError("STLTransformer.transform: call fit first")
+        y = np.asarray(y, dtype=np.float64).ravel()
+        if y.size != self.seasonal_.size:
+            raise ValueError(
+                f"STLTransformer.transform: y.size={y.size} != "
+                f"seasonal.size={self.seasonal_.size}")
+        return y - self.seasonal_
+
+    def inverse_transform(self, y_transformed: np.ndarray,
+                          steps: int,
+                          original_tail: np.ndarray | None = None
+                          ) -> np.ndarray:
+        if not self._is_fitted:
+            raise RuntimeError(
+                "STLTransformer.inverse_transform: call fit first")
+        y_t = np.asarray(y_transformed, dtype=np.float64).ravel()
+        if y_t.size != steps:
+            raise ValueError(
+                f"STLTransformer.inverse_transform: y_transformed.size="
+                f"{y_t.size} != steps={steps}")
+        s = self.period
+        # v0.9.79b-fix1: if steps == full seasonal length, this is
+        # in-sample inverse (roundtrip) — use full seasonal array.
+        # Forecast (steps < n or steps > n) uses last cycle tiled.
+        if steps == self.seasonal_.size:
+            return y_t + self.seasonal_
+        last_cycle = self.seasonal_[-s:]
+        idx = np.arange(steps) % s
+        return y_t + last_cycle[idx]
+
+    def get_params(self) -> dict:
+        return {"period": self.period, "n_iter": self.n_iter}
+
+
+# ── MSTLTransformer ───────────────────────────────────────────────
+
+class MSTLTransformer(BaseTransformer):
+    """Multi-seasonal STL: iteratively remove each seasonal period.
+
+    fit(y): for each period s in `periods` (ascending), run
+    stl_decompose on the current residual, subtract seasonal, continue.
+    transform(y) = y - sum(seasonals).
+    inverse_transform(forecast) = forecast + sum(last-cycle patterns).
+    """
+
+    def __init__(self, periods: list, n_iter: int = 2):
+        super().__init__()
+        if not periods or len(periods) < 1:
+            raise ValueError(
+                "MSTLTransformer: at least one period required")
+        periods_sorted = sorted(int(p) for p in periods)
+        if periods_sorted[0] < 2:
+            raise ValueError("MSTLTransformer: periods must be >= 2")
+        self.periods = periods_sorted
+        self.n_iter = int(n_iter)
+        self.seasonals_ = None
+        self.deseasonalized_ = None
+
+    def fit(self, y: np.ndarray) -> "MSTLTransformer":
+        y = np.asarray(y, dtype=np.float64).ravel()
+        s_max = max(self.periods)
+        if y.size < 2 * s_max:
+            raise ValueError(
+                f"MSTLTransformer: need at least 2*max_period="
+                f"{2 * s_max} obs, got {y.size}")
+        current = y.copy()
+        seasonals = []
+        for s in self.periods:
+            result = stl_decompose(current, period=s,
+                                    n_iter=self.n_iter)
+            seasonals.append(result.seasonal)
+            current = current - result.seasonal
+        self.seasonals_ = seasonals
+        self.deseasonalized_ = current
+        self._is_fitted = True
+        return self
+
+    def transform(self, y: np.ndarray) -> np.ndarray:
+        if not self._is_fitted:
+            raise RuntimeError(
+                "MSTLTransformer.transform: call fit first")
+        y = np.asarray(y, dtype=np.float64).ravel()
+        out = y.copy()
+        for seasonal in self.seasonals_:
+            out = out - seasonal
+        return out
+
+    def inverse_transform(self, y_transformed: np.ndarray,
+                          steps: int,
+                          original_tail: np.ndarray | None = None
+                          ) -> np.ndarray:
+        if not self._is_fitted:
+            raise RuntimeError(
+                "MSTLTransformer.inverse_transform: call fit first")
+        y_t = np.asarray(y_transformed, dtype=np.float64).ravel()
+        if y_t.size != steps:
+            raise ValueError(
+                f"MSTLTransformer.inverse_transform: y_transformed.size="
+                f"{y_t.size} != steps={steps}")
+        out = y_t.copy()
+        # v0.9.79b-fix1: in-sample inverse (roundtrip) uses full seasonal
+        # arrays; forecast uses last cycle tiled per period.
+        in_sample = (len(self.seasonals_) > 0
+                     and steps == self.seasonals_[0].size)
+        for s, seasonal in zip(self.periods, self.seasonals_):
+            if seasonal.size < s:
+                continue
+            if in_sample:
+                out = out + seasonal
+            else:
+                last_cycle = seasonal[-s:]
+                idx = np.arange(steps) % s
+                out = out + last_cycle[idx]
+        return out
+
+    def get_params(self) -> dict:
+        return {"periods": list(self.periods), "n_iter": self.n_iter}
+
+
+# ── AutoStationarizer ────────────────────────────────────────────
+
+class AutoStationarizer(Differencer):
+    """Auto-select d (regular) and D (seasonal) differencing orders.
+
+    Heuristics (fast; formal ADF/KPSS in backlog):
+      d: iteratively check |acf(y, lag=1)|. If < acf_threshold,
+         stop (d = current). Else diff, repeat; cap at max_d.
+      D: after d regular diffs, compute STL seasonal strength
+         F_S = max(0, 1 - Var(R) / Var(S + R)). If F_S > threshold,
+         D = 1. Cap at max_D (currently supports D=0 or 1).
+
+    Subclass of Differencer: sets self.lags, self.D in fit and
+    delegates transform/inverse to parent.
+    """
+
+    def __init__(self, seasonal_period: int | None = None, *,
+                 max_d: int = 2, max_D: int = 1,
+                 acf_threshold: float = 0.8,
+                 seasonal_strength_threshold: float = 0.5,
+                 n_iter_stl: int = 2):
+        if max_d < 0:
+            raise ValueError(
+                f"AutoStationarizer: max_d must be >= 0, got {max_d}")
+        if max_D < 0:
+            raise ValueError(
+                f"AutoStationarizer: max_D must be >= 0, got {max_D}")
+        super().__init__(lags=0, seasonal_period=seasonal_period, D=0)
+        self._max_d = int(max_d)
+        self._max_D = int(max_D)
+        self._acf_threshold = float(acf_threshold)
+        self._strength_threshold = float(seasonal_strength_threshold)
+        self._n_iter_stl = int(n_iter_stl)
+        self.chosen_d_ = 0
+        self.chosen_D_ = 0
+        self.seasonal_strength_ = None
+
+    def _acf(self, y: np.ndarray, lag: int) -> float:
+        n = y.size
+        if n <= lag:
+            return 0.0
+        mean = float(y.mean())
+        c0 = float(((y - mean) ** 2).mean())
+        if c0 < 1e-12:
+            return 0.0
+        c = float(((y[:-lag] - mean) * (y[lag:] - mean)).mean())
+        return c / c0
+
+    def _choose_d(self, y: np.ndarray) -> int:
+        cur = y.copy()
+        for d in range(self._max_d):
+            if cur.size < 20:
+                return d
+            if abs(self._acf(cur, 1)) < self._acf_threshold:
+                return d
+            cur = np.diff(cur)
+        return self._max_d
+
+    def _choose_D(self, y_after_d: np.ndarray) -> int:
+        s = self.seasonal_period
+        if s is None or s < 2:
+            return 0
+        if self._max_D < 1:
+            return 0
+        if y_after_d.size < 2 * s:
+            return 0
+        try:
+            result = stl_decompose(y_after_d, period=s,
+                                    n_iter=self._n_iter_stl)
+        except ValueError:
+            return 0
+        var_sr = float(np.var(result.seasonal + result.remainder))
+        if var_sr < 1e-12:
+            return 0
+        strength = max(0.0, 1.0 - float(np.var(result.remainder)) / var_sr)
+        self.seasonal_strength_ = strength
+        return 1 if strength > self._strength_threshold else 0
+
+    def fit(self, y: np.ndarray) -> "AutoStationarizer":
+        y = np.asarray(y, dtype=np.float64).ravel()
+        if y.size < 4:
+            raise ValueError(
+                "AutoStationarizer.fit: need at least 4 observations")
+        chosen_d = self._choose_d(y)
+        y_after_d = y.copy()
+        for _ in range(chosen_d):
+            y_after_d = np.diff(y_after_d)
+        chosen_D = self._choose_D(y_after_d)
+        self.lags = int(chosen_d)
+        self.D = int(chosen_D)
+        self.chosen_d_ = int(chosen_d)
+        self.chosen_D_ = int(chosen_D)
+        return super().fit(y)
+
+    def get_params(self) -> dict:
+        return {
+            "seasonal_period": self.seasonal_period,
+            "max_d": self._max_d,
+            "max_D": self._max_D,
+            "acf_threshold": self._acf_threshold,
+            "seasonal_strength_threshold": self._strength_threshold,
+            "chosen_d": self.chosen_d_,
+            "chosen_D": self.chosen_D_,
+        }
