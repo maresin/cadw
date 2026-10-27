@@ -283,3 +283,46 @@ def test_patch_memory_ad_no_bench_deps_in_source():
             top = (node.module or "").split(".")[0]
             assert top not in forbidden, f"forbidden: {node.module}"
 
+def test_fit_patch_memory_ad_streaming_no_dense_windows(monkeypatch):
+    """P4d: verify chunks bounded (no full (n_w, w) alloc)."""
+    from cadw.ml import patch_memory_ad as pma
+
+    max_chunk = [0]
+    orig = pma._iter_x_window_chunks_pma
+
+    def spy(*args, **kwargs):
+        for chunk, start in orig(*args, **kwargs):
+            max_chunk[0] = max(max_chunk[0], chunk.shape[0])
+            yield chunk, start
+
+    monkeypatch.setattr(pma, "_iter_x_window_chunks_pma", spy)
+
+    x = np.random.default_rng(0).standard_normal(50_000)
+    pma.fit_patch_memory_ad(x, window_size=50, n_epochs=1)
+    assert max_chunk[0] <= 10_000, (
+        f"chunk size {max_chunk[0]} > 10_000 (streaming broken)")
+
+
+def test_fit_patch_memory_ad_spilldir_cleanup(monkeypatch):
+    """P4d: SpillDir temp dir is created and cleaned up on success."""
+    from cadw.ml import patch_memory_ad as pma
+    from cadw.core import spill as spill_mod
+
+    paths_created = []
+    orig_enter = spill_mod.SpillDir.__enter__
+
+    def spy_enter(self):
+        result = orig_enter(self)
+        paths_created.append(self._tmpdir)
+        return result
+
+    monkeypatch.setattr(
+        spill_mod.SpillDir, "__enter__", spy_enter)
+
+    x = np.random.default_rng(0).standard_normal(2_000)
+    pma.fit_patch_memory_ad(x, window_size=50, n_epochs=1)
+
+    assert len(paths_created) == 1, "SpillDir should be entered once"
+    assert not paths_created[0].exists(), (
+        "SpillDir temp dir was not cleaned up on success")
+

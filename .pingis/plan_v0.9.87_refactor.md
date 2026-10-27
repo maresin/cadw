@@ -99,7 +99,6 @@ regression guards.
 <!-- gate-whitelist
 G1: cadw/ml/gbdt.py::_fit_boosting_multiclass
 G3: cadw/ml/kshape.py::_sliding_windows
-G3: cadw/ml/patch_memory_ad.py::fit_patch_memory_ad
 G4: A.*
 G4: D1.*
 G4: D2.*

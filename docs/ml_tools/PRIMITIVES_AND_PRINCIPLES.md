@@ -188,7 +188,30 @@ upath = external_sort(_sorted_batches(True), ["u"], ["u","i","w"],
 ```
 `external_sort` internally writes runs to disk, k-way merges.
 
-### Pattern 3: Iterative-state spill (planned, phase0b)
+### Pattern 3a: Memmap for random-access iterative state
+When an iterative loop needs **random row access** (e.g. patch_memory_ad
+training loop uses `rng.permutation` -> row i at arbitrary times),
+ArrowIPC sequential scan is insufficient. Use `np.memmap` via
+`SpillDir` for lifecycle:
+
+```python
+with SpillDir(guard=guard, name="pma") as sdir:
+    X_mm = np.memmap(str(sdir.path("X.bin")), dtype=np.float64,
+                     mode="w+", shape=(n, d))
+    for chunk, start in chunked_windows(x, w, chunk_nw):
+        X_mm[start:start+len(chunk)] = compute(chunk)  # write
+    X_mm.flush()
+    for i in rng.permutation(n):
+        xi = X_mm[i:i+1]        # O(1) random row (OS page cache)
+        train_step(xi)
+    del X_mm                    # release handle before SpillDir exit
+```
+
+Memmap semantics: Python-side peak = O(chunk*d), RSS may grow via OS
+page cache but is OS-evictable (not tracked by tracemalloc). Use for
+random-access; use ArrowIPC (SpillArray) for sequential patterns.
+
+### Pattern 3b: Sequential ArrowIPC iterative-state spill (phase0b)
 For models whose per-row state must survive iterations (GBDT pred,
 lambdamart X stack). Pattern:
 ```python

@@ -83,6 +83,9 @@ class PatchMemoryADResult:
     normalization: str
 
 
+from cadw.core.spill import SpillDir
+
+
 def _probe_memory_limit_mb(guard) -> float | None:
     def _is_pos(v):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
@@ -110,6 +113,43 @@ def _probe_memory_limit_mb(guard) -> float | None:
                 t in kl for t in ("mem", "budget", "limit", "max")):
             return float(v)
     return None
+
+
+# v0.9.87-P4d (audit HIGH-1 full fix): streaming patch_memory_ad.
+# X_norm(n_w, d) written to SpillDir (Arrow IPC, 1 row per batch for
+# random access via ArrowIPCBatchReader.get_batch(i)). Peak RAM
+# O(chunk*d) for write, O(d) per read in training, O(chunk*d) for
+# inference chunks, O(n) output. See METHODOLOGY §5, PRIMITIVES §5.
+
+
+def _iter_x_window_chunks_pma(x: np.ndarray, window_size: int,
+                              chunk_nw: int):
+    """Yield (chunk(nb, w), start) chunks from 1D x — bounded."""
+    n = len(x)
+    n_w = n - window_size + 1
+    if n_w < 1:
+        return
+    offsets = np.arange(window_size, dtype=np.int64)
+    for start in range(0, n_w, chunk_nw):
+        end = min(start + chunk_nw, n_w)
+        abs_starts = np.arange(start, end, dtype=np.int64)
+        idx = abs_starts[:, None] + offsets[None, :]
+        yield x[idx], start
+
+
+def _resolve_chunk_nw_pma(d_patches: int, guard=None) -> int:
+    """Chunk size so per-chunk peak RAM stays within budget."""
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        state_limit = getattr(guard, "state_limit_bytes", None)
+        if (isinstance(state_limit, (int, float))
+                and state_limit > 0):
+            target_bytes = min(int(target_bytes),
+                               max(1, int(state_limit) // 8))
+    bytes_per_window = 8 * max(int(d_patches), 1) * 6
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
 
 
 def _extract_patches(windows: np.ndarray, patch_len: int) -> np.ndarray:
@@ -205,118 +245,142 @@ def fit_patch_memory_ad(
     if n_w < 10:
         raise ValueError(f"too few windows ({n_w}) for training")
 
+    # v0.9.87-P4d (audit HIGH-1 full fix): per-chunk buffers +
+    # output arrays (bounded) + model params. X_norm is memmap-backed
+    # (OS page cache); Python-side peak is O(chunk_nw*d).
+    _npw = max(1, window_size // patch_len)
+    _d_patches = _npw * patch_len
+    _chunk_nw = _resolve_chunk_nw_pma(_d_patches, guard)
     if guard is not None:
-        est_bytes = 8 * n_w * window_size * 2
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            if est_bytes > limit_mb * 1024 * 1024:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"PatchMemoryAD estimated {est_bytes} bytes > "
-                    f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+        per_chunk = _chunk_nw * _d_patches * 8 * 6
+        output_phase = (n_w + n) * 8 * 2
+        model_params = (_d_patches * hidden_size + hidden_size
+                        + hidden_size * latent_size + latent_size) * 8 * 2
+        mem_params = n_memory * latent_size * 8 * 2
+        est_bytes = int(max(per_chunk, output_phase)
+                        + model_params + mem_params)
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="patch_memory_ad.state")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                if est_bytes > limit_mb * 1024 * 1024:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"PatchMemoryAD estimated {est_bytes} bytes > "
+                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
-    windows = np.lib.stride_tricks.sliding_window_view(
-        x, window_size).copy()
-    X_patches = _extract_patches(windows, patch_len)  # (n_w, d)
-    # v0.9.63-fix2: normalization strategies per HYDRA (SIGMOD 2026) and
-    # PaAno (ICLR 2026) findings:
-    #   "while normalization reduces scale bias and can enhance anomaly
-    #    detectability, it may also suppress amplitude-driven anomalies"
-    #   (HYDRA §1, https://dl.acm.org/doi/10.1145/...)
-    # PaAno normalises each PATCH (instance norm, patch_len 8-16), NOT
-    # the whole window — spike in a 10-point patch stays an outlier;
-    # spike in a 50-point flattened window is diluted.
-    #   "none":   raw values — best for amplitude/point spikes
-    #             (Sub-PCA/KMeansAD baseline behaviour; bench recall 1.0)
-    #   "window": z-norm per window — old behaviour, hides spikes at
-    #             sigma>=0.5 (ablation: recall 0.0 on noisy DGP)
-    #   "patch":  instance norm per patch (PaAno-faithful) — preserves
-    #             per-patch spike signature, removes global scale drift
-    if normalization == "none":
-        X_norm = X_patches
-    elif normalization == "window":
-        X_norm = _znormalize_rows(X_patches)
-    elif normalization == "patch":
-        n_patches = window_size // patch_len
-        p2 = X_patches.reshape(X_patches.shape[0], n_patches, patch_len)
-        mu = p2.mean(axis=2, keepdims=True)
-        sd = p2.std(axis=2, keepdims=True)
-        sd = np.where(sd < 1e-12, 1.0, sd)
-        X_norm = ((p2 - mu) / sd).reshape(X_patches.shape)
-    else:
-        raise ValueError(
-            f"normalization must be 'none'|'window'|'patch', "
-            f"got {normalization!r}")
-    d = X_norm.shape[1]
+    # v0.9.87-P4d: X_norm is memmap-backed (OS page cache, O(1)
+    # random row access for the training loop). Python-side peak RAM
+    # is O(chunk_nw*d). Bit-identical output vs pre-P4d (same RNG
+    # sequence, same per-row math, same order).
+    d = _d_patches
 
-    rng = np.random.default_rng(random_state)
+    with SpillDir(guard=guard, name="patch_memory_ad") as _sdir:
+        _mmap_path = _sdir.path("X_norm.bin")
+        X_norm_mmap = np.memmap(
+            str(_mmap_path), dtype=np.float64, mode="w+",
+            shape=(n_w, d))
 
-    # Initialize encoder
-    W1 = _xavier_init(d, hidden_size, rng)
-    b1 = np.zeros(hidden_size)
-    W2 = _xavier_init(hidden_size, latent_size, rng)
-    b2 = np.zeros(latent_size)
+        # Fill memmap via streaming chunks (no full (n_w, w) alloc).
+        for _chunk, _start in _iter_x_window_chunks_pma(
+                x, window_size, _chunk_nw):
+            X_patches_chunk = _extract_patches(_chunk, patch_len)
+            if X_patches_chunk.shape[1] != d:
+                raise RuntimeError(
+                    f"_extract_patches returned d={X_patches_chunk.shape[1]}"
+                    f" != {d} (internal inconsistency)")
+            # v0.9.63-fix2: normalization semantics preserved.
+            if normalization == "none":
+                X_norm_chunk = X_patches_chunk
+            elif normalization == "window":
+                X_norm_chunk = _znormalize_rows(X_patches_chunk)
+            elif normalization == "patch":
+                npw = window_size // patch_len
+                p2 = X_patches_chunk.reshape(
+                    X_patches_chunk.shape[0], npw, patch_len)
+                mu = p2.mean(axis=2, keepdims=True)
+                sd = p2.std(axis=2, keepdims=True)
+                sd = np.where(sd < 1e-12, 1.0, sd)
+                X_norm_chunk = ((p2 - mu) / sd).reshape(
+                    X_patches_chunk.shape)
+            else:
+                raise ValueError(
+                    f"normalization must be 'none'|'window'|'patch', "
+                    f"got {normalization!r}")
+            nb = X_norm_chunk.shape[0]
+            X_norm_mmap[_start:_start + nb] = X_norm_chunk
+        X_norm_mmap.flush()
 
-    # Initialize memory: random latent vectors (small scale)
-    mem = rng.standard_normal((n_memory, latent_size)) * 0.1
+        rng = np.random.default_rng(random_state)
 
-    # Warmup: encode a few windows and use their latents as initial memory
-    warmup_idx = rng.choice(n_w, size=min(n_memory, n_w), replace=False)
-    z_warmup, _ = _encode(X_norm[warmup_idx], W1, b1, W2, b2)
-    if len(warmup_idx) < n_memory:
-        pad = rng.standard_normal((n_memory - len(warmup_idx), latent_size)) * 0.1
-        mem = np.vstack([z_warmup, pad])
-    else:
-        mem = z_warmup.copy()
+        W1 = _xavier_init(d, hidden_size, rng)
+        b1 = np.zeros(hidden_size)
+        W2 = _xavier_init(hidden_size, latent_size, rng)
+        b2 = np.zeros(latent_size)
 
-    velocities = [np.zeros_like(p) for p in (W1, b1, W2, b2)]
-    training_losses = []
+        mem = rng.standard_normal((n_memory, latent_size)) * 0.1
 
-    # Training with triplet loss
-    for epoch in range(n_epochs):
-        idx = rng.permutation(n_w)
-        epoch_loss = 0.0
-        n_updates = 0
-        for i in idx:
-            xi = X_norm[i:i + 1]
-            z, h = _encode(xi, W1, b1, W2, b2)  # (1, latent)
-            z_flat = z[0]
-            # distances to memory
-            dists = _sq_dists(z, mem)[0]  # (M,)
-            pos_idx = int(np.argmin(dists))
-            neg_idx = int(np.argmax(dists))
-            pos_vec = mem[pos_idx]
-            neg_vec = mem[neg_idx]
-            d_pos = float(np.sum((z_flat - pos_vec) ** 2))
-            d_neg = float(np.sum((z_flat - neg_vec) ** 2))
-            loss = max(0.0, d_pos - d_neg + triplet_margin)
-            epoch_loss += loss
+        warmup_idx = rng.choice(
+            n_w, size=min(n_memory, n_w), replace=False)
+        X_warmup = np.asarray(X_norm_mmap[warmup_idx])
+        z_warmup, _ = _encode(X_warmup, W1, b1, W2, b2)
+        if len(warmup_idx) < n_memory:
+            pad = rng.standard_normal(
+                (n_memory - len(warmup_idx), latent_size)) * 0.1
+            mem = np.vstack([z_warmup, pad])
+        else:
+            mem = z_warmup.copy()
 
-            if loss > 0.0:
-                # Gradient of triplet loss wrt z
-                # loss = ||z-pos||² - ||z-neg||² + margin
-                # d loss / dz = 2*(z-pos) - 2*(z-neg) = 2*(neg-pos)
-                grad_z = 2.0 * (neg_vec - pos_vec)  # (latent,)
-                dz = grad_z.reshape(1, -1)
-                dW1, db1, dW2, db2 = _encode_backward(dz, xi, h, W2)
-                for p, g, v in zip((W1, b1, W2, b2),
-                                   (dW1, db1, dW2, db2),
-                                   velocities):
-                    v_new = 0.9 * v - lr * g
-                    p += v_new
-                    v[:] = v_new
-                n_updates += 1
+        velocities = [np.zeros_like(p) for p in (W1, b1, W2, b2)]
+        training_losses = []
 
-            # Update memory slot (momentum)
-            mem[pos_idx] = ((1.0 - memory_momentum) * mem[pos_idx]
-                            + memory_momentum * z_flat)
+        for epoch in range(n_epochs):
+            idx = rng.permutation(n_w)
+            epoch_loss = 0.0
+            n_updates = 0
+            for i in idx:
+                xi = X_norm_mmap[int(i):int(i) + 1]  # (1, d) view
+                z, h = _encode(xi, W1, b1, W2, b2)
+                z_flat = z[0]
+                dists = _sq_dists(z, mem)[0]
+                pos_idx = int(np.argmin(dists))
+                neg_idx = int(np.argmax(dists))
+                pos_vec = mem[pos_idx]
+                neg_vec = mem[neg_idx]
+                d_pos = float(np.sum((z_flat - pos_vec) ** 2))
+                d_neg = float(np.sum((z_flat - neg_vec) ** 2))
+                loss = max(0.0, d_pos - d_neg + triplet_margin)
+                epoch_loss += loss
 
-        training_losses.append(epoch_loss / max(n_updates, 1))
+                if loss > 0.0:
+                    grad_z = 2.0 * (neg_vec - pos_vec)
+                    dz = grad_z.reshape(1, -1)
+                    dW1, db1, dW2, db2 = _encode_backward(
+                        dz, xi, h, W2)
+                    for p, g, v in zip((W1, b1, W2, b2),
+                                       (dW1, db1, dW2, db2),
+                                       velocities):
+                        v_new = 0.9 * v - lr * g
+                        p += v_new
+                        v[:] = v_new
+                    n_updates += 1
 
-    # Inference
-    z_all, _ = _encode(X_norm, W1, b1, W2, b2)
-    dists_all = _sq_dists(z_all, mem)  # (n_w, M)
-    window_scores = dists_all.min(axis=1)  # min distance to memory
+                mem[pos_idx] = ((1.0 - memory_momentum) * mem[pos_idx]
+                                + memory_momentum * z_flat)
+
+            training_losses.append(epoch_loss / max(n_updates, 1))
+
+        # Inference: streaming chunks over memmap.
+        window_scores = np.empty(n_w, dtype=np.float64)
+        for _start in range(0, n_w, _chunk_nw):
+            _end = min(_start + _chunk_nw, n_w)
+            xi = np.asarray(X_norm_mmap[_start:_end])
+            z_b, _ = _encode(xi, W1, b1, W2, b2)
+            dists_b = _sq_dists(z_b, mem)
+            window_scores[_start:_end] = dists_b.min(axis=1)
+
+        del X_norm_mmap  # flush + release memmap handle before cleanup
 
     if aggregate == "max":
         scores = _map_max(window_scores, window_size, n, stride=1)
