@@ -299,3 +299,19 @@ Before commit:
 - [ ] Gate tests pass (`pytest -q tests/test_primitive_reuse.py
       tests/test_guard_before_alloc.py tests/test_no_dense_windows.py
       tests/test_ml_tools_schema.py`)
+
+## §9 Commit message pitfalls
+
+Bash interprets backticks and `$()` inside double-quoted strings.
+Commit messages containing code samples must use single-quoted
+heredoc:
+
+```bash
+git commit -F - <<'MSGEOF'
+... message with backtick-code and $() ...
+MSGEOF
+```
+
+`git commit -m "..."` is unsafe for messages with code. This pitfall
+was hit in v0.9.87-P4d (f8eb895): backtick-strings were consumed by
+bash as command substitutions.
