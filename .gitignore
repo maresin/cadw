@@ -55,3 +55,6 @@ _verify_*.py
 .pingis/session.log
 .pingis/audits/fetch_cache/
 .pingis/drafts/
+
+# Pingis temp diagnostic scripts
+.pingis/_*.py
