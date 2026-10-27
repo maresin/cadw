@@ -235,3 +235,35 @@ def test_sub_pca_reference_sklearn_reconstruction():
     np.testing.assert_allclose(
         our_window_scores, sk_window_scores, rtol=1e-5, atol=1e-8)
 
+def test_fit_sub_pca_guard_raises_before_allocation(monkeypatch):
+    """v0.9.87-fix1a: guard fires BEFORE _prepare_windows allocation.
+
+    Regression for audit HIGH-1 (MemoryGuard order violation in 9
+    windowed TS anomaly modules). sub_pca is the template: spy on
+    _prepare_windows; tight guard limit; expect raise AND spy
+    untouched.
+    """
+    from cadw.ml import sub_pca
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    called = {"n": 0}
+    orig = sub_pca._prepare_windows
+
+    def spy(*a, **kw):
+        called["n"] += 1
+        return orig(*a, **kw)
+
+    monkeypatch.setattr(sub_pca, "_prepare_windows", spy)
+
+    # n=100k, w=64 -> 8 * 99937 * 64 ~= 51 MB window array.
+    # Guard max 10 MB -> must raise BEFORE alloc (was: alloc then
+    # raise).
+    guard = MemoryGuard(max_memory_mb=10)
+    x = np.random.default_rng(0).standard_normal(100_000)
+    with pytest.raises(MemoryLimitExceeded):
+        fit_sub_pca(x, window_size=64, guard=guard)
+    assert called["n"] == 0, (
+        f"guard should fire BEFORE _prepare_windows; "
+        f"_prepare_windows was called {called['n']} time(s) — "
+        f"audit HIGH-1 violation NOT fixed")
+

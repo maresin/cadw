@@ -239,26 +239,42 @@ def fit_sub_pca(
     -------
     SubPCAResult
     """
+    # v0.9.87-fix1a (audit HIGH-1): guard check BEFORE
+    # _prepare_windows allocation. Analytic shape only — no window
+    # array built yet.
+    _arr = np.asarray(series)
+    n_pre = int(_arr.shape[0]) if _arr.ndim >= 1 else 0
+    c_pre = 1 if _arr.ndim == 1 else int(np.prod(_arr.shape[1:]))
+    if n_pre < window_size:
+        raise ValueError(
+            f"series length {n_pre} < window_size {window_size}")
+    n_w_pre = n_pre - window_size + 1
+    if n_w_pre < 2:
+        raise ValueError(
+            f"too few windows: n_windows={n_w_pre} < 2 "
+            f"(n={n_pre}, window_size={window_size})")
+    d_pre = window_size * c_pre
+
+    if guard is not None:
+        est_bytes = 8 * n_w_pre * d_pre
+        # Prefer canonical MemoryGuard API (real guard).
+        # Fall back to legacy probe for duck-typed guards (test
+        # doubles with only `max_memory_mb` attribute).
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="sub_pca.windows")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                if est_bytes > limit_mb * 1024 * 1024:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"Sub-PCA estimated {est_bytes} bytes > "
+                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+
+    # Allocation happens ONLY after the guard passes.
     windows, n, c = _prepare_windows(series, window_size, stride=1)
     n_w = len(windows)
     d = windows.shape[1]
-    if n < window_size:
-        raise ValueError(
-            f"series length {n} < window_size {window_size}")
-    if n_w < 2:
-        raise ValueError(
-            f"too few windows: n_windows={n_w} < 2 "
-            f"(n={n}, window_size={window_size})")
-
-    if guard is not None:
-        est_bytes = 8 * n_w * d
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            if est_bytes > limit_mb * 1024 * 1024:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"Sub-PCA estimated {est_bytes} bytes > "
-                    f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
     mean_w = windows.mean(axis=0)
     centered = windows - mean_w
