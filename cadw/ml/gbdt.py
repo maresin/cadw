@@ -43,6 +43,99 @@ def _stack_numeric(
     return np.column_stack([_column_to_f64(batch.column(c)) for c in cols])
 
 
+
+
+# v0.9.87-P1a-1a: one-time binning infrastructure for GBDT.
+# LightGBM-style persistent codes (n, d) uint8 replace per-pass
+# _stack_numeric + clip. Enables ~5-10x speedup (P1a-1b swaps ops),
+# and prerequisite for P1a-2 parallel-per-class.
+#
+# Bit-identical formula (matches _AllNodeHistOp.update exactly):
+#   b_idx = clip(int((X[n,j] - mn[j]) / range[j] * bins), 0, bins-1)
+#   range[j] = max(mx[j] - mn[j], 1.0)
+#
+# nan_row_mask[n] = any NaN in X[n]. Row-level: if any feature NaN,
+# entire row excluded from histograms (per existing _AllNodeHistOp).
+
+
+def _binning_pass(
+    df, X_cols, *, bins: int, memory_guard, guard=None,
+):
+    """Stream df -> codes (n, d) uint8 memmap + mn/mx/range/nan_mask.
+
+    Returns (mn, mx, range_, codes_mm, nan_mask, spill_handle).
+    Caller owns spill_handle lifecycle.
+    """
+    X_cols = list(X_cols)
+    d = len(X_cols)
+    mg = memory_guard
+    n_total = df.count()
+    if n_total == 0:
+        raise ValueError("_binning_pass: empty df")
+
+    mm_res = reduce(
+        df._iter_filtered_batches(), _MinMaxOp(X_cols), mg, log=False,
+    )
+    mn = np.asarray(mm_res["min"], dtype=np.float64)
+    mx = np.asarray(mm_res["max"], dtype=np.float64)
+    if np.any(np.isinf(mn)) or np.any(np.isinf(mx)):
+        raise ValueError("_binning_pass: no valid rows (all NaN)")
+    range_ = np.where(mx - mn > 0, mx - mn, 1.0)
+
+    spill = SpillDir(guard=guard, name="gbdt_binning")
+    spill.__enter__()
+    codes_mm = np.memmap(
+        str(spill.path("codes.bin")), dtype=np.uint8, mode="w+",
+        shape=(n_total, d))
+    nan_mask = np.zeros(n_total, dtype=bool)
+    off = 0
+    bins_i = int(bins)
+    for b in df._iter_filtered_batches():
+        X_b = _stack_numeric(b, X_cols)
+        nb = b.num_rows
+        nan_rows_b = np.isnan(X_b).any(axis=1)
+        nan_mask[off:off + nb] = nan_rows_b
+        with np.errstate(divide="ignore", invalid="ignore"):
+            codes_b = np.clip(
+                ((X_b - mn) / range_ * bins_i).astype(np.int64),
+                0, bins_i - 1,
+            ).astype(np.uint8)
+        codes_b[nan_rows_b] = 0
+        codes_mm[off:off + nb] = codes_b
+        off += nb
+    if off != n_total:
+        codes_mm.flush()
+        del codes_mm
+        codes_mm = np.memmap(
+            str(spill.path("codes.bin")), dtype=np.uint8, mode="r+",
+            shape=(off, d))
+        nan_mask = nan_mask[:off]
+        n_total = off
+    codes_mm.flush()
+    return mn, mx, range_, codes_mm, nan_mask, spill
+
+
+def _attach_codes(enriched_iter, codes_mm, nan_mask):
+    """Augment enriched batches with __code_0..__code_{d-1} uint8 and
+    __nan_mask bool columns.
+    """
+    off = 0
+    d = codes_mm.shape[1]
+    for b in enriched_iter:
+        n = b.num_rows
+        codes_b = np.asarray(codes_mm[off:off + n])
+        nm_b = np.asarray(nan_mask[off:off + n])
+        base_cols = list(b.columns)
+        base_names = list(b.schema.names)
+        code_cols = [pa.array(codes_b[:, j], type=pa.uint8())
+                     for j in range(d)]
+        code_names = [f"__code_{j}" for j in range(d)]
+        yield pa.RecordBatch.from_arrays(
+            base_cols + code_cols + [pa.array(nm_b)],
+            names=base_names + code_names + ["__nan_mask"],
+        )
+        off += n
+
 def _sigmoid(z: np.ndarray) -> np.ndarray:
     """Numerically stable sigmoid."""
     return 0.5 * (1.0 + np.tanh(0.5 * z))
@@ -90,6 +183,9 @@ def _link(pred: np.ndarray, loss: str) -> np.ndarray:
 
 
 # ============ ReduceOps (loss-agnostic) ============
+
+from cadw.core.spill import SpillDir
+
 
 class _MinMaxOp(ReduceOp):
     """Global min/max per feature (ignore nulls)."""
@@ -214,6 +310,95 @@ class _AllNodeHistOp(ReduceOp):
             "g_tot": gt, "h_tot": ht, "n_tot": nt,
         }
 
+
+
+
+class _AllNodeHistOpCodes(ReduceOp):
+    """Histogram from pre-binned codes (uint8). Same output as _AllNodeHistOp.
+
+    Reads __code_0..__code_{d-1} (uint8) and __nan_mask (bool) columns
+    attached by _attach_codes; uses np.bincount instead of np.add.at.
+    Bit-identical to _AllNodeHistOp.update within float precision
+    (order of summation differs: np.bincount vs np.add.at; ~1e-15).
+
+    v0.9.87-P1a-1a: infrastructure. Not yet wired into fit paths.
+    """
+
+    def __init__(
+        self,
+        feature_cols: Sequence[str],
+        node_ids: Sequence[int],
+        bins: int,
+    ) -> None:
+        self.feature_cols = list(feature_cols)
+        self.f = len(feature_cols)
+        self.node_ids = list(node_ids)
+        self.node_to_slot = {nid: i for i, nid in enumerate(self.node_ids)}
+        self.bins = int(bins)
+        self.S = len(self.node_ids)
+
+    def init(self):
+        return (
+            np.zeros((self.S, self.f, self.bins), dtype=np.float64),
+            np.zeros((self.S, self.f, self.bins), dtype=np.float64),
+            np.zeros(self.S, dtype=np.float64),
+            np.zeros(self.S, dtype=np.float64),
+            np.zeros(self.S, dtype=np.int64),
+        )
+
+    def update(self, state, batch):
+        gh, hh, gt, ht, nt = state
+        n = batch.num_rows
+        if n == 0:
+            return state
+        codes = np.stack(
+            [batch.column(f"__code_{j}").to_numpy(zero_copy_only=False)
+             for j in range(self.f)], axis=1)
+        nan_mask = batch.column("__nan_mask").to_numpy(zero_copy_only=False)
+        g = _column_to_f64(batch.column("__g"))
+        h = _column_to_f64(batch.column("__h"))
+        lf = batch.column("__leaf").to_numpy(zero_copy_only=False)
+        for nid, slot in self.node_to_slot.items():
+            m = lf == nid
+            if not m.any():
+                continue
+            m_valid = m & ~nan_mask
+            if not m_valid.any():
+                continue
+            gn = g[m_valid]
+            hn = h[m_valid]
+            gt[slot] += float(gn.sum())
+            ht[slot] += float(hn.sum())
+            nt[slot] += int(m_valid.sum())
+            codes_valid = codes[m_valid]
+            for j in range(self.f):
+                b_idx = codes_valid[:, j]
+                gh[slot, j] += np.bincount(
+                    b_idx, weights=gn, minlength=self.bins)
+                hh[slot, j] += np.bincount(
+                    b_idx, weights=hn, minlength=self.bins)
+        return (gh, hh, gt, ht, nt)
+
+    def merge(self, a, b):
+        return (a[0] + b[0], a[1] + b[1], a[2] + b[2],
+                a[3] + b[3], a[4] + b[4])
+
+    def state_nbytes(self, state):
+        return int(sum(x.nbytes for x in state))
+
+    def estimate_state_nbytes(self):
+        per_slot = self.f * self.bins * 8 * 2 + 8 * 3
+        return self.S * per_slot
+
+    def batch_memory_factor(self):
+        return 7.0
+
+    def finalize(self, state):
+        gh, hh, gt, ht, nt = state
+        return {
+            "g_hist": gh, "h_hist": hh,
+            "g_tot": gt, "h_tot": ht, "n_tot": nt,
+        }
 
 class _AssignLeavesOp(ReduceOp):
     """Assign rows to leaf_ids per current tree structure."""

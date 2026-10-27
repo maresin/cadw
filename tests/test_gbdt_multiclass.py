@@ -335,3 +335,155 @@ def test_multiclass_est_state_includes_y_all():
     assert "n_total * K * 8 * 3" not in src, (
         "old formula n·K·8·3 must be removed"
     )
+
+
+# v0.9.87-P1a-1a: binning infrastructure tests.
+# Verifies _binning_pass + _AllNodeHistOpCodes match _AllNodeHistOp
+# behavior, without changing existing fit paths.
+
+def test_binning_pass_correctness(tmp_path):
+    """codes from _binning_pass matches reference uniform formula."""
+    from cadw.ml.gbdt import _binning_pass
+    from cadw.core.memory_guard import MemoryGuard
+    n, d, bins = 200, 3, 16
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((n, d))
+    cols = [f"f{j}" for j in range(d)]
+    tbl = pa.table({c: pa.array(X[:, j]) for j, c in enumerate(cols)})
+    df = CadwDataFrame.from_table(tbl)
+    mg = MemoryGuard(max_memory_mb=200)
+    mn, mx, range_, codes_mm, nan_mask, spill = _binning_pass(
+        df, cols, bins=bins, memory_guard=mg)
+    try:
+        assert mn.shape == (d,)
+        assert mx.shape == (d,)
+        assert range_.shape == (d,)
+        assert not nan_mask.any()
+        expected = np.clip(
+            ((X - mn) / range_ * bins).astype(np.int64),
+            0, bins - 1).astype(np.uint8)
+        np.testing.assert_array_equal(np.asarray(codes_mm), expected)
+    finally:
+        spill.__exit__(None, None, None)
+
+
+def test_binning_pass_nan_handling(tmp_path):
+    """NaN rows: nan_mask True, codes = 0."""
+    from cadw.ml.gbdt import _binning_pass
+    from cadw.core.memory_guard import MemoryGuard
+    n, d, bins = 100, 2, 8
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((n, d))
+    X[5, 0] = np.nan
+    X[10, 1] = np.nan
+    cols = ["f0", "f1"]
+    tbl = pa.table({
+        "f0": pa.array(X[:, 0], mask=np.isnan(X[:, 0])),
+        "f1": pa.array(X[:, 1], mask=np.isnan(X[:, 1])),
+    })
+    df = CadwDataFrame.from_table(tbl)
+    mg = MemoryGuard(max_memory_mb=200)
+    mn, mx, range_, codes_mm, nan_mask, spill = _binning_pass(
+        df, cols, bins=bins, memory_guard=mg)
+    try:
+        assert bool(nan_mask[5])
+        assert bool(nan_mask[10])
+        assert not bool(nan_mask[0])
+        codes_arr = np.asarray(codes_mm)
+        assert codes_arr[5, 0] == 0
+        assert codes_arr[5, 1] == 0
+        assert codes_arr[10, 0] == 0
+        assert codes_arr[10, 1] == 0
+    finally:
+        spill.__exit__(None, None, None)
+
+
+def test_all_node_hist_op_codes_matches_existing():
+    """Histogram from codes == histogram from raw X (within 1e-12)."""
+    from cadw.ml.gbdt import _AllNodeHistOp, _AllNodeHistOpCodes
+    n, d, bins = 300, 3, 16
+    rng = np.random.default_rng(2)
+    X = rng.standard_normal((n, d))
+    g = rng.standard_normal(n)
+    h = rng.random(n) + 0.1
+    leaf = np.zeros(n, dtype=np.int64)
+    cols = [f"f{j}" for j in range(d)]
+
+    batch = pa.RecordBatch.from_arrays(
+        [pa.array(X[:, j]) for j in range(d)]
+        + [pa.array(g), pa.array(h), pa.array(leaf)],
+        names=cols + ["__g", "__h", "__leaf"])
+    op_old = _AllNodeHistOp(cols, [0], X.min(axis=0), X.max(axis=0), bins)
+    state_old = op_old.init()
+    state_old = op_old.update(state_old, batch)
+    golden = op_old.finalize(state_old)
+
+    mn = X.min(axis=0)
+    mx = X.max(axis=0)
+    range_ = np.where(mx - mn > 0, mx - mn, 1.0)
+    codes = np.clip(
+        ((X - mn) / range_ * bins).astype(np.int64),
+        0, bins - 1).astype(np.uint8)
+    nan_mask = np.isnan(X).any(axis=1)
+
+    batch_codes = pa.RecordBatch.from_arrays(
+        list(batch.columns)
+        + [pa.array(codes[:, j], type=pa.uint8()) for j in range(d)]
+        + [pa.array(nan_mask)],
+        names=cols + ["__g", "__h", "__leaf"]
+              + [f"__code_{j}" for j in range(d)] + ["__nan_mask"])
+    op_new = _AllNodeHistOpCodes(cols, [0], bins)
+    state_new = op_new.init()
+    state_new = op_new.update(state_new, batch_codes)
+    new = op_new.finalize(state_new)
+
+    np.testing.assert_allclose(new["g_hist"], golden["g_hist"], atol=1e-12)
+    np.testing.assert_allclose(new["h_hist"], golden["h_hist"], atol=1e-12)
+    np.testing.assert_allclose(new["g_tot"], golden["g_tot"], atol=1e-12)
+    np.testing.assert_allclose(new["h_tot"], golden["h_tot"], atol=1e-12)
+    np.testing.assert_array_equal(new["n_tot"], golden["n_tot"])
+
+
+def test_all_node_hist_op_codes_multi_node():
+    """Codes-based hist matches existing hist for multiple nodes."""
+    from cadw.ml.gbdt import _AllNodeHistOp, _AllNodeHistOpCodes
+    n, d, bins = 400, 2, 12
+    rng = np.random.default_rng(3)
+    X = rng.standard_normal((n, d))
+    g = rng.standard_normal(n)
+    h = rng.random(n) + 0.1
+    leaf = rng.integers(0, 2, size=n, dtype=np.int64)
+    cols = ["f0", "f1"]
+
+    batch = pa.RecordBatch.from_arrays(
+        [pa.array(X[:, 0]), pa.array(X[:, 1]),
+         pa.array(g), pa.array(h), pa.array(leaf)],
+        names=cols + ["__g", "__h", "__leaf"])
+    op_old = _AllNodeHistOp(
+        cols, [0, 1], X.min(axis=0), X.max(axis=0), bins)
+    state_old = op_old.init()
+    state_old = op_old.update(state_old, batch)
+    golden = op_old.finalize(state_old)
+
+    mn = X.min(axis=0)
+    mx = X.max(axis=0)
+    range_ = np.where(mx - mn > 0, mx - mn, 1.0)
+    codes = np.clip(
+        ((X - mn) / range_ * bins).astype(np.int64),
+        0, bins - 1).astype(np.uint8)
+    nan_mask = np.zeros(n, dtype=bool)
+    batch_codes = pa.RecordBatch.from_arrays(
+        list(batch.columns)
+        + [pa.array(codes[:, j], type=pa.uint8()) for j in range(d)]
+        + [pa.array(nan_mask)],
+        names=cols + ["__g", "__h", "__leaf"]
+              + [f"__code_{j}" for j in range(d)] + ["__nan_mask"])
+    op_new = _AllNodeHistOpCodes(cols, [0, 1], bins)
+    state_new = op_new.init()
+    state_new = op_new.update(state_new, batch_codes)
+    new = op_new.finalize(state_new)
+
+    np.testing.assert_allclose(new["g_hist"], golden["g_hist"], atol=1e-12)
+    np.testing.assert_allclose(new["h_hist"], golden["h_hist"], atol=1e-12)
+    np.testing.assert_array_equal(new["n_tot"], golden["n_tot"])
+
