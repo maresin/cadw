@@ -1,0 +1,38 @@
+{
+  "n": 500,
+  "seasonal_period": 12,
+  "note": "OTM: weight-optimized STM (theta=2 fixed, w2/alpha grid optimized on in-sample MSE). Expected pattern: OTM matches STM on M3-like (w2 ~= 0.5), beats STM on trend-dominated (w2 < 0.5, trusts OLS trend). Full Fiorucci OTM (theta optimization + drift term) is backlog; this is the practical weight-optimized variant.",
+  "results": {
+    "m3_like": {
+      "otm": {
+        "mase": 0.2093,
+        "fit_predict_s": 0.774,
+        "peak_rss_mb": 22.07,
+        "w2": 0.1,
+        "alpha": 0.15
+      },
+      "stm": {
+        "mase": 0.2012,
+        "fit_predict_s": 0.201
+      },
+      "auto_ets": {
+        "mase": 0.2757,
+        "fit_predict_s": 38.623
+      }
+    },
+    "trend_dominated": {
+      "otm": {
+        "mase": 0.2964,
+        "fit_predict_s": 0.167,
+        "peak_rss_mb": 0.13,
+        "w2": 0.1,
+        "alpha": 0.55
+      },
+      "stm": {
+        "mase": 0.6523,
+        "fit_predict_s": 0.177
+      },
+      "auto_ets": null
+    }
+  }
+}

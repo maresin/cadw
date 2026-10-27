@@ -18,6 +18,8 @@ from .ets import ETSForecaster
 from .auto_ets import AutoETSForecaster  # noqa: E402,F401  v0.9.76b
 
 from .theta import ThetaForecaster
+from .otm import OTMThetaForecaster  # noqa: E402,F401  v0.9.78a
+
 from .var import VARModel
 
 __all__ = sorted([
