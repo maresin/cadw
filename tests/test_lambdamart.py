@@ -157,11 +157,58 @@ def test_fit_lambdamart_no_vstack_xs():
 
 
 def test_fit_lambdamart_preallocate_uses_df_count():
-    """P2a: n_total from df.count(); X pre-allocated as np.empty."""
+    """P2a: n_total from df.count(); X pre-sized."""
     import inspect
     src = inspect.getsource(lm.fit_lambdamart)
     assert "df.count()" in src, (
         "pre-allocation requires df.count() for n_total")
-    assert "np.empty((n_total" in src, (
-        "X pre-allocation should use np.empty((n_total, d_cols), ...)")
+    # P2b-narrow: X is memmap, not np.empty
+    assert ("np.memmap(" in src and "shape=(n_total" in src), (
+        "X should be np.memmap with shape=(n_total, ...)")
+
+def test_fit_lambdamart_x_is_memmap(monkeypatch):
+    """P2b-narrow: X passed to _bin_features is a memmap, not RAM array."""
+    captured = {}
+    orig = lm._bin_features
+
+    def spy(X, *a, **kw):
+        captured["X_type"] = type(X).__name__
+        captured["X_path"] = getattr(X, "filename", None)
+        return orig(X, *a, **kw)
+
+    monkeypatch.setattr(lm, "_bin_features", spy)
+
+    df, X_arr, y_arr, q_arr = _dataset(seed=11)
+    cols = [f"f{j}" for j in range(4)]
+    lm.fit_lambdamart(df, cols, "y", "q", n_estimators=3)
+
+    assert "memmap" in captured["X_type"], (
+        f"X should be np.memmap; got {captured['X_type']}")
+    assert captured["X_path"] is not None, (
+        "X memmap should have .filename attribute")
+
+
+def test_fit_lambdamart_spilldir_cleanup(monkeypatch):
+    """P2b-narrow: SpillDir used + tempdir deleted on success."""
+    from cadw.core import spill as spill_mod
+
+    paths_created = []
+    orig_enter = spill_mod.SpillDir.__enter__
+
+    def spy_enter(self):
+        result = orig_enter(self)
+        paths_created.append(self._tmpdir)
+        return result
+
+    monkeypatch.setattr(
+        spill_mod.SpillDir, "__enter__", spy_enter)
+
+    df, X_arr, y_arr, q_arr = _dataset(seed=12)
+    cols = [f"f{j}" for j in range(4)]
+    lm.fit_lambdamart(df, cols, "y", "q", n_estimators=3)
+
+    assert len(paths_created) >= 1, "SpillDir should be used"
+    # All created dirs must be cleaned up
+    for p in paths_created:
+        assert not p.exists(), f"SpillDir {p} not cleaned up"
 

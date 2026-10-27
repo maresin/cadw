@@ -25,6 +25,7 @@ import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
 from cadw.ml._logging import log_fit
+from cadw.core.spill import SpillDir
 
 
 def _dcg(gains, k):
@@ -245,12 +246,25 @@ def fit_lambdamart(df, X_cols, y_col, query_col, *, n_estimators=100,
     if n_total == 0:
         raise ValueError("fit_lambdamart: empty input")
     d_cols = len(cols)
-    mg.check_state(n_total * (d_cols * 8 + 16),
+    # v0.9.87-P2b-narrow: X on memmap (disk), y + codes + working col
+    # in RAM. Conservative estimate: y (n*8) + codes (n*d) +
+    # qs (n*8) + working col (n*8) + safety.
+    mg.check_state(n_total * (d_cols + 32),
                    name="lambdamart.state")
 
-    X = np.empty((n_total, d_cols), dtype=np.float64)
+    # v0.9.87-P2b-narrow: X -> memmap (SpillDir-backed), del after
+    # binning. Peak Python-side RAM during binning = codes (n*d) +
+    # working column (n*8); during training X no longer in RAM.
+    # y, qs, codes, scores/grad/hess remain in RAM (P2b-full
+    # territory: needs level-sync _build_tree rewrite).
     y = np.empty(n_total, dtype=np.float64)
     qs = []
+    _p2b_sdir = SpillDir(guard=mg, name="lambdamart")
+    _p2b_sdir.__enter__()
+    _X_mm_path = _p2b_sdir.path("X.bin")
+    X = np.memmap(
+        str(_X_mm_path), dtype=np.float64, mode="w+",
+        shape=(n_total, d_cols))
     off = 0
     for b in df._iter_filtered_batches():
         mg.check_batch(b, name="lambdamart.pass1", extra_factor=2.0)
@@ -263,9 +277,14 @@ def fit_lambdamart(df, X_cols, y_col, query_col, *, n_estimators=100,
     n_rows = off
     if n_rows != n_total:
         # df changed between count and iterate - defensive truncate.
-        X = X[:n_rows]
+        X.flush()
+        del X
+        X = np.memmap(
+            str(_X_mm_path), dtype=np.float64, mode="r+",
+            shape=(n_rows, d_cols))
         y = y[:n_rows]
         n_total = n_rows
+    X.flush()
     q = np.concatenate(qs) if qs else np.array([], dtype=np.int64)
     if np.isnan(X).any() or np.isnan(y).any():
         raise ValueError("fit_lambdamart: nulls in features or labels")
@@ -273,6 +292,10 @@ def fit_lambdamart(df, X_cols, y_col, query_col, *, n_estimators=100,
         raise ValueError("fit_lambdamart: relevance labels must be >= 0")
 
     codes, edges = _bin_features(X, int(bins), memory_guard=mg)
+    # v0.9.87-P2b-narrow: X no longer needed (codes fully describe
+    # bins); release memmap handle. SpillDir cleans up tempfile on
+    # __exit__.
+    del X
     nbins = int(codes.max()) + 1
     uq = sorted(set(q.tolist()), key=str)
     groups = [(u, np.where(q == u)[0]) for u in uq]
@@ -304,4 +327,5 @@ def fit_lambdamart(df, X_cols, y_col, query_col, *, n_estimators=100,
                              "sigma": sigma, "ndcg_k": ndcg_k})
     model.feature_names_ = cols
     mg.check_state(model.state_nbytes(), name="lambdamart.model")
+    _p2b_sdir.__exit__(None, None, None)
     return model

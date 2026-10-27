@@ -177,3 +177,24 @@ of ONE module, not partial patch of many.
 
 Sub_pca _sliding_windows, kshape _sliding_windows etc are all
 whitelisted in G3 until each P4 sub-phase lands.
+
+## P2b-narrow status (2026-10-28)
+
+P2b narrow done: X in fit_lambdamart now np.memmap (SpillDir-backed),
+freed after _bin_features. Peak during training drops from
+n*(9d + 40) to n*(d + 48). Codes, y, scores, grad, hess still in RAM
+(P2b-full territory).
+
+P2b-full DEFERRED (2-3 sessions, architecture change):
+  - X + codes (n, d) -> memmap
+  - _build_tree rewrite: level-synchronous BFS with node_id (n,)
+    int32 memmap; per-level chunked bincount aggregation;
+    codes[idx, j] fancy indexing removed
+  - _predict_tree chunked by rows
+  - scores/grad/hess memmap (fancy indexing on scores[idx] remains)
+  - Estimated 4n peak RAM (idx int32 + chunk buffers) vs current
+    58n after P2b-narrow; full OOC vs half-fix.
+
+Whitelist G1 for lambdamart STAYS (y = np.empty(n_total),
+codes = np.empty((n, d), uint8) still RAM). Full removal requires
+P2b-full.
