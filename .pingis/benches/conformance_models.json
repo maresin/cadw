@@ -1,0 +1,62 @@
+[
+ {
+  "name": "ridge(coef) alpha=0.1",
+  "diff": 1.1102230246251565e-15,
+  "ok": true,
+  "ref_src": "sklearn Ridge(alpha=0.1)"
+ },
+ {
+  "name": "ridge(intercept) alpha=0.1",
+  "diff": 1.7433970933566911e-16,
+  "ok": true,
+  "ref_src": "sklearn Ridge(alpha=0.1)"
+ },
+ {
+  "name": "ridge(coef) alpha=1.0",
+  "diff": 8.881784197001252e-16,
+  "ok": true,
+  "ref_src": "sklearn Ridge(alpha=1.0)"
+ },
+ {
+  "name": "ridge(intercept) alpha=1.0",
+  "diff": 1.7954387976359953e-16,
+  "ok": true,
+  "ref_src": "sklearn Ridge(alpha=1.0)"
+ },
+ {
+  "name": "ridge(coef) alpha=10.0",
+  "diff": 1.1102230246251565e-15,
+  "ok": true,
+  "ref_src": "sklearn Ridge(alpha=10.0)"
+ },
+ {
+  "name": "ridge(intercept) alpha=10.0",
+  "diff": 2.0990154059319366e-16,
+  "ok": true,
+  "ref_src": "sklearn Ridge(alpha=10.0)"
+ },
+ {
+  "name": "lasso(coef) alpha=0.1",
+  "diff": 0.11188263168633661,
+  "ok": false,
+  "ref_src": "sklearn Lasso(alpha=0.1)"
+ },
+ {
+  "name": "lasso(coef) alpha=1.0",
+  "diff": 1.115721141155054,
+  "ok": false,
+  "ref_src": "sklearn Lasso(alpha=1.0)"
+ },
+ {
+  "name": "logistic(coef) alpha~0 vs C=1e6",
+  "diff": 0.012979519091297576,
+  "ok": true,
+  "ref_src": "sklearn LogisticRegression(C=1e6)"
+ },
+ {
+  "name": "logistic(intercept)",
+  "diff": 0.0010736163631634987,
+  "ok": true,
+  "ref_src": "sklearn LogisticRegression(C=1e6)"
+ }
+]

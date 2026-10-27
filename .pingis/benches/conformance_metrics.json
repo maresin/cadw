@@ -1,0 +1,74 @@
+[
+ {
+  "name": "r2",
+  "cadw": 0.989,
+  "ref": 0.989,
+  "ref_src": "sklearn.metrics.r2_score",
+  "diff": 0.0,
+  "ok": true
+ },
+ {
+  "name": "mse",
+  "cadw": 0.02200000000000002,
+  "ref": 0.02200000000000002,
+  "ref_src": "sklearn.metrics.mean_squared_error",
+  "diff": 0.0,
+  "ok": true
+ },
+ {
+  "name": "rmse",
+  "cadw": 0.14832396974191334,
+  "ref": 0.14832396974191334,
+  "ref_src": "sklearn.metrics.mean_squared_error**0.5",
+  "diff": 0.0,
+  "ok": true
+ },
+ {
+  "name": "mae",
+  "cadw": 0.14000000000000004,
+  "ref": 0.14000000000000004,
+  "ref_src": "sklearn.metrics.mean_absolute_error",
+  "diff": 0.0,
+  "ok": true
+ },
+ {
+  "name": "log_loss",
+  "cadw": 0.3682993450669084,
+  "ref": 0.3682993450669084,
+  "ref_src": "sklearn.metrics.log_loss",
+  "diff": 0.0,
+  "ok": true
+ },
+ {
+  "name": "accuracy",
+  "cadw": 0.9,
+  "ref": 0.9,
+  "ref_src": "sklearn.metrics.accuracy_score",
+  "diff": 0.0,
+  "ok": true
+ },
+ {
+  "name": "precision_bin",
+  "cadw": 0.8333333333333334,
+  "ref": 0.8333333333333334,
+  "ref_src": "sklearn.metrics.precision_score",
+  "diff": 0.0,
+  "ok": true
+ },
+ {
+  "name": "recall_bin",
+  "cadw": 1.0,
+  "ref": 1.0,
+  "ref_src": "sklearn.metrics.recall_score",
+  "diff": 0.0,
+  "ok": true
+ },
+ {
+  "name": "f1_bin",
+  "cadw": 0.9090909090909091,
+  "ref": 0.9090909090909091,
+  "ref_src": "sklearn.metrics.f1_score",
+  "diff": 0.0,
+  "ok": true
+ }
+]

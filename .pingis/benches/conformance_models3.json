@@ -1,0 +1,14 @@
+[
+ {
+  "name": "iforest",
+  "diff": "fit_isolation_forest() got an unexpected keyword argument 'n_estimators'",
+  "ok": null,
+  "ref_src": "sklearn IForest"
+ },
+ {
+  "name": "coxph.reference",
+  "diff": "recomputed",
+  "ok": null,
+  "ref_src": "lifelines CoxPHFitter"
+ }
+]

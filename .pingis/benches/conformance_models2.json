@@ -1,0 +1,44 @@
+[
+ {
+  "name": "kmeans.inertia",
+  "diff": 5.931028359115999,
+  "ok": true,
+  "ref_src": "sklearn KMeans(n_init=10)"
+ },
+ {
+  "name": "kmeans.centers_sorted",
+  "diff": 0.33022174790689285,
+  "ok": false,
+  "ref_src": "sklearn KMeans"
+ },
+ {
+  "name": "pca.explained_variance",
+  "diff": 2.220446049250313e-16,
+  "ok": true,
+  "ref_src": "sklearn PCA"
+ },
+ {
+  "name": "pca.explained_variance_ratio",
+  "diff": 2.220446049250313e-16,
+  "ok": true,
+  "ref_src": "sklearn PCA"
+ },
+ {
+  "name": "gaussian_nb.class_prior",
+  "diff": 0.0,
+  "ok": true,
+  "ref_src": "sklearn GaussianNB"
+ },
+ {
+  "name": "gaussian_nb.theta",
+  "diff": 3.3306690738754696e-16,
+  "ok": true,
+  "ref_src": "sklearn GaussianNB"
+ },
+ {
+  "name": "gaussian_nb.var",
+  "diff": 2.9921287669765206e-11,
+  "ok": true,
+  "ref_src": "sklearn GaussianNB"
+ }
+]

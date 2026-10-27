@@ -1,0 +1,8 @@
+[
+ {
+  "name": "coxph.coef_",
+  "diff": 2.4445720566701468e-06,
+  "ok": true,
+  "ref_src": "lifelines CoxPHFitter (Efron ties)"
+ }
+]

@@ -1,0 +1,86 @@
+[
+ {
+  "base_mb": 83.7,
+  "peak_mb": 143.0,
+  "delta_mb": 59.2,
+  "err": null,
+  "case": "fit_sub_pca {'n': 20000, 'window_size': 64}"
+ },
+ {
+  "base_mb": 84.6,
+  "peak_mb": 133.7,
+  "delta_mb": 49.1,
+  "err": null,
+  "case": "fit_sub_pca {'n': 100000, 'window_size': 64}"
+ },
+ {
+  "base_mb": 83.5,
+  "peak_mb": 94.6,
+  "delta_mb": 11.1,
+  "err": null,
+  "case": "fit_kshape {'n': 10000, 'window_size': 64, 'n_clusters': 3, 'max_iter': 5}"
+ },
+ {
+  "base_mb": 83.6,
+  "peak_mb": 88.4,
+  "delta_mb": 4.8,
+  "err": null,
+  "case": "fit_dwt_mlead {'n': 20000}"
+ },
+ {
+  "base_mb": 83.9,
+  "peak_mb": 87.2,
+  "delta_mb": 3.4,
+  "err": null,
+  "case": "fit_eif {'n': 10000, 'n_estimators': 20, 'window_size': 32}"
+ },
+ {
+  "base_mb": 84.0,
+  "peak_mb": 84.7,
+  "delta_mb": 0.7,
+  "err": null,
+  "case": "fit_bocpd {'n': 20000}"
+ },
+ {
+  "base_mb": 84.4,
+  "peak_mb": 84.5,
+  "delta_mb": 0.1,
+  "err": null,
+  "case": "fit_bocpd {'n': 100000}"
+ },
+ {
+  "base_mb": 83.9,
+  "peak_mb": 88.8,
+  "delta_mb": 4.9,
+  "err": null,
+  "case": "fit_s2g {'n': 10000, 'window_size': 20, 'query_window_size': 50}"
+ },
+ {
+  "base_mb": 83.6,
+  "peak_mb": 103.3,
+  "delta_mb": 19.7,
+  "err": null,
+  "case": "fit_patch_memory_ad {'n': 10000, 'window_size': 50, 'n_epochs': 2}"
+ },
+ {
+  "base_mb": 83.6,
+  "peak_mb": 104.7,
+  "delta_mb": 21.0,
+  "err": null,
+  "case": "fit_autoencoder {'n': 10000, 'window_size': 50, 'n_epochs': 2}"
+ },
+ {
+  "base_mb": 83.7,
+  "peak_mb": 96.1,
+  "delta_mb": 12.4,
+  "err": null,
+  "case": "fit_kmeans_ad {'n': 10000, 'window_size': 50}"
+ },
+ {
+  "base_mb": 83.5,
+  "peak_mb": 96.4,
+  "delta_mb": 12.9,
+  "err": null,
+  "case": "fit_t2q {'n': 10000, 'window_size': 32}"
+ }
+]

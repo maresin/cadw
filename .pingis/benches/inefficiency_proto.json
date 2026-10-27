@@ -1,0 +1,24 @@
+[
+ {
+  "case": "win_copy (current)",
+  "delta_mb": 102.5,
+  "sec": 0.12,
+  "shape": "(199937, 64)"
+ },
+ {
+  "case": "win_view (zero-copy)",
+  "delta_mb": 0.0,
+  "sec": 0.0,
+  "shape": "(199937, 64)"
+ },
+ {
+  "case": "bocpd_full_rhistory",
+  "delta_mb": 0.0,
+  "sec": 0.0
+ },
+ {
+  "case": "bocpd_window_rhistory",
+  "delta_mb": 0.2,
+  "sec": 0.0
+ }
+]
