@@ -38,10 +38,14 @@ narrow vs full scope.
 - [ ] **P3.** kshape → 2-pass chunked centroid assignment (special
       case: strided alone insufficient; needs algorithm change).
       Removes G3 entry kshape::_sliding_windows.
-- [ ] **P2a.** Lambdamart — replace Xs list + vstack with SpillDir
-      (narrow: fixes transient peak, codes remains O(n·d)).
-- [ ] **P2b.** Lambdamart — codes=(n,d) uint8 → SpillDir + streaming
-      tree building (full out-of-core).
+- [x] **P2a.** Lambdamart — pre-allocated X/y (eliminate vstack
+      transient 2x peak). DONE 2026-10-27, commit f95... (P2a).
+      HONEST SCOPE: X still O(n*d) in RAM (whitelisted in G1 via
+      plan gate-whitelist). codes still O(n*d) uint8. y O(n).
+- [ ] **P2b.** Lambdamart — X + codes (n, d) → memmap; chunked
+      _build_tree histogram computation (fancy indexing
+      codes[idx, j] must be replaced with per-chunk bincount
+      aggregation). REMOVES G1 whitelist for lambdamart.
 - [ ] **P2c.** Lambdamart — scores/grad/hess per-iteration spilling.
 - [ ] **P1a.** GBDT multiclass — parallel-per-class rewrite
       (XGBoost-style: K trees simultaneously per batch, grad/hess
@@ -98,6 +102,7 @@ regression guards.
 
 <!-- gate-whitelist
 G1: cadw/ml/gbdt.py::_fit_boosting_multiclass
+G1: cadw/ml/lambdamart.py::fit_lambdamart
 G4: A.*
 G4: D1.*
 G4: D2.*
