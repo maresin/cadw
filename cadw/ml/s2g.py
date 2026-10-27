@@ -319,15 +319,26 @@ def fit_s2g(
 
     lam = max(1, window_size // 3)  # TimeEval: convolution_size = ℓ/3
 
+    # v0.9.87-fix1b (audit HIGH-1): est_bytes must cover BOTH
+    # (n_w, w) window arrays — one in fit_s2g (pattern_windows) and
+    # one inside _score_queries. Plus z = _local_convolution output
+    # (n_w, w-lam+1). Previous formula
+    # 8*(n_w)*(w-lam+1)*2 underestimates by ~1.5x.
     if guard is not None:
-        est_bytes = 8 * (n - window_size + 1) * (window_size - lam + 1) * 2
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            if est_bytes > limit_mb * 1024 * 1024:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"S2G estimated {est_bytes} bytes > "
-                    f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+        _n_w = n - window_size + 1
+        # window (fit_s2g) + conv output (z) + window (_score_queries)
+        # conservative: 4 * (n_w, w)
+        est_bytes = 8 * _n_w * window_size * 4
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="s2g.windows")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                if est_bytes > limit_mb * 1024 * 1024:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"S2G estimated {est_bytes} bytes > "
+                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
     # Compute pattern node trajectory (needed for graph)
     pattern_windows = np.lib.stride_tricks.sliding_window_view(

@@ -255,3 +255,29 @@ def test_eif_reference_sahandha_smoke():
     corr = float(np.corrcoef(ref_scores, our_scores)[0, 1])
     assert corr > 0.5, f"corr={corr:.3f} too low (ref vs ours)"
 
+def test_fit_eif_guard_raises_before_allocation(monkeypatch):
+    """v0.9.87-fix1b: guard fires BEFORE _make_windows allocation.
+
+    Regression for audit HIGH-1: eif.py allocated (n_w, d) window
+    array at line 301 BEFORE the guard at line 318. Move guard ahead.
+    """
+    from cadw.ml import eif as eif_mod
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    called = {"n": 0}
+    orig = eif_mod._make_windows
+
+    def spy(*a, **kw):
+        called["n"] += 1
+        return orig(*a, **kw)
+
+    monkeypatch.setattr(eif_mod, "_make_windows", spy)
+
+    guard = MemoryGuard(max_memory_mb=10)
+    x = np.random.default_rng(0).standard_normal(50_000)
+    with pytest.raises(MemoryLimitExceeded):
+        eif_mod.fit_eif(x, window_size=64, guard=guard)
+    assert called["n"] == 0, (
+        f"guard should fire BEFORE _make_windows; "
+        f"_make_windows was called {called['n']} time(s)")
+

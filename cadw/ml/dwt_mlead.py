@@ -230,16 +230,29 @@ def fit_dwt_mlead(
         )
 
     if guard is not None:
-        est_bytes = 8 * n * max_level
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            max_bytes = limit_mb * 1024 * 1024
-            if est_bytes > max_bytes:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"DWT-MLEAD estimated {est_bytes} bytes > "
-                    f"guard {max_bytes} bytes (limit_mb={limit_mb})"
-                )
+        # v0.9.87-fix1b (audit HIGH-1): safe upper bound for per-level
+        # window allocations. Previous 8*n*max_level underestimates
+        # for max_level >~ 6: per-level detail shrinks as n/2^l, but
+        # w_l = 2^((max_level-l)//2) — product (n/2^l)*w_l is
+        # dominated by the first level (smallest l). Peak at
+        # start_level: ~8*(n/2^start_level)*w_peak.
+        # w_peak = 2^((max_level-start_level)//2); conservative
+        # estimate: 4x (window + centered + safety margin).
+        _w_peak = max(2, 1 << ((max_level - start_level) // 2))
+        _n_peak = max(1, n >> start_level)
+        est_bytes = 8 * _n_peak * _w_peak * 4
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="dwt_mlead.windows")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                max_bytes = limit_mb * 1024 * 1024
+                if est_bytes > max_bytes:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"DWT-MLEAD estimated {est_bytes} bytes > "
+                        f"guard {max_bytes} bytes (limit_mb={limit_mb})"
+                    )
 
     anomaly_counts = np.zeros(n, dtype=np.int64)
     level_counts = np.zeros(max_level, dtype=np.int64)

@@ -159,3 +159,32 @@ def test_dwt_mlead_reference_aeon_smoke():
     result = fit_dwt_mlead(x)
     assert result.is_anomaly.shape == (500,)
 
+def test_fit_dwt_mlead_guard_fires_before_windows(monkeypatch):
+    """v0.9.87-fix1b: est_bytes safe upper bound; guard fires BEFORE
+    per-level _sliding_windows allocation.
+
+    n=100k, max_level~16: old est 8*n*L=12.8 MB (underestimates),
+    new est 8*(n/2^start)*2^((L-start)//2)*4 with start=1:
+    8*50k*128*4=205 MB. Guard at 20 MB -> new raises (old passed then
+    allocated per-level ~51 MB at level 1 -> OOM possible).
+    """
+    from cadw.ml import dwt_mlead as dm
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    called = {"n": 0}
+    orig = dm._sliding_windows
+
+    def spy(*a, **kw):
+        called["n"] += 1
+        return orig(*a, **kw)
+
+    monkeypatch.setattr(dm, "_sliding_windows", spy)
+
+    guard = MemoryGuard(max_memory_mb=20)
+    x = np.random.default_rng(0).standard_normal(100_000)
+    with pytest.raises(MemoryLimitExceeded):
+        dm.fit_dwt_mlead(x, guard=guard)
+    assert called["n"] == 0, (
+        f"guard should fire BEFORE _sliding_windows; "
+        f"_sliding_windows was called {called['n']} time(s)")
+

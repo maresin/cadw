@@ -285,3 +285,32 @@ def test_s2g_no_bench_deps_in_source():
             top = (node.module or "").split(".")[0]
             assert top not in forbidden, f"forbidden: {node.module}"
 
+def test_fit_s2g_guard_covers_score_queries(monkeypatch):
+    """v0.9.87-fix1b: est_bytes covers both pattern_windows AND
+    _score_queries windows.
+
+    n=10k, w=64 (lam=21): old est ~7 MB (old formula), new est
+    ~20 MB. Guard at 10 MB -> new raises BEFORE calling
+    _score_queries; old would have allocated first then raised (or
+    passed and OOM'd during _score_queries).
+    """
+    from cadw.ml import s2g as s2g_mod
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    called = {"n": 0}
+    orig = s2g_mod._score_queries
+
+    def spy(*a, **kw):
+        called["n"] += 1
+        return orig(*a, **kw)
+
+    monkeypatch.setattr(s2g_mod, "_score_queries", spy)
+
+    guard = MemoryGuard(max_memory_mb=10)
+    x = np.random.default_rng(0).standard_normal(10_000)
+    with pytest.raises(MemoryLimitExceeded):
+        s2g_mod.fit_s2g(x, window_size=64, guard=guard)
+    assert called["n"] == 0, (
+        f"guard should fire BEFORE _score_queries; "
+        f"_score_queries was called {called['n']} time(s)")
+

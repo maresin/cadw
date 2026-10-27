@@ -298,30 +298,52 @@ def fit_eif(
         raise ValueError(
             f"series length {n} < window_size {window_size}")
 
+    # v0.9.87-fix1b (audit HIGH-1): guard check BEFORE
+    # _make_windows allocation. Analytic shape only.
+    if stride < 1:
+        raise ValueError(f"stride must be >= 1, got {stride}")
+    n_w_pre = (n - window_size) // stride + 1
+    d_pre = window_size * c
+    if n_w_pre < 1:
+        raise ValueError(
+            f"n_windows={n_w_pre} < 1 (n={n}, window_size={window_size}, "
+            f"stride={stride})")
+    if max_samples == "auto":
+        _ms_pre = min(256, n_w_pre)
+    else:
+        _ms_pre = min(int(max_samples), n_w_pre)
+    if extension_level is None:
+        _ext_pre = d_pre - 1
+    else:
+        _ext_pre = int(extension_level)
+    if not (0 <= _ext_pre <= d_pre - 1):
+        raise ValueError(
+            f"extension_level must be in [0, {d_pre - 1}], "
+            f"got {extension_level}")
+
+    if guard is not None:
+        est_bytes = 8 * n_w_pre * d_pre
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="eif.windows")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                if est_bytes > limit_mb * 1024 * 1024:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"EIF estimated {est_bytes} bytes > "
+                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+
+    # Allocation happens ONLY after guard passes.
     windows = _make_windows(X, window_size, stride)
     n_w, d = windows.shape
-
+    # Canonicalize max_samples/extension_level (post-alloc, same values)
     if max_samples == "auto":
         max_samples = min(256, n_w)
     if max_samples > n_w:
         max_samples = n_w
-
     if extension_level is None:
         extension_level = d - 1
-    if not (0 <= extension_level <= d - 1):
-        raise ValueError(
-            f"extension_level must be in [0, {d - 1}], "
-            f"got {extension_level}")
-
-    if guard is not None:
-        est_bytes = 8 * n_w * d
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            if est_bytes > limit_mb * 1024 * 1024:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"EIF estimated {est_bytes} bytes > "
-                    f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
     forest = _EIFForest(
         n_estimators=n_estimators,

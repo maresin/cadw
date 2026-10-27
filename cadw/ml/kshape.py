@@ -342,16 +342,22 @@ def fit_kshape(
         raise ValueError(
             f"n_windows {n_windows} < n_clusters {n_clusters}")
 
+    # v0.9.87-fix1b (audit HIGH-1): est ×2 to account for the
+    # second allocation `znorm_windows = np.array([...])` right
+    # after `_sliding_windows`. Both are (n_w, w) float64 arrays.
     if guard is not None:
-        est_bytes = 8 * n_windows * window_size
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            max_bytes = limit_mb * 1024 * 1024
-            if est_bytes > max_bytes:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"KShape estimated {est_bytes} bytes > "
-                    f"guard {max_bytes} bytes (limit_mb={limit_mb})")
+        est_bytes = 8 * n_windows * window_size * 2
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="kshape.windows+znorm")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                max_bytes = limit_mb * 1024 * 1024
+                if est_bytes > max_bytes:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"KShape estimated {est_bytes} bytes > "
+                        f"guard {max_bytes} bytes (limit_mb={limit_mb})")
 
     windows = _sliding_windows(x, window_size)
     znorm_windows = np.array([_znormalize(w) for w in windows])

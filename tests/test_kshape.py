@@ -174,3 +174,34 @@ def test_kshape_reference_pyod_smoke():
     except AssertionError as e:
         pytest.skip(f"pyod reference differs (eigenvector degeneracy?): {e}")
 
+def test_fit_kshape_guard_accounts_for_znorm(monkeypatch):
+    """v0.9.87-fix1b: guard estimate covers BOTH windows and znorm.
+
+    Before: est = 8*n_w*w (windows only) — znorm (same size) unchecked.
+    After: est = 8*n_w*w*2.
+    Pick n_w*w such that 8*n_w*w < limit < 8*n_w*w*2 -> new guard
+    raises, old did not.
+    """
+    from cadw.ml import kshape as ks_mod
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    called = {"n": 0}
+    orig = ks_mod._sliding_windows
+
+    def spy(*a, **kw):
+        called["n"] += 1
+        return orig(*a, **kw)
+
+    monkeypatch.setattr(ks_mod, "_sliding_windows", spy)
+
+    # n=20k, w=64 -> n_w ~ 19937, 8*n_w*w ~= 10.2 MB (windows only);
+    # x2 = 20.4 MB. Guard at 15 MB -> old est (10.2) < 15 -> alloc
+    # then fail; new est (20.4) > 15 -> raise BEFORE alloc.
+    guard = MemoryGuard(max_memory_mb=15)
+    x = np.random.default_rng(0).standard_normal(20_000)
+    with pytest.raises(MemoryLimitExceeded):
+        ks_mod.fit_kshape(x, window_size=64, n_clusters=3, guard=guard)
+    assert called["n"] == 0, (
+        f"guard should fire BEFORE _sliding_windows; "
+        f"_sliding_windows called {called['n']} time(s)")
+
