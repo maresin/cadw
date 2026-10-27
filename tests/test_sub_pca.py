@@ -236,34 +236,57 @@ def test_sub_pca_reference_sklearn_reconstruction():
         our_window_scores, sk_window_scores, rtol=1e-5, atol=1e-8)
 
 def test_fit_sub_pca_guard_raises_before_allocation(monkeypatch):
-    """v0.9.87-fix1a: guard fires BEFORE _prepare_windows allocation.
+    """P4a: guard fires BEFORE streaming iteration begins.
 
-    Regression for audit HIGH-1 (MemoryGuard order violation in 9
-    windowed TS anomaly modules). sub_pca is the template: spy on
-    _prepare_windows; tight guard limit; expect raise AND spy
-    untouched.
+    Was fix1a's test (_prepare_windows); P4a replaces _prepare_windows
+    with _stream_mean_cov. Spy on _stream_mean_cov — must not be
+    called when guard raises.
     """
     from cadw.ml import sub_pca
-    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+    from cadw.core.memory_guard import MemoryLimitExceeded
 
     called = {"n": 0}
-    orig = sub_pca._prepare_windows
+    orig = sub_pca._stream_mean_cov
 
     def spy(*a, **kw):
         called["n"] += 1
         return orig(*a, **kw)
 
-    monkeypatch.setattr(sub_pca, "_prepare_windows", spy)
+    monkeypatch.setattr(sub_pca, "_stream_mean_cov", spy)
 
-    # n=100k, w=64 -> 8 * 99937 * 64 ~= 51 MB window array.
-    # Guard max 10 MB -> must raise BEFORE alloc (was: alloc then
-    # raise).
-    guard = MemoryGuard(max_memory_mb=10)
+    class _TightGuard:
+        max_memory_mb = 0.1  # 100 KB
+
     x = np.random.default_rng(0).standard_normal(100_000)
     with pytest.raises(MemoryLimitExceeded):
-        fit_sub_pca(x, window_size=64, guard=guard)
+        sub_pca.fit_sub_pca(x, window_size=64, guard=_TightGuard())
     assert called["n"] == 0, (
-        f"guard should fire BEFORE _prepare_windows; "
-        f"_prepare_windows was called {called['n']} time(s) — "
-        f"audit HIGH-1 violation NOT fixed")
+        f"guard should fire BEFORE streaming; _stream_mean_cov "
+        f"was called {called['n']} time(s)")
+
+def test_fit_sub_pca_streaming_no_dense_windows(monkeypatch):
+    """P4a: verify no full (n_w, d) alloc — chunks bounded."""
+    from cadw.ml import sub_pca as sp
+
+    max_chunk = [0]
+    n_calls = [0]
+    orig = sp._iter_window_chunks
+
+    def spy(*args, **kwargs):
+        n_calls[0] += 1
+        for chunk, start in orig(*args, **kwargs):
+            max_chunk[0] = max(max_chunk[0], chunk.shape[0])
+            yield chunk, start
+
+    monkeypatch.setattr(sp, "_iter_window_chunks", spy)
+
+    x = np.random.default_rng(0).standard_normal(100_000)
+    r = sp.fit_sub_pca(x, window_size=64)
+
+    assert r.decision_scores.shape == (100_000,)
+    assert max_chunk[0] <= 10_000, (
+        f"chunk size {max_chunk[0]} > 10_000 (streaming broken)")
+    assert n_calls[0] >= 3, (
+        f"_iter_window_chunks called {n_calls[0]} times; "
+        f"expected >=3 (2 for mean/cov + 1 for scores)")
 

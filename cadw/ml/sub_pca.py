@@ -87,8 +87,8 @@ def _probe_memory_limit_mb(guard) -> float | None:
     return None
 
 
-def _sliding_windows(x: np.ndarray, w: int) -> np.ndarray:
-    return np.lib.stride_tricks.sliding_window_view(x, w).copy()
+# v0.9.87-P4a: _sliding_windows removed (dead helper; no call sites
+# in cadw/ or tests/). Streaming uses _iter_window_chunks below.
 
 
 def _fit_pca_eigh(centered: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -176,6 +176,102 @@ def _map_mean(window_scores: np.ndarray, w: int, n: int,
     return sums / counts
 
 
+# v0.9.87-P4a (audit HIGH-1 full fix): streaming chunk helpers.
+# Peak RAM O(chunk_nw * d) regardless of n. Output bit-identical
+# within float precision (only cov/eig accumulation order differs
+# vs pre-P4a; residual math unchanged).
+#
+# See METHODOLOGY_ALGORITHM_SELECTION.md §5 (windowed state_type);
+# PRIMITIVES_AND_PRINCIPLES.md §6 anti-patterns (G3).
+
+
+def _resolve_chunk_nw(d: int, guard=None) -> int:
+    """Choose chunk size so per-chunk peak RAM stays within budget.
+
+    Default target: 8 MB per chunk. If guard exposes
+    state_limit_bytes, cap target to state_limit // 8.
+    """
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        state_limit = getattr(guard, "state_limit_bytes", None)
+        if (isinstance(state_limit, (int, float))
+                and state_limit > 0):
+            target_bytes = min(int(target_bytes),
+                               max(1, int(state_limit) // 8))
+    bytes_per_window = 8 * max(int(d), 1) * 6
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
+def _iter_window_chunks(X: np.ndarray, window_size: int,
+                        stride: int, chunk_nw: int):
+    """Yield (chunk, abs_start) chunks of shape (nb, w*c) from X.
+
+    Only `chunk_nw` windows are materialized at a time (nb <= chunk_nw).
+    """
+    if X.ndim == 1:
+        n = len(X); c = 1
+    elif X.ndim == 2:
+        n, c = X.shape
+    else:
+        raise ValueError(
+            f"series must be 1D or 2D, got ndim={X.ndim}")
+    n_w = (n - window_size) // stride + 1
+    offsets = np.arange(window_size, dtype=np.int64)
+    for start in range(0, n_w, chunk_nw):
+        end = min(start + chunk_nw, n_w)
+        nb = end - start
+        abs_starts = np.arange(start, end, dtype=np.int64) * stride
+        idx = abs_starts[:, None] + offsets[None, :]
+        if c == 1:
+            chunk = X[idx]
+        else:
+            chunk = X[idx].reshape(nb, window_size * c)
+        yield chunk, start
+
+
+def _stream_mean_cov(X: np.ndarray, window_size: int, stride: int,
+                     chunk_nw: int, d: int):
+    """2-pass streaming mean + covariance; peak O(chunk_nw*d + d^2)."""
+    total = np.zeros(d, dtype=np.float64)
+    n_w = 0
+    for chunk, _ in _iter_window_chunks(
+            X, window_size, stride, chunk_nw):
+        total += chunk.sum(axis=0)
+        n_w += chunk.shape[0]
+    if n_w < 2:
+        raise ValueError(
+            f"too few windows for covariance: n_w={n_w} < 2")
+    mean = total / n_w
+
+    M2 = np.zeros((d, d), dtype=np.float64)
+    for chunk, _ in _iter_window_chunks(
+            X, window_size, stride, chunk_nw):
+        centered = chunk - mean
+        M2 += centered.T @ centered
+    cov = M2 / (n_w - 1)
+    return mean, cov
+
+
+def _stream_residual_scores(X: np.ndarray, window_size: int,
+                            stride: int, chunk_nw: int,
+                            mean: np.ndarray,
+                            components: np.ndarray) -> np.ndarray:
+    """Streaming residual norms per window; peak O(chunk_nw*d)."""
+    scores_chunks = []
+    for chunk, _ in _iter_window_chunks(
+            X, window_size, stride, chunk_nw):
+        centered = chunk - mean
+        proj = centered @ components.T
+        recon = proj @ components
+        residual = centered - recon
+        scores_chunks.append(np.linalg.norm(residual, axis=1))
+    if not scores_chunks:
+        return np.zeros(0, dtype=np.float64)
+    return np.concatenate(scores_chunks)
+
+
 def _prepare_windows(series: np.ndarray, window_size: int,
                      stride: int = 1) -> tuple:
     """Return (windows, n, n_channels).
@@ -239,12 +335,19 @@ def fit_sub_pca(
     -------
     SubPCAResult
     """
-    # v0.9.87-fix1a (audit HIGH-1): guard check BEFORE
-    # _prepare_windows allocation. Analytic shape only — no window
-    # array built yet.
-    _arr = np.asarray(series)
-    n_pre = int(_arr.shape[0]) if _arr.ndim >= 1 else 0
-    c_pre = 1 if _arr.ndim == 1 else int(np.prod(_arr.shape[1:]))
+    # v0.9.87-P4a (audit HIGH-1 full fix): streaming chunked
+    # pipeline. Peak RAM O(chunk_nw*d) regardless of n. Output
+    # bit-identical within float precision (only cov/eig accumulation
+    # order differs vs pre-P4a; residual math unchanged).
+    _arr = np.asarray(series, dtype=np.float64)
+    if _arr.ndim == 1:
+        n_pre = len(_arr)
+        c_pre = 1
+    elif _arr.ndim == 2:
+        n_pre, c_pre = _arr.shape
+    else:
+        raise ValueError(
+            f"series must be 1D or 2D, got ndim={_arr.ndim}")
     if n_pre < window_size:
         raise ValueError(
             f"series length {n_pre} < window_size {window_size}")
@@ -255,38 +358,39 @@ def fit_sub_pca(
             f"(n={n_pre}, window_size={window_size})")
     d_pre = window_size * c_pre
 
+    chunk_nw = _resolve_chunk_nw(d_pre, guard)
+
     if guard is not None:
-        est_bytes = 8 * n_w_pre * d_pre
-        # Prefer canonical MemoryGuard API (real guard).
-        # Fall back to legacy probe for duck-typed guards (test
-        # doubles with only `max_memory_mb` attribute).
+        est_bytes = chunk_nw * d_pre * 8 * 6
         if hasattr(guard, "check_state") and callable(guard.check_state):
-            guard.check_state(est_bytes, name="sub_pca.windows")
+            guard.check_state(est_bytes, name="sub_pca.chunk")
         else:
             limit_mb = _probe_memory_limit_mb(guard)
             if limit_mb is not None and limit_mb > 0:
                 if est_bytes > limit_mb * 1024 * 1024:
                     from cadw.core.memory_guard import MemoryLimitExceeded
                     raise MemoryLimitExceeded(
-                        f"Sub-PCA estimated {est_bytes} bytes > "
-                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+                        f"Sub-PCA per-chunk estimate {est_bytes} "
+                        f"bytes > guard "
+                        f"{limit_mb * 1024 * 1024:.0f} bytes")
 
-    # Allocation happens ONLY after the guard passes.
-    windows, n, c = _prepare_windows(series, window_size, stride=1)
-    n_w = len(windows)
-    d = windows.shape[1]
+    # Pass 1+2: mean + cov (streaming, O(chunk_nw*d))
+    mean_w, cov = _stream_mean_cov(
+        _arr, window_size, 1, chunk_nw, d_pre)
 
-    mean_w = windows.mean(axis=0)
-    centered = windows - mean_w
+    # Eigh on (d, d) covariance — same as pre-P4a
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    order = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
+    k = _resolve_k(n_components, eigvals, d_pre)
+    components = eigvecs[:, :k].T  # (k, d_pre)
 
-    eigvals, eigvecs = _fit_pca_eigh(centered)
-    k = _resolve_k(n_components, eigvals, d)
-    components = eigvecs[:, :k].T  # (k, d)
+    # Pass 3: streaming residual norms (O(chunk_nw*d))
+    window_scores = _stream_residual_scores(
+        _arr, window_size, 1, chunk_nw, mean_w, components)
 
-    proj = centered @ components.T  # (n_w, k)
-    recon = proj @ components  # (n_w, w)
-    residual = centered - recon
-    window_scores = np.linalg.norm(residual, axis=1)
+    n = n_pre
 
     if aggregate == "max":
         scores = _map_max(window_scores, window_size, n)
