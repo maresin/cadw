@@ -1,5 +1,73 @@
 ## [Unreleased]
 
+### v0.9.78 (2026-10-27) - OTM + AutoTheta (CV-selected STM/OTM)
+
+Closes D1 uni-forecast with SOTA-class classical: OTM (weight-
+optimized STM) and AutoTheta (CV-selected STM/OTM x additive/
+multiplicative). AutoTheta replaces AutoETS in the 3-role ensemble.
+
+OTM (cadw/ts/otm.py, ~280 LOC, v0.9.78a):
+  OTMThetaForecaster: STM with theta=2 fixed, (w2, alpha) grid search
+  on in-sample MSE. Practical variant of Fiorucci et al. (2016) OTM;
+  full OTM (theta optimization + explicit drift) in backlog.
+  Capability flags (handles_trend/seas/multi=False).
+  15 tests: OLS/SES helpers, contract, weights selection on trend,
+  competitive MASE, no-worse-than-STM on trend, determinism,
+  PI, capability flags, AST guard.
+
+  Bench (n=500, s=12):
+    M3-like:          OTM 0.209  STM 0.201  AutoETS 0.276
+    Trend-dominated:  OTM 0.296  STM 0.652
+  OTM 2.2x better than STM on trend-dominated (targeted fix).
+  Honest limitation: OTM selects w2=0.1 (grid boundary) on both DGPs;
+  on M3-like slightly worse than STM (0.209 vs 0.201) due to in-sample
+  overfit toward OLS.
+
+AutoTheta (cadw/ts/auto_theta.py, ~380 LOC, v0.9.78b):
+  AutoThetaForecaster: evaluates 4 candidates (STM/OTM x additive/
+  multiplicative), holdout MASE selection, refit winner on full
+  series. Additive via STL; multiplicative via log-transform + additive
+  STL. Skips multiplicative when y<=0. Fallback Naive if no candidate.
+  17 tests: helpers (naive seasonal MAE, MASE), contract, selection
+  min-MASE, M3-like competitive, trend-dominated competitive, skip
+  multiplicative on negative, determinism, val_steps explicit,
+  short-series raise, PI, fallback, capability flags, AST guard.
+
+  Bench (n=500, s=12):
+    M3-like:          AutoTheta 0.209 (selected OTM)
+                      vs AutoETS 0.276 (-24%), 1.4s vs 38.6s (-96%)
+    Trend-dominated:  AutoTheta 0.296 (selected OTM)
+                      vs STM 0.652 (2.2x)
+  AutoTheta beats AutoETS 24% on M3-like and 30x faster.
+  HONEST LIMITATION: on M3-like, CV-holdout selected OTM (val MASE
+  1.15) but STM generalized slightly better on test (0.201 vs 0.209).
+  Holdout-selection risk documented. K-fold CV is backlog.
+
+D1 ensemble: [SARIMA, AutoETS, GBDT] -> [SARIMA, AutoTheta, GBDT].
+  AutoTheta replaces AutoETS in ensemble:
+  - both expose temporal_dynamics+probabilistic; AutoTheta has better
+    fev MASE (1.381 vs AutoETS 1.525) and is 5-30x faster
+  - AutoETS remains as standalone verified card
+  - max_per_role=2 unchanged (SARIMA+AutoTheta both temporal_dynamics)
+  - roles: temporal_dynamics + probabilistic + nonlinear_interactions
+
+D1 verified count: 6 -> 8 (Naive, ETS, AutoETS, Theta, AutoTheta,
+SARIMA, GBDTForecaster + 1 more). AutoTheta tier=sota, Theta tier=
+baseline (documented limitation).
+
+Version 0.9.77 -> 0.9.78.
+
+Backlog: 15 items. Added "AutoTheta: k-fold CV instead of single
+holdout (mitigate selection risk)" to backlog.
+
+Fast suite: 3384 -> 3418 passed (+34: OTM 15 + AutoTheta 17 + 2 fev note tinkering).
+Focused: 3416 passed. WL 34 OK. AST-guard 129 passed.
+audit_leakage 7 warnings (pretrained). audit_url_log 0 errors.
+MATRIX.md + 40 docs/tasks/*.md regenerated.
+
+Next: v0.9.79 — Croston (intermittent demand) OR transforms.py
+foundation (Differencer, MSTLTransformer, AutoStationarizer).
+
 ### v0.9.77 (2026-10-27) - STL decomposition + Theta (STM) on STL
 
 Adds STL (Seasonal-Trend decomposition using LOESS) as a foundation

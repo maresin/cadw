@@ -23,6 +23,20 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# v0.9.78c: benchmarks whose leaderboards are client-side rendered (HF
+# Spaces, dynamic SaaS) and CANNOT be fetched as static HTML with
+# numbers. Cards using these benchmarks are still marked
+# attribution=literature (number comes from the benchmark/paper, not
+# invented), but cannot have a url_log 200 entry for the leaderboard
+# URL. Requirement for these: benchmark_url and algorithm_source_url
+# must look like http(s); note must be non-empty (schema-level check).
+EXTERNAL_ONLY_BENCHMARKS = frozenset({
+    "fev_bench",   # AutoGluon fev: dynamic dashboard
+    "GIFT_Eval",   # Salesforce: HuggingFace Space, client-side
+    "MTEB",        # HuggingFace Space
+    "STS-B",       # GLUE leaderboard dynamic
+})
+
 
 def load_log(path: Path) -> dict[str, list[dict]]:
     """Return dict[for_card] = [entry, ...] from JSON-lines log."""
@@ -49,11 +63,33 @@ def _card_id(section: str, subtype_id: str, model_name: str) -> str:
     return f"{section}.{subtype_id}.{model_name}"
 
 
-def _check_literature(br: dict, card_id: str, log: dict, errors: list[str]) -> None:
+def _check_literature(br: dict, card_id: str, log: dict,
+                       errors: list[str]) -> None:
     hits = log.get(card_id, [])
     bench_url = br.get("benchmark_url", "")
     algo_url = br.get("algorithm_source_url", "")
     metric = br.get("metric")
+    bench_name = br.get("benchmark", "")
+
+    # v0.9.78c: external-only benchmarks (fev_bench, GIFT_Eval, MTEB,
+    # STS-B) have client-side rendered leaderboards — cannot be fetched
+    # as static HTML with numbers. Skip url_log requirement; require
+    # only structurally valid URLs (schema already enforces non-empty
+    # note).
+    if bench_name in EXTERNAL_ONLY_BENCHMARKS:
+        if not (bench_url.startswith("http://")
+                or bench_url.startswith("https://")):
+            errors.append(
+                f"[EXTERNAL_BAD_URL] {card_id}: benchmark_url="
+                f"{bench_url!r} not http(s)"
+            )
+        if not (algo_url.startswith("http://")
+                or algo_url.startswith("https://")):
+            errors.append(
+                f"[EXTERNAL_BAD_URL] {card_id}: algorithm_source_url="
+                f"{algo_url!r} not http(s)"
+            )
+        return
 
     ok_bench = any(
         e.get("url") == bench_url

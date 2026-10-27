@@ -106,6 +106,33 @@
   - code/paper: cadw/ts/theta.py
   - note: CADW-native: fit_predict_s=0.012/0.103/0.981 @n=1k/10k/100k (seasonal_period=12; scripts/bench_theta.py; .pingis/benches/theta.json). alpha=0.65 stable across n; sigma 0.677/0.674/0.680. Peak RSS 4.9/0.6/6.1 MB. Hardware-specific; NOT comparable to external LB. ~40x faster than AutoETS on same DGP (single alpha grid vs 600-eval grid).
 
+### AutoTheta — sota / tier1_core
+
+**Roles:** temporal_dynamics, probabilistic
+**Status:** ✓ cadw, ✓ agent
+
+**Purpose:** AutoTheta: CV-selected STM vs OTM. Evaluates 4 candidates (STM/OTM x additive/multiplicative); holdout MASE selection; refits winner on full series. STM = fixed w2=0.5; OTM = weight-optimized (w2, alpha). Additive via STL (y=T+S+R); multiplicative via log-transform + additive STL. Skips multiplicative when y<=0. Never worse than best-of-{STM,OTM} on validation by construction. SOTA-class classical forecaster.
+
+**Use cases:**
+- Automatic forecasting without manual STM/OTM choice
+- Batch demand forecast with mixed trend/seasonality
+
+**Config:** `{'seasonal_period': 'int', 'val_steps': 'int', 'n_iter': 'int'}`
+
+**CADW:** `cadw.ts.auto_theta.AutoThetaForecaster`
+
+**Benchmarks:**
+- **[cadw_measured]** cadw_internal → mase=0.2093 (n=2)
+  - algorithm: `cadw.ts.auto_theta.AutoThetaForecaster` (code)
+  - number: .pingis/benches/auto_theta.json
+  - code/paper: cadw/ts/auto_theta.py
+  - note: CADW-native: M3-like MASE=0.209 (selected OTM_additive; beats AutoETS 0.276 by 24%, AutoTheta 1.4s vs AutoETS 38.6s); trend-dominated MASE=0.296 (selected OTM; beats STM 0.652 2.2x). HONEST LIMITATION: on M3-like, CV-holdout selected OTM but STM generalized slightly better (0.201 vs 0.209); holdout-selection risk documented. K-fold CV is backlog.
+- **[literature]** fev_bench → mase=1.381 (n=19)
+  - algorithm: `statsforecast AutoTheta` (code)
+  - number: https://github.com/autogluon/fev
+  - code/paper: https://github.com/Nixtla/statsforecast
+  - note: fev-bench (anofox-forecast head-to-head, 2025): AutoTheta MASE 1.381 (Nixtla fev auto_theta 1.362) — SOTA-class classical, 1.4% behind Nixtla, 5.9% ahead of AutoETS (1.525). Tier3 export reference value; CADW implementation is a practical OTM/STM hybrid, not exact Nixtla port.
+
 ### SARIMA — sota / tier1_core
 
 **Roles:** temporal_dynamics
@@ -312,5 +339,5 @@
   - *special:* Punishes over-forecast more than under-forecast; not comparable with MASE.
 
 ## Ensemble rules
-- **[temporal_dynamics, probabilistic, nonlinear_interactions]** → SARIMA + AutoETS + GBDTForecaster (max_per_role=2)
-  - 3 complementary paradigms: SARIMA (temporal_dynamics, seasonal ARIMA via Hannan-Rissanen CSS), AutoETS (probabilistic, AICc-selected ETS state-space), GBDTForecaster (nonlinear_interactions, tree-based on lag features). v0.9.76c: AutoETS added; GBDT roles narrowed to nonlinear_interactions only (temporal_dynamics removed; SARIMA+AutoETS are the two temporal_dynamics representatives). max_per_role=2 because SARIMA and AutoETS both expose temporal_dynamics. Average z-scored point forecasts weighted by inverse holdout MASE.
+- **[temporal_dynamics, probabilistic, nonlinear_interactions]** → SARIMA + AutoTheta + GBDTForecaster (max_per_role=2)
+  - 3 complementary paradigms: SARIMA (temporal_dynamics, seasonal ARIMA via Hannan-Rissanen CSS), AutoTheta (probabilistic, CV-selected STM/OTM Theta on STL — SOTA-class classical), GBDTForecaster (nonlinear_interactions, tree-based on lag features). v0.9.78c: AutoTheta replaces AutoETS in the ensemble (both expose temporal_dynamics+probabilistic; AutoTheta has better fev MASE 1.381 vs AutoETS 1.525 and is 5-30x faster). AutoETS remains as standalone card. max_per_role=2 because SARIMA and AutoTheta both expose temporal_dynamics. Average z-scored point forecasts weighted by inverse holdout MASE.

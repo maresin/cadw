@@ -1,0 +1,96 @@
+{
+  "n": 500,
+  "seasonal_period": 12,
+  "note": "AutoTheta evaluates 4 candidates (STM/OTM x additive/multiplicative) on holdout MASE, refits winner. Should select STM on M3-like (STM wins slightly) and OTM on trend-dominated (OTM 2.2x better). Never worse than the best candidate on val by construction.",
+  "results": {
+    "m3_like": {
+      "auto_theta": {
+        "mase": 0.2093,
+        "fit_predict_s": 1.361,
+        "peak_rss_mb": 22.1,
+        "selected_config": {
+          "label": "OTM_additive",
+          "note": "OTM, additive decomposition",
+          "val_mase": 1.154965886291998
+        },
+        "cv_scores": [
+          {
+            "label": "STM_additive",
+            "note": "STM, additive decomposition",
+            "val_mase": 2.5381522802269476
+          },
+          {
+            "label": "OTM_additive",
+            "note": "OTM, additive decomposition",
+            "val_mase": 1.154965886291998
+          },
+          {
+            "label": "STM_multiplicative",
+            "note": "STM on log(y) (= multiplicative decomposition)",
+            "val_mase": 4.469007795996086
+          },
+          {
+            "label": "OTM_multiplicative",
+            "note": "OTM on log(y) (= multiplicative decomposition)",
+            "val_mase": 4.530079854714317
+          }
+        ]
+      },
+      "stm": {
+        "mase": 0.2012,
+        "fit_predict_s": 0.175
+      },
+      "otm": {
+        "mase": 0.2093,
+        "fit_predict_s": 0.19
+      },
+      "auto_ets": {
+        "mase": 0.2757,
+        "fit_predict_s": 38.637
+      }
+    },
+    "trend_dominated": {
+      "auto_theta": {
+        "mase": 0.2964,
+        "fit_predict_s": 0.724,
+        "peak_rss_mb": 0.16,
+        "selected_config": {
+          "label": "OTM_additive",
+          "note": "OTM, additive decomposition",
+          "val_mase": 0.5532531746538304
+        },
+        "cv_scores": [
+          {
+            "label": "STM_additive",
+            "note": "STM, additive decomposition",
+            "val_mase": 2.322395856808369
+          },
+          {
+            "label": "OTM_additive",
+            "note": "OTM, additive decomposition",
+            "val_mase": 0.5532531746538304
+          },
+          {
+            "label": "STM_multiplicative",
+            "note": "STM on log(y) (= multiplicative decomposition)",
+            "val_mase": 2.7317561645448367
+          },
+          {
+            "label": "OTM_multiplicative",
+            "note": "OTM on log(y) (= multiplicative decomposition)",
+            "val_mase": 2.7317561645448367
+          }
+        ]
+      },
+      "stm": {
+        "mase": 0.6523,
+        "fit_predict_s": 0.191
+      },
+      "otm": {
+        "mase": 0.2964,
+        "fit_predict_s": 0.168
+      },
+      "auto_ets": null
+    }
+  }
+}

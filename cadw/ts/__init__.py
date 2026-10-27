@@ -18,7 +18,9 @@ from .ets import ETSForecaster
 from .auto_ets import AutoETSForecaster  # noqa: E402,F401  v0.9.76b
 
 from .theta import ThetaForecaster
-from .otm import OTMThetaForecaster  # noqa: E402,F401  v0.9.78a
+from .otm import OTMThetaForecaster
+from .auto_theta import AutoThetaForecaster  # noqa: E402,F401  v0.9.78b
+  # noqa: E402,F401  v0.9.78a
 
 from .var import VARModel
 
