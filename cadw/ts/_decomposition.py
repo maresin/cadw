@@ -159,6 +159,7 @@ def stl_decompose(
     seasonal_window: int = 7,
     trend_window: int | None = None,
     n_iter: int = 2,
+    memory_guard=None,
 ) -> STLResult:
     """STL decomposition: y = trend + seasonal + remainder.
 
@@ -190,6 +191,25 @@ def stl_decompose(
             f"n={n} < 2*period={2*period}; need at least 2 cycles")
     if n_iter < 1:
         raise ValueError(f"n_iter must be >= 1, got {n_iter}")
+
+    # v0.9.87-ts-transforms-guard: STL allocates ~6 n-sized float64
+    # arrays (trend, seasonal, remainder + LOESS/intermediate work
+    # columns). Guard before alloc so large n raises
+    # MemoryLimitExceeded, not silent OOM. Lazy import preserves
+    # module purity (no cadw.* at top of file).
+    if memory_guard is not None:
+        from cadw.core.memory_guard import MemoryLimitExceeded
+        est_state = n * 8 * 8 + 4096  # ~8n float64 conservative bound
+        try:
+            memory_guard.check_state(
+                est_state, name="stl_decompose.state")
+        except MemoryLimitExceeded:
+            raise MemoryLimitExceeded(
+                f"stl_decompose: estimated peak {est_state} B "
+                f"(n={n}, ~8n float64) exceeds state_limit. "
+                f"STL requires full series in RAM; reduce n or use "
+                f"chunked / streaming decomposition (backlog). "
+                f"§13.4 v0.9.87")
 
     if trend_window is None:
         # R's default: nextodd(ceil(1.5*period / (1 - 1.5/seasonal_window)))

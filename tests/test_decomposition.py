@@ -191,3 +191,30 @@ def test_decomposition_no_bench_deps_in_source():
             assert top not in forbidden, (
                 f"forbidden import-from: {node.module}")
 
+def test_stl_decompose_guard_raises_small_limit():
+    """v0.9.87-fix4: stl_decompose guard raises before alloc."""
+    import numpy as np
+    import pytest
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+    from cadw.ts._decomposition import stl_decompose
+
+    n = 10000
+    y = np.sin(2 * np.pi * np.arange(n) / 12)
+    mg = MemoryGuard(max_memory_bytes=1024)
+    with pytest.raises(MemoryLimitExceeded):
+        stl_decompose(y, period=12, memory_guard=mg)
+
+
+def test_stl_decompose_no_guard_still_works():
+    """v0.9.87-fix4: memory_guard=None -> no check, same result."""
+    import numpy as np
+    from cadw.ts._decomposition import stl_decompose
+
+    n = 200
+    t = np.arange(n)
+    y = 5.0 + 2.0 * np.sin(2 * np.pi * t / 12) + 0.05 * t
+    r = stl_decompose(y, period=12)
+    assert r.trend.shape == (n,)
+    assert r.seasonal.shape == (n,)
+    assert r.remainder.shape == (n,)
+

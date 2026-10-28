@@ -56,6 +56,13 @@ References:
 Pure numpy; no sklearn/statsmodels/scipy/torch (AST-guard). Lazy
 import of transforms (circular-dep avoidance: transforms.py imports
 ForecasterBase from models.py, not from ml/).
+
+v0.9.87-ts-transforms-guard: fit_predict gains memory_guard kw.
+Passes to stl_decompose (guarded ~8n alloc); differencing branch
+guards np.diff(n-1). Structural mode has no additional n-sized
+alloc. Known limitation: detector_fn may internally allocate O(n)
+without guard — user should pass memory_guard to detector if it
+accepts one.
 """
 from __future__ import annotations
 
@@ -63,6 +70,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import numpy as np
+
+from cadw.core.memory_guard import MemoryLimitExceeded
 
 
 @dataclass
@@ -190,7 +199,8 @@ class AnomalyPipeline:
             return "contextual", ["diff_d1"]
         return "structural", []
 
-    def fit_predict(self, series: np.ndarray) -> AnomalyPipelineResult:
+    def fit_predict(self, series: np.ndarray, *,
+                    memory_guard=None) -> AnomalyPipelineResult:
         y = np.asarray(series, dtype=np.float64).ravel()
         n = y.size
         if n < 4:
@@ -226,7 +236,9 @@ class AnomalyPipeline:
         # Contextual with STL: length preserved.
         if "stl" in transforms:
             from cadw.ts._decomposition import stl_decompose
-            decomp = stl_decompose(y, period=self.seasonal_period)
+            decomp = stl_decompose(
+                y, period=self.seasonal_period,
+                memory_guard=memory_guard)
             residual = decomp.remainder
             result = self.detector_fn(residual, **self.detector_kwargs)
             scores, labels = _extract_scores_and_labels(result)
@@ -245,6 +257,17 @@ class AnomalyPipeline:
 
         # Contextual with differencing: length loss d=1.
         if "diff_d1" in transforms:
+            # v0.9.87-ts-transforms-guard: n-1 float64 diff
+            if memory_guard is not None:
+                est = (n - 1) * 8 + 1024
+                try:
+                    memory_guard.check_state(
+                        est, name="anomaly_pipeline.diff_state")
+                except MemoryLimitExceeded:
+                    raise MemoryLimitExceeded(
+                        f"AnomalyPipeline: differencing needs "
+                        f"(n-1)*8 = {(n - 1) * 8} B; exceeds "
+                        f"state_limit. n={n}. §13.4 v0.9.87")
             diffed = np.diff(y)
             result = self.detector_fn(diffed, **self.detector_kwargs)
             scores_d, labels_d = _extract_scores_and_labels(result)

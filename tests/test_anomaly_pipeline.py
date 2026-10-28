@@ -267,3 +267,43 @@ def test_anomaly_pipeline_no_bench_deps_in_source():
             assert top not in forbidden, (
                 f"forbidden import-from: {node.module}")
 
+def test_pipeline_guard_stl_raises_small_limit():
+    """v0.9.87-fix4: guard raises on tight limit (STL branch)."""
+    import numpy as np
+    import pytest
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    n = 10000
+    y = 5.0 * np.sin(2 * np.pi * np.arange(n) / 12)
+    pipe = AnomalyPipeline(_fake_detector_threshold,
+                           mode="contextual", seasonal_period=12)
+    mg = MemoryGuard(max_memory_bytes=1024)
+    with pytest.raises(MemoryLimitExceeded):
+        pipe.fit_predict(y, memory_guard=mg)
+
+
+def test_pipeline_guard_diff_raises_small_limit():
+    """v0.9.87-fix4: guard raises on tight limit (diff branch)."""
+    import numpy as np
+    import pytest
+    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+
+    n = 10000
+    y = np.arange(n, dtype=np.float64)
+    pipe = AnomalyPipeline(_fake_detector_threshold,
+                           mode="contextual", detrend=True)
+    mg = MemoryGuard(max_memory_bytes=1024)
+    with pytest.raises(MemoryLimitExceeded):
+        pipe.fit_predict(y, memory_guard=mg)
+
+
+def test_pipeline_no_guard_backward_compat():
+    """v0.9.87-fix4: memory_guard=None default -> prior behavior."""
+    import numpy as np
+
+    y = np.array([0.5, -0.6, 5.0, 0.3, -0.4, 0.2, 0.1, 0.3])
+    pipe = AnomalyPipeline(_fake_detector_threshold,
+                           mode="structural", threshold=1.0)
+    r = pipe.fit_predict(y)
+    assert r.labels[2] == 1
+
