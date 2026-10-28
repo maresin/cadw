@@ -101,7 +101,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - probabilistic
     purpose: 'Non-parametric product-limit estimator of the marginal survival curve. Inductive bias: no covariate effects — only the pooled survival function, so it is the canonical right-censored baseline that any covariate model must improve.'
@@ -128,7 +129,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - linear_signal
     - probabilistic

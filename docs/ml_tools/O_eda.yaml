@@ -333,7 +333,8 @@ subtypes:
     tier: baseline
     tier_level: tier1_core
     implementation_status:
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - representation
     purpose: 'Expand a categorical column to one binary indicator per category. Inductive bias: categories are independent; high cardinality explodes dimensionality.'
@@ -693,7 +694,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - probabilistic
     purpose: 'Split preserving class proportions in each fold. Inductive bias: class is the stratifier; correct when the target is the source of imbalance.'
@@ -721,7 +723,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - probabilistic
     purpose: 'Uniform sample of k items from a stream in one pass, O(k) state. Inductive bias: uniform inclusion; unbiased but ignores strata.'

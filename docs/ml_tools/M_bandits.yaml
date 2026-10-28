@@ -88,7 +88,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - linear_signal
     purpose: 'Epsilon-greedy exploration over per-arm reward estimates. Inductive bias: no structural assumption — uniform random exploration with rate epsilon, then exploit the empirical mean. Canonical baseline; weak when rewards are context-dependent.'
@@ -115,7 +116,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - probabilistic
     purpose: 'Auer et al. 2002 UCB1 — non-contextual optimism under uncertainty with an O(sqrt(log T / n_a)) bonus. Inductive bias: stationary arm means with no context; outperforms epsilon-greedy on stationary problems but not context-dependent ones.'
@@ -142,7 +144,8 @@ subtypes:
     tier_level: tier2_wrapper
     implementation_status:
       verified_by_agent: true
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - probabilistic
     purpose: 'Chapelle & Li 2011 — Beta-Bernoulli posterior sampling per arm; plays an arm with probability proportional to its posterior probability of being optimal. Inductive bias: conjugate Bayesian per-arm model; naturally balances exploration and exploitation and is empirically strong on CTR data.'

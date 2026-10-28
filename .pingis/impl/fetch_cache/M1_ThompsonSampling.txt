@@ -1,0 +1,1942 @@
+<!DOCTYPE html>
+<html class="client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-menu-disabled vector-feature-language-in-main-page-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientpref-1 vector-feature-limited-width-content-enabled vector-feature-custom-font-size-clientpref-1 vector-feature-appearance-pinned-clientpref-1 skin-theme-clientpref-day vector-sticky-header-enabled vector-toc-available skin-thumbsize-clientpref-standard skin-underline-clientpref-browser" lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<title>Thompson sampling - Wikipedia</title>
+<script>(function(){var className="client-js vector-feature-language-in-header-enabled vector-feature-language-in-main-menu-disabled vector-feature-language-in-main-page-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientpref-1 vector-feature-limited-width-content-enabled vector-feature-custom-font-size-clientpref-1 vector-feature-appearance-pinned-clientpref-1 skin-theme-clientpref-day vector-sticky-header-enabled vector-toc-available skin-thumbsize-clientpref-standard skin-underline-clientpref-browser";var cookie=document.cookie.match(/(?:^|; )enwikimwclientpreferences=([^;]+)/);if(cookie){cookie[1].split('%2C').forEach(function(pref){className=className.replace(new RegExp('(^| )'+pref.replace(/-clientpref-\w+$|[^\w-]+/g,'')+'-clientpref-\\w+( |$)'),'$1'+pref+'$2');});}document.documentElement.className=className;}());RLCONF={"wgBreakFrames":false,"wgSeparatorTransformTable":["",""],"wgDigitTransformTable":["",""],"wgDefaultDateFormat":"dmy","wgMonthNames":["","January","February","March","April","May","June","July","August","September","October","November","December"],"wgRequestId":"778198e1-2be6-4b86-8fb8-f8c1837c8e75","wgCanonicalNamespace":"","wgCanonicalSpecialPageName":false,"wgNamespaceNumber":0,"wgPageName":"Thompson_sampling","wgTitle":"Thompson sampling","wgCurRevisionId":1362198073,"wgRevisionId":1362198073,"wgArticleId":34130293,"wgIsArticle":true,"wgIsRedirect":false,"wgAction":"view","wgUserName":null,"wgUserGroups":["*"],"wgCategories":["Articles with short description","Short description is different from Wikidata","Articles needing additional references from May 2012","All articles needing additional references","Artificial intelligence engineering","Heuristic algorithms","Sequential methods","Sequential experiments"],"wgPageViewLanguage":"en","wgPageContentLanguage":"en","wgPageContentModel":"wikitext","wgRelevantPageName":"Thompson_sampling","wgRelevantArticleId":34130293,"wgTempUserName":null,"wgIsProbablyEditable":true,"wgRelevantPageIsProbablyEditable":true,"wgRestrictionEdit":[],"wgRestrictionMove":[],"wgNoticeProject":"wikipedia","wgFlaggedRevsParams":{"tags":{"status":{"levels":1}},"namespaces":[0,4]},"wgConfirmEditCaptchaNeededForGenericEdit":"hcaptcha","wgConfirmEditForceShowCaptcha":false,"wgConfirmEditHCaptchaSiteKey":"5d0c670e-a5f4-4258-ad16-1f42792c9c62","wgMediaViewerOnClick":true,"wgMediaViewerEnabledByDefault":true,"wgMediaViewerDesktopVue":false,"wgPopupsFlags":0,"wgVisualEditor":{"pageLanguageCode":"en","pageLanguageDir":"ltr","pageVariantFallbacks":"en"},"wgMFDisplayWikibaseDescriptions":{"search":true,"watchlist":true,"tagline":false,"nearby":true},"wgWMESchemaEditAttemptStepOversample":false,"wgWMEPageLength":10000,"wgParsoidHtmlVersion":"2.8.0","parsermigration-parsoid":true,"wgPageAssessments":{"Articles for creation":{"class":"Start","importance":""},"Project-independent assessment":{"class":"Start","importance":""},"Robotics":{"class":"Start","importance":"Unknown"},"Statistics":{"class":"Start","importance":"Low"}},"wgTestKitchenUserExperiments":{"overrides":[],"enrolled":[],"assigned":[],"subject_ids":[]},"wgEditSubmitButtonLabelPublish":true,"wgVisualEditorPageIsDisambiguation":false,"wgULSPosition":"interlanguage","wgULSisCompactLinksEnabled":false,"wgVector2022LanguageInHeader":true,"wgULSisLanguageSelectorEmpty":false,"wgULSLanguageSelectorV2Enabled":true,"wgWikibaseItemId":"Q7795822","wgCheckUserClientHintsHeadersJsApi":["brands","architecture","bitness","fullVersionList","mobile","model","platform","platformVersion"],"wgCheckUserClientHintsInEditRequest":true,"wgPersonalDashboardMenuVisible":false};
+RLSTATE={"ext.globalCssJs.user.styles":"ready","site.styles":"ready","user.styles":"ready","ext.globalCssJs.user":"ready","user":"ready","user.options":"loading","ext.math.styles":"ready","ext.cite.parsoid.styles":"ready","ext.cite.styles":"ready","ext.wikimediamessages.styles":"ready","skins.vector.search.codex.styles":"ready","skins.vector.styles":"ready","skins.vector.icons":"ready","ext.visualEditor.desktopArticleTarget.noscript":"ready","ext.uls.interlanguage":"ready","wikibase.client.init":"ready"};RLPAGEMODULES=["ext.math.polyfills","ext.cite.ux-enhancements","mediawiki.page.media","site","mediawiki.page.ready","mediawiki.toc","skins.vector.js","ext.centralNotice.geoIP","ext.centralNotice.startUp","ext.gadget.ReferenceTooltips","ext.gadget.switcher","ext.urlShortener.toolbar","ext.centralauth.centralautologin","ext.testKitchen","ext.wikimediaCustomizations.discordSurvey","ext.wikimediaCustomizations.donorAccountCreation","mmv.bootstrap","ext.popups","ext.visualEditor.desktopArticleTarget.init","ext.echo.centralauth","ext.eventLogging","ext.wikimediaEvents","ext.navigationTiming","ext.uls.interface","ext.cx.eventlogging.campaigns","ext.cx.uls.quick.actions","wikibase.client.vector-2022","wikibase.databox.fromWikidata","ext.checkUser.clientHints","ext.readerExperiments/preferredSources"];</script>
+<script>(RLQ=window.RLQ||[]).push(function(){mw.loader.impl(function(){return["user.options@12s5i",function($,jQuery,require,module){mw.user.tokens.set({"patrolToken":"+\\","watchToken":"+\\","csrfToken":"+\\"});
+}];});});</script>
+<link rel="stylesheet" href="/w/load.php?lang=en&amp;modules=ext.cite.parsoid.styles%7Cext.cite.styles%7Cext.math.styles%7Cext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cext.wikimediamessages.styles%7Cskins.vector.icons%2Cstyles%7Cskins.vector.search.codex.styles%7Cwikibase.client.init&amp;only=styles&amp;skin=vector-2022">
+<script async="" src="/w/load.php?lang=en&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=vector-2022"></script>
+<meta name="ResourceLoaderDynamicStyles" content="">
+<link rel="stylesheet" href="/w/load.php?lang=en&amp;modules=site.styles&amp;only=styles&amp;skin=vector-2022">
+<meta name="generator" content="MediaWiki 1.47.0-wmf.24">
+<meta name="referrer" content="origin">
+<meta name="referrer" content="origin-when-cross-origin">
+<meta name="robots" content="max-image-preview:standard">
+<meta name="format-detection" content="telephone=no">
+<meta property="og:image" content="https://upload.wikimedia.org/wikipedia/commons/4/42/Visualization_of_Thompson_sampling.gif?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail_unscaled">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="900">
+<meta name="viewport" content="width=1120">
+<meta property="og:title" content="Thompson sampling - Wikipedia">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="//thumb.wikimedia.org">
+<link rel="discord:component-embed" type="application/json" href="https://en.wikipedia.org/w/rest.php/discord/v0-internal/discord-preview?title=Thompson+sampling&amp;db=enwiki&amp;lang=en">
+<link rel="alternate" type="application/x-wiki" title="Edit this page" href="/w/index.php?title=Thompson_sampling&amp;action=edit">
+<link rel="apple-touch-icon" href="/static/apple-touch/wikipedia.png">
+<link rel="icon" href="/static/favicon/wikipedia.ico">
+<link rel="search" type="application/opensearchdescription+xml" href="/w/rest.php/v1/search" title="Wikipedia (en)">
+<link rel="EditURI" type="application/rsd+xml" href="//en.wikipedia.org/w/api.php?action=rsd">
+<link rel="canonical" href="https://en.wikipedia.org/wiki/Thompson_sampling">
+<link rel="license" href="https://creativecommons.org/licenses/by-sa/4.0/deed.en">
+<link rel="alternate" type="application/atom+xml" title="Wikipedia Atom feed" href="/w/index.php?title=Special:RecentChanges&amp;feed=atom">
+<link rel="dns-prefetch" href="//meta.wikimedia.org" />
+<link rel="dns-prefetch" href="auth.wikimedia.org">
+</head>
+<body class="skin--responsive skin-vector skin-vector-search-vue mediawiki ltr sitedir-ltr mw-hide-empty-elt ns-0 ns-subject mw-editable page-Thompson_sampling rootpage-Thompson_sampling skin-vector-2022 action-view">
+<div id="mw-aria-live-region" class="mw-aria-live-region" aria-live="polite"></div><a class="mw-jump-link" href="#bodyContent">Jump to content</a>
+<div class="vector-header-container">
+	<header class="vector-header mw-header no-font-mode-scale">
+		<div class="vector-header-start">
+			<nav class="vector-main-menu-landmark" aria-label="Site">
+				
+<div id="vector-main-menu-dropdown" class="vector-dropdown vector-main-menu-dropdown vector-button-flush-left vector-button-flush-right"  title="Main menu" >
+	<input type="checkbox" id="vector-main-menu-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-main-menu-dropdown" class="vector-dropdown-checkbox "  aria-label="Main menu"   >
+	<label id="vector-main-menu-dropdown-label" for="vector-main-menu-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-menu mw-ui-icon-wikimedia-menu cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Main menu</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+				<div id="vector-main-menu-unpinned-container" class="vector-unpinned-container">
+		
+<div id="vector-main-menu" class="vector-main-menu vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-main-menu-pinnable-header vector-pinnable-header-unpinned"
+	data-feature-name="main-menu-pinned"
+	data-pinnable-element-id="vector-main-menu"
+	data-pinned-container-id="vector-main-menu-pinned-container"
+	data-unpinned-container-id="vector-main-menu-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Main menu</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-main-menu.pin" aria-label="Move Main menu to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-main-menu.unpin" aria-label="Hide Main menu">hide</button>
+</div>
+
+	
+<div id="p-navigation" class="vector-menu mw-portlet mw-portlet-navigation"  >
+	<div class="vector-menu-heading">
+		Navigation
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-mainpage-description" class="mw-list-item"><a href="/wiki/Main_Page" title="Visit the main page [z]" accesskey="z"><span>Main page</span></a></li><li id="n-contents" class="mw-list-item"><a href="/wiki/Wikipedia:Contents" title="Guides to browsing Wikipedia"><span>Contents</span></a></li><li id="n-currentevents" class="mw-list-item"><a href="/wiki/Portal:Current_events" title="Articles related to current events"><span>Current events</span></a></li><li id="n-randompage" class="mw-list-item"><a href="/wiki/Special:Random" title="Visit a randomly selected article [x]" accesskey="x"><span>Random article</span></a></li><li id="n-aboutsite" class="mw-list-item"><a href="/wiki/Wikipedia:About" title="Learn about Wikipedia and how it works"><span>About Wikipedia</span></a></li><li id="n-contactpage" class="mw-list-item"><a href="//en.wikipedia.org/wiki/Wikipedia:Contact_us" title="How to contact Wikipedia"><span>Contact us</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-interaction" class="vector-menu mw-portlet mw-portlet-interaction"  >
+	<div class="vector-menu-heading">
+		Contribute
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-help" class="mw-list-item"><a href="/wiki/Help:Contents" title="Guidance on how to use and edit Wikipedia"><span>Help</span></a></li><li id="n-introduction" class="mw-list-item"><a href="/wiki/Help:Introduction" title="Learn how to edit Wikipedia"><span>Learn to edit</span></a></li><li id="n-portal" class="mw-list-item"><a href="/wiki/Wikipedia:Community_portal" title="The hub for editors"><span>Community portal</span></a></li><li id="n-recentchanges" class="mw-list-item"><a href="/wiki/Special:RecentChanges" title="A list of recent changes to Wikipedia [r]" accesskey="r"><span>Recent changes</span></a></li><li id="n-upload" class="mw-list-item"><a href="/wiki/Wikipedia:File_upload_wizard" title="Add images or other media for use on Wikipedia"><span>Upload file</span></a></li><li id="n-specialpages" class="mw-list-item"><a href="/wiki/Special:SpecialPages" title="A list of all special pages [q]" accesskey="q"><span>Special pages</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+</div>
+
+				</div>
+
+	</div>
+</div>
+
+		</nav>
+			
+<a href="/wiki/Main_Page" class="mw-logo">
+	<img class="mw-logo-icon" src="/static/images/icons/enwiki-25.svg" alt="" aria-hidden="true" height="50" width="50">
+	<span class="mw-logo-container skin-invert">
+		<img class="mw-logo-wordmark" alt="Wikipedia" src="/static/images/mobile/copyright/wikipedia-wordmark-en-25.svg" style="width: 8.75em; height: 1.375em;">
+		<img class="mw-logo-tagline" alt="The Free Encyclopedia" src="/static/images/mobile/copyright/wikipedia-tagline-en-25.svg" width="140" height="11" style="width: 8.75em; height: 0.6875em;">
+	</span>
+</a>
+
+		</div>
+		<div class="vector-header-end">
+			
+<div id="p-search" role="search" class="vector-search-box-vue  vector-search-box-collapses vector-search-box-show-thumbnail vector-search-box-auto-expand-width vector-search-box">
+	<a href="/wiki/Special:Search" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only search-toggle" title="Search Wikipedia [f]" accesskey="f"><span class="vector-icon mw-ui-icon-search mw-ui-icon-wikimedia-search cdx-button__icon"></span>
+
+<span>Search</span>
+	</a>
+	<div class="vector-typeahead-search-container">
+		<div class="cdx-typeahead-search cdx-typeahead-search--show-thumbnail cdx-typeahead-search--auto-expand-width">
+			<form action="/w/index.php" id="searchform" class="cdx-search-input cdx-search-input--has-end-button">
+				<div id="simpleSearch" class="cdx-search-input__input-wrapper"  data-search-loc="header-moved">
+					<div class="cdx-text-input cdx-text-input--has-start-icon">
+						<input
+							class="cdx-text-input__input mw-searchInput" autocomplete="off"
+							 type="search" name="search" placeholder="Search Wikipedia" aria-label="Search Wikipedia" autocapitalize="none" spellcheck="false" title="Search Wikipedia [f]" accesskey="f" id="searchInput"
+							>
+						<span class="cdx-text-input__icon cdx-text-input__start-icon"></span>
+					</div>
+					<input type="hidden" name="title" value="Special:Search">
+				</div>
+				<button class="cdx-button cdx-search-input__end-button">Search</button>
+			</form>
+		</div>
+	</div>
+</div>
+
+			<nav class="vector-user-links vector-user-links-wide" aria-label="Personal tools">
+	<div class="vector-user-links-main">
+	
+<div id="p-vector-user-menu-preferences" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-userpage" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	<nav class="vector-appearance-landmark" aria-label="Appearance">
+		
+<div id="vector-appearance-dropdown" class="vector-dropdown "  title="Change the appearance of the page&#039;s font size, width, and color" >
+	<input type="checkbox" id="vector-appearance-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-appearance-dropdown" class="vector-dropdown-checkbox "  aria-label="Appearance"   >
+	<label id="vector-appearance-dropdown-label" for="vector-appearance-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-appearance mw-ui-icon-wikimedia-appearance cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Appearance</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+			<div id="vector-appearance-unpinned-container" class="vector-unpinned-container">
+				
+			</div>
+		
+	</div>
+</div>
+
+	</nav>
+	
+<div id="p-vector-user-menu-notifications" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-overflow" class="vector-menu mw-portlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=en.wikipedia.org&amp;uselang=en" data-mw-donate-attempt="top_link" class=""><span>Donate</span></a>
+</li>
+<li id="pt-createaccount-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:CreateAccount&amp;returnto=Thompson+sampling" title="You are encouraged to create an account and log in; however, it is not mandatory" class=""><span>Create account</span></a>
+</li>
+<li id="pt-login-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:UserLogin&amp;returnto=Thompson+sampling" title="You&#039;re encouraged to log in; however, it&#039;s not mandatory. [o]" accesskey="o" class=""><span>Log in</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	</div>
+	
+<div id="vector-user-links-dropdown" class="vector-dropdown vector-user-menu vector-button-flush-right vector-user-menu-logged-out vector-user-links-dropdown--collapsible"  title="Log in and more options" >
+	<input type="checkbox" id="vector-user-links-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-user-links-dropdown" class="vector-dropdown-checkbox "  aria-label="Personal tools"   >
+	<label id="vector-user-links-dropdown-label" for="vector-user-links-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Personal tools</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+		
+<div id="p-personal" class="vector-menu mw-portlet mw-portlet-personal"  title="User menu" >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=en.wikipedia.org&amp;uselang=en" data-mw-donate-attempt="top_link" class=""><span class="vector-icon mw-ui-icon-heart mw-ui-icon-wikimedia-heart cdx-button__icon"></span>
+
+<span>Donate</span></a>
+</li>
+<li id="pt-createaccount" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:CreateAccount&amp;returnto=Thompson+sampling" title="You are encouraged to create an account and log in; however, it is not mandatory" class=""><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span>Create account</span></a>
+</li>
+<li id="pt-login" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:UserLogin&amp;returnto=Thompson+sampling" title="You&#039;re encouraged to log in; however, it&#039;s not mandatory. [o]" accesskey="o" class=""><span class="vector-icon mw-ui-icon-logIn mw-ui-icon-wikimedia-logIn cdx-button__icon"></span>
+
+<span>Log in</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+	</div>
+</div>
+
+</nav>
+
+		</div>
+	</header>
+</div>
+<div class="mw-page-container">
+	<div class="mw-page-container-inner">
+		<div class="vector-sitenotice-container">
+			<div id="siteNotice"><!-- CentralNotice --></div>
+		</div>
+		<div class="vector-column-start">
+			<div class="vector-main-menu-container">
+		<div id="mw-navigation">
+			<nav id="mw-panel" class="vector-main-menu-landmark" aria-label="Site">
+				<div id="vector-main-menu-pinned-container" class="vector-pinned-container">
+				
+				</div>
+		</nav>
+		</div>
+	</div>
+	<div class="vector-sticky-pinned-container">
+				<nav id="mw-panel-toc" aria-label="Contents" data-event-name="ui.sidebar-toc" class="mw-table-of-contents-container vector-toc-landmark">
+					<div id="vector-toc-pinned-container" class="vector-pinned-container">
+					<div id="vector-toc" class="vector-toc vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-toc-pinnable-header vector-pinnable-header-pinned"
+	data-feature-name="toc-pinned"
+	data-pinnable-element-id="vector-toc"
+	data-pinned-container-id="vector-toc-pinned-container"
+	data-unpinned-container-id="vector-toc-unpinned-container"
+>
+	<h2 class="vector-pinnable-header-label">Contents</h2>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-toc.pin" aria-label="Move Contents to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-toc.unpin" aria-label="Hide Contents">hide</button>
+</div>
+
+
+	<ul class="vector-toc-contents" id="mw-panel-toc-list">
+		<li id="toc-mw-content-text"
+			class="vector-toc-list-item vector-toc-level-1">
+			<a href="#" class="vector-toc-link">
+				<div class="vector-toc-text">(Top)</div>
+			</a>
+		</li>
+		<li id="toc-Description"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#Description">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">1</span>
+				<span>Description</span>
+			</div>
+		</a>
+		
+		<ul id="toc-Description-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-History"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#History">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">2</span>
+				<span>History</span>
+			</div>
+		</a>
+		
+		<ul id="toc-History-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-Relationship_to_other_approaches"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#Relationship_to_other_approaches">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">3</span>
+				<span>Relationship to other approaches</span>
+			</div>
+		</a>
+		
+			<button aria-controls="toc-Relationship_to_other_approaches-sublist" class="cdx-button cdx-button--weight-quiet cdx-button--icon-only vector-toc-toggle">
+				<span class="vector-icon mw-ui-icon-wikimedia-expand"></span>
+				<span>Toggle Relationship to other approaches subsection</span>
+			</button>
+		
+		<ul id="toc-Relationship_to_other_approaches-sublist" class="vector-toc-list">
+			<li id="toc-Probability_matching"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#Probability_matching">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1</span>
+					<span>Probability matching</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Probability_matching-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Bayesian_control_rule"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#Bayesian_control_rule">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.2</span>
+					<span>Bayesian control rule</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Bayesian_control_rule-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Upper-confidence-bound_(UCB)_algorithms"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#Upper-confidence-bound_(UCB)_algorithms">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.3</span>
+					<span>Upper-confidence-bound (UCB) algorithms</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Upper-confidence-bound_(UCB)_algorithms-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+	</li>
+	<li id="toc-References"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#References">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">4</span>
+				<span>References</span>
+			</div>
+		</a>
+		
+		<ul id="toc-References-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+</ul>
+</div>
+
+					</div>
+		</nav>
+			</div>
+		</div>
+		<div class="mw-content-container">
+			<main id="content" class="mw-body">
+				<header class="mw-body-header vector-page-titlebar no-font-mode-scale">
+					<nav aria-label="Contents" class="vector-toc-landmark">
+						
+<div id="vector-page-titlebar-toc" class="vector-dropdown vector-page-titlebar-toc vector-button-flush-left"  title="Table of Contents" >
+	<input type="checkbox" id="vector-page-titlebar-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-titlebar-toc" class="vector-dropdown-checkbox "  aria-label="Toggle the table of contents"   >
+	<label id="vector-page-titlebar-toc-label" for="vector-page-titlebar-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Toggle the table of contents</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+							<div id="vector-page-titlebar-toc-unpinned-container" class="vector-unpinned-container">
+			</div>
+		
+	</div>
+</div>
+
+					</nav>
+					<h1 id="firstHeading" class="firstHeading mw-first-heading"><span lang="en" dir="ltr"><span class="mw-page-title-main">Thompson sampling</span></span></h1>
+			
+<div id="p-lang-btn" class="vector-dropdown mw-portlet mw-portlet-lang"  >
+	<input type="checkbox" id="p-lang-btn-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-p-lang-btn" class="vector-dropdown-checkbox mw-interlanguage-selector"  aria-label="2 languages" aria-description="Go to an article in another language. Available in 2 languages"  >
+	<label id="p-lang-btn-label" for="p-lang-btn-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive mw-portlet-lang-heading-2" aria-hidden="true"  ><span class="vector-icon mw-ui-icon-language-progressive mw-ui-icon-wikimedia-language-progressive cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">2 languages</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+		<div class="vector-menu-content">
+			
+			<ul class="vector-menu-content-list">
+				
+				<li class="interlanguage-link interwiki-fr mw-list-item"><a href="https://fr.wikipedia.org/wiki/%C3%89chantillonnage_de_Thompson" title="Échantillonnage de Thompson – French" lang="fr" hreflang="fr" data-title="Échantillonnage de Thompson" data-language-autonym="Français" data-language-local-name="French" class="interlanguage-link-target"><span>Français</span></a></li><li class="interlanguage-link interwiki-th mw-list-item"><a href="https://th.wikipedia.org/wiki/%E0%B8%81%E0%B8%B2%E0%B8%A3%E0%B8%8A%E0%B8%B1%E0%B8%81%E0%B8%95%E0%B8%B1%E0%B8%A7%E0%B8%AD%E0%B8%A2%E0%B9%88%E0%B8%B2%E0%B8%87%E0%B9%81%E0%B8%9A%E0%B8%9A%E0%B8%97%E0%B8%AD%E0%B8%A1%E0%B8%9B%E0%B9%8C%E0%B8%AA%E0%B8%B1%E0%B8%99" title="การชักตัวอย่างแบบทอมป์สัน – Thai" lang="th" hreflang="th" data-title="การชักตัวอย่างแบบทอมป์สัน" data-language-autonym="ไทย" data-language-local-name="Thai" class="interlanguage-link-target"><span>ไทย</span></a></li>
+			</ul>
+			<div class="after-portlet after-portlet-lang"><span class="wb-langlinks-edit wb-langlinks-link"><a href="https://www.wikidata.org/wiki/Special:EntityPage/Q7795822#sitelinks-wikipedia" title="Edit interlanguage links" class="wbc-editpage">Edit links</a></span></div>
+		</div>
+
+	</div>
+</div>
+</header>
+				<div class="vector-page-toolbar">
+					<div class="vector-page-toolbar-container">
+						<div id="left-navigation">
+							<nav aria-label="Namespaces">
+								
+<div id="p-associated-pages" class="vector-menu vector-menu-tabs mw-portlet mw-portlet-associated-pages"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-nstab-main" class="selected mw-list-item vector-tab-noicon"><a data-mw-interface  href="/wiki/Thompson_sampling" title="View the content page [c]" accesskey="c" class=""><span>Article</span></a>
+</li>
+<li id="ca-talk" class="mw-list-item vector-tab-noicon"><a data-mw-interface  href="/wiki/Talk:Thompson_sampling" rel="discussion" title="Discuss improvements to the content page [t]" accesskey="t" class=""><span>Talk</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+								
+<div id="vector-variants-dropdown" class="vector-dropdown emptyPortlet"  >
+	<input type="checkbox" id="vector-variants-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-variants-dropdown" class="vector-dropdown-checkbox " aria-label="Change language variant"    >
+	<label id="vector-variants-dropdown-label" for="vector-variants-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet" aria-hidden="true"  ><span class="vector-dropdown-label-text">English</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+					
+<div id="p-variants" class="vector-menu mw-portlet mw-portlet-variants emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+				
+	</div>
+</div>
+
+							</nav>
+						</div>
+						<div id="right-navigation" class="vector-collapsible">
+							<nav aria-label="Views">
+			    
+<div id="p-views" class="vector-menu vector-menu-tabs mw-portlet mw-portlet-views"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-view" class="selected mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface  href="/wiki/Thompson_sampling" class=""><span>Read</span></a>
+</li>
+<li id="ca-edit" class="mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface  href="/w/index.php?title=Thompson_sampling&amp;action=edit" title="Edit this page [e]" accesskey="e" class=""><span>Edit</span></a>
+</li>
+<li id="ca-history" class="mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface  href="/w/index.php?title=Thompson_sampling&amp;action=history" title="Past revisions of this page [h]" accesskey="h" class=""><span>View history</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+			</nav>
+
+							<nav class="vector-page-tools-landmark" aria-label="Page tools">
+								
+<div id="vector-page-tools-dropdown" class="vector-dropdown vector-page-tools-dropdown"  >
+	<input type="checkbox" id="vector-page-tools-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-tools-dropdown" class="vector-dropdown-checkbox "  aria-label="Tools"   >
+	<label id="vector-page-tools-dropdown-label" for="vector-page-tools-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-verticalEllipsis mw-ui-icon-wikimedia-verticalEllipsis cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Tools</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+									<div id="vector-page-tools-unpinned-container" class="vector-unpinned-container">
+						
+<div id="vector-page-tools" class="vector-page-tools vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-page-tools-pinnable-header vector-pinnable-header-unpinned"
+	data-feature-name="page-tools-pinned"
+	data-pinnable-element-id="vector-page-tools"
+	data-pinned-container-id="vector-page-tools-pinned-container"
+	data-unpinned-container-id="vector-page-tools-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Tools</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-page-tools.pin" aria-label="Move Tools to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-page-tools.unpin" aria-label="Hide Tools">hide</button>
+</div>
+
+	
+<div id="p-cactions" class="vector-menu mw-portlet mw-portlet-cactions emptyPortlet vector-has-collapsible-items"  >
+	<div class="vector-menu-heading">
+		Actions
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-view-more" class="selected mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/wiki/Thompson_sampling" class=""><span class="vector-icon mw-ui-icon-eye mw-ui-icon-wikimedia-eye cdx-button__icon"></span>
+
+<span>Read</span></a>
+</li>
+<li id="ca-edit-more" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Thompson_sampling&amp;action=edit" title="Edit this page [e]" accesskey="e" class=""><span class="vector-icon mw-ui-icon-edit mw-ui-icon-wikimedia-edit cdx-button__icon"></span>
+
+<span>Edit</span></a>
+</li>
+<li id="ca-history-more" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Thompson_sampling&amp;action=history" title="Past revisions of this page [h]" accesskey="h" class=""><span class="vector-icon mw-ui-icon-history mw-ui-icon-wikimedia-history cdx-button__icon"></span>
+
+<span>View history</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-tb" class="vector-menu mw-portlet mw-portlet-tb"  >
+	<div class="vector-menu-heading">
+		General
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="t-whatlinkshere" class="mw-list-item"><a href="/wiki/Special:WhatLinksHere/Thompson_sampling" title="List of all English Wikipedia pages containing links to this page [j]" accesskey="j"><span>What links here</span></a></li><li id="t-recentchangeslinked" class="mw-list-item"><a href="/wiki/Special:RecentChangesLinked/Thompson_sampling" rel="nofollow" title="Recent changes in pages linked from this page [k]" accesskey="k"><span>Related changes</span></a></li><li id="t-upload" class="mw-list-item"><a href="//en.wikipedia.org/wiki/Wikipedia:File_Upload_Wizard" title="Upload files [u]" accesskey="u"><span>Upload file</span></a></li><li id="t-permalink" class="mw-list-item"><a href="/w/index.php?title=Thompson_sampling&amp;oldid=1362198073" title="Permanent link to this revision of this page"><span>Permanent link</span></a></li><li id="t-info" class="mw-list-item"><a href="/w/index.php?title=Thompson_sampling&amp;action=info" title="More information about this page"><span>Page information</span></a></li><li id="t-cite" class="mw-list-item"><a href="/w/index.php?title=Special:CiteThisPage&amp;page=Thompson_sampling&amp;id=1362198073&amp;wpFormIdentifier=titleform" title="Information on how to cite this page"><span>Cite this page</span></a></li><li id="t-urlshortener" class="mw-list-item"><a href="/w/index.php?title=Special:UrlShortener&amp;url=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FThompson_sampling"><span>Get shortened URL</span></a></li><li id="parsermigration-switch-to-legacy" class="mw-list-item"><a href="/w/index.php?title=Thompson_sampling&amp;useparsoid=0"><span>Switch to legacy parser</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-coll-print_export" class="vector-menu mw-portlet mw-portlet-coll-print_export"  >
+	<div class="vector-menu-heading">
+		Print/export
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="coll-download-as-rl" class="mw-list-item"><a href="/w/index.php?title=Special:DownloadAsPdf&amp;page=Thompson_sampling&amp;action=show-download-screen" title="Download this page as a PDF file"><span>Download as PDF</span></a></li><li id="t-print" class="mw-list-item"><a href="javascript:print();" rel="alternate" title="Printable version of this page [p]" accesskey="p"><span>Printable version</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-wikibase-otherprojects" class="vector-menu mw-portlet mw-portlet-wikibase-otherprojects"  >
+	<div class="vector-menu-heading">
+		In other projects
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="t-wikibase" class="wb-otherproject-link wb-otherproject-wikibase-dataitem mw-list-item"><a href="https://www.wikidata.org/wiki/Special:EntityPage/Q7795822" title="Structured data on this page hosted by Wikidata [g]" accesskey="g"><span>Wikidata item</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+</div>
+
+									</div>
+				
+	</div>
+</div>
+
+							</nav>
+						</div>
+					</div>
+				</div>
+				<div class="vector-column-end no-font-mode-scale">
+					<div class="vector-sticky-pinned-container">
+						<nav class="vector-page-tools-landmark" aria-label="Page tools">
+							<div id="vector-page-tools-pinned-container" class="vector-pinned-container">
+				
+							</div>
+		</nav>
+						<nav class="vector-appearance-landmark" aria-label="Appearance">
+							<div id="vector-appearance-pinned-container" class="vector-pinned-container">
+				<div id="vector-appearance" class="vector-appearance vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-appearance-pinnable-header vector-pinnable-header-pinned"
+	data-feature-name="appearance-pinned"
+	data-pinnable-element-id="vector-appearance"
+	data-pinned-container-id="vector-appearance-pinned-container"
+	data-unpinned-container-id="vector-appearance-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Appearance</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-appearance.pin" aria-label="Move Appearance to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-appearance.unpin" aria-label="Hide Appearance">hide</button>
+</div>
+
+
+</div>
+
+							</div>
+		</nav>
+					</div>
+				</div>
+				<div id="bodyContent" class="vector-body" aria-labelledby="firstHeading" data-mw-ve-target-container>
+					<div class="vector-body-before-content">
+							<div class="mw-indicators">
+		</div>
+
+						<div id="siteSub" class="noprint">From Wikipedia, the free encyclopedia</div>
+						<div id="contentSub"><div id="mw-content-subtitle"></div></div>
+						
+					</div>
+					
+					<div id="mw-content-text" class="mw-body-content"><div class="mw-content-ltr mw-parser-output" lang="en" dir="ltr" data-mw-parsoid-version="0.24.0.0-alpha27" data-mw-html-version="2.8.0"><section data-mw-section-id="0" id="mwAQ"><div class="shortdescription nomobile noexcerpt noprint searchaux" style="display:none" about="#mwt1" typeof="mw:Transclusion" id="mwAg" data-mw='{"parts":[{"template":{"target":{"wt":"Short description","href":"./Template:Short_description"},"params":{"1":{"wt":"Type of heuristic technique"}},"i":0}}]}'>Type of heuristic technique</div><span class="mw-empty-elt" about="#mwt1"><link rel="mw:PageProp/Category" href="./Category:Articles_with_short_description"/><link rel="mw:PageProp/Category" href="./Category:Short_description_is_different_from_Wikidata"/></span>
+<span class="mw-empty-elt" about="#mwt2" typeof="mw:Transclusion" id="mwAw" data-mw='{"parts":[{"template":{"target":{"wt":"More citations needed","href":"./Template:More_citations_needed"},"params":{"date":{"wt":"May 2012"}},"i":0}}]}'><style data-mw-deduplicate="TemplateStyles:r1364180890" typeof="mw:Extension/templatestyles" about="#mwt3" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Message box/ambox.css"},"body":{"extsrc":""}}'>.mw-parser-output .ambox{border:1px solid #a2a9b1;border-left:10px solid #36c;background-color:#fbfbfb;box-sizing:border-box}.mw-parser-output .ambox+.mw-empty-elt+.ambox,.mw-parser-output .ambox+.mw-empty-elt+.mw-empty-elt+.ambox,.mw-parser-output .ambox+.mw-empty-elt+.mw-empty-elt+.mw-empty-elt+.ambox{margin-top:-1px}html body.mediawiki .mw-parser-output .ambox.mbox-small-left{margin:4px 1em 4px 0;overflow:hidden;width:238px;border-collapse:collapse;font-size:88%;line-height:1.25em}.mw-parser-output .ambox-speedy{border-left:10px solid #b32424;background-color:#fee7e6}.mw-parser-output .ambox-delete{border-left:10px solid #b32424}.mw-parser-output .ambox-content{border-left:10px solid #f28500}.mw-parser-output .ambox-style{border-left:10px solid #fc3}.mw-parser-output .ambox-move{border-left:10px solid #9932cc}.mw-parser-output .ambox-protection{border-left:10px solid #a2a9b1}.mw-parser-output .ambox .mbox-text{border:none;padding:0.25em 0.5em;width:100%}.mw-parser-output .ambox .mbox-image{border:none;padding:2px 0 2px 0.5em;text-align:center}.mw-parser-output .ambox .mbox-imageright{border:none;padding:2px 0.5em 2px 0;text-align:center}.mw-parser-output .ambox .mbox-empty-cell{border:none;padding:0;width:1px}.mw-parser-output .ambox .mbox-image-div{width:52px}@media(min-width:720px){.mw-parser-output .ambox{margin:0 10%}}@media print{body.ns-0 .mw-parser-output .ambox{display:none!important}}</style></span><table class="box-More_citations_needed plainlinks metadata ambox ambox-content ambox-Refimprove" role="presentation" about="#mwt2"><tbody><tr><td class="mbox-image"><div class="mbox-image-div"><span typeof="mw:File"><a href="https://en.wikipedia.org/wiki/File:Question_book-new.svg" class="mw-file-description"><img resource="https://en.wikipedia.org/wiki/File:Question_book-new.svg" src="//thumb.wikimedia.org/wikipedia/en/thumb/9/99/Question_book-new.svg/60px-Question_book-new.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" srcset="//thumb.wikimedia.org/wikipedia/en/thumb/9/99/Question_book-new.svg/120px-Question_book-new.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" alt="icon" data-file-width="512" data-file-height="399" data-file-type="drawing" height="39" width="50" class="mw-file-element"/></a></span></div></td><td class="mbox-text"><div class="mbox-text-span">This article <b>needs <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Wikipedia:Verifiability" title="Wikipedia:Verifiability">more citations</a></b>.<span class="hide-when-compact"> Please help <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Special:EditPage/Thompson_sampling" title="Special:EditPage/Thompson sampling">improve this article</a> by <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Help:Referencing_for_beginners" title="Help:Referencing for beginners">adding citations to reliable sources</a>. Unsourced material may be challenged and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Wikipedia:Verifiability#Burden_of_evidence" title="Wikipedia:Verifiability">removed</a>.<br/><small><span class="plainlinks"><i>Find sources:</i><span typeof="mw:Entity"> </span><a rel="mw:ExtLink nofollow" href="https://www.google.com/search?as_eq=wikipedia&amp;q=%22Thompson+sampling%22" class="external text">"Thompson sampling"</a><span typeof="mw:Entity"> </span>–<span typeof="mw:Entity"> </span><a rel="mw:ExtLink nofollow" href="https://www.google.com/search?tbm=nws&amp;q=%22Thompson+sampling%22+-wikipedia&amp;tbs=ar:1" class="external text">news</a> <b>·</b> <a rel="mw:ExtLink nofollow" href="https://www.google.com/search?&amp;q=%22Thompson+sampling%22&amp;tbs=bkt:s&amp;tbm=bks" class="external text">newspapers</a> <b>·</b> <a rel="mw:ExtLink nofollow" href="https://www.google.com/search?tbs=bks:1&amp;q=%22Thompson+sampling%22+-wikipedia" class="external text">books</a> <b>·</b> <a rel="mw:ExtLink nofollow" href="https://scholar.google.com/scholar?q=%22Thompson+sampling%22" class="external text">scholar</a> <b>·</b> <a rel="mw:ExtLink nofollow" href="https://www.jstor.org/action/doBasicSearch?Query=%22Thompson+sampling%22&amp;acc=on&amp;wc=on" class="external text">JSTOR</a></span></small></span>  <span class="date-container"><i>(<span class="date">May 2012</span>)</i></span><span class="hide-when-compact"><i> (<small><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Help:Maintenance_template_removal" title="Help:Maintenance template removal">Learn how and when to remove this message</a></small>)</i></span></div></td></tr></tbody></table><span class="mw-empty-elt" about="#mwt2"><link rel="mw:PageProp/Category" href="./Category:Articles_needing_additional_references_from_May_2012"/><link rel="mw:PageProp/Category" href="./Category:All_articles_needing_additional_references"/></span>
+
+<figure typeof="mw:File/Thumb" id="mwBA"><a href="https://en.wikipedia.org/wiki/File:Visualization_of_Thompson_sampling.gif" class="mw-file-description" id="mwBQ"><img resource="https://en.wikipedia.org/wiki/File:Visualization_of_Thompson_sampling.gif" src="//thumb.wikimedia.org/wikipedia/commons/thumb/4/42/Visualization_of_Thompson_sampling.gif/500px-Visualization_of_Thompson_sampling.gif?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" srcset="//upload.wikimedia.org/wikipedia/commons/4/42/Visualization_of_Thompson_sampling.gif?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail_unscaled 2x" data-file-width="640" data-file-height="480" data-file-type="bitmap" height="263" width="350" class="mw-file-element" id="mwBg"/></a><figcaption id="mwBw">Concrete example of Thompson sampling applied to simulate treatment efficacy evaluation</figcaption></figure>
+
+<p id="mwCA"><b id="mwCQ">Thompson sampling</b>,<sup about="#mwt4" class="mw-ref reference" id="cite_ref-ref1_1-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref1"}}'><a href="#cite_note-ref1-1" id="mwCg"><span class="mw-reflink-text" id="mwCw"><span class="cite-bracket" id="mwDA">[</span>1<span class="cite-bracket" id="mwDQ">]</span></span></a></sup><sup about="#mwt5" class="mw-ref reference" id="cite_ref-ref1b_2-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref1b"}}'><a href="#cite_note-ref1b-2" id="mwDg"><span class="mw-reflink-text" id="mwDw"><span class="cite-bracket" id="mwEA">[</span>2<span class="cite-bracket" id="mwEQ">]</span></span></a></sup><sup about="#mwt6" class="mw-ref reference" id="cite_ref-FnTTutorial_3-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"FnTTutorial"}}'><a href="#cite_note-FnTTutorial-3" id="mwEg"><span class="mw-reflink-text" id="mwEw"><span class="cite-bracket" id="mwFA">[</span>3<span class="cite-bracket" id="mwFQ">]</span></span></a></sup> named after <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/William_Rae_Thompson" title="William Rae Thompson" id="mwFg">William Rae Thompson</a>, is a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Heuristic" title="Heuristic" id="mwFw">heuristic</a> for choosing actions that address the <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Exploration–exploitation_dilemma" title="Exploration–exploitation dilemma" id="mwGA">exploration–exploitation dilemma</a> in the <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Multi-armed_bandit" title="Multi-armed bandit" id="mwGQ">multi-armed bandit</a> problem. It consists of choosing the action that maximizes the expected reward with respect to a randomly drawn belief.</p>
+
+<meta property="mw:PageProp/toc" id="mwGg" data-mw='{"autoGenerated":true}'/></section><section data-mw-section-id="1" id="mwGw" aria-labelledby="Description"><div class="mw-heading mw-heading2"><h2 id="Description">Description</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Thompson_sampling&amp;action=edit&amp;section=1" title="Edit section: Description"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwHA">Consider a set of contexts <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt7" id="mwHQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\mathcal{X}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle {\mathcal {X}}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">X</mi>
+          </mrow>
+        </mrow>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle {\mathcal {X}}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/8c7e5461c5286852df4ef652fca7e4b0b63030e9" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.875ex; height:2.176ex;" alt="{\displaystyle {\mathcal {X}}}"/></span>, a set of actions <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt8" id="mwHg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\mathcal{A}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle {\mathcal {A}}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">A</mi>
+          </mrow>
+        </mrow>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle {\mathcal {A}}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/280ae03440942ab348c2ca9b8db6b56ffa9618f8" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.903ex; height:2.343ex;" alt="{\displaystyle {\mathcal {A}}}"/></span>, and rewards in <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt9" id="mwHw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\mathbb{R}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \mathbb {R} }">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="double-struck">R</mi>
+        </mrow>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \mathbb {R} }</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/786849c765da7a84dbc3cce43e96aad58a5868dc" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.678ex; height:2.176ex;" alt="{\displaystyle \mathbb {R} }"/></span>. The aim of the player is to play actions under the various contexts, such as to maximize the cumulative rewards.  Specifically, in each round, the player obtains a context <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt10" id="mwIA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"x \\in \\mathcal{X}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle x\in {\mathcal {X}}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>x</mi>
+        <mo>∈<!-- ∈ --></mo>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">X</mi>
+          </mrow>
+        </mrow>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle x\in {\mathcal {X}}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/0b3cd596d560b9f3bc71615911c2438cbbf49c15" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:6.046ex; height:2.176ex;" alt="{\displaystyle x\in {\mathcal {X}}}"/></span>, plays an action <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt11" id="mwIQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a \\in \\mathcal{A}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a\in {\mathcal {A}}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>a</mi>
+        <mo>∈<!-- ∈ --></mo>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">A</mi>
+          </mrow>
+        </mrow>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a\in {\mathcal {A}}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/6f0b2dd4c933b95137503e49d0f1c12cb8b8b099" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:5.974ex; height:2.343ex;" alt="{\displaystyle a\in {\mathcal {A}}}"/></span> and receives a reward <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt12" id="mwIg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"r \\in \\mathbb{R}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle r\in \mathbb {R} }">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>r</mi>
+        <mo>∈<!-- ∈ --></mo>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="double-struck">R</mi>
+        </mrow>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle r\in \mathbb {R} }</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/79ada4fd070acfeeee62081f256be1c106346359" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:5.567ex; height:2.176ex;" alt="{\displaystyle r\in \mathbb {R} }"/></span> following a distribution that depends on the context and the issued action. </p>
+
+<p id="mwIw">The elements of Thompson sampling are as follows:<sup about="#mwt14" class="mw-ref reference" id="cite_ref-FnTTutorial_3-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"FnTTutorial"}}'><a href="#cite_note-FnTTutorial-3" id="mwJA"><span class="mw-reflink-text" id="mwJQ"><span class="cite-bracket" id="mwJg">[</span>3<span class="cite-bracket" id="mwJw">]</span></span></a></sup><sup class="reference nowrap" about="#mwt13" typeof="mw:Transclusion" id="mwKA" data-mw='{"parts":[{"template":{"target":{"wt":"rp","href":"./Template:Rp"},"params":{"1":{"wt":"sec. 4"}},"i":0}}]}'><span title="Page / location: sec. 4"><span typeof="mw:Entity">:</span><span typeof="mw:Entity"> </span>sec. 4<span typeof="mw:Entity"> </span></span></sup></p>
+<ol id="mwKQ"><li id="mwKg">a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Likelihood_function" title="Likelihood function" id="mwKw">likelihood function</a> <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt15" id="mwLA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(r|\\theta,a,x)"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(r|\theta ,a,x)}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>r</mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <mi>θ<!-- θ --></mi>
+        <mo>,</mo>
+        <mi>a</mi>
+        <mo>,</mo>
+        <mi>x</mi>
+        <mo stretchy="false">)</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(r|\theta ,a,x)}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/2225bd7fbd06577730f4894afe1873391506101f" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:10.968ex; height:2.843ex;" alt="{\displaystyle P(r|\theta ,a,x)}"/></span>;</li>
+<li id="mwLQ">a set <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt16" id="mwLg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\Theta"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \Theta }">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi mathvariant="normal">Θ<!-- Θ --></mi>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \Theta }</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/bc927b19f46d005b4720db7a0f96cd5b6f1a0d9b" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.808ex; height:2.176ex;" alt="{\displaystyle \Theta }"/></span> of parameters <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt17" id="mwLw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\theta"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \theta }">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>θ<!-- θ --></mi>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \theta }</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/6e5ab2664b422d53eb0c7df3b87e1360d75ad9af" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.09ex; height:2.176ex;" alt="{\displaystyle \theta }"/></span> of the distribution of <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt18" id="mwMA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"r"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle r}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>r</mi>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle r}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/0d1ecb613aa2984f0576f70f86650b7c2a132538" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.049ex; height:1.676ex;" alt="{\displaystyle r}"/></span>;</li>
+<li id="mwMQ">a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Prior_probability" title="Prior probability" id="mwMg">prior distribution</a> <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt19" id="mwMw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(\\theta)"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(\theta )}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>θ<!-- θ --></mi>
+        <mo stretchy="false">)</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(\theta )}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/543ecac78af032493892f6608bff05542e961edb" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:4.645ex; height:2.843ex;" alt="{\displaystyle P(\theta )}"/></span> on these parameters;</li>
+<li id="mwNA">past observations triplets <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt20" id="mwNQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\mathcal{D} = \\{(x; a; r)\\}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle {\mathcal {D}}=\{(x;a;r)\}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">D</mi>
+          </mrow>
+        </mrow>
+        <mo>=</mo>
+        <mo fence="false" stretchy="false">{</mo>
+        <mo stretchy="false">(</mo>
+        <mi>x</mi>
+        <mo>;</mo>
+        <mi>a</mi>
+        <mo>;</mo>
+        <mi>r</mi>
+        <mo stretchy="false">)</mo>
+        <mo fence="false" stretchy="false">}</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle {\mathcal {D}}=\{(x;a;r)\}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/35aa5fb7faba5276ea030cdaa245053550df527e" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:14.701ex; height:2.843ex;" alt="{\displaystyle {\mathcal {D}}=\{(x;a;r)\}}"/></span>;</li>
+<li id="mwNg">a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Posterior_probability" title="Posterior probability" id="mwNw">posterior distribution</a> <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt21" id="mwOA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(\\theta|\\mathcal{D}) \\propto P(\\mathcal{D}|\\theta)P(\\theta)"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(\theta |{\mathcal {D}})\propto P({\mathcal {D}}|\theta )P(\theta )}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>θ<!-- θ --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">D</mi>
+          </mrow>
+        </mrow>
+        <mo stretchy="false">)</mo>
+        <mo>∝<!-- ∝ --></mo>
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">D</mi>
+          </mrow>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <mi>θ<!-- θ --></mi>
+        <mo stretchy="false">)</mo>
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>θ<!-- θ --></mi>
+        <mo stretchy="false">)</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(\theta |{\mathcal {D}})\propto P({\mathcal {D}}|\theta )P(\theta )}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/f75677a672620578d53b7ce0ea0f551e5d8a8d06" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:21.911ex; height:2.843ex;" alt="{\displaystyle P(\theta |{\mathcal {D}})\propto P({\mathcal {D}}|\theta )P(\theta )}"/></span>, where <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt22" id="mwOQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(\\mathcal{D}|\\theta)"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P({\mathcal {D}}|\theta )}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">D</mi>
+          </mrow>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <mi>θ<!-- θ --></mi>
+        <mo stretchy="false">)</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P({\mathcal {D}}|\theta )}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/38739384c0f7ee47a855c15342caa627182a3e66" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:7.084ex; height:2.843ex;" alt="{\displaystyle P({\mathcal {D}}|\theta )}"/></span> is the likelihood function.</li></ol>
+
+<p id="mwOg">Thompson sampling consists of playing the action <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt24" id="mwOw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a^\\ast \\in \\mathcal{A}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a^{\ast }\in {\mathcal {A}}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msup>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msup>
+        <mo>∈<!-- ∈ --></mo>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">A</mi>
+          </mrow>
+        </mrow>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a^{\ast }\in {\mathcal {A}}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/e3a1d76bf22048df488aae27f8da1a692f121dd6" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:7.028ex; height:2.343ex;" alt="{\displaystyle a^{\ast }\in {\mathcal {A}}}"/></span> according to the probability that it maximizes the expected reward; action <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt25" id="mwPA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a^\\ast"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a^{\ast }}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msup>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msup>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a^{\ast }}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/6a224c0c719d72fd81ffae00ba9e2b01d87a9bd8" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:2.284ex; height:2.343ex;" alt="{\displaystyle a^{\ast }}"/></span> is chosen with probability<sup about="#mwt26" class="mw-ref reference" id="cite_ref-FnTTutorial_3-2" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"FnTTutorial"}}'><a href="#cite_note-FnTTutorial-3" id="mwPQ"><span class="mw-reflink-text" id="mwPg"><span class="cite-bracket" id="mwPw">[</span>3<span class="cite-bracket" id="mwQA">]</span></span></a></sup><sup class="reference nowrap" about="#mwt23" typeof="mw:Transclusion" id="mwQQ" data-mw='{"parts":[{"template":{"target":{"wt":"rp","href":"./Template:Rp"},"params":{"1":{"wt":"Algorithm 4"}},"i":0}}]}'><span title="Page / location: Algorithm 4"><span typeof="mw:Entity">:</span><span typeof="mw:Entity"> </span>Algorithm 4<span typeof="mw:Entity"> </span></span></sup></p>
+<dl id="mwQg"><dd id="mwQw"><span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt27" id="mwRA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\int \\mathbb{I} \\left[ \\mathbb{E}(r|a^\\ast,x,\\theta) = \\max_{a&apos;} \\mathbb{E}(r|a&apos;,x,\\theta) \\right] P(\\theta|\\mathcal{D}) d\\theta,"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \int \mathbb {I} \left[\mathbb {E} (r|a^{\ast },x,\theta )=\max _{a'}\mathbb {E} (r|a',x,\theta )\right]P(\theta |{\mathcal {D}})d\theta ,}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mo>∫<!-- ∫ --></mo>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="double-struck">I</mi>
+        </mrow>
+        <mrow>
+          <mo>[</mo>
+          <mrow>
+            <mrow class="MJX-TeXAtom-ORD">
+              <mi mathvariant="double-struck">E</mi>
+            </mrow>
+            <mo stretchy="false">(</mo>
+            <mi>r</mi>
+            <mrow class="MJX-TeXAtom-ORD">
+              <mo stretchy="false">|</mo>
+            </mrow>
+            <msup>
+              <mi>a</mi>
+              <mrow class="MJX-TeXAtom-ORD">
+                <mo>∗<!-- ∗ --></mo>
+              </mrow>
+            </msup>
+            <mo>,</mo>
+            <mi>x</mi>
+            <mo>,</mo>
+            <mi>θ<!-- θ --></mi>
+            <mo stretchy="false">)</mo>
+            <mo>=</mo>
+            <munder>
+              <mo movablelimits="true" form="prefix">max</mo>
+              <mrow class="MJX-TeXAtom-ORD">
+                <msup>
+                  <mi>a</mi>
+                  <mo>′</mo>
+                </msup>
+              </mrow>
+            </munder>
+            <mrow class="MJX-TeXAtom-ORD">
+              <mi mathvariant="double-struck">E</mi>
+            </mrow>
+            <mo stretchy="false">(</mo>
+            <mi>r</mi>
+            <mrow class="MJX-TeXAtom-ORD">
+              <mo stretchy="false">|</mo>
+            </mrow>
+            <msup>
+              <mi>a</mi>
+              <mo>′</mo>
+            </msup>
+            <mo>,</mo>
+            <mi>x</mi>
+            <mo>,</mo>
+            <mi>θ<!-- θ --></mi>
+            <mo stretchy="false">)</mo>
+          </mrow>
+          <mo>]</mo>
+        </mrow>
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>θ<!-- θ --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">D</mi>
+          </mrow>
+        </mrow>
+        <mo stretchy="false">)</mo>
+        <mi>d</mi>
+        <mi>θ<!-- θ --></mi>
+        <mo>,</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \int \mathbb {I} \left[\mathbb {E} (r|a^{\ast },x,\theta )=\max _{a'}\mathbb {E} (r|a',x,\theta )\right]P(\theta |{\mathcal {D}})d\theta ,}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/14f8aa2c07a9ef06f5af3d91e3e5389b49d35aa3" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -2.505ex; width:47.848ex; height:6.176ex;" alt="{\displaystyle \int \mathbb {I} \left[\mathbb {E} (r|a^{\ast },x,\theta )=\max _{a'}\mathbb {E} (r|a',x,\theta )\right]P(\theta |{\mathcal {D}})d\theta ,}"/></span></dd></dl>
+<p id="mwRQ">where <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt28" id="mwRg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\mathbb{I}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \mathbb {I} }">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="double-struck">I</mi>
+        </mrow>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \mathbb {I} }</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/8205f06e0d279689ed04a1ac04a3d9c249c637df" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:0.905ex; height:2.176ex;" alt="{\displaystyle \mathbb {I} }"/></span> is the <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Indicator_function" title="Indicator function" id="mwRw">indicator function</a>.</p>
+
+<p id="mwSA">In practice, the rule is implemented by sampling. In each round, parameters <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt31" id="mwSQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\theta^\\ast"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \theta ^{\ast }}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msup>
+          <mi>θ<!-- θ --></mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msup>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \theta ^{\ast }}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/dc305ec80889f8f96a755bb856fa5dc6481a3256" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:2.145ex; height:2.343ex;" alt="{\displaystyle \theta ^{\ast }}"/></span> are sampled from the posterior <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt32" id="mwSg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(\\theta|\\mathcal{D})"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(\theta |{\mathcal {D}})}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>θ<!-- θ --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi class="MJX-tex-caligraphic" mathvariant="script">D</mi>
+          </mrow>
+        </mrow>
+        <mo stretchy="false">)</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(\theta |{\mathcal {D}})}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/e1cf7bcd25e53b202fd585554f599d24b8708dea" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:7.084ex; height:2.843ex;" alt="{\displaystyle P(\theta |{\mathcal {D}})}"/></span>,<sup about="#mwt33" class="mw-ref reference" id="cite_ref-FnTTutorial_3-3" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"FnTTutorial"}}'><a href="#cite_note-FnTTutorial-3" id="mwSw"><span class="mw-reflink-text" id="mwTA"><span class="cite-bracket" id="mwTQ">[</span>3<span class="cite-bracket" id="mwTg">]</span></span></a></sup><sup class="reference nowrap" about="#mwt29" typeof="mw:Transclusion" id="mwTw" data-mw='{"parts":[{"template":{"target":{"wt":"rp","href":"./Template:Rp"},"params":{"1":{"wt":"7"}},"i":0}}]}'><span title="Page / location: 7"><span typeof="mw:Entity">:</span><span typeof="mw:Entity"> </span>7<span typeof="mw:Entity"> </span></span></sup> and an action <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt34" id="mwUA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a^\\ast"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a^{\ast }}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msup>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msup>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a^{\ast }}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/6a224c0c719d72fd81ffae00ba9e2b01d87a9bd8" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:2.284ex; height:2.343ex;" alt="{\displaystyle a^{\ast }}"/></span> chosen that maximizes <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt35" id="mwUQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\mathbb{E}[r|\\theta^\\ast,a^\\ast,x]"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \mathbb {E} [r|\theta ^{\ast },a^{\ast },x]}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="double-struck">E</mi>
+        </mrow>
+        <mo stretchy="false">[</mo>
+        <mi>r</mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <msup>
+          <mi>θ<!-- θ --></mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msup>
+        <mo>,</mo>
+        <msup>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msup>
+        <mo>,</mo>
+        <mi>x</mi>
+        <mo stretchy="false">]</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \mathbb {E} [r|\theta ^{\ast },a^{\ast },x]}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/a3145dc902fd00d50a4eda4516cac9e03d3479d3" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:12.366ex; height:2.843ex;" alt="{\displaystyle \mathbb {E} [r|\theta ^{\ast },a^{\ast },x]}"/></span>, i.e. the expected reward given the sampled parameters, the action, and the current context. Conceptually, this means that the player instantiates their beliefs randomly in each round according to the posterior distribution, and then acts optimally according to them. In most practical applications, it is computationally onerous to maintain and sample from a posterior distribution over models. As such, Thompson sampling is often used in conjunction with approximate sampling techniques.<sup about="#mwt36" class="mw-ref reference" id="cite_ref-FnTTutorial_3-4" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"FnTTutorial"}}'><a href="#cite_note-FnTTutorial-3" id="mwUg"><span class="mw-reflink-text" id="mwUw"><span class="cite-bracket" id="mwVA">[</span>3<span class="cite-bracket" id="mwVQ">]</span></span></a></sup><sup class="reference nowrap" about="#mwt30" typeof="mw:Transclusion" id="mwVg" data-mw='{"parts":[{"template":{"target":{"wt":"rp","href":"./Template:Rp"},"params":{"1":{"wt":"sec. 5"}},"i":0}}]}'><span title="Page / location: sec. 5"><span typeof="mw:Entity">:</span><span typeof="mw:Entity"> </span>sec. 5<span typeof="mw:Entity"> </span></span></sup></p>
+
+</section><section data-mw-section-id="2" id="mwVw" aria-labelledby="History"><div class="mw-heading mw-heading2"><h2 id="History">History</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Thompson_sampling&amp;action=edit&amp;section=2" title="Edit section: History"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+
+<p id="mwWA">Thompson sampling was originally described by Thompson in 1933.<sup about="#mwt37" class="mw-ref reference" id="cite_ref-ref1_1-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref1"}}'><a href="#cite_note-ref1-1" id="mwWQ"><span class="mw-reflink-text" id="mwWg"><span class="cite-bracket" id="mwWw">[</span>1<span class="cite-bracket" id="mwXA">]</span></span></a></sup> It was subsequently rediscovered numerous times independently in the context of multi-armed bandit problems.<sup about="#mwt38" class="mw-ref reference" id="cite_ref-ref2_4-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref2"}}'><a href="#cite_note-ref2-4" id="mwXQ"><span class="mw-reflink-text" id="mwXg"><span class="cite-bracket" id="mwXw">[</span>4<span class="cite-bracket" id="mwYA">]</span></span></a></sup><sup about="#mwt39" class="mw-ref reference" id="cite_ref-ref5_5-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref5"}}'><a href="#cite_note-ref5-5" id="mwYQ"><span class="mw-reflink-text" id="mwYg"><span class="cite-bracket" id="mwYw">[</span>5<span class="cite-bracket" id="mwZA">]</span></span></a></sup><sup about="#mwt40" class="mw-ref reference" id="cite_ref-ref6_6-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref6"}}'><a href="#cite_note-ref6-6" id="mwZQ"><span class="mw-reflink-text" id="mwZg"><span class="cite-bracket" id="mwZw">[</span>6<span class="cite-bracket" id="mwaA">]</span></span></a></sup><sup about="#mwt41" class="mw-ref reference" id="cite_ref-ref4_7-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref4"}}'><a href="#cite_note-ref4-7" id="mwaQ"><span class="mw-reflink-text" id="mwag"><span class="cite-bracket" id="mwaw">[</span>7<span class="cite-bracket" id="mwbA">]</span></span></a></sup><sup about="#mwt42" class="mw-ref reference" id="cite_ref-ref3_8-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref3"}}'><a href="#cite_note-ref3-8" id="mwbQ"><span class="mw-reflink-text" id="mwbg"><span class="cite-bracket" id="mwbw">[</span>8<span class="cite-bracket" id="mwcA">]</span></span></a></sup><sup about="#mwt43" class="mw-ref reference" id="cite_ref-ref7_9-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref7"}}'><a href="#cite_note-ref7-9" id="mwcQ"><span class="mw-reflink-text" id="mwcg"><span class="cite-bracket" id="mwcw">[</span>9<span class="cite-bracket" id="mwdA">]</span></span></a></sup> A first proof of convergence for the bandit case has been shown in 1997.<sup about="#mwt44" class="mw-ref reference" id="cite_ref-ref2_4-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref2"}}'><a href="#cite_note-ref2-4" id="mwdQ"><span class="mw-reflink-text" id="mwdg"><span class="cite-bracket" id="mwdw">[</span>4<span class="cite-bracket" id="mweA">]</span></span></a></sup> The first application to <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Markov_decision_process" title="Markov decision process" id="mweQ">Markov decision processes</a> was in 2000.<sup about="#mwt45" class="mw-ref reference" id="cite_ref-ref6_6-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref6"}}'><a href="#cite_note-ref6-6" id="mweg"><span class="mw-reflink-text" id="mwew"><span class="cite-bracket" id="mwfA">[</span>6<span class="cite-bracket" id="mwfQ">]</span></span></a></sup> A related approach (see <a rel="mw:WikiLink" href="#Bayesian_control_rule" class="mw-selflink-fragment" id="mwfg">Bayesian control rule</a>) was published in 2010.<sup about="#mwt46" class="mw-ref reference" id="cite_ref-ref5_5-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref5"}}'><a href="#cite_note-ref5-5" id="mwfw"><span class="mw-reflink-text" id="mwgA"><span class="cite-bracket" id="mwgQ">[</span>5<span class="cite-bracket" id="mwgg">]</span></span></a></sup> In 2010 it was also shown that Thompson sampling is <i id="mwgw">instantaneously self-correcting</i>.<sup about="#mwt47" class="mw-ref reference" id="cite_ref-ref7_9-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref7"}}'><a href="#cite_note-ref7-9" id="mwhA"><span class="mw-reflink-text" id="mwhQ"><span class="cite-bracket" id="mwhg">[</span>9<span class="cite-bracket" id="mwhw">]</span></span></a></sup> Asymptotic convergence results for contextual bandits were published in 2011.<sup about="#mwt48" class="mw-ref reference" id="cite_ref-ref4_7-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref4"}}'><a href="#cite_note-ref4-7" id="mwiA"><span class="mw-reflink-text" id="mwiQ"><span class="cite-bracket" id="mwig">[</span>7<span class="cite-bracket" id="mwiw">]</span></span></a></sup> Thompson Sampling has been widely used in many online learning problems including <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/A/B_testing" title="A/B testing" id="mwjA">A/B testing</a> in website design and online advertising,<sup about="#mwt49" class="mw-ref reference" id="cite_ref-ref9_10-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref9"}}'><a href="#cite_note-ref9-10" id="mwjQ"><span class="mw-reflink-text" id="mwjg"><span class="cite-bracket" id="mwjw">[</span>10<span class="cite-bracket" id="mwkA">]</span></span></a></sup> and accelerated learning in decentralized decision making.<sup about="#mwt50" class="mw-ref reference" id="cite_ref-ref8_11-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref8"}}'><a href="#cite_note-ref8-11" id="mwkQ"><span class="mw-reflink-text" id="mwkg"><span class="cite-bracket" id="mwkw">[</span>11<span class="cite-bracket" id="mwlA">]</span></span></a></sup> A Double Thompson Sampling (D-TS)<sup about="#mwt51" class="mw-ref reference" id="cite_ref-Wu2016DTS_12-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"Wu2016DTS"}}'><a href="#cite_note-Wu2016DTS-12" id="mwlQ"><span class="mw-reflink-text" id="mwlg"><span class="cite-bracket" id="mwlw">[</span>12<span class="cite-bracket" id="mwmA">]</span></span></a></sup> algorithm has been proposed for <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Dueling_bandit" title="Dueling bandit" class="mw-redirect" id="mwmQ">dueling bandits</a>, a variant of traditional MAB, where feedback comes in the form of pairwise comparison.</p>
+
+</section><section data-mw-section-id="3" id="mwmg" aria-labelledby="Relationship_to_other_approaches"><div class="mw-heading mw-heading2"><h2 id="Relationship_to_other_approaches">Relationship to other approaches</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Thompson_sampling&amp;action=edit&amp;section=3" title="Edit section: Relationship to other approaches"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+
+<section data-mw-section-id="4" id="mwmw" aria-labelledby="Probability_matching"><div class="mw-heading mw-heading3"><h3 id="Probability_matching">Probability matching</h3><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Thompson_sampling&amp;action=edit&amp;section=4" title="Edit section: Probability matching"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+
+<span class="mw-empty-elt" about="#mwt52" typeof="mw:Transclusion" id="mwnA" data-mw='{"parts":[{"template":{"target":{"wt":"See also","href":"./Template:See_also"},"params":{"1":{"wt":"Probability matching"}},"i":0}}]}'><style data-mw-deduplicate="TemplateStyles:r1368532237" typeof="mw:Extension/templatestyles" about="#mwt53" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Hatnote/styles.css"},"body":{"extsrc":""}}'>.mw-parser-output .hatnote{font-style:italic}.mw-parser-output div.hatnote{padding-left:1.6em;margin-bottom:0.5em}.mw-parser-output .hatnote i{font-style:normal}.mw-parser-output .hatnote+.mw-empty-elt+.hatnote{margin-top:-0.5em}@media print{body.ns-0 .mw-parser-output .hatnote{display:none!important}}</style></span><div role="note" class="hatnote navigation-not-searchable" about="#mwt52" id="mwnQ">See also: <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Probability_matching" title="Probability matching">Probability matching</a></div>
+
+<p id="mwng"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Probability_matching" title="Probability matching" id="mwnw">Probability matching</a> is a decision strategy in which predictions of class membership are proportional to the class base rates. Thus, if in the training set positive examples are observed 60% of the time, and negative examples are observed 40% of the time, the observer using a probability-matching strategy will predict (for unlabeled examples) a class label of "positive" on 60% of instances, and a class label of "negative" on 40% of instances.</p>
+
+</section><section data-mw-section-id="5" id="mwoA" aria-labelledby="Bayesian_control_rule"><div class="mw-heading mw-heading3"><h3 id="Bayesian_control_rule">Bayesian control rule</h3><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Thompson_sampling&amp;action=edit&amp;section=5" title="Edit section: Bayesian control rule"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+
+<p id="mwoQ">A generalization of Thompson sampling to arbitrary dynamical environments and causal structures, known as <b id="mwog">Bayesian control rule</b>, has been shown to be the optimal solution to the adaptive coding problem with actions and observations.<sup about="#mwt54" class="mw-ref reference" id="cite_ref-ref5_5-2" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref5"}}'><a href="#cite_note-ref5-5" id="mwow"><span class="mw-reflink-text" id="mwpA"><span class="cite-bracket" id="mwpQ">[</span>5<span class="cite-bracket" id="mwpg">]</span></span></a></sup> In this formulation, an agent is conceptualized as a mixture over a set of behaviours. As the agent interacts with its environment, it learns the causal properties and adopts the behaviour that minimizes the relative entropy to the behaviour with the best prediction of the environment's behaviour. If these behaviours have been chosen according to the maximum expected utility principle, then the asymptotic behaviour of the Bayesian control rule matches the asymptotic behaviour of the perfectly rational agent.</p>
+
+<p id="mwpw">The setup is as follows. Let <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt55" id="mwqA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a_1, a_2, \\ldots, a_T"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a_{1},a_{2},\ldots ,a_{T}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>2</mn>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <mo>…<!-- … --></mo>
+        <mo>,</mo>
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a_{1},a_{2},\ldots ,a_{T}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/7357619d8ee078919082c38e0cd225f1af2ce916" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:13.399ex; height:2.009ex;" alt="{\displaystyle a_{1},a_{2},\ldots ,a_{T}}"/></span> be the actions issued by an agent up to time <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt56" id="mwqQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"T"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle T}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>T</mi>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle T}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/ec7200acd984a1d3a3d7dc455e262fbe54f7f6e0" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.636ex; height:2.176ex;" alt="{\displaystyle T}"/></span>, and let <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt57" id="mwqg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"o_1, o_2, \\ldots, o_T"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle o_{1},o_{2},\ldots ,o_{T}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>2</mn>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <mo>…<!-- … --></mo>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle o_{1},o_{2},\ldots ,o_{T}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/d0dff7cb76119aec09f4269a0331b08e5b0dba13" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:13.093ex; height:2.009ex;" alt="{\displaystyle o_{1},o_{2},\ldots ,o_{T}}"/></span> be the observations gathered by the agent up to time <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt58" id="mwqw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"T"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle T}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>T</mi>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle T}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/ec7200acd984a1d3a3d7dc455e262fbe54f7f6e0" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.636ex; height:2.176ex;" alt="{\displaystyle T}"/></span>. Then, the agent issues the action <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt59" id="mwrA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a_{T+1}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a_{T+1}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+            <mo>+</mo>
+            <mn>1</mn>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a_{T+1}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/a220fccee36604e9019ea380fdd6d26ee48367c8" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:4.72ex; height:2.009ex;" alt="{\displaystyle a_{T+1}}"/></span> with probability:<sup about="#mwt60" class="mw-ref reference" id="cite_ref-ref5_5-3" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"ref5"}}'><a href="#cite_note-ref5-5" id="mwrQ"><span class="mw-reflink-text" id="mwrg"><span class="cite-bracket" id="mwrw">[</span>5<span class="cite-bracket" id="mwsA">]</span></span></a></sup></p>
+<dl id="mwsQ"><dd id="mwsg"><span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt61" id="mwsw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(a_{T+1}|\\hat{a}_{1:T}, o_{1:T}),"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(a_{T+1}|{\hat {a}}_{1:T},o_{1:T}),}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+            <mo>+</mo>
+            <mn>1</mn>
+          </mrow>
+        </msub>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <msub>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mrow class="MJX-TeXAtom-ORD">
+              <mover>
+                <mi>a</mi>
+                <mo stretchy="false">^<!-- ^ --></mo>
+              </mover>
+            </mrow>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo stretchy="false">)</mo>
+        <mo>,</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(a_{T+1}|{\hat {a}}_{1:T},o_{1:T}),}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/defd1958b51c91de7cf74e65567ee5a5a121f87b" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:18.297ex; height:2.843ex;" alt="{\displaystyle P(a_{T+1}|{\hat {a}}_{1:T},o_{1:T}),}"/></span></dd></dl>
+<p id="mwtA">where the "hat"-notation <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt62" id="mwtQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\hat{a}_t"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle {\hat {a}}_{t}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mrow class="MJX-TeXAtom-ORD">
+              <mover>
+                <mi>a</mi>
+                <mo stretchy="false">^<!-- ^ --></mo>
+              </mover>
+            </mrow>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>t</mi>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle {\hat {a}}_{t}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/8d89af6ad8f0d378bcfc3c1abf677e612c914cbe" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:2.056ex; height:2.509ex;" alt="{\displaystyle {\hat {a}}_{t}}"/></span> denotes the fact that <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt63" id="mwtg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a_t"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a_{t}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>t</mi>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a_{t}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/77fce84b535e9e195e3d30ce5ae09b372d87e2e9" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:2.056ex; height:2.009ex;" alt="{\displaystyle a_{t}}"/></span> is a causal intervention (see <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Causality" title="Causality" id="mwtw">Causality</a>), and not an ordinary observation. If the agent holds beliefs <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt64" id="mwuA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\theta \\in \\Theta"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \theta \in \Theta }">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>θ<!-- θ --></mi>
+        <mo>∈<!-- ∈ --></mo>
+        <mi mathvariant="normal">Θ<!-- Θ --></mi>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \theta \in \Theta }</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/bc76a89f6f175a02e371f31f86a8906fa3fd5e7e" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:5.739ex; height:2.176ex;" alt="{\displaystyle \theta \in \Theta }"/></span> over its behaviors, then the Bayesian control rule becomes</p>
+<dl id="mwuQ"><dd id="mwug"><span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt65" id="mwuw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(a_{T+1}|\\hat{a}_{1:T}, o_{1:T}) = \\int_{\\Theta} P(a_{T+1}|\\theta, \\hat{a}_{1:T}, o_{1:T}) P(\\theta|\\hat{a}_{1:T}, o_{1:T}) \\, d\\theta"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(a_{T+1}|{\hat {a}}_{1:T},o_{1:T})=\int _{\Theta }P(a_{T+1}|\theta ,{\hat {a}}_{1:T},o_{1:T})P(\theta |{\hat {a}}_{1:T},o_{1:T})\,d\theta }">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+            <mo>+</mo>
+            <mn>1</mn>
+          </mrow>
+        </msub>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <msub>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mrow class="MJX-TeXAtom-ORD">
+              <mover>
+                <mi>a</mi>
+                <mo stretchy="false">^<!-- ^ --></mo>
+              </mover>
+            </mrow>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo stretchy="false">)</mo>
+        <mo>=</mo>
+        <msub>
+          <mo>∫<!-- ∫ --></mo>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi mathvariant="normal">Θ<!-- Θ --></mi>
+          </mrow>
+        </msub>
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+            <mo>+</mo>
+            <mn>1</mn>
+          </mrow>
+        </msub>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <mi>θ<!-- θ --></mi>
+        <mo>,</mo>
+        <msub>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mrow class="MJX-TeXAtom-ORD">
+              <mover>
+                <mi>a</mi>
+                <mo stretchy="false">^<!-- ^ --></mo>
+              </mover>
+            </mrow>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo stretchy="false">)</mo>
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>θ<!-- θ --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <msub>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mrow class="MJX-TeXAtom-ORD">
+              <mover>
+                <mi>a</mi>
+                <mo stretchy="false">^<!-- ^ --></mo>
+              </mover>
+            </mrow>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo stretchy="false">)</mo>
+        <mspace width="thinmathspace"></mspace>
+        <mi>d</mi>
+        <mi>θ<!-- θ --></mi>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(a_{T+1}|{\hat {a}}_{1:T},o_{1:T})=\int _{\Theta }P(a_{T+1}|\theta ,{\hat {a}}_{1:T},o_{1:T})P(\theta |{\hat {a}}_{1:T},o_{1:T})\,d\theta }</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/2c83e1426847dbf475d45c8bc839c0e6a14f223b" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -2.338ex; width:60.427ex; height:5.676ex;" alt="{\displaystyle P(a_{T+1}|{\hat {a}}_{1:T},o_{1:T})=\int _{\Theta }P(a_{T+1}|\theta ,{\hat {a}}_{1:T},o_{1:T})P(\theta |{\hat {a}}_{1:T},o_{1:T})\,d\theta }"/></span>,</dd></dl>
+<p id="mwvA">where <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt66" id="mwvQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(\\theta|\\hat{a}_{1:T}, o_{1:T})"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(\theta |{\hat {a}}_{1:T},o_{1:T})}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>θ<!-- θ --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <msub>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mrow class="MJX-TeXAtom-ORD">
+              <mover>
+                <mi>a</mi>
+                <mo stretchy="false">^<!-- ^ --></mo>
+              </mover>
+            </mrow>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo stretchy="false">)</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(\theta |{\hat {a}}_{1:T},o_{1:T})}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/1fe991be295d85d644d3961cb6d09ccdab84999b" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:14.021ex; height:2.843ex;" alt="{\displaystyle P(\theta |{\hat {a}}_{1:T},o_{1:T})}"/></span> is the posterior distribution over the parameter <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt67" id="mwvg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\theta"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \theta }">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>θ<!-- θ --></mi>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \theta }</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/6e5ab2664b422d53eb0c7df3b87e1360d75ad9af" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:1.09ex; height:2.176ex;" alt="{\displaystyle \theta }"/></span> given actions <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt68" id="mwvw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a_{1:T}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a_{1:T}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a_{1:T}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/3dbc345a1747d085c6ca86787065c789ea719331" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:3.898ex; height:2.009ex;" alt="{\displaystyle a_{1:T}}"/></span> and observations <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt69" id="mwwA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"o_{1:T}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle o_{1:T}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle o_{1:T}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/105f9838a14b12a80bd3183e6085471c1f05002b" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:3.796ex; height:2.009ex;" alt="{\displaystyle o_{1:T}}"/></span>.</p>
+
+<p id="mwwQ">In practice, the Bayesian control amounts to sampling, at each time step, a parameter <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt70" id="mwwg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"\\theta^\\ast"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle \theta ^{\ast }}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msup>
+          <mi>θ<!-- θ --></mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msup>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle \theta ^{\ast }}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/dc305ec80889f8f96a755bb856fa5dc6481a3256" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.338ex; width:2.145ex; height:2.343ex;" alt="{\displaystyle \theta ^{\ast }}"/></span> from the posterior distribution <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt71" id="mwww" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(\\theta|\\hat{a}_{1:T}, o_{1:T})"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(\theta |{\hat {a}}_{1:T},o_{1:T})}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>θ<!-- θ --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <msub>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mrow class="MJX-TeXAtom-ORD">
+              <mover>
+                <mi>a</mi>
+                <mo stretchy="false">^<!-- ^ --></mo>
+              </mover>
+            </mrow>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo stretchy="false">)</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(\theta |{\hat {a}}_{1:T},o_{1:T})}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/1fe991be295d85d644d3961cb6d09ccdab84999b" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:14.021ex; height:2.843ex;" alt="{\displaystyle P(\theta |{\hat {a}}_{1:T},o_{1:T})}"/></span>, where the posterior distribution is computed using Bayes' rule by only considering the (causal) likelihoods of the observations <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt72" id="mwxA" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"o_1, o_2, \\ldots, o_T"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle o_{1},o_{2},\ldots ,o_{T}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>2</mn>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <mo>…<!-- … --></mo>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle o_{1},o_{2},\ldots ,o_{T}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/d0dff7cb76119aec09f4269a0331b08e5b0dba13" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:13.093ex; height:2.009ex;" alt="{\displaystyle o_{1},o_{2},\ldots ,o_{T}}"/></span> and ignoring the (causal) likelihoods of the actions <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt73" id="mwxQ" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a_1, a_2, \\ldots, a_T"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a_{1},a_{2},\ldots ,a_{T}}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>2</mn>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <mo>…<!-- … --></mo>
+        <mo>,</mo>
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+          </mrow>
+        </msub>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a_{1},a_{2},\ldots ,a_{T}}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/7357619d8ee078919082c38e0cd225f1af2ce916" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.671ex; width:13.399ex; height:2.009ex;" alt="{\displaystyle a_{1},a_{2},\ldots ,a_{T}}"/></span>, and then by sampling the action <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt74" id="mwxg" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"a^\\ast_{T+1}"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle a_{T+1}^{\ast }}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <msubsup>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+            <mo>+</mo>
+            <mn>1</mn>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msubsup>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle a_{T+1}^{\ast }}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/31b17ebdbd0cd778837f162485d49ea87fe337c4" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -1.171ex; width:4.72ex; height:3.009ex;" alt="{\displaystyle a_{T+1}^{\ast }}"/></span> from the action distribution <span class="mwe-math-element mwe-math-element-inline" typeof="mw:Extension/math" about="#mwt75" id="mwxw" data-mw='{"name":"math","attrs":{},"body":{"extsrc":"P(a_{T+1}|\\theta^\\ast,\\hat{a}_{1:T},o_{1:T})"}}'><span class="mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" class="mathjax_ignore" alttext="{\displaystyle P(a_{T+1}|\theta ^{\ast },{\hat {a}}_{1:T},o_{1:T})}">
+  <semantics>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mstyle displaystyle="true" scriptlevel="0">
+        <mi>P</mi>
+        <mo stretchy="false">(</mo>
+        <msub>
+          <mi>a</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>T</mi>
+            <mo>+</mo>
+            <mn>1</mn>
+          </mrow>
+        </msub>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mo stretchy="false">|</mo>
+        </mrow>
+        <msup>
+          <mi>θ<!-- θ --></mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mo>∗<!-- ∗ --></mo>
+          </mrow>
+        </msup>
+        <mo>,</mo>
+        <msub>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mrow class="MJX-TeXAtom-ORD">
+              <mover>
+                <mi>a</mi>
+                <mo stretchy="false">^<!-- ^ --></mo>
+              </mover>
+            </mrow>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo>,</mo>
+        <msub>
+          <mi>o</mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>:</mo>
+            <mi>T</mi>
+          </mrow>
+        </msub>
+        <mo stretchy="false">)</mo>
+      </mstyle>
+    </mrow>
+    <annotation encoding="application/x-tex">{\displaystyle P(a_{T+1}|\theta ^{\ast },{\hat {a}}_{1:T},o_{1:T})}</annotation>
+  </semantics>
+</math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/eaae11a99a07c78ecb798adb0cc6abd259886da7" class="mwe-math-fallback-image-inline mw-invert skin-invert" aria-hidden="true" style="vertical-align: -0.838ex; width:20.828ex; height:2.843ex;" alt="{\displaystyle P(a_{T+1}|\theta ^{\ast },{\hat {a}}_{1:T},o_{1:T})}"/></span>.</p>
+
+</section><section data-mw-section-id="6" id="mwyA" aria-labelledby="Upper-confidence-bound_(UCB)_algorithms"><div class="mw-heading mw-heading3"><h3 id="Upper-confidence-bound_(UCB)_algorithms"><span id="Upper-confidence-bound_.28UCB.29_algorithms" typeof="mw:FallbackId"></span>Upper-confidence-bound (UCB) algorithms</h3><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Thompson_sampling&amp;action=edit&amp;section=6" title="Edit section: Upper-confidence-bound (UCB) algorithms"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+
+<p id="mwyQ">Thompson sampling and upper-confidence bound algorithms share a fundamental property that underlies many of their theoretical guarantees.  Roughly speaking, both algorithms allocate exploratory effort to actions that might be optimal and are in this sense "optimistic".  Leveraging this property, one can translate regret bounds established for UCB algorithms to <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Bayesian_regret" title="Bayesian regret" id="mwyg">Bayesian regret</a> bounds for Thompson sampling<sup about="#mwt76" class="mw-ref reference" id="cite_ref-RussoVanRoy2014_13-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"RussoVanRoy2014"}}'><a href="#cite_note-RussoVanRoy2014-13" id="mwyw"><span class="mw-reflink-text" id="mwzA"><span class="cite-bracket" id="mwzQ">[</span>13<span class="cite-bracket" id="mwzg">]</span></span></a></sup> or unify regret analysis across both these algorithms and many classes of problems.<sup about="#mwt77" class="mw-ref reference" id="cite_ref-RussoVanRoy2013_14-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"RussoVanRoy2013"}}'><a href="#cite_note-RussoVanRoy2013-14" id="mwzw"><span class="mw-reflink-text" id="mw0A"><span class="cite-bracket" id="mw0Q">[</span>14<span class="cite-bracket" id="mw0g">]</span></span></a></sup></p>
+
+</section></section><section data-mw-section-id="7" id="mw0w" aria-labelledby="References"><div class="mw-heading mw-heading2"><h2 id="References">References</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Thompson_sampling&amp;action=edit&amp;section=7" title="Edit section: References"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+
+<span class="mw-empty-elt" about="#mwt78" typeof="mw:Transclusion" id="mw1A" data-mw='{"parts":[{"template":{"target":{"wt":"Reflist","href":"./Template:Reflist"},"params":{"refs":{"wt":"&lt;ref name=\"ref1\">\nThompson, William R. [https://www.dropbox.com/s/yhn9prnr5bz0156/1933-thompson.pdf \"On the likelihood that one unknown probability exceeds another in view of the evidence of two samples\"]. &apos;&apos;[[Biometrika]]&apos;&apos;, 25(3–4):285–294, 1933.\n&lt;/ref>\n&lt;ref name=\"ref1b\">\nThompson, W. R. (1935). On the theory of apportionment. &apos;&apos;American Journal of Mathematics&apos;&apos;, 57(2), 450-456.\n&lt;/ref>\n&lt;ref name=\"ref2\">\nJ. Wyatt. &apos;&apos;Exploration and Inference in Learning from Reinforcement&apos;&apos;. Ph.D. thesis, Department of Artificial Intelligence, University of Edinburgh. March 1997.\n&lt;/ref>\n&lt;ref name=\"ref3\">\nChapelle, Olivier, and Lihong Li. \"An empirical evaluation of Thompson sampling.\" Advances in neural information processing systems. 2011.\nhttp://papers.nips.cc/paper/4321-an-empirical-evaluation-of-thompson-sampling\n&lt;/ref>\n&lt;ref name=\"ref4\">\nB. C. May, B. C., N. Korda, A. Lee, and D. S. Leslie. \"Optimistic Bayesian sampling in contextual-bandit problems\". Technical report, Statistics Group, Department of Mathematics, University of Bristol, 2011.\n&lt;/ref>\n&lt;ref name=\"ref5\">\nP. A. Ortega and D. A. Braun. \"A Minimum Relative Entropy Principle for Learning and Acting\", &apos;&apos;Journal of Artificial Intelligence Research&apos;&apos;, 38, pages 475–511, 2010, http://arxiv.org/abs/0810.3605\n&lt;/ref>\n&lt;ref name=\"ref6\">\nM. J. A. Strens. \"A Bayesian Framework for Reinforcement Learning\", &apos;&apos;Proceedings of the Seventeenth International Conference on Machine Learning&apos;&apos;, Stanford University, California, June 29–July 2, 2000, http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.140.1701\n&lt;/ref>\n&lt;ref name=\"ref7\">\nO.-C. Granmo. \"Solving Two-Armed Bernoulli Bandit Problems Using a Bayesian Learning Automaton\", &apos;&apos;International Journal of Intelligent Computing and Cybernetics&apos;&apos;, 3 (2), 2010, 207-234.\n&lt;/ref>\n&lt;ref name=\"ref8\">{{Cite journal | last1 = Granmo | first1 = O. C. | last2 = Glimsdal | first2 = S. | title = Accelerated Bayesian learning for decentralized two-armed bandit based decision making with applications to the Goore Game | doi = 10.1007/s10489-012-0346-z | journal = Applied Intelligence | volume = 38 | issue = 4 | pages = 479–488 | year = 2012 | hdl = 11250/137969 | s2cid = 8746483 | hdl-access = free }}\n&lt;/ref>\n&lt;ref name=\"ref9\">\n{{cite web\n| last = Clarke\n| first = Ian\n| author-link = Ian Clarke (computer scientist)\n| title = Proportionate A/B testing\n| url = http://blog.locut.us/2011/09/22/proportionate-ab-testing/ \n| date = 22 September 2011\n| access-date = 30 April 2013\n| url-status = dead \n| archive-url = https://web.archive.org/web/20130504042611/http://blog.locut.us/2011/09/22/proportionate-ab-testing/ \n| archive-date = 4 May 2013\n}}\n&lt;/ref>\n&lt;ref name=\"Wu2016DTS\">\n{{citation\n | arxiv       = 1604.07101| last1     = Wu\n | first1    = Huasen\n | last2     = Liu\n | first2    = Xin\n | last3     = Srikant\n | first3    = R\n | title     = Double Thompson Sampling for Dueling Bandits\n | year      = 2016\n| bibcode= 2016arXiv160407101W}}\n&lt;/ref>\n&lt;ref name=\"FnTTutorial\">\nDaniel J. Russo, Benjamin Van Roy, Abbas Kazerouni, Ian Osband and Zheng Wen (2018), \"A Tutorial on Thompson Sampling\", Foundations and Trends in Machine Learning: Vol. 11: No. 1, pp 1-96. https://web.stanford.edu/~bvr/pubs/TS_Tutorial.pdf\n&lt;/ref>\n&lt;ref name=\"RussoVanRoy2013\">\nDaniel J. Russo and Benjamin Van Roy (2013), \"Eluder Dimension and the Sample Complexity of Optimistic Exploration\", Advances in Neural Information Processing Systems 26, pp. 2256-2264. https://proceedings.neurips.cc/paper/2013/file/41bfd20a38bb1b0bec75acf0845530a7-Paper.pdf&lt;/ref>\n&lt;ref name=\"RussoVanRoy2014\">{{cite journal\n| last1=Russo | first1=Daniel J.\n| last2=Van Roy | first2=Benjamin\n| title=Learning to Optimize Via Posterior Sampling\n| journal=[[Mathematics of Operations Research]]\n| volume=39\n| issue=4\n| pages=1221–1243\n| date=2014\n| doi=10.1287/moor.2014.0650| arxiv=1301.2609\n}}\n&lt;/ref>"}},"i":0}}]}'><style data-mw-deduplicate="TemplateStyles:r1327269900" typeof="mw:Extension/templatestyles" about="#mwt79" data-mw='{"name":"templatestyles","attrs":{"src":"Reflist/styles.css"}}'>.mw-parser-output .reflist-columns-2{column-width:30em}.mw-parser-output .reflist-columns-3{column-width:25em}body.skin-vector-2022 .mw-parser-output .reflist-columns-2{column-width:27em}body.skin-vector-2022 .mw-parser-output .reflist-columns-3{column-width:22.5em}.mw-parser-output .references[data-mw-group=upper-alpha]{list-style-type:upper-alpha}.mw-parser-output .references[data-mw-group=upper-roman]{list-style-type:upper-roman}.mw-parser-output .references[data-mw-group=lower-alpha]{list-style-type:lower-alpha}.mw-parser-output .references[data-mw-group=lower-greek]{list-style-type:lower-greek}.mw-parser-output .references[data-mw-group=lower-roman]{list-style-type:lower-roman}.mw-parser-output div.reflist-liststyle-upper-alpha .references{list-style-type:upper-alpha}.mw-parser-output div.reflist-liststyle-upper-roman .references{list-style-type:upper-roman}.mw-parser-output div.reflist-liststyle-lower-alpha .references{list-style-type:lower-alpha}.mw-parser-output div.reflist-liststyle-lower-greek .references{list-style-type:lower-greek}.mw-parser-output div.reflist-liststyle-lower-roman .references{list-style-type:lower-roman}</style></span><div about="#mwt78" id="mw1Q">
+<div class="mw-references-wrap mw-references-columns" typeof="mw:Extension/references" about="#mwt120" id="mw1g" data-mw='{"name":"references","attrs":{"group":"","responsive":"1"},"body":{"extsrc":"{{#parsoid\u0000fragment:4}}\n{{#parsoid\u0000fragment:5}}\n{{#parsoid\u0000fragment:6}}\n{{#parsoid\u0000fragment:7}}\n{{#parsoid\u0000fragment:8}}\n{{#parsoid\u0000fragment:9}}\n{{#parsoid\u0000fragment:10}}\n{{#parsoid\u0000fragment:11}}\n{{#parsoid\u0000fragment:12}}\n{{#parsoid\u0000fragment:13}}\n{{#parsoid\u0000fragment:14}}\n{{#parsoid\u0000fragment:15}}\n{{#parsoid\u0000fragment:16}}\n{{#parsoid\u0000fragment:17}}"}}'><ol class="mw-references references" id="mw1w"><li about="#cite_note-ref1-1" id="cite_note-ref1-1" data-mw-footnote-number="1"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mw2A"><a href="#cite_ref-ref1_1-0" id="mw2Q"><span class="mw-linkback-text" id="mw2g">1</span></a> <a href="#cite_ref-ref1_1-1" id="mw2w"><span class="mw-linkback-text" id="mw3A">2</span></a></span> <span id="mw-reference-text-cite_note-ref1-1" class="mw-reference-text reference-text">
+Thompson, William R. <a rel="mw:ExtLink nofollow" href="https://www.dropbox.com/s/yhn9prnr5bz0156/1933-thompson.pdf" class="external text" id="mw3Q">"On the likelihood that one unknown probability exceeds another in view of the evidence of two samples"</a>. <i id="mw3g"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Biometrika" title="Biometrika" id="mw3w">Biometrika</a></i>, 25(3–4):285–294, 1933.
+</span></li>
+<li about="#cite_note-ref1b-2" id="cite_note-ref1b-2" data-mw-footnote-number="2"><span class="mw-cite-backlink" id="mw4A"><a href="#cite_ref-ref1b_2-0" rel="mw:referencedBy" id="mw4Q"><span class="mw-linkback-text" id="mw4g">↑</span></a></span> <span id="mw-reference-text-cite_note-ref1b-2" class="mw-reference-text reference-text">
+Thompson, W. R. (1935). On the theory of apportionment. <i id="mw4w">American Journal of Mathematics</i>, 57(2), 450-456.
+</span></li>
+<li about="#cite_note-FnTTutorial-3" id="cite_note-FnTTutorial-3" data-mw-footnote-number="3"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mw5A"><a href="#cite_ref-FnTTutorial_3-0" id="mw5Q"><span class="mw-linkback-text" id="mw5g">1</span></a> <a href="#cite_ref-FnTTutorial_3-1" id="mw5w"><span class="mw-linkback-text" id="mw6A">2</span></a> <a href="#cite_ref-FnTTutorial_3-2" id="mw6Q"><span class="mw-linkback-text" id="mw6g">3</span></a> <a href="#cite_ref-FnTTutorial_3-3" id="mw6w"><span class="mw-linkback-text" id="mw7A">4</span></a> <a href="#cite_ref-FnTTutorial_3-4" id="mw7Q"><span class="mw-linkback-text" id="mw7g">5</span></a></span> <span id="mw-reference-text-cite_note-FnTTutorial-3" class="mw-reference-text reference-text">
+Daniel J. Russo, Benjamin Van Roy, Abbas Kazerouni, Ian Osband and Zheng Wen (2018), "A Tutorial on Thompson Sampling", Foundations and Trends in Machine Learning: Vol. 11: No. 1, pp 1-96. <a rel="mw:ExtLink nofollow" href="https://web.stanford.edu/~bvr/pubs/TS_Tutorial.pdf" class="external free" id="mw7w">https://web.stanford.edu/~bvr/pubs/TS_Tutorial.pdf</a>
+</span></li>
+<li about="#cite_note-ref2-4" id="cite_note-ref2-4" data-mw-footnote-number="4"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mw8A"><a href="#cite_ref-ref2_4-0" id="mw8Q"><span class="mw-linkback-text" id="mw8g">1</span></a> <a href="#cite_ref-ref2_4-1" id="mw8w"><span class="mw-linkback-text" id="mw9A">2</span></a></span> <span id="mw-reference-text-cite_note-ref2-4" class="mw-reference-text reference-text">
+J. Wyatt. <i id="mw9Q">Exploration and Inference in Learning from Reinforcement</i>. Ph.D. thesis, Department of Artificial Intelligence, University of Edinburgh. March 1997.
+</span></li>
+<li about="#cite_note-ref5-5" id="cite_note-ref5-5" data-mw-footnote-number="5"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mw9g"><a href="#cite_ref-ref5_5-0" id="mw9w"><span class="mw-linkback-text" id="mw-A">1</span></a> <a href="#cite_ref-ref5_5-1" id="mw-Q"><span class="mw-linkback-text" id="mw-g">2</span></a> <a href="#cite_ref-ref5_5-2" id="mw-w"><span class="mw-linkback-text" id="mw_A">3</span></a> <a href="#cite_ref-ref5_5-3" id="mw_Q"><span class="mw-linkback-text" id="mw_g">4</span></a></span> <span id="mw-reference-text-cite_note-ref5-5" class="mw-reference-text reference-text">
+P. A. Ortega and D. A. Braun. "A Minimum Relative Entropy Principle for Learning and Acting", <i id="mw_w">Journal of Artificial Intelligence Research</i>, 38, pages 475–511, 2010, <a rel="mw:ExtLink nofollow" href="http://arxiv.org/abs/0810.3605" class="external free" id="mwAQA">http://arxiv.org/abs/0810.3605</a>
+</span></li>
+<li about="#cite_note-ref6-6" id="cite_note-ref6-6" data-mw-footnote-number="6"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mwAQE"><a href="#cite_ref-ref6_6-0" id="mwAQI"><span class="mw-linkback-text" id="mwAQM">1</span></a> <a href="#cite_ref-ref6_6-1" id="mwAQQ"><span class="mw-linkback-text" id="mwAQU">2</span></a></span> <span id="mw-reference-text-cite_note-ref6-6" class="mw-reference-text reference-text">
+M. J. A. Strens. "A Bayesian Framework for Reinforcement Learning", <i id="mwAQY">Proceedings of the Seventeenth International Conference on Machine Learning</i>, Stanford University, California, June 29–July 2, 2000, <a rel="mw:ExtLink nofollow" href="http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.140.1701" class="external free" id="mwAQc">http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.140.1701</a>
+</span></li>
+<li about="#cite_note-ref4-7" id="cite_note-ref4-7" data-mw-footnote-number="7"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mwAQg"><a href="#cite_ref-ref4_7-0" id="mwAQk"><span class="mw-linkback-text" id="mwAQo">1</span></a> <a href="#cite_ref-ref4_7-1" id="mwAQs"><span class="mw-linkback-text" id="mwAQw">2</span></a></span> <span id="mw-reference-text-cite_note-ref4-7" class="mw-reference-text reference-text">
+B. C. May, B. C., N. Korda, A. Lee, and D. S. Leslie. "Optimistic Bayesian sampling in contextual-bandit problems". Technical report, Statistics Group, Department of Mathematics, University of Bristol, 2011.
+</span></li>
+<li about="#cite_note-ref3-8" id="cite_note-ref3-8" data-mw-footnote-number="8"><span class="mw-cite-backlink" id="mwAQ0"><a href="#cite_ref-ref3_8-0" rel="mw:referencedBy" id="mwAQ4"><span class="mw-linkback-text" id="mwAQ8">↑</span></a></span> <span id="mw-reference-text-cite_note-ref3-8" class="mw-reference-text reference-text">
+Chapelle, Olivier, and Lihong Li. "An empirical evaluation of Thompson sampling." Advances in neural information processing systems. 2011.
+<a rel="mw:ExtLink nofollow" href="http://papers.nips.cc/paper/4321-an-empirical-evaluation-of-thompson-sampling" class="external free" id="mwARA">http://papers.nips.cc/paper/4321-an-empirical-evaluation-of-thompson-sampling</a>
+</span></li>
+<li about="#cite_note-ref7-9" id="cite_note-ref7-9" data-mw-footnote-number="9"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mwARE"><a href="#cite_ref-ref7_9-0" id="mwARI"><span class="mw-linkback-text" id="mwARM">1</span></a> <a href="#cite_ref-ref7_9-1" id="mwARQ"><span class="mw-linkback-text" id="mwARU">2</span></a></span> <span id="mw-reference-text-cite_note-ref7-9" class="mw-reference-text reference-text">
+O.-C. Granmo. "Solving Two-Armed Bernoulli Bandit Problems Using a Bayesian Learning Automaton", <i id="mwARY">International Journal of Intelligent Computing and Cybernetics</i>, 3 (2), 2010, 207-234.
+</span></li>
+<li about="#cite_note-ref9-10" id="cite_note-ref9-10" data-mw-footnote-number="10"><span class="mw-cite-backlink" id="mwARc"><a href="#cite_ref-ref9_10-0" rel="mw:referencedBy" id="mwARg"><span class="mw-linkback-text" id="mwARk">↑</span></a></span> <span id="mw-reference-text-cite_note-ref9-10" class="mw-reference-text reference-text">
+<style data-mw-deduplicate="TemplateStyles:r1333433106" typeof="mw:Extension/templatestyles" about="#mwt102" id="mwARo" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""}}'>.mw-parser-output cite.citation{font-style:inherit;word-wrap:break-word}.mw-parser-output .citation q{quotes:"\"""\"""'""'"}.mw-parser-output .citation:target{background-color:rgba(0,127,255,0.133)}.mw-parser-output .id-lock-free.id-lock-free a{background:url("//upload.wikimedia.org/wikipedia/commons/6/65/Lock-green.svg")right 0.1em center/9px no-repeat}.mw-parser-output .id-lock-limited.id-lock-limited a,.mw-parser-output .id-lock-registration.id-lock-registration a{background:url("//upload.wikimedia.org/wikipedia/commons/d/d6/Lock-gray-alt-2.svg")right 0.1em center/9px no-repeat}.mw-parser-output .id-lock-subscription.id-lock-subscription a{background:url("//upload.wikimedia.org/wikipedia/commons/a/aa/Lock-red-alt-2.svg")right 0.1em center/9px no-repeat}.mw-parser-output .cs1-ws-icon a{background:url("//upload.wikimedia.org/wikipedia/commons/4/4c/Wikisource-logo.svg")right 0.1em center/12px no-repeat}body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .id-lock-free a,body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .id-lock-limited a,body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .id-lock-registration a,body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .id-lock-subscription a,body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .cs1-ws-icon a{background-size:contain;padding:0 1em 0 0}.mw-parser-output .cs1-code{color:inherit;background:inherit;border:none;padding:inherit}.mw-parser-output .cs1-hidden-error{display:none;color:var(--color-error,#bf3c2c)}.mw-parser-output .cs1-visible-error{color:var(--color-error,#bf3c2c)}.mw-parser-output .cs1-maint{display:none;color:#085;margin-left:0.3em}.mw-parser-output .cs1-kern-left{padding-left:0.2em}.mw-parser-output .cs1-kern-right{padding-right:0.2em}.mw-parser-output .citation .mw-selflink{font-weight:inherit}@media screen{.mw-parser-output .cs1-format{font-size:95%}html.skin-theme-clientpref-night .mw-parser-output .cs1-maint{color:#18911f}}@media screen and (prefers-color-scheme:dark){html.skin-theme-clientpref-os .mw-parser-output .cs1-maint{color:#18911f}}</style><cite id="CITEREFClarke2011" class="citation web cs1"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Ian_Clarke_(computer_scientist)" title="Ian Clarke (computer scientist)" id="mwARs">Clarke, Ian</a> (22 September 2011). <a rel="mw:ExtLink nofollow" href="https://web.archive.org/web/20130504042611/http://blog.locut.us/2011/09/22/proportionate-ab-testing/" class="external text" id="mwARw">"Proportionate A/B testing"</a>. Archived from <a rel="mw:ExtLink nofollow" href="http://blog.locut.us/2011/09/22/proportionate-ab-testing/" class="external text" id="mwAR0">the original</a> on 4 May 2013<span class="reference-accessdate" id="mwAR4">. Retrieved <span class="nowrap" id="mwAR8">30 April</span> 2013</span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=Proportionate+A%2FB+testing&amp;rft.date=2011-09-22&amp;rft.aulast=Clarke&amp;rft.aufirst=Ian&amp;rft_id=http%3A%2F%2Fblog.locut.us%2F2011%2F09%2F22%2Fproportionate-ab-testing%2F&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3AThompson+sampling" class="Z3988" id="mwASA"></span>
+</span></li>
+<li about="#cite_note-ref8-11" id="cite_note-ref8-11" data-mw-footnote-number="11"><span class="mw-cite-backlink" id="mwASE"><a href="#cite_ref-ref8_11-0" rel="mw:referencedBy" id="mwASI"><span class="mw-linkback-text" id="mwASM">↑</span></a></span> <span id="mw-reference-text-cite_note-ref8-11" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt97" typeof="mw:Extension/templatestyles" id="mwASQ" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""}}'/><cite id="CITEREFGranmoGlimsdal2012" class="citation journal cs1">Granmo, O. C.; Glimsdal, S. (2012). "Accelerated Bayesian learning for decentralized two-armed bandit based decision making with applications to the Goore Game". <i id="mwASU">Applied Intelligence</i>. <b id="mwASY">38</b> (4): <span class="nowrap" id="mwASc">479–</span>488. <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Doi_(identifier)" title="Doi (identifier)" class="mw-redirect" id="mwASg">doi</a>:<a rel="mw:ExtLink nofollow" href="https://doi.org/10.1007%2Fs10489-012-0346-z" class="external text" id="mwASk">10.1007/s10489-012-0346-z</a>. <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Hdl_(identifier)" title="Hdl (identifier)" class="mw-redirect" id="mwASo">hdl</a>:<span class="id-lock-free" title="Freely accessible" id="mwASs"><a rel="mw:ExtLink nofollow" href="https://hdl.handle.net/11250%2F137969" class="external text" id="mwASw">11250/137969</a></span>. <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/S2CID_(identifier)" title="S2CID (identifier)" class="mw-redirect" id="mwAS0">S2CID</a><span typeof="mw:Entity" id="mwAS4"> </span><a rel="mw:ExtLink nofollow" href="https://api.semanticscholar.org/CorpusID:8746483" class="external text" id="mwAS8">8746483</a>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=article&amp;rft.jtitle=Applied+Intelligence&amp;rft.atitle=Accelerated+Bayesian+learning+for+decentralized+two-armed+bandit+based+decision+making+with+applications+to+the+Goore+Game&amp;rft.volume=38&amp;rft.issue=4&amp;rft.pages=479-488&amp;rft.date=2012&amp;rft_id=info%3Ahdl%2F11250%2F137969&amp;rft_id=https%3A%2F%2Fapi.semanticscholar.org%2FCorpusID%3A8746483%23id-name%3DS2CID&amp;rft_id=info%3Adoi%2F10.1007%2Fs10489-012-0346-z&amp;rft.aulast=Granmo&amp;rft.aufirst=O.+C.&amp;rft.au=Glimsdal%2C+S.&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3AThompson+sampling" class="Z3988" id="mwATA"></span>
+</span></li>
+<li about="#cite_note-Wu2016DTS-12" id="cite_note-Wu2016DTS-12" data-mw-footnote-number="12"><span class="mw-cite-backlink" id="mwATE"><a href="#cite_ref-Wu2016DTS_12-0" rel="mw:referencedBy" id="mwATI"><span class="mw-linkback-text" id="mwATM">↑</span></a></span> <span id="mw-reference-text-cite_note-Wu2016DTS-12" class="mw-reference-text reference-text">
+<link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt107" typeof="mw:Extension/templatestyles" id="mwATQ" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""}}'/><cite id="CITEREFWuLiuSrikant2016" class="citation cs2">Wu, Huasen; Liu, Xin; Srikant, R (2016), <i id="mwATU">Double Thompson Sampling for Dueling Bandits</i>, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/ArXiv_(identifier)" title="ArXiv (identifier)" class="mw-redirect" id="mwATY">arXiv</a>:<span class="id-lock-free" title="Freely accessible" id="mwATc"><a rel="mw:ExtLink nofollow" href="https://arxiv.org/abs/1604.07101" class="external text" id="mwATg">1604.07101</a></span>, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Bibcode_(identifier)" title="Bibcode (identifier)" class="mw-redirect" id="mwATk">Bibcode</a>:<a rel="mw:ExtLink nofollow" href="https://ui.adsabs.harvard.edu/abs/2016arXiv160407101W" class="external text" id="mwATo">2016arXiv160407101W</a></cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=book&amp;rft.btitle=Double+Thompson+Sampling+for+Dueling+Bandits&amp;rft.date=2016&amp;rft_id=info%3Aarxiv%2F1604.07101&amp;rft_id=info%3Abibcode%2F2016arXiv160407101W&amp;rft.aulast=Wu&amp;rft.aufirst=Huasen&amp;rft.au=Liu%2C+Xin&amp;rft.au=Srikant%2C+R&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3AThompson+sampling" class="Z3988" id="mwATs"></span>
+</span></li>
+<li about="#cite_note-RussoVanRoy2014-13" id="cite_note-RussoVanRoy2014-13" data-mw-footnote-number="13"><span class="mw-cite-backlink" id="mwATw"><a href="#cite_ref-RussoVanRoy2014_13-0" rel="mw:referencedBy" id="mwAT0"><span class="mw-linkback-text" id="mwAT4">↑</span></a></span> <span id="mw-reference-text-cite_note-RussoVanRoy2014-13" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt116" typeof="mw:Extension/templatestyles" id="mwAT8" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""}}'/><cite id="CITEREFRussoVan_Roy2014" class="citation journal cs1">Russo, Daniel J.; Van Roy, Benjamin (2014). "Learning to Optimize Via Posterior Sampling". <i id="mwAUA"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Mathematics_of_Operations_Research" title="Mathematics of Operations Research" id="mwAUE">Mathematics of Operations Research</a></i>. <b id="mwAUI">39</b> (4): <span class="nowrap" id="mwAUM">1221–</span>1243. <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/ArXiv_(identifier)" title="ArXiv (identifier)" class="mw-redirect" id="mwAUQ">arXiv</a>:<span class="id-lock-free" title="Freely accessible" id="mwAUU"><a rel="mw:ExtLink nofollow" href="https://arxiv.org/abs/1301.2609" class="external text" id="mwAUY">1301.2609</a></span>. <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Doi_(identifier)" title="Doi (identifier)" class="mw-redirect" id="mwAUc">doi</a>:<a rel="mw:ExtLink nofollow" href="https://doi.org/10.1287%2Fmoor.2014.0650" class="external text" id="mwAUg">10.1287/moor.2014.0650</a>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=article&amp;rft.jtitle=Mathematics+of+Operations+Research&amp;rft.atitle=Learning+to+Optimize+Via+Posterior+Sampling&amp;rft.volume=39&amp;rft.issue=4&amp;rft.pages=1221-1243&amp;rft.date=2014&amp;rft_id=info%3Aarxiv%2F1301.2609&amp;rft_id=info%3Adoi%2F10.1287%2Fmoor.2014.0650&amp;rft.aulast=Russo&amp;rft.aufirst=Daniel+J.&amp;rft.au=Van+Roy%2C+Benjamin&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3AThompson+sampling" class="Z3988" id="mwAUk"></span>
+</span></li>
+<li about="#cite_note-RussoVanRoy2013-14" id="cite_note-RussoVanRoy2013-14" data-mw-footnote-number="14"><span class="mw-cite-backlink" id="mwAUo"><a href="#cite_ref-RussoVanRoy2013_14-0" rel="mw:referencedBy" id="mwAUs"><span class="mw-linkback-text" id="mwAUw">↑</span></a></span> <span id="mw-reference-text-cite_note-RussoVanRoy2013-14" class="mw-reference-text reference-text">
+Daniel J. Russo and Benjamin Van Roy (2013), "Eluder Dimension and the Sample Complexity of Optimistic Exploration", Advances in Neural Information Processing Systems 26, pp. 2256-2264. <a rel="mw:ExtLink nofollow" href="https://proceedings.neurips.cc/paper/2013/file/41bfd20a38bb1b0bec75acf0845530a7-Paper.pdf" class="external free" id="mwAU0">https://proceedings.neurips.cc/paper/2013/file/41bfd20a38bb1b0bec75acf0845530a7-Paper.pdf</a></span></li>
+</ol></div></div>
+
+<!--&#x2D; Categories &#x2D;--><link rel="mw:PageProp/Category" href="./Category:Artificial_intelligence_engineering" id="mwAU4"/>
+<link rel="mw:PageProp/Category" href="./Category:Heuristic_algorithms" id="mwAU8"/>
+<link rel="mw:PageProp/Category" href="./Category:Sequential_methods" id="mwAVA"/>
+<link rel="mw:PageProp/Category" href="./Category:Sequential_experiments" id="mwAVE"/></section>
+<!-- 
+NewPP limit report
+Parsed by mw‐web.eqiad.main‐cf7ff4768‐bj586
+Cached time: 20261026202931
+Cache expiry: 2592000
+Cache expiry source: Module:Citation/CS1 (os.date(%Y))
+Reduced expiry: false
+Complications: [vary‐revision‐sha1, show‐toc, use‐parsoid]
+CPU time usage: 1.191 seconds
+Real time usage: 2.777 seconds
+Preprocessor visited node count: 1420/1000000
+Revision size: 11919/2097152 bytes
+Post‐expand include size: 21575/2097152 bytes
+Template argument size: 949/2097152 bytes
+Highest expansion depth: 13/100
+Expensive parser function count: 3/500
+Unstrip recursion depth: 0/20
+Unstrip post‐expand size: 18330/5000000 bytes
+Lua time usage: 0.343/10.000 seconds
+Lua memory usage: 16941902/52428800 bytes
+Number of Wikibase entities loaded: 0/500
+-->
+<!--
+Transclusion expansion time report (%,ms,calls,template)
+100.00% 2434.133      1 -total
+ 11.90%  289.574      4 Template:Rp
+ 11.42%  278.096      4 Template:R/superscript
+  6.82%  165.982      1 Template:Short_description
+  4.16%  101.260      2 Template:Cite_journal
+  4.03%   98.212      1 Template:More_citations_needed
+  3.24%   78.752      2 Template:Pagetype
+  3.22%   78.482      1 Template:Ambox
+  2.60%   63.262      3 Template:Main_other
+  1.90%   46.157      1 Template:SDcat
+-->
+
+<!-- Render ID f2ce90fc-d17b-11f1-a098-f15500023546 -->
+
+<!-- Saved in parser cache with key enwiki:parsoid-pcache:34130293:|#|:idhash:useParsoid=1 and timestamp 20261026202931 and revision id 1362198073. Rendering was triggered because: page_view
+ -->
+
+<!-- Parsoid 0.24.0.0-alpha27 -->
+</div><!--
+Post‐processing cache key enwiki:postproc‐parsoid‐pcache:34130293:|#|:idhash:injectTOC=0!postproc=1!skin=vector‐2022!useParsoid=1!visibleLinks=single, generated at 20261026204059
+--><noscript><img src="https://en.wikipedia.org/wiki/Special:CentralAutoLogin/start?useformat=desktop&amp;type=1x1&amp;usesul3=1" alt="" width="1" height="1" style="border: none; position: absolute;"></noscript>
+<div class="printfooter" data-nosnippet="">Retrieved from "<a dir="ltr" href="https://en.wikipedia.org/w/index.php?title=Thompson_sampling&amp;oldid=1362198073">https://en.wikipedia.org/w/index.php?title=Thompson_sampling&amp;oldid=1362198073</a>"</div></div>
+					<div id="catlinks" class="catlinks" data-mw-interface=""><div id="mw-normal-catlinks" class="mw-normal-catlinks"><a href="/wiki/Help:Category" title="Help:Category">Categories</a>: <ul><li><a href="/wiki/Category:Artificial_intelligence_engineering" title="Category:Artificial intelligence engineering">Artificial intelligence engineering</a></li><li><a href="/wiki/Category:Heuristic_algorithms" title="Category:Heuristic algorithms">Heuristic algorithms</a></li><li><a href="/wiki/Category:Sequential_methods" title="Category:Sequential methods">Sequential methods</a></li><li><a href="/wiki/Category:Sequential_experiments" title="Category:Sequential experiments">Sequential experiments</a></li></ul></div><div id="mw-hidden-catlinks" class="mw-hidden-catlinks mw-hidden-cats-hidden">Hidden categories: <ul><li><a href="/wiki/Category:Articles_with_short_description" title="Category:Articles with short description">Articles with short description</a></li><li><a href="/wiki/Category:Short_description_is_different_from_Wikidata" title="Category:Short description is different from Wikidata">Short description is different from Wikidata</a></li><li><a href="/wiki/Category:Articles_needing_additional_references_from_May_2012" title="Category:Articles needing additional references from May 2012">Articles needing additional references from May 2012</a></li><li><a href="/wiki/Category:All_articles_needing_additional_references" title="Category:All articles needing additional references">All articles needing additional references</a></li></ul></div></div>
+				</div>
+			</main>
+			
+		</div>
+		<div class="mw-footer-container">
+			<footer id="footer" class="mw-footer" >
+				<ul id="footer-info" class="mw-portlet mw-portlet-footer-info">
+	<li id="footer-info-lastmod"> This page was last edited on 2 July 2026, at 13:18<span class="anonymous-show">&#160;(UTC)</span>.</li>
+	<li id="footer-info-renderedwith">Page was rendered with <a href="https://www.mediawiki.org/wiki/Special:MyLanguage/Parsoid" class="extiw" title="mw:Special:MyLanguage/Parsoid">Parsoid</a>.</li>
+	<li id="footer-info-copyright">Text is available under the <a href="/wiki/Wikipedia:Text_of_the_Creative_Commons_Attribution-ShareAlike_4.0_International_License" title="Wikipedia:Text of the Creative Commons Attribution-ShareAlike 4.0 International License">Creative Commons Attribution-ShareAlike 4.0 License</a>;
+additional terms may apply. By using this site, you agree to the <a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Terms_of_Use" class="extiw" title="foundation:Special:MyLanguage/Policy:Terms of Use">Terms of Use</a> and <a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy" class="extiw" title="foundation:Special:MyLanguage/Policy:Privacy policy">Privacy Policy</a>. Wikipedia® is a registered trademark of the <a rel="nofollow" class="external text" href="https://wikimediafoundation.org/">Wikimedia Foundation, Inc.</a>, a non-profit organization.</li>
+</ul>
+
+				<ul id="footer-places" class="mw-portlet mw-portlet-footer-places">
+	<li id="footer-places-privacy"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy">Privacy policy</a></li>
+	<li id="footer-places-about"><a href="/wiki/Wikipedia:About">About Wikipedia</a></li>
+	<li id="footer-places-disclaimers"><a href="/wiki/Wikipedia:General_disclaimer">Disclaimers</a></li>
+	<li id="footer-places-contact"><a href="//en.wikipedia.org/wiki/Wikipedia:Contact_us">Contact Wikipedia</a></li>
+	<li id="footer-places-legal-safety-contacts"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Legal:Wikimedia_Foundation_Legal_and_Safety_Contact_Information">Legal &amp; safety contacts</a></li>
+	<li id="footer-places-wm-codeofconduct"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Universal_Code_of_Conduct">Code of Conduct</a></li>
+	<li id="footer-places-developers"><a href="https://developer.wikimedia.org">Developers</a></li>
+	<li id="footer-places-statslink"><a href="https://stats.wikimedia.org/#/en.wikipedia.org">Statistics</a></li>
+	<li id="footer-places-cookiestatement"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Cookie_statement">Cookie statement</a></li>
+	<li id="footer-places-mobileview"><a href="//en.wikipedia.org/w/index.php?title=Thompson_sampling&amp;mobileaction=toggle_view_mobile" class="noprint stopMobileRedirectToggle">Mobile view</a></li>
+</ul>
+
+				<ul id="footer-icons" class="mw-portlet mw-portlet-footer-icons noprint">
+	<li id="footer-copyrightico"><a href="https://www.wikimedia.org/" class="cdx-button cdx-button--fake-button cdx-button--size-large cdx-button--fake-button--enabled"><picture><source media="(min-width: 500px)" srcset="/static/images/footer/wikimedia-button.svg" width="84" height="29"><img src="/static/images/footer/wikimedia.svg" width="25" height="25" alt="Wikimedia Foundation" lang="en" loading="lazy"></picture></a></li>
+	<li id="footer-poweredbyico"><a href="https://www.mediawiki.org/" class="cdx-button cdx-button--fake-button cdx-button--size-large cdx-button--fake-button--enabled"><picture><source media="(min-width: 500px)" srcset="/w/resources/assets/poweredby_mediawiki.svg" width="88" height="31"><img src="/w/resources/assets/mediawiki_compact.svg" alt="Powered by MediaWiki" lang="en" width="25" height="25" loading="lazy"></picture></a></li>
+</ul>
+
+			</footer>
+		</div>
+	</div> 
+</div> 
+<div class="vector-header-container vector-sticky-header-container no-font-mode-scale">
+	<div id="vector-sticky-header" class="vector-sticky-header">
+		<div class="vector-sticky-header-start">
+			<div class="vector-sticky-header-icon-start vector-button-flush-left" aria-hidden="true">
+				<button class="cdx-button cdx-button--weight-quiet cdx-button--icon-only vector-sticky-header-search-toggle" tabindex="-1" data-event-name="ui.vector-sticky-search-form.icon"><span class="vector-icon mw-ui-icon-search mw-ui-icon-wikimedia-search cdx-button__icon"></span>
+
+<span>Search</span>
+			</button>
+		</div>
+			
+		<div role="search" class="vector-search-box-vue  vector-search-box-show-thumbnail vector-search-box">
+			<div class="vector-typeahead-search-container">
+				<div class="cdx-typeahead-search cdx-typeahead-search--show-thumbnail">
+					<form action="/w/index.php" id="vector-sticky-search-form" class="cdx-search-input cdx-search-input--has-end-button">
+						<div  class="cdx-search-input__input-wrapper"  data-search-loc="header-moved">
+							<div class="cdx-text-input cdx-text-input--has-start-icon">
+								<input
+									class="cdx-text-input__input mw-searchInput" autocomplete="off"
+									
+									type="search" name="search" placeholder="Search Wikipedia">
+								<span class="cdx-text-input__icon cdx-text-input__start-icon"></span>
+							</div>
+							<input type="hidden" name="title" value="Special:Search">
+						</div>
+						<button class="cdx-button cdx-search-input__end-button">Search</button>
+					</form>
+				</div>
+			</div>
+		</div>
+		<div class="vector-sticky-header-context-bar">
+				<nav aria-label="Contents" class="vector-toc-landmark">
+						
+					<div id="vector-sticky-header-toc" class="vector-dropdown mw-portlet mw-portlet-sticky-header-toc vector-sticky-header-toc vector-button-flush-left"  >
+						<input type="checkbox" id="vector-sticky-header-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-sticky-header-toc" class="vector-dropdown-checkbox "  aria-label="Toggle the table of contents"   >
+						<label id="vector-sticky-header-toc-label" for="vector-sticky-header-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Toggle the table of contents</span>
+						</label>
+						<div class="vector-dropdown-content">
+					
+						<div id="vector-sticky-header-toc-unpinned-container" class="vector-unpinned-container">
+						</div>
+					
+						</div>
+					</div>
+			</nav>
+				<div class="vector-sticky-header-context-bar-primary" aria-hidden="true" ><span lang="en" dir="ltr"><span class="mw-page-title-main">Thompson sampling</span></span></div>
+			</div>
+		</div>
+		<div class="vector-sticky-header-end" aria-hidden="true">
+			<div class="vector-sticky-header-icons">
+				<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-talk-sticky-header" tabindex="-1" data-event-name="talk-sticky-header"><span class="vector-icon mw-ui-icon-speechBubbles mw-ui-icon-wikimedia-speechBubbles cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-subject-sticky-header" tabindex="-1" data-event-name="subject-sticky-header"><span class="vector-icon mw-ui-icon-article mw-ui-icon-wikimedia-article cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-history-sticky-header" tabindex="-1" data-event-name="history-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-history mw-ui-icon-wikimedia-wikimedia-history cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only mw-watchlink" id="ca-watchstar-sticky-header" tabindex="-1" data-event-name="watch-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-star mw-ui-icon-wikimedia-wikimedia-star cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-edit-sticky-header" tabindex="-1" data-event-name="wikitext-edit-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-wikiText mw-ui-icon-wikimedia-wikimedia-wikiText cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-ve-edit-sticky-header" tabindex="-1" data-event-name="ve-edit-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-edit mw-ui-icon-wikimedia-wikimedia-edit cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-viewsource-sticky-header" tabindex="-1" data-event-name="ve-edit-protected-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-editLock mw-ui-icon-wikimedia-wikimedia-editLock cdx-button__icon"></span>
+
+<span></span>
+			</a>
+		</div>
+			<div class="vector-sticky-header-buttons">
+				<button class="cdx-button cdx-button--weight-quiet mw-interlanguage-selector" id="p-lang-btn-sticky-header" tabindex="-1" data-event-name="ui.dropdown-p-lang-btn-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-language mw-ui-icon-wikimedia-wikimedia-language cdx-button__icon"></span>
+
+<span>2 languages</span>
+			</button>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive" id="ca-addsection-sticky-header" tabindex="-1" data-event-name="addsection-sticky-header"><span class="vector-icon mw-ui-icon-speechBubbleAdd-progressive mw-ui-icon-wikimedia-speechBubbleAdd-progressive cdx-button__icon"></span>
+
+<span>Add topic</span>
+			</a>
+		</div>
+			<div class="vector-sticky-header-icon-end">
+				<div class="vector-user-links">
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="mw-portlet mw-portlet-dock-bottom emptyPortlet" id="p-dock-bottom">
+	<ul>
+		
+	</ul>
+</div>
+<script>(RLQ=window.RLQ||[]).push(function(){mw.config.set({"wgHostname":"mw-web.eqiad.main-675dc44579-nz7f4","wgBackendResponseTime":109,"wgPageParseReport":{"limitreport":{"cputime":"1.191","walltime":"2.777","ppvisitednodes":{"value":1420,"limit":1000000},"revisionsize":{"value":11919,"limit":2097152},"postexpandincludesize":{"value":21575,"limit":2097152},"templateargumentsize":{"value":949,"limit":2097152},"expansiondepth":{"value":13,"limit":100},"expensivefunctioncount":{"value":3,"limit":500},"unstrip-depth":{"value":0,"limit":20},"unstrip-size":{"value":18330,"limit":5000000},"entityaccesscount":{"value":0,"limit":500},"timingprofile":["100.00% 2434.133      1 -total"," 11.90%  289.574      4 Template:Rp"," 11.42%  278.096      4 Template:R/superscript","  6.82%  165.982      1 Template:Short_description","  4.16%  101.260      2 Template:Cite_journal","  4.03%   98.212      1 Template:More_citations_needed","  3.24%   78.752      2 Template:Pagetype","  3.22%   78.482      1 Template:Ambox","  2.60%   63.262      3 Template:Main_other","  1.90%   46.157      1 Template:SDcat"]},"scribunto":{"limitreport-timeusage":{"value":"0.343","limit":"10.000"},"limitreport-memusage":{"value":16941902,"limit":52428800}},"cachereport":{"origin":"mw-web.eqiad.main-cf7ff4768-bj586","timestamp":"20261026202931","ttl":2592000,"transientcontent":false,"expiry-source":"Module:Citation/CS1 (os.date(%Y))"}}});});</script>
+<script type="application/ld+json">{"@context":"https:\/\/schema.org","@type":"Article","name":"Thompson sampling","url":"https:\/\/en.wikipedia.org\/wiki\/Thompson_sampling","sameAs":"http:\/\/www.wikidata.org\/entity\/Q7795822","mainEntity":"http:\/\/www.wikidata.org\/entity\/Q7795822","author":{"@type":"Organization","name":"Contributors to Wikimedia projects"},"publisher":{"@type":"Organization","name":"Wikimedia Foundation, Inc.","logo":{"@type":"ImageObject","url":"https:\/\/www.wikimedia.org\/static\/images\/wmf-hor-googpub.png"}},"datePublished":"2011-12-20T00:33:43Z","dateModified":"2026-07-02T13:18:52Z","image":"https:\/\/upload.wikimedia.org\/wikipedia\/commons\/4\/42\/Visualization_of_Thompson_sampling.gif?utm_source=en.wikipedia.org&utm_campaign=index&utm_content=original","headline":"heuristic for choosing actions that addresses the exploration-exploitation dilemma in the multi-armed bandit problem"}</script>
+</body>
+</html>

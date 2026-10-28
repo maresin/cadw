@@ -47,7 +47,9 @@ subtypes:
       - name: KernelDensity
         tier: baseline
         tier_level: tier2_wrapper
-        implementation_status: {described_only: true}
+        implementation_status:
+          described_only: false
+          reference_impl_ready: true
         roles: [local_structure, probabilistic]
         purpose: "Non-parametric kernel density estimator; the density is a sum of kernel bumps at every training point. Inductive bias: smooth local structure with bandwidth-controlled smoothing — no parametric form, but O(n) scoring and fragile in high dimensions."
         real_life_examples: ["1-2D density visualization", "Anomaly scoring in low-d sensor streams", "Smooth residual distributions"]

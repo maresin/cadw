@@ -1,0 +1,454 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How HDBSCAN Works &mdash; hdbscan 0.8.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/documentation_options.js?v=ec16d22d"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Comparing Python Clustering Algorithms" href="comparing_clustering_algorithms.html" />
+    <link rel="prev" title="Frequently Asked Questions" href="faq.html" /> 
+<script async type="text/javascript" src="/_/static/javascript/readthedocs-addons.js"></script><meta name="readthedocs-project-slug" content="hdbscan" /><meta name="readthedocs-version-slug" content="latest" /><meta name="readthedocs-resolver-filename" content="/how_hdbscan_works.html" /><meta name="readthedocs-http-status" content="200" /></head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            hdbscan
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="basic_hdbscan.html">Basic Usage of HDBSCAN* for Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_hdbscan.html">Getting More Information About a Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="parameter_selection.html">Parameter Selection for HDBSCAN*</a></li>
+<li class="toctree-l1"><a class="reference internal" href="outlier_detection.html">Outlier Detection</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prediction_tutorial.html">Predicting clusters for new points</a></li>
+<li class="toctree-l1"><a class="reference internal" href="soft_clustering.html">Soft Clustering for HDBSCAN*</a></li>
+<li class="toctree-l1"><a class="reference internal" href="how_to_use_epsilon.html">Combining HDBSCAN* with DBSCAN</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dbscan_from_hdbscan.html">Extracting DBSCAN* clustering from HDBSCAN*</a></li>
+<li class="toctree-l1"><a class="reference internal" href="how_to_detect_branches.html">How to Detect Branches in Clusters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="faq.html">Frequently Asked Questions</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">How HDBSCAN Works</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#transform-the-space">Transform the space</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#build-the-minimum-spanning-tree">Build the minimum spanning tree</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#build-the-cluster-hierarchy">Build the cluster hierarchy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#condense-the-cluster-tree">Condense the cluster tree</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#extract-the-clusters">Extract the clusters</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="comparing_clustering_algorithms.html">Comparing Python Clustering Algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="performance_and_scalability.html">Benchmarking Performance and Scaling of Python Clustering Algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="soft_clustering_explanation.html">How Soft Clustering for HDBSCAN Works</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">hdbscan</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">How HDBSCAN Works</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/how_hdbscan_works.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="how-hdbscan-works">
+<h1>How HDBSCAN Works<a class="headerlink" href="#how-hdbscan-works" title="Link to this heading">¶</a></h1>
+<p>HDBSCAN is a clustering algorithm developed by <a class="reference external" href="http://link.springer.com/chapter/10.1007%2F978-3-642-37456-2_14">Campello, Moulavi, and
+Sander</a>.
+It extends DBSCAN by converting it into a hierarchical clustering
+algorithm, and then using a technique to extract a flat clustering based
+in the stability of clusters. The goal of this notebook is to give you
+an overview of how the algorithm works and the motivations behind it. In
+contrast to the HDBSCAN paper I’m going to describe it without reference
+to DBSCAN. Instead I’m going to explain how I like to think about the
+algorithm, which aligns more closely with <a class="reference external" href="http://cseweb.ucsd.edu/~dasgupta/papers/tree.pdf">Robust Single
+Linkage</a> with <a class="reference external" href="http://link.springer.com/article/10.1007%2Fs10618-013-0311-4">flat
+cluster
+extraction</a>
+on top of it.</p>
+<p>Before we get started we’ll load up most of the libraries we’ll need in
+the background, and set up our plotting (because I believe the best way
+to understand what is going on is to actually see it working in
+pictures).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">seaborn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sns</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sklearn.datasets</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">data</span>
+<span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">set_context</span><span class="p">(</span><span class="s1">'poster'</span><span class="p">)</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">set_style</span><span class="p">(</span><span class="s1">'white'</span><span class="p">)</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">set_color_codes</span><span class="p">()</span>
+<span class="n">plot_kwds</span> <span class="o">=</span> <span class="p">{</span><span class="s1">'alpha'</span> <span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span> <span class="s1">'s'</span> <span class="p">:</span> <span class="mi">80</span><span class="p">,</span> <span class="s1">'linewidths'</span><span class="p">:</span><span class="mi">0</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>The next thing we’ll need is some data. To make for an illustrative
+example we’ll need the data size to be fairly small so we can see what
+is going on. It will also be useful to have several clusters, preferably
+of different kinds. Fortunately sklearn has facilities for generating
+sample clustering data so I’ll make use of that and make a dataset of
+one hundred data points.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">moons</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">make_moons</span><span class="p">(</span><span class="n">n_samples</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">noise</span><span class="o">=</span><span class="mf">0.05</span><span class="p">)</span>
+<span class="n">blobs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">make_blobs</span><span class="p">(</span><span class="n">n_samples</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">centers</span><span class="o">=</span><span class="p">[(</span><span class="o">-</span><span class="mf">0.75</span><span class="p">,</span><span class="mf">2.25</span><span class="p">),</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)],</span> <span class="n">cluster_std</span><span class="o">=</span><span class="mf">0.25</span><span class="p">)</span>
+<span class="n">test_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">moons</span><span class="p">,</span> <span class="n">blobs</span><span class="p">])</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">test_data</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">test_data</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">color</span><span class="o">=</span><span class="s1">'b'</span><span class="p">,</span> <span class="o">**</span><span class="n">plot_kwds</span><span class="p">)</span>
+</pre></div>
+</div>
+<img alt="_images/how_hdbscan_works_3_1.png" src="_images/how_hdbscan_works_3_1.png" />
+<p>Now, the best way to explain HDBSCAN is actually just use it and then go
+through the steps that occurred along the way teasing out what is
+happening at each step. So let’s load up the <a class="reference external" href="https://github.com/scikit-learn-contrib/hdbscan">hdbscan
+library</a> and get to work.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">hdbscan</span>
+</pre></div>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">clusterer</span> <span class="o">=</span> <span class="n">hdbscan</span><span class="o">.</span><span class="n">HDBSCAN</span><span class="p">(</span><span class="n">min_cluster_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">gen_min_span_tree</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">clusterer</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">test_data</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">HDBSCAN</span><span class="p">(</span><span class="n">algorithm</span><span class="o">=</span><span class="s1">'best'</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">approx_min_span_tree</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">gen_min_span_tree</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">leaf_size</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">memory</span><span class="o">=</span><span class="n">Memory</span><span class="p">(</span><span class="kc">None</span><span class="p">),</span>
+    <span class="n">metric</span><span class="o">=</span><span class="s1">'euclidean'</span><span class="p">,</span> <span class="n">min_cluster_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">min_samples</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>So now that we have clustered the data – what actually happened? We can
+break it out into a series of steps</p>
+<ol class="arabic simple">
+<li><p>Transform the space according to the density/sparsity.</p></li>
+<li><p>Build the minimum spanning tree of the distance weighted graph.</p></li>
+<li><p>Construct a cluster hierarchy of connected components.</p></li>
+<li><p>Condense the cluster hierarchy based on minimum cluster size.</p></li>
+<li><p>Extract the stable clusters from the condensed tree.</p></li>
+</ol>
+<section id="transform-the-space">
+<h2>Transform the space<a class="headerlink" href="#transform-the-space" title="Link to this heading">¶</a></h2>
+<p>To find clusters we want to find the islands of higher density amid a
+sea of sparser noise – and the assumption of noise is important: real
+data is messy and has outliers, corrupt data, and noise. The core of the
+clustering algorithm is single linkage clustering, and it can be quite
+sensitive to noise: a single noise data point in the wrong place can act
+as a bridge between islands, gluing them together. Obviously we want our
+algorithm to be robust against noise so we need to find a way to help
+‘lower the sea level’ before running a single linkage algorithm.</p>
+<p>How can we characterize ‘sea’ and ‘land’ without doing a clustering? As
+long as we can get an estimate of density we can consider lower density
+points as the ‘sea’. The goal here is not to perfectly distinguish ‘sea’
+from ‘land’ – this is an initial step in clustering, not the ouput –
+just to make our clustering core a little more robust to noise. So given
+an identification of ‘sea’ we want to lower the sea level. For practical
+purposes that means making ‘sea’ points more distant from each other and
+from the ‘land’.</p>
+<p>That’s just the intuition however. How does it work in practice? We need
+a very inexpensive estimate of density, and the simplest is the distance
+to the <em>k</em>th nearest neighbor. If we have the distance matrix for our
+data (which we will need imminently anyway) we can simply read that off;
+alternatively if our metric is supported (and dimension is low) this is
+the sort of query that
+<a class="reference external" href="http://scikit-learn.org/stable/modules/neighbors.html#k-d-tree">kd-trees</a>
+are good for. Let’s formalise this and (following the DBSCAN, LOF, and
+HDBSCAN literature) call it the <strong>core distance</strong> defined for parameter
+<em>k</em> for a point <em>x</em> and denote as <img class="math" src="_images/math/d9571360c56f85f442c4df7bb73e29fc7812a285.png" alt="\mathrm{core}_k(x)"/>. Now we
+need a way to spread apart points with low density (correspondingly high
+core distance). The simple way to do this is to define a new distance
+metric between points which we will call (again following the
+literature) the <strong>mutual reachability distance</strong>. We define mutual
+reachability distance as follows:</p>
+<center><p><img class="math" src="_images/math/b13c3c98a612ac50a5dc805ba2986f7a44930a0a.png" alt="d_{\mathrm{mreach-}k}(a,b) = \max \{\mathrm{core}_k(a), \mathrm{core}_k(b), d(a,b) \}"/></p>
+</center><p>where <img class="math" src="_images/math/8d7dd8d27d6fec46339c5359a17c4e872ecfb939.png" alt="d(a,b)"/> is the original metric distance between <em>a</em> and
+<em>b</em>. Under this metric dense points (with low core distance) remain the
+same distance from each other but sparser points are pushed away to be
+at least their core distance away from any other point. This effectively
+‘lowers the sea level’ spreading sparse ‘sea’ points out, while leaving
+‘land’ untouched. The caveat here is that obviously this is dependent
+upon the choice of <em>k</em>; larger <em>k</em> values interpret more points as being
+in the ‘sea’. All of this is a little easier to understand with a
+picture, so let’s use a <em>k</em> value of five. Then for a given point we can
+draw a circle for the core distance as the circle that touches the sixth
+nearest neighbor (counting the point itself), like so:</p>
+<img alt="_images/distance1.svg" src="_images/distance1.svg" />
+<p>Pick another point and we can do the same thing, this time with a
+different set of neighbors (one of them even being the first point we
+picked out).</p>
+<img alt="_images/distance2.svg" src="_images/distance2.svg" />
+<p>And we can do that a third time for good measure, with another set of
+six nearest neighbors and another circle with slightly different radius
+again.</p>
+<img alt="_images/distance3.svg" src="_images/distance3.svg" />
+<p>Now if we want to know the mutual reachability distance between the
+blue and green points we can start by drawing in an arrow giving the
+distance between green and blue:</p>
+<img alt="_images/distance4.svg" src="_images/distance4.svg" />
+<p>This passes through the blue circle, but not the green circle – the
+core distance for green is larger than the distance between blue and
+green. Thus we need to mark the mutual reachability distance between
+blue and green as larger – equal to the radius of the green circle
+(easiest to picture if we base one end at the green point).</p>
+<img alt="_images/distance4a.svg" src="_images/distance4a.svg" />
+<p>On the other hand the mutual reachablity distance from red to green is
+simply distance from red to green since that distance is greater than
+either core distance (i.e. the distance arrow passes through both
+circles).</p>
+<img alt="_images/distance5.svg" src="_images/distance5.svg" />
+<p>In general there is <a class="reference external" href="http://arxiv.org/pdf/1506.06422v2.pdf">underlying
+theory</a> to demonstrate that
+mutual reachability distance as a transform works well in allowing
+single linkage clustering to more closely approximate the hierarchy of
+level sets of whatever true density distribution our points were sampled
+from.</p>
+</section>
+<section id="build-the-minimum-spanning-tree">
+<h2>Build the minimum spanning tree<a class="headerlink" href="#build-the-minimum-spanning-tree" title="Link to this heading">¶</a></h2>
+<p>Now that we have a new mutual reachability metric on the data we want
+start finding the islands on dense data. Of course dense areas are
+relative, and different islands may have different densities.
+Conceptually what we will do is the following: consider the data as a
+weighted graph with the data points as vertices and an edge between any
+two points with weight equal to the mutual reachability distance of
+those points.</p>
+<p>Now consider a threshold value, starting high, and steadily being
+lowered. Drop any edges with weight above that threshold. As we drop
+edges we will start to disconnect the graph into connected components.
+Eventually we will have a hierarchy of connected components (from
+completely connected to completely disconnected) at varying threshold
+levels.</p>
+<p>In practice this is very expensive: there are <img class="math" src="_images/math/d8a059564f5703504a6a97d5b2b50b206645b996.png" alt="n^2"/> edges and we
+don’t want to have to run a connected components algorithm that many
+times. The right thing to do is to find a minimal set of edges such that
+dropping any edge from the set causes a disconnection of components. But
+we need more, we need this set to be such that there is no lower weight
+edge that could connect the components. Fortunately graph theory
+furnishes us with just such a thing: the minimum spanning tree of the
+graph.</p>
+<p>We can build the minimum spanning tree very efficiently via <a class="reference external" href="https://en.wikipedia.org/wiki/Prim%27s_algorithm">Prim’s
+algorithm</a> – we
+build the tree one edge at a time, always adding the lowest weight edge
+that connects the current tree to a vertex not yet in the tree. You can
+see the tree HDBSCAN constructed below; note that this is the minimum
+spanning tree for <em>mutual reachability distance</em> which is different from
+the pure distance in the graph. In this case we had a <em>k</em> value of 5.</p>
+<p>In the case that the data lives in a metric space we can use even faster
+methods, such as Dual Tree Boruvka to build the minimal spanning tree.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">clusterer</span><span class="o">.</span><span class="n">minimum_spanning_tree_</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">edge_cmap</span><span class="o">=</span><span class="s1">'viridis'</span><span class="p">,</span>
+                                      <span class="n">edge_alpha</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span>
+                                      <span class="n">node_size</span><span class="o">=</span><span class="mi">80</span><span class="p">,</span>
+                                      <span class="n">edge_linewidth</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+</div>
+<img alt="_images/how_hdbscan_works_10_1.png" src="_images/how_hdbscan_works_10_1.png" />
+</section>
+<section id="build-the-cluster-hierarchy">
+<h2>Build the cluster hierarchy<a class="headerlink" href="#build-the-cluster-hierarchy" title="Link to this heading">¶</a></h2>
+<p>Given the minimal spanning tree, the next step is to convert that into
+the hierarchy of connected components. This is most easily done in the
+reverse order: sort the edges of the tree by distance (in increasing
+order) and then iterate through, creating a new merged cluster for each
+edge. The only difficult part here is to identify the two clusters each
+edge will join together, but this is easy enough via a
+<a class="reference external" href="https://en.wikipedia.org/wiki/Disjoint-set_data_structure">union-find</a>
+data structure. We can view the result as a dendrogram as we see below:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">clusterer</span><span class="o">.</span><span class="n">single_linkage_tree_</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="s1">'viridis'</span><span class="p">,</span> <span class="n">colorbar</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<img alt="_images/how_hdbscan_works_12_1.png" src="_images/how_hdbscan_works_12_1.png" />
+<p>This brings us to the point where robust single linkage stops. We want
+more though; a cluster hierarchy is good, but we really want a set of
+flat clusters. We could do that by drawing a a horizontal line through
+the above diagram and selecting the clusters that it cuts through. This
+is in practice what
+<a class="reference external" href="http://scikit-learn.org/stable/modules/clustering.html#dbscan">DBSCAN</a>
+effectively does (declaring any singleton clusters at the cut level as
+noise). The question is, how do we know where to draw that line? DBSCAN
+simply leaves that as a (very unintuitive) parameter. Worse, we really
+want to deal with variable density clusters and any choice of cut line
+is a choice of mutual reachability distance to cut at, and hence a
+single fixed density level. Ideally we want to be able to cut the tree
+at different places to select our clusters. This is where the next steps
+of HDBSCAN begin and create the difference from robust single linkage.</p>
+</section>
+<section id="condense-the-cluster-tree">
+<h2>Condense the cluster tree<a class="headerlink" href="#condense-the-cluster-tree" title="Link to this heading">¶</a></h2>
+<p>The first step in cluster extraction is condensing down the large and
+complicated cluster hierarchy into a smaller tree with a little more
+data attached to each node. As you can see in the hierarchy above it is
+often the case that a cluster split is one or two points splitting off
+from a cluster; and that is the key point – rather than seeing it as a
+cluster splitting into two new clusters we want to view it as a single
+persistent cluster that is ‘losing points’. To make this concrete we
+need a notion of <strong>minimum cluster size</strong> which we take as a parameter
+to HDBSCAN. Once we have a value for minimum cluster size we can now
+walk through the hierarchy and at each split ask if one of the new
+clusters created by the split has fewer points than the minimum cluster
+size. If it is the case that we have fewer points than the minimum
+cluster size we declare it to be ‘points falling out of a cluster’ and
+have the larger cluster retain the cluster identity of the parent,
+marking down which points ‘fell out of the cluster’ and at what distance
+value that happened. If on the other hand the split is into two clusters
+each at least as large as the minimum cluster size then we consider that
+a true cluster split and let that split persist in the tree. After
+walking through the whole hierarchy and doing this we end up with a much
+smaller tree with a small number of nodes, each of which has data about
+how the size of the cluster at that node decreases over varying
+distance. We can visualize this as a dendrogram similar to the one above
+– again we can have the width of the line represent the number of
+points in the cluster. This time, however, that width varies over the
+length of the line as points fall out of the cluster. For our data using
+a minimum cluster size of 5 the result looks like this:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">clusterer</span><span class="o">.</span><span class="n">condensed_tree_</span><span class="o">.</span><span class="n">plot</span><span class="p">()</span>
+</pre></div>
+</div>
+<img alt="_images/how_hdbscan_works_15_1.png" src="_images/how_hdbscan_works_15_1.png" />
+<p>This is much easier to look at and deal with, particularly in as simple
+a clustering problem as our current test dataset. However we still need
+to pick out clusters to use as a flat clustering. Looking at the plot
+above should give you some ideas about how one might go about doing
+this.</p>
+</section>
+<section id="extract-the-clusters">
+<h2>Extract the clusters<a class="headerlink" href="#extract-the-clusters" title="Link to this heading">¶</a></h2>
+<p>Intuitively we want the choose clusters that persist and have a longer
+lifetime; short lived clusters are probably merely artifacts
+of the single linkage approach. Looking at the previous plot we could
+say that we want to choose those clusters that have the greatest area of
+ink in the plot. To make a flat clustering we will need to add a further
+requirement that, if you select a cluster, then you cannot select any
+cluster that is a descendant of it. And in fact that intuitive notion of
+what should be done is exactly what HDBSCAN does. Of course we need to
+formalise things to make it a concrete algorithm.</p>
+<p>First we need a different measure than distance to consider the
+persistence of clusters; instead we will use
+<img class="math" src="_images/math/77e39e9f7cea1e12b18fe353f83d0b331446101a.png" alt="\lambda = \frac{1}{\mathrm{distance}}"/>. For a given cluster we
+can then define values <img class="math" src="_images/math/3f7c001d170ca80689fa9dcc48d8d2bd1cf2312e.png" alt="\lambda_{\mathrm{birth}}"/> and
+<img class="math" src="_images/math/968859bed6f04db8396e2b1f9ee6ace5e4f67e36.png" alt="\lambda_{\mathrm{death}}"/> to be the lambda value when the cluster
+split off and became it’s own cluster, and the lambda value (if any)
+when the cluster split into smaller clusters respectively. In turn, for
+a given cluster, for each point <em>p</em> in that cluster we can define the
+value <img class="math" src="_images/math/2fef4bee2a07a2a985bccad4f47a2e7883a7ba34.png" alt="\lambda_p"/> as the lambda value at which that point ‘fell
+out of the cluster’ which is a value somewhere between
+<img class="math" src="_images/math/3f7c001d170ca80689fa9dcc48d8d2bd1cf2312e.png" alt="\lambda_{\mathrm{birth}}"/> and <img class="math" src="_images/math/968859bed6f04db8396e2b1f9ee6ace5e4f67e36.png" alt="\lambda_{\mathrm{death}}"/>
+since the point either falls out of the cluster at some point in the
+cluster’s lifetime, or leaves the cluster when the cluster splits into
+two smaller clusters. Now, for each cluster compute the <strong>stability</strong>
+as</p>
+<p><img class="math" src="_images/math/566aa95069f1bdec5013d8d35743dbe93a646c15.png" alt="\sum_{p \in \mathrm{cluster}} (\lambda_p - \lambda_{\mathrm{birth}})"/>.</p>
+<p>Declare all leaf nodes to be selected clusters. Now work up through the
+tree (the reverse topological sort order). If the sum of the stabilities
+of the child clusters is greater than the stability of the cluster, then
+we set the cluster stability to be the sum of the child stabilities. If,
+on the other hand, the cluster’s stability is greater than the sum of
+its children then we declare the cluster to be a selected cluster and
+unselect all its descendants. Once we reach the root node we call the
+current set of selected clusters our flat clustering and return that.</p>
+<p>Okay, that was wordy and complicated, but it really is simply performing
+our ‘select the clusters in the plot with the largest total ink area’
+subject to descendant constraints that we explained earlier. We can
+select the clusters in the condensed tree dendrogram via this algorithm,
+and you get what you expect:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">clusterer</span><span class="o">.</span><span class="n">condensed_tree_</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">select_clusters</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">selection_palette</span><span class="o">=</span><span class="n">sns</span><span class="o">.</span><span class="n">color_palette</span><span class="p">())</span>
+</pre></div>
+</div>
+<img alt="_images/how_hdbscan_works_18_1.png" src="_images/how_hdbscan_works_18_1.png" />
+<p>Now that we have the clusters it is a simple enough matter to turn that
+into cluster labelling as per the sklearn API. Any point not in a
+selected cluster is simply a noise point (and assigned the label -1). We
+can do a little more though: for each cluster we have the
+<img class="math" src="_images/math/2fef4bee2a07a2a985bccad4f47a2e7883a7ba34.png" alt="\lambda_p"/> for each point <em>p</em> in that cluster; If we simply
+normalize those values (so they range from zero to one) then we have a
+measure of the strength of cluster membership for each point in the
+cluster. The hdbscan library returns this as a <code class="docutils literal notranslate"><span class="pre">probabilities_</span></code>
+attribute of the clusterer object. Thus, with labels and membership
+strengths in hand we can make the standard plot, choosing a color for
+points based on cluster label, and desaturating that color according the
+strength of membership (and make unclustered points pure gray).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">palette</span> <span class="o">=</span> <span class="n">sns</span><span class="o">.</span><span class="n">color_palette</span><span class="p">()</span>
+<span class="n">cluster_colors</span> <span class="o">=</span> <span class="p">[</span><span class="n">sns</span><span class="o">.</span><span class="n">desaturate</span><span class="p">(</span><span class="n">palette</span><span class="p">[</span><span class="n">col</span><span class="p">],</span> <span class="n">sat</span><span class="p">)</span>
+                  <span class="k">if</span> <span class="n">col</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="k">else</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span> <span class="k">for</span> <span class="n">col</span><span class="p">,</span> <span class="n">sat</span> <span class="ow">in</span>
+                  <span class="nb">zip</span><span class="p">(</span><span class="n">clusterer</span><span class="o">.</span><span class="n">labels_</span><span class="p">,</span> <span class="n">clusterer</span><span class="o">.</span><span class="n">probabilities_</span><span class="p">)]</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">test_data</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">test_data</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">c</span><span class="o">=</span><span class="n">cluster_colors</span><span class="p">,</span> <span class="o">**</span><span class="n">plot_kwds</span><span class="p">)</span>
+</pre></div>
+</div>
+<img alt="_images/how_hdbscan_works_20_1.png" src="_images/how_hdbscan_works_20_1.png" />
+<p>And that is how HDBSCAN works. It may seem somewhat complicated – there
+are a fair number of moving parts to the algorithm – but ultimately
+each part is actually very straightforward and can be optimized well.
+Hopefully with a better understanding both of the intuitions and some of
+the implementation details of HDBSCAN you will feel motivated to <a class="reference external" href="https://github.com/scikit-learn-contrib/hdbscan">try it
+out</a>. The library continues to
+develop, and will provide a base for new ideas including a near
+parameterless Persistent Density Clustering algorithm, and a new
+semi-supervised clustering algorithm.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="faq.html" class="btn btn-neutral float-left" title="Frequently Asked Questions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="comparing_clustering_algorithms.html" class="btn btn-neutral float-right" title="Comparing Python Clustering Algorithms" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2016, Leland McInnes, John Healy, Steve Astels.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

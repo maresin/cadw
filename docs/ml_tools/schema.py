@@ -64,6 +64,11 @@ class ImplStatus:
     verified_by_agent: bool = False
     described_only: bool = False
     not_implemented_in_cadw: bool = False
+    # v0.9.89: working reference impl in .pingis/impl/ (smoke-tested,
+    # primitives-compliant), NOT yet in cadw/. Mutually exclusive with
+    # verified_in_cadw (validator enforces). Flip to verified_in_cadw
+    # when integrated.
+    reference_impl_ready: bool = False
 
 
 # v0.9.51.1: leakage info (optional, backward compatible).
@@ -254,6 +259,7 @@ def _parse_model(m: dict) -> ModelCard:
             verified_by_agent=bool(status.get("verified_by_agent", False)),
             described_only=bool(status.get("described_only", False)),
             not_implemented_in_cadw=bool(status.get("not_implemented_in_cadw", False)),
+            reference_impl_ready=bool(status.get("reference_impl_ready", False)),
         ),
         roles=list(m["roles"]),
         purpose=m["purpose"],
@@ -490,6 +496,16 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
             m.tier1_core_exception, str):
         err(f"{m_label}: tier1_core_exception must be str, "
             f"got {type(m.tier1_core_exception).__name__}")
+    # v0.9.89: reference_impl_ready means impl lives in .pingis/impl/,
+    # not cadw/. cadw_module/cadw_function must be empty.
+    if m.implementation_status.reference_impl_ready:
+        if m.cadw_module or m.cadw_function:
+            err(f"{m_label}: reference_impl_ready=True requires empty "
+                f"cadw_module/cadw_function (got {m.cadw_module!r}/"
+                f"{m.cadw_function!r}); use verified_in_cadw after integration")
+        if m.implementation_status.verified_in_cadw:
+            err(f"{m_label}: reference_impl_ready and verified_in_cadw "
+                f"are mutually exclusive")
     # METHODOLOGY §10: tier1_core + bounded_state:false requires exception
     if (m.tier_level == "tier1_core"
             and m.bounded_state is False

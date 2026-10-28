@@ -91,7 +91,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - probabilistic
     purpose: 'Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter.'
@@ -450,7 +451,8 @@ subtypes:
     tier: baseline
     tier_level: tier2_wrapper
     implementation_status:
-      described_only: true
+      described_only: false
+      reference_impl_ready: true
     roles:
     - representation
     purpose: 'Lee & Seung 1999 - non-negative matrix factorization of the doc-term matrix. Inductive bias: additive parts-based topics with sparsity enforced by non-negativity; no probabilistic likelihood, so perplexity is undefined.'
