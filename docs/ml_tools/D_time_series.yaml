@@ -55,6 +55,14 @@ subtypes:
       value: 14.35
       std: null
       note: naive2 M4 benchmark [legacy v0.9.44, migrated v0.9.50]
+    state_class: O(1)
+    state_type: elementwise
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'keep last value + seasonal window (period ticks).'
+      predict: 'repeat last / seasonal / drift step.'
+    primitive_reuse: [reduce]
   - name: ETS
     tier: baseline
     tier_level: tier1_core
@@ -116,6 +124,15 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; Holt-Winters fit needs full series for classical decomposition + bounded Nelder-Mead over (alpha,beta,gamma,phi). Grid cost O(n*grid_size); not a fit-matrix model.'
+    streaming_strategy:
+      fit: 'load full series; decomposition + Nelder-Mead grid search (bounded grid).'
+      predict: 'closed-form recurrence + analytic Gaussian prediction intervals.'
+    primitive_reuse: []
   - name: AutoETS
     tier: sota
     tier_level: tier1_core
@@ -174,6 +191,15 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; AICc selection runs up to 9 ETS fits, each needs full series. Not a fit-matrix model.'
+    streaming_strategy:
+      fit: 'load full series; <=9 configs, each ETS fit, pick min AICc.'
+      predict: 'delegate to selected ETSForecaster; analytic PI.'
+    primitive_reuse: []
   - name: Theta
     tier: baseline
     tier_level: tier1_core
@@ -220,6 +246,15 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; STM on STL requires full-series seasonal decomposition. Not a fit-matrix model.'
+    streaming_strategy:
+      fit: 'STL decomposition + theta smoothing on full series.'
+      predict: 'extend theta lines, add seasonal component.'
+    primitive_reuse: []
   - name: AutoTheta
     tier: sota
     tier_level: tier1_core
@@ -285,6 +320,15 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; CV-selected STM/OTM needs multiple full-series fits. Not a fit-matrix model.'
+    streaming_strategy:
+      fit: 'CV over (STM, OTM) on full series, pick best.'
+      predict: 'delegate to selected Theta/OTM forecaster.'
+    primitive_reuse: []
   - name: SARIMA
     tier: sota
     tier_level: tier1_core
@@ -314,6 +358,15 @@ subtypes:
       value: 12.84
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; Hannan-Rissanen / CSS build design matrix over full series. Not a fit-matrix model.'
+    streaming_strategy:
+      fit: 'load full series; Hannan-Rissanen init + CSS ARMA fit + seasonal orders.'
+      predict: 'recurrence on full series in-sample; then forecast.'
+    primitive_reuse: []
   - name: GBDTForecaster
     tier: sota
     tier_level: tier1_core
@@ -354,6 +407,17 @@ subtypes:
   # Rationale: without these, D1 matrix has no view of the 2025/2026 SOTA.
   # All cards documented_only; excluded from ensemble_recommendation (rule).
   # ==========================================================================
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'binning + codes ReduceOps via SpillDir (P1a path); per-horizon models trained on batches.'
+      predict: 'deferred per-horizon tree recursion on batch.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   - name: Chronos-Bolt-Tiny
     tier: sota
     tier_level: tier3_export
@@ -834,6 +898,15 @@ subtypes:
       value: 5.83672798857639e-18
       std: null
       note: 'M2 parity on synthetic_m4_like_multivariate DGP: RMSE(cadw_forecast, statsmodels_forecast)=0.0 (5.8e-18 round-off); verdict=consistent'
+    state_class: O(N·d)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Multivariate time series; VAR regresses N lag-stacked observations of dim d; params d^2*p. n<=1e6 typical.'
+    streaming_strategy:
+      fit: 'lag-stack full series to (N,p*d), OLS.'
+      predict: 'recurrence on lag window.'
+    primitive_reuse: [reduce]
   - name: GBDT_multiseries
     tier: sota
     tier_level: tier1_core
@@ -864,6 +937,17 @@ subtypes:
       value: 12.8
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-series binning + codes ReduceOps via SpillDir.'
+      predict: 'per-series tree recursion on batch.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   metrics:
   - name: wrmse
     combination: anchor
@@ -945,6 +1029,14 @@ subtypes:
     source_library: native
     evaluation_scope: synthetic
     dgp_source: gen_ts_point_anomaly
+    state_class: O(d)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'rolling mean/std.'
+      predict: 'per-row z vs window.'
+    primitive_reuse: [strided_view]
   - name: IForest
     # v0.9.65 P0: sota -> baseline. TSB-AD VUS-PR 0.30 vs Sub-PCA 0.42,
     # KShapeAD 0.40; IForest is a tabular outlier detector applied to
@@ -977,6 +1069,14 @@ subtypes:
       value: 0.48
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(model)
+    state_type: partitioned
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'reservoir-subsample rows (bounded), build trees.'
+      predict: 'traverse trees per batch.'
+    primitive_reuse: [reduce]
   - name: MatrixProfile
     tier: sota
     tier_level: tier1_core
@@ -1018,6 +1118,15 @@ subtypes:
       value: 3.174
       std: null
       note: 'CADW-native: fit_time_s=0.6 @n=100k and 3.174 @n=1M (matrix_profile.json); NOT comparable to external LB. No std across runs.'
+    state_class: O(n·w)
+    state_type: windowed
+    bounded_state: false
+    n_scalability: quadratic
+    tier1_core_exception: 'Matrix profile STAMP: distance-profile per query is O(n); full self-join O(n*w). n<=1e6 typical with reduced w; recommend STOMP streaming for larger n.'
+    streaming_strategy:
+      fit: 'windows + distance profile per query, reduce min.'
+      predict: 'per-batch distance to nearest neighbor.'
+    primitive_reuse: [strided_view]
   - name: DWT-MLEAD
     tier: sota
     tier_level: tier1_core
@@ -1060,6 +1169,14 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch DWT levels + per-level mahalanobis (P4b).'
+      predict: 'score each window against fitted level stats.'
+    primitive_reuse: [strided_view, reduce]
   - name: Sub-PCA
     tier: sota
     tier_level: tier1_core
@@ -1102,6 +1219,14 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'strided subwindows; chunked Welford cov + eig (P4a).'
+      predict: 'chunked residual scoring.'
+    primitive_reuse: [strided_view, reduce]
   - name: KShapeAD
     tier: sota
     tier_level: tier1_core
@@ -1144,6 +1269,17 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'memmap+chunked 2-pass centroid assignment (P3).'
+      predict: 'per-batch distance to centroids.'
+    primitive_reuse:
+    - memmap
+    - spill_dir
+    - strided_view
   - name: EIF
     tier: sota
     tier_level: tier1_core
@@ -1186,6 +1322,14 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch extended iforest on strided windows (fix1b).'
+      predict: 'per-batch path-length scoring.'
+    primitive_reuse: [strided_view, reduce]
   - name: Hampel
     tier: baseline
     tier_level: tier1_core
@@ -1228,6 +1372,14 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(d)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'no fit; rolling median + MAD deque.'
+      predict: 'per-row residual vs window median/MAD.'
+    primitive_reuse: [strided_view]
   - name: ZMS
     tier: baseline
     tier_level: tier1_core
@@ -1270,6 +1422,14 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(d)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'no fit; rolling z-score window.'
+      predict: 'per-row z-score vs rolling stats.'
+    primitive_reuse: [strided_view]
   - name: STRAY
     tier: baseline
     tier_level: tier1_core
@@ -1312,6 +1472,15 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(n)
+    state_type: cross_row
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'STRAY keeps k-th NN distances across full series (documented n<=20k limit); refuse beyond 20k.'
+    streaming_strategy:
+      fit: 'kNN distances on full series with n<=20k threshold.'
+      predict: 'score new points vs stored neighbors.'
+    primitive_reuse: []
   - name: Autoencoder
     tier: baseline
     tier_level: tier1_core
@@ -1354,6 +1523,14 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch windowed reconstructions; gradients via minibatch (fix1b2).'
+      predict: 'per-batch reconstruction error.'
+    primitive_reuse: [strided_view]
   - name: KMeansAD
     tier: baseline
     tier_level: tier1_core
@@ -1396,6 +1573,14 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch centroid update (fix1b2).'
+      predict: 'per-batch distance to centroid.'
+    primitive_reuse: [strided_view, reduce]
   - name: PatchMemoryAD
     tier: baseline
     tier_level: tier1_core
@@ -1439,6 +1624,17 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'memmap+SpillDir for X_norm; per-batch patch reconstruct (P4d).'
+      predict: 'per-batch patch distance.'
+    primitive_reuse:
+    - memmap
+    - spill_dir
+    - strided_view
   metrics:
   # v0.9.67: vus_pr primary (TSB-AD + TAB recommended); auprc demoted
   # to diagnostic; point_adjusted_f1 explicitly legacy (gameable).
@@ -1574,6 +1770,15 @@ subtypes:
     source_library: native
     evaluation_scope: synthetic
     dgp_source: synthetic_alternating_mean_shifts
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'DP-based changepoint: DP array is O(n). n<=1e6 typical.'
+    streaming_strategy:
+      fit: 'DP array over n positions.'
+      predict: 'report changepoint positions.'
+    primitive_reuse: []
   - name: BOCPD
     tier: baseline
     tier_level: tier1_core
@@ -1621,6 +1826,14 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
+    state_class: O(model)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'rolling posterior: keep recent max_run run-lengths (fix1c).'
+      predict: 'one-step posterior update per new point.'
+    primitive_reuse: [reduce]
   - name: PELT
     tier: sota
     tier_level: tier1_core
@@ -1650,6 +1863,15 @@ subtypes:
       value: 0.51
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'PELT DP array is O(n); n<=1e6 typical.'
+    streaming_strategy:
+      fit: 'DP array + pruning over n positions.'
+      predict: 'report positions.'
+    primitive_reuse: []
   - name: T-squared+Q
     tier: sota
     tier_level: tier1_core
@@ -1692,6 +1914,14 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'mean + covariance of PCA subspace (Reduce).'
+      predict: 'per-batch T-squared/Q stats.'
+    primitive_reuse: [reduce]
   - name: CUSUM
     tier: baseline
     tier_level: tier1_core
@@ -1735,6 +1965,14 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
+    state_class: O(1)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'warmup mean/std.'
+      predict: 'one CUSUM accumulator per stream.'
+    primitive_reuse: [reduce]
   metrics:
   # v0.9.67: auprc kept as anchor (PELT/BinarySeg literature uses it),
   # but NAB added as honest alternative — SKAB changepoint convention.
@@ -1854,6 +2092,14 @@ subtypes:
     source_library: native
     evaluation_scope: synthetic
     dgp_source: gen_ts_shape_anomaly
+    state_class: O(d)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'rolling mean/std.'
+      predict: 'per-row z vs window.'
+    primitive_reuse: [strided_view]
   - name: MatrixProfile_discord
     tier: sota
     tier_level: tier1_core
@@ -1883,6 +2129,15 @@ subtypes:
       value: 0.47
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(n·w)
+    state_type: windowed
+    bounded_state: false
+    n_scalability: quadratic
+    tier1_core_exception: 'Matrix profile discord: distance profile per window is O(n); n<=1e6 typical with reduced w; recommend STOMP streaming.'
+    streaming_strategy:
+      fit: 'windows + distance profile per query.'
+      predict: 'top-k discord scores per batch.'
+    primitive_reuse: [strided_view]
   - name: MiniRocket_embedding
     # v0.9.65 P0: sota -> baseline. MiniRocket is a classification
     # feature extractor, not an anomaly detector; using its embedding
@@ -1914,6 +2169,14 @@ subtypes:
       value: 0.5
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'MiniRocket transform per window batch.'
+      predict: 'per-batch feature extraction.'
+    primitive_reuse: [strided_view]
   - name: EIF
     tier: baseline
     tier_level: tier1_core
@@ -1970,6 +2233,14 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch extended iforest on strided windows.'
+      predict: 'per-batch path-length scoring.'
+    primitive_reuse: [strided_view, reduce]
   - name: Sub-PCA
     tier: sota
     tier_level: tier1_core
@@ -2025,6 +2296,14 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'strided subwindows; chunked Welford cov (P4a).'
+      predict: 'chunked residual scoring.'
+    primitive_reuse: [strided_view, reduce]
   - name: KMeansAD
     tier: sota
     tier_level: tier1_core
@@ -2080,6 +2359,14 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch centroid update.'
+      predict: 'per-batch distance to centroid.'
+    primitive_reuse: [strided_view, reduce]
   - name: Autoencoder
     tier: baseline
     tier_level: tier1_core
@@ -2137,6 +2424,14 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch windowed reconstructions.'
+      predict: 'per-batch reconstruction error.'
+    primitive_reuse: [strided_view]
   - name: S2G
     tier: sota
     tier_level: tier1_core
@@ -2180,6 +2475,14 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'streaming conv/quantize + dedup (P4c).'
+      predict: 'per-batch sequence-to-grammar score.'
+    primitive_reuse: [strided_view, reduce]
   metrics:
   # v0.9.67: vus_pr primary; auprc demoted (point-level AUPRC inflates
   # shape-anomaly scores; range-awareness of VUS-PR is the fix).
@@ -2280,6 +2583,17 @@ subtypes:
       value: 0.82
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'interval features -> binning + codes ReduceOps (P1a).'
+      predict: 'per-batch GBDT recursion.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   - name: MiniRocket
     tier: sota
     tier_level: tier1_core
@@ -2308,6 +2622,14 @@ subtypes:
       value: 0.89
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: windowed
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'MiniRocket transform + ridge (batch).'
+      predict: 'per-batch transform + score.'
+    primitive_reuse: [strided_view, reduce]
   - name: HIVE-COTE
     tier: sota
     tier_level: tier3_export
@@ -2414,6 +2736,15 @@ subtypes:
     source_library: native
     evaluation_scope: synthetic
     dgp_source: synthetic_alternating_mean_shifts
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'DP-based segmentation: DP array is O(n). n<=1e6 typical.'
+    streaming_strategy:
+      fit: 'DP over n.'
+      predict: 'report positions.'
+    primitive_reuse: []
   - name: PELT
     tier: sota
     tier_level: tier1_core
@@ -2442,6 +2773,15 @@ subtypes:
       value: 0.51
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'PELT DP array is O(n); n<=1e6 typical.'
+    streaming_strategy:
+      fit: 'DP + pruning.'
+      predict: 'report positions.'
+    primitive_reuse: []
   metrics:
   - name: auprc
     combination: anchor
