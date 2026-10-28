@@ -225,3 +225,37 @@ def test_als_one_iter_matches_manual_hu_koren_volinsky():
         f"X max diff {float(np.abs(m.user_factors_ - X1).max()):.2e}"
     assert np.allclose(m.item_factors_, Y1, atol=1e-12), \
         f"Y max diff {float(np.abs(m.item_factors_ - Y1).max()):.2e}"
+
+def test_fit_als_dict_build_is_streaming():
+    """P5a-fix-als: dict build via set, no list accum + np.concatenate."""
+    import inspect
+    from cadw.ml.als import fit_als as _fit_als
+    src = inspect.getsource(_fit_als)
+    # No list accumulation of full columns
+    assert "users.append" not in src, (
+        "P5a-fix-als: users list accumulation must be removed")
+    assert "items.append" not in src
+    assert "np.concatenate(users" not in src
+    assert "np.concatenate(items" not in src
+    # Streaming set present
+    assert "u_set.update(" in src
+    assert "i_set.update(" in src
+
+
+def test_fit_als_cardinality_state_bounded(tmp_path):
+    """P5a-fix-als: many rows but small cardinality — factor state bounded."""
+    from cadw.core.memory_guard import MemoryGuard
+    # 200 users, 100 items, 5000 events — U+I=300, n=5000
+    rng = np.random.RandomState(0)
+    n = 5000
+    users = rng.randint(0, 200, size=n).astype(np.int64)
+    items = rng.randint(0, 100, size=n).astype(np.int64)
+    df = CadwDataFrame.from_table(pa.table({
+        "u": pa.array(users, type=pa.int64()),
+        "i": pa.array(items, type=pa.int64()),
+    }))
+    mg = MemoryGuard(max_memory_mb=10)
+    m = fit_als(df, "u", "i", n_factors=8, n_iter=2,
+                   memory_guard=mg)
+    assert m.fitted_
+

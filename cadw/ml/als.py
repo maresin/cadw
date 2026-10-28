@@ -99,19 +99,36 @@ class ALSModel:
         return [(self.item_index_[j], float(sc[j])) for j in order]
 
 
-def _objective(X, Y, u_pos, i_pos, u_arr, i_arr, alpha, reg):
-    """Implicit-feedback objective on the observed interactions (streamed).
+def _objective_streaming(df, X, Y, u_pos, i_pos, user_col, item_col,
+                         alpha, reg, mg):
+    """Implicit-feedback objective, streamed over events (v0.9.87).
 
-    sum_{(u,i) observed} (1 + alpha*w) * (1 - x_u.y_i)^2 + reg*(||X||^2+||Y||^2)
-    The unobserved mass is a constant w.r.t. the factors, so this is the
-    part of the Hu-Koren-Volinsky objective that actually moves.
+    Same formula as pre-fix `_objective`: uniform (1 + alpha) weighting
+    (weight_col is only used in _solve_user/iter path, not in this
+    loss). Bit-identical to in-RAM version up to float summation order.
+
+    sum_{(u,i)} (1 + alpha) * (1 - x_u.y_i)^2 + reg*(||X||^2+||Y||^2)
+    The unobserved mass is a constant w.r.t. the factors, so this is
+    the Hu-Koren-Volinsky objective that actually moves.
+
+    RAM: O(batch * k) per batch (X[up], Y[ip] fancy index); independent
+    of n. Pre-fix held n-sized u_arr/i_arr in RAM alongside u_pos/i_pos
+    dicts — silent OOM at n > ~1e7.
     """
-    up = np.fromiter((u_pos[v] for v in u_arr.tolist()), dtype=np.int64, count=u_arr.size)
-    ip = np.fromiter((i_pos[v] for v in i_arr.tolist()), dtype=np.int64, count=i_arr.size)
-    dot = np.einsum("ij,ij->i", X[up], Y[ip])
-    loss = float(np.sum((1.0 + alpha) * (1.0 - dot) ** 2))
-    loss += float(reg * (np.sum(X * X) + np.sum(Y * Y)))
-    return loss
+    loss_events = 0.0
+    for b in df._iter_filtered_batches():
+        mg.check_batch(b, name="als.objective", extra_factor=8.0)
+        n = b.num_rows
+        if n == 0:
+            continue
+        u = b.column(user_col).to_pylist()
+        i = b.column(item_col).to_pylist()
+        up = np.fromiter((u_pos[v] for v in u), dtype=np.int64, count=n)
+        ip = np.fromiter((i_pos[v] for v in i), dtype=np.int64, count=n)
+        dot = np.einsum("ij,ij->i", X[up], Y[ip])
+        loss_events += float(np.sum((1.0 + alpha) * (1.0 - dot) ** 2))
+    loss_reg = float(reg * (np.sum(X * X) + np.sum(Y * Y)))
+    return loss_events + loss_reg
 
 
 def _gram(Y):
@@ -145,22 +162,31 @@ def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
     rng = np.random.RandomState(int(seed))
     spill = tempfile.mkdtemp(prefix="cadw_als_")
 
-    # collect users and items (dictionary pass) - O((U+I))
-    users, items = [], []
+    # v0.9.87-P5a-fix-als: streaming set for unique user/item values.
+    # Pre-fix: users/items list accum (O(n)) + np.concatenate (O(n))
+    # + np.unique (O(n log n) sort) — ~3n floats @ n=1e8 = silent OOM,
+    # guard was only factor state (U+I)*k. Post-fix: O(U + I) Python
+    # set state (bounded by cardinality), no n-sized arrays.
+    u_set: set = set()
+    i_set: set = set()
+    n_seen = 0
     for b in df._iter_filtered_batches():
-        mg.check_batch(b, name="als.dict", extra_factor=2.0)
-        users.append(b.column(user_col).to_numpy(zero_copy_only=False))
-        items.append(b.column(item_col).to_numpy(zero_copy_only=False))
-    u_arr = np.concatenate(users) if users else np.zeros(0)
-    i_arr = np.concatenate(items) if items else np.zeros(0)
-    if u_arr.size == 0:
+        mg.check_batch(b, name="als.dict", extra_factor=8.0)
+        u_set.update(b.column(user_col).to_pylist())
+        i_set.update(b.column(item_col).to_pylist())
+        n_seen += b.num_rows
+    if n_seen == 0:
         raise ValueError("fit_als: empty input")
-    u_vals = np.unique(u_arr)
-    i_vals = np.unique(i_arr)
+    u_vals = np.asarray(sorted(u_set))
+    i_vals = np.asarray(sorted(i_set))
     U, I = len(u_vals), len(i_vals)
     mg.check_state((U + I) * n_factors * 8, name="als.state")
     u_pos = {v: j for j, v in enumerate(u_vals.tolist())}
     i_pos = {v: j for j, v in enumerate(i_vals.tolist())}
+    # Note: sorted() vs np.unique produces same deterministic order
+    # for homogeneous types. u_vals dtype may differ (object vs int)
+    # — kept only for reverse lookup completeness; not used downstream
+    # except via u_pos/i_pos dicts (keyed by original Python value).
 
     # Match implicit library exactly (als.py:145-147): uniform [0, 0.01).
     # Earlier normal(scale=0.01) gives mixed signs → b = Σ(1+alpha)·y_i
@@ -198,7 +224,9 @@ def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
         Xtx = _gram(X)
         for i, us, ws in _iter_user_groups(ipath, ["u", "i", "w"]):
             Y[i] = _solve_user(Xtx, X, us, ws, alpha, reg)
-        loss = _objective(X, Y, u_pos, i_pos, u_arr, i_arr, alpha, reg)
+        loss = _objective_streaming(
+            df, X, Y, u_pos, i_pos, user_col, item_col,
+            alpha, reg, mg)
         log_fit("als", iter_i=it + 1, iter_n=int(n_iter), loss=loss,
                 state_bytes=(U + I) * n_factors * 8)
     model = ALSModel(X, Y, u_vals.tolist(), i_vals.tolist(),
