@@ -321,30 +321,31 @@ def test_binary_classifier_still_works(tmp_path):
 
 
 def test_multiclass_est_state_includes_y_all():
-    """v0.9.87-P1a-3a: est_n_state = n·8·(K + 2).
+    """v0.9.87-P1a-3b: est_n_state = n·8·2 (true OOC for pred).
 
     History:
       v0.9.22: (1 + 4K) — pred + grad + hess + round_cur_leaves
                + y_all all in RAM.
       v0.9.87-P1a-2: grad_all/hess_all moved to per-round memmap
                (disk). RAM: pred + y_all + K cur_leafs = (1 + 2K).
-      v0.9.87-P1a-3a: pred update inside class loop; only ONE
-               cur_leaf_c at a time. RAM: pred (n·K·8) +
-               y_all (n·8) + one cur_leaf_c (n·8) = n·8·(K + 2).
-               K=10: 168n -> 96n. K=3: 56n -> 40n.
+      v0.9.87-P1a-3a: pred update inside class loop; one cur_leaf_c
+               at a time. RAM: pred (n·K·8) + y_all + one cur_leaf
+               = n·8·(K + 2). K=10: 168n -> 96n.
+      v0.9.87-P1a-3b: pred moved to memmap (disk). RAM: y_all +
+               batch buffers ~ n·8·2. True OOC for pred.
+               K=10: 96n -> 16n. K=3: 40n -> 16n.
     """
     from cadw.ml.gbdt import _fit_boosting_multiclass
     import inspect
     src = inspect.getsource(_fit_boosting_multiclass)
-    assert "n_total * 8 * (K + 2)" in src, (
-        "multiclass state formula must be n·8·(K+2) after P1a-3a."
+    assert "n_total * 8 * 2" in src, (
+        "multiclass state formula must be n·8·2 after P1a-3b."
     )
     # Defensive: ensure prior formulas are NOT present
     assert "n_total * 8 * (1 + 4 * K)" not in src
     assert "n_total * 8 * (1 + 2 * K)" not in src
-    assert "n_total * K * 8 * 3" not in src, (
-        "old formula n·K·8·3 must be removed"
-    )
+    assert "n_total * 8 * (K + 2)" not in src
+    assert "n_total * K * 8 * 3" not in src
 
 
 # v0.9.87-P1a-1a: binning infrastructure tests.
@@ -585,4 +586,31 @@ def test_multiclass_no_round_cur_leaves_list():
         "round_cur_leaves.append should be gone (P1a-3a)")
     assert "round_leaf_maps.append" not in src, (
         "round_leaf_maps.append should be gone (P1a-3a)")
+
+def test_multiclass_pred_is_memmap(monkeypatch, tmp_path):
+    """P1a-3b: pred is np.memmap (pred.bin), not RAM array."""
+    from cadw.ml import gbdt as gbdt_mod
+
+    captured = []
+    orig_memmap = np.memmap
+
+    def spy_memmap(filename, *args, **kwargs):
+        fname = str(filename)
+        if "pred.bin" in fname:
+            captured.append(fname)
+        return orig_memmap(filename, *args, **kwargs)
+
+    monkeypatch.setattr(np, "memmap", spy_memmap)
+
+    n = 300
+    data, X, y = _synth_multiclass(n, n_classes=3, seed=0)
+    df = make_df(tmp_path, data)
+    fit_gbdt_multiclass(
+        df, ["x0", "x1"], "y",
+        n_estimators=2, max_depth=2, learning_rate=0.2, bins=16,
+    )
+
+    assert len(captured) >= 1, (
+        f"pred.bin memmap not created: {captured}")
+    assert "pred.bin" in captured[0]
 
