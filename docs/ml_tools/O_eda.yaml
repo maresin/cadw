@@ -57,6 +57,14 @@ subtypes:
       note: 'CADW-native: peak_mb=3.46 @n=10k, 7.13 @n=100k (eda.json). NOT comparable to external.'
     cadw_module: cadw.dataframe
     cadw_function: describe
+    state_class: O(d)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'no fit; per-column streaming count/mean/std/min/max/quantile Reduce.'
+      predict: 'returns summary table (output, not state).'
+    primitive_reuse: [reduce]
   - name: Hist
     tier: baseline
     tier_level: tier1_core
@@ -86,6 +94,14 @@ subtypes:
       note: 'no_public_benchmark: binning is a preprocessing primitive; no accuracy leaderboard applies.'
     cadw_module: cadw.plot_accessor
     cadw_function: hist
+    state_class: O(1)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'no fit; streaming bin counts (bins hyperparameter).'
+      predict: 'returns histogram table (output).'
+    primitive_reuse: [reduce]
   - name: ValueCounts
     tier: baseline
     tier_level: tier1_core
@@ -115,6 +131,14 @@ subtypes:
       note: 'no_public_benchmark: frequency counting has no accuracy benchmark. CADW multi-chunk value_counts hits BUG-1 (see .pingis/audits/v0.9.48_bugs.md).'
     cadw_module: cadw.dataframe
     cadw_function: value_counts
+    state_class: O(model)
+    state_type: partitioned
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'no fit; HashShuffle by value -> per-partition count; multi-chunk safe.'
+      predict: 'returns value/count table (output).'
+    primitive_reuse: [hash_shuffle, reduce]
   - name: YDataProfiling
     tier: sota
     tier_level: tier2_wrapper
@@ -210,6 +234,14 @@ subtypes:
       note: 'no_public_benchmark: SimpleImputer is a reference primitive; no published per-dataset RMSE table exists.'
     cadw_module: cadw.dataframe
     cadw_function: fillna
+    state_class: O(d)
+    state_type: elementwise
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'streaming per-column fill value (mean/median/mode).'
+      predict: 'per-batch fillna with fitted constants.'
+    primitive_reuse: [reduce]
   - name: KNNImputer
     tier: baseline
     tier_level: tier1_core
@@ -458,6 +490,14 @@ subtypes:
       note: 'no_public_benchmark: sklearn docs describe mutual_info_classif but publish no cross-dataset accuracy leaderboard for the selector.'
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
+    state_class: O(d)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-feature joint histogram (X bin, Y class) Reduce.'
+      predict: 'returns ranked feature list (output).'
+    primitive_reuse: [reduce]
   - name: VarianceThreshold
     tier: baseline
     tier_level: tier1_core
@@ -487,6 +527,14 @@ subtypes:
       note: 'CADW-native: variance fit_s=0.003 @n=10k, 0.032 @n=50k (feature_select.json). NOT comparable to external.'
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
+    state_class: O(d)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-column Welford variance Reduce.'
+      predict: 'returns selected feature list (output).'
+    primitive_reuse: [reduce]
   - name: BorutaSelect
     tier: sota
     tier_level: tier2_wrapper
@@ -517,6 +565,17 @@ subtypes:
       note: 'CADW-native: boruta fit_s=4.642 @n=2k, 5.394 @n=5k, 8.355 @n=10k; n_selected=2 of d=20 (feature_select.json). NOT comparable to external.'
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'shadow features + GBDT P1a codes path, multi-trial (bounded iterations).'
+      predict: 'returns selected features (output).'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   metrics:
   - name: accuracy
     combination: anchor
@@ -873,6 +932,14 @@ subtypes:
       note: 'no_public_benchmark + cadw_measured_without_bench: sklearn docs page has usage but no cross-dataset fidelity leaderboard; CADW implements permutation_importance (cadw.ml.importance) but no .pingis/benches/importance.json exists — reproduce before ranking.'
     cadw_module: cadw.ml.importance
     cadw_function: permutation_importance
+    state_class: O(batch)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'refit-per-feature bounded; per-batch score delta Reduce.'
+      predict: 'returns importance ranking (output).'
+    primitive_reuse: [reduce]
   - name: SHAPTreeExplainer
     tier: sota
     tier_level: tier3_export
@@ -994,6 +1061,14 @@ subtypes:
       note: 'CADW-native: fairness metrics time_s=0.029 @n=100k, 0.098 @n=1M (fairness.json). NOT comparable to external.'
     cadw_module: cadw.ml.fairness
     cadw_function: fairness_metrics
+    state_class: O(model)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'group-wise metric Reduce (n_groups param).'
+      predict: 'returns per-group metrics (output).'
+    primitive_reuse: [reduce]
   - name: FairlearnParity
     tier: sota
     tier_level: tier2_wrapper
@@ -1109,6 +1184,14 @@ subtypes:
       note: 'CADW-native: ks_p=4.45e-82 @n=10k, 0.0 @n=100k and 1M (drift.json; synthetic shifted distribution). NOT comparable to external.'
     cadw_module: cadw.ml.drift
     cadw_function: fit_drift
+    state_class: O(d)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-feature reference stats (bins/mean/std) Reduce.'
+      predict: 'per-batch streaming drift stats (KS/PSI).'
+    primitive_reuse: [reduce]
   - name: EvidentlyDrift
     tier: sota
     tier_level: tier3_export
@@ -1225,6 +1308,14 @@ subtypes:
       note: 'no_public_benchmark: proportions_ztest is a reference implementation; no cross-dataset leaderboard exists.'
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
+    state_class: O(1)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'streaming per-arm success/total counts.'
+      predict: 'returns z-stat and p-value (output).'
+    primitive_reuse: [reduce]
   - name: MannWhitneyU
     tier: baseline
     tier_level: tier1_core
@@ -1265,6 +1356,14 @@ subtypes:
       note: 'no_public_benchmark: scipy reference docs; no cross-dataset leaderboard.'
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
+    state_class: O(model)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'bounded per-arm rank stats (histogram/external_sort-based rank sum).'
+      predict: 'returns U-stat and p-value (output).'
+    primitive_reuse: [reduce, external_sort]
   - name: CUPED
     tier: sota
     tier_level: tier1_core
@@ -1295,6 +1394,14 @@ subtypes:
       note: 'CADW-native: cuped_theta=0.7978 @n=10k, 0.7999 @n=100k, 0.8 @n=1M (drift.json; synthetic covariate correlated with metric). NOT comparable to external.'
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'streaming XTX / XTY covariate adjustment Reduce.'
+      predict: 'returns adjusted ATE (output).'
+    primitive_reuse: [reduce]
   metrics:
   - name: p_value
     combination: anchor
