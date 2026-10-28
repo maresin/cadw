@@ -21,13 +21,17 @@ with S_k = sum_{risk set} w x^k, w = exp(x.b).
 """
 from __future__ import annotations
 
+import tempfile
+import shutil
 from typing import Optional, Sequence
 
 import numpy as np
 import pyarrow as pa
 
-from cadw.core.memory_guard import MemoryGuard
+from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.ml._logging import log_fit
+from cadw.ops.sort import external_sort
 
 
 def _stack_num(b, cols):
@@ -159,12 +163,177 @@ def _baseline_hazard(X, T, E, b):
     return times, np.cumsum(np.asarray(haz))
 
 
+def _breslow_streaming(sorted_reader, X_cols, time_col, event_col, b, mg):
+    """Streaming Breslow reduce (v0.9.87-P5a-fix-coxph).
+
+    Bit-identical to `_breslow` for realistic data (ties order-invariant
+    under associativity). RAM: O(batch*d + d^2 + pending_ties*d). Guard
+    refuses if pending ties block exceeds budget (pathological all-ties).
+    """
+    d = len(X_cols)
+    S0 = 0.0
+    S1 = np.zeros(d)
+    S2 = np.zeros((d, d))
+    grad = np.zeros(d)
+    info = np.zeros((d, d))
+    ll = 0.0
+    n_events = 0
+
+    pending_Xs = []
+    pending_Es = []
+    pending_T = None
+    pending_bytes = 0
+    pending_budget = mg.state_limit_bytes // 8
+
+    def _flush_block():
+        nonlocal S0, S1, S2, grad, info, ll, n_events, pending_bytes
+        if not pending_Xs:
+            return
+        Xb = np.vstack(pending_Xs) if len(pending_Xs) > 1 else pending_Xs[0]
+        Eb = (np.concatenate(pending_Es) if len(pending_Es) > 1
+              else pending_Es[0])
+        eta = np.clip(Xb @ b, -50.0, 50.0)
+        w = np.exp(eta)
+        # Breslow: risk set = T >= t; add ALL block rows to S first.
+        S0 = S0 + float(w.sum())
+        S1 = S1 + w @ Xb
+        S2 = S2 + Xb.T @ (w[:, None] * Xb)
+        ev_mask = Eb.astype(bool)
+        n_ev_b = int(ev_mask.sum())
+        if n_ev_b > 0:
+            Xe = Xb[ev_mask]
+            mu = S1 / S0
+            grad += Xe.sum(axis=0) - n_ev_b * mu
+            info += n_ev_b * (S2 / S0 - np.outer(mu, mu))
+            ll += float((Xe @ b).sum()) - n_ev_b * float(np.log(S0))
+            n_events += n_ev_b
+        pending_Xs.clear()
+        pending_Es.clear()
+        pending_bytes = 0
+
+    for batch in sorted_reader:
+        bn = batch.num_rows
+        if bn == 0:
+            continue
+        Xb = _stack_num(batch, X_cols)
+        Tb = batch.column(time_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        Eb = batch.column(event_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        if bn > 1:
+            starts = np.concatenate(
+                [[0], np.flatnonzero(np.diff(Tb) != 0) + 1])
+            ends = np.concatenate([starts[1:], [bn]])
+        else:
+            starts = np.array([0])
+            ends = np.array([bn])
+        for s, e in zip(starts, ends):
+            t_this = Tb[s]
+            if pending_T is not None and t_this != pending_T:
+                _flush_block()
+                pending_T = None
+            if pending_T is None:
+                pending_T = t_this
+            xs = Xb[s:e]
+            es = Eb[s:e]
+            pending_Xs.append(xs)
+            pending_Es.append(es)
+            pending_bytes += xs.nbytes + es.nbytes
+            if pending_bytes > pending_budget:
+                raise MemoryLimitExceeded(
+                    f"coxph: ties block at T={t_this} exceeds budget "
+                    f"({pending_bytes} > {pending_budget}); pathological "
+                    f"ties distribution, use coarser time resolution.")
+    _flush_block()
+    return grad, info, ll, n_events
+
+
+def _baseline_hazard_streaming(sorted_reader, X_cols, time_col, event_col,
+                                b, mg):
+    """Streaming Breslow baseline hazard (v0.9.87-P5a-fix-coxph).
+
+    Output arrays are O(n_distinct_event_times) <= O(n_events). Caller
+    must guard-check 2*n_events*8 bytes before invoking.
+    """
+    S0 = 0.0
+    times = []
+    haz = []
+    pending_Xs = []
+    pending_Es = []
+    pending_T = None
+    pending_bytes = 0
+    pending_budget = mg.state_limit_bytes // 8
+
+    def _flush():
+        nonlocal S0, pending_bytes
+        if not pending_Xs:
+            return
+        Xb = np.vstack(pending_Xs) if len(pending_Xs) > 1 else pending_Xs[0]
+        Eb = (np.concatenate(pending_Es) if len(pending_Es) > 1
+              else pending_Es[0])
+        eta = np.clip(Xb @ b, -50.0, 50.0)
+        w = np.exp(eta)
+        S0 = S0 + float(w.sum())
+        d_ev = float(Eb.sum())
+        if d_ev > 0.0:
+            times.append(float(pending_T))
+            haz.append(d_ev / S0)
+        pending_Xs.clear()
+        pending_Es.clear()
+        pending_bytes = 0
+
+    for batch in sorted_reader:
+        bn = batch.num_rows
+        if bn == 0:
+            continue
+        Xb = _stack_num(batch, X_cols)
+        Tb = batch.column(time_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        Eb = batch.column(event_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        if bn > 1:
+            starts = np.concatenate(
+                [[0], np.flatnonzero(np.diff(Tb) != 0) + 1])
+            ends = np.concatenate([starts[1:], [bn]])
+        else:
+            starts = np.array([0])
+            ends = np.array([bn])
+        for s, e in zip(starts, ends):
+            t_this = Tb[s]
+            if pending_T is not None and t_this != pending_T:
+                _flush()
+                pending_T = None
+            if pending_T is None:
+                pending_T = t_this
+            xs = Xb[s:e]
+            es = Eb[s:e]
+            pending_Xs.append(xs)
+            pending_Es.append(es)
+            pending_bytes += xs.nbytes + es.nbytes
+            if pending_bytes > pending_budget:
+                raise MemoryLimitExceeded(
+                    f"coxph: ties block at T={t_this} exceeds budget")
+    _flush()
+    times_arr = np.asarray(times, dtype=np.float64) if times else np.zeros(0)
+    haz_arr = (np.cumsum(np.asarray(haz, dtype=np.float64))
+               if haz else np.zeros(0))
+    return times_arr, haz_arr
+
+
 def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
-              memory_guard: Optional[MemoryGuard] = None) -> CoxPHModel:
+              memory_guard: Optional[MemoryGuard] = None,
+              spill_dir: Optional[str] = None) -> CoxPHModel:
     """Fit Cox PH by Newton-Raphson on the Breslow partial likelihood.
 
-    One guarded streaming pre-pass collects X/T/E (check_state before the
-    allocation), then Newton iterations run in memory. State = O(d^2).
+    v0.9.87-P5a-fix-coxph: true streaming implementation.
+
+    Pre-pass counts n_rows/n_events. External sort by T (desc). Newton
+    iterations stream sorted file, accumulating S0/S1/S2 per ties block
+    (Breslow: risk set = T >= t, block fully added before event
+    contributions). State RAM: O(d^2 + pending_ties*d), independent of n.
+    Final baseline arrays are O(n_events); guard-checked before alloc.
+
+    Bit-identical to prior in-RAM implementation (to float-assoc tol).
     """
     cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
     if not cols:
@@ -173,48 +342,100 @@ def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
         if c not in df._columns:
             raise KeyError(f"fit_coxph: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    Xs, Ts, Es = [], [], []
-    n_rows = 0
-    for b in df._iter_filtered_batches():
-        mg.check_batch(b, name="coxph.pass1", extra_factor=2.0)
-        Xs.append(_stack_num(b, cols))
-        Ts.append(b.column(time_col).cast(pa.float64(), safe=False)
-                  .to_numpy(zero_copy_only=False))
-        Es.append(b.column(event_col).cast(pa.float64(), safe=False)
-                  .to_numpy(zero_copy_only=False))
-        n_rows += b.num_rows
-        mg.check_state(n_rows * (len(cols) * 8 + 16), name="coxph.state")
-    if n_rows == 0:
-        raise ValueError("fit_coxph: empty input")
-    X = np.vstack(Xs); T = np.concatenate(Ts); E = np.concatenate(Es)
-    if np.isnan(X).any() or np.isnan(T).any():
-        raise ValueError("fit_coxph: nulls in features or time")
-    if (T <= 0).any():
-        raise ValueError("fit_coxph: survival times must be > 0")
-    n_events = int((E > 0).sum())
-    if n_events == 0:
-        raise ValueError("fit_coxph: no events (all censored)")
-    d = X.shape[1]
-    beta = np.zeros(d)
-    converged = False
-    n_iter = 0
-    ll = 0.0
-    for it in range(int(max_iter)):
-        n_iter = it + 1
-        grad, info, ll = _breslow(X, T, E, beta)
+    d = len(cols)
+
+    # State guard: 3 d^2 matrices (S2, info, outer(mu,mu)) + pending ties.
+    pending_budget = mg.state_limit_bytes // 8
+    est_state = 3 * d * d * 8 + 5 * pending_budget
+    mg.check_state(est_state, name="coxph.state")
+
+    if spill_dir is None:
+        _spill_root = tempfile.mkdtemp(prefix="coxph_")
+        _cleanup = True
+    else:
+        _spill_root = spill_dir
+        _cleanup = False
+
+    try:
+        # Pre-pass: n_rows + n_events (streaming, no n-sized alloc).
+        n_rows = 0
+        n_events = 0
+        for b in df._iter_filtered_batches():
+            mg.check_batch(b, name="coxph.pass1", extra_factor=2.0)
+            e_arr = b.column(event_col).cast(
+                pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+            n_rows += b.num_rows
+            n_events += int((e_arr > 0).sum())
+        if n_rows == 0:
+            raise ValueError("fit_coxph: empty input")
+        if n_events == 0:
+            raise ValueError("fit_coxph: no events (all censored)")
+
+        def _checked_iter():
+            for b in df._iter_filtered_batches():
+                Xb = _stack_num(b, cols)
+                Tb = b.column(time_col).cast(
+                    pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+                if np.isnan(Xb).any() or np.isnan(Tb).any():
+                    raise ValueError(
+                        "fit_coxph: nulls in features or time")
+                if (Tb <= 0).any():
+                    raise ValueError(
+                        "fit_coxph: survival times must be > 0")
+                yield b
+
+        value_cols = list(cols) + [time_col, event_col]
+        sorted_path = external_sort(
+            _checked_iter(), [time_col], value_cols,
+            mg, f"{_spill_root}/sort", ascending=False, log=False)
+
+        # Newton-Raphson.
+        beta = np.zeros(d)
+        converged = False
+        n_iter = 0
+        ll = 0.0
+        for it in range(int(max_iter)):
+            n_iter = it + 1
+            reader = ArrowIPCBatchReader(sorted_path, None)
+            try:
+                grad, info, ll, _n_ev = _breslow_streaming(
+                    reader, cols, time_col, event_col, beta, mg)
+            finally:
+                reader.close()
+            try:
+                step = np.linalg.solve(info + 1e-10 * np.eye(d), grad)
+            except np.linalg.LinAlgError:
+                step = np.linalg.lstsq(info, grad, rcond=None)[0]
+            beta = beta + step
+            log_fit("coxph", iter_i=it + 1, iter_n=int(max_iter), loss=-ll,
+                    state_bytes=d * d * 8)
+            if np.max(np.abs(step)) < float(tol):
+                converged = True
+                break
+
+        # Final info at converged beta.
+        reader = ArrowIPCBatchReader(sorted_path, None)
         try:
-            step = np.linalg.solve(info + 1e-10 * np.eye(d), grad)
-        except np.linalg.LinAlgError:
-            step = np.linalg.lstsq(info, grad, rcond=None)[0]
-        beta = beta + step
-        log_fit("coxph", iter_i=it + 1, iter_n=int(max_iter), loss=-ll,
-                state_bytes=d * d * 8)
-        if np.max(np.abs(step)) < float(tol):
-            converged = True
-            break
-    _, info, ll = _breslow(X, T, E, beta)
-    cov = np.linalg.pinv(info)
-    bt, bh = _baseline_hazard(X, T, E, beta)
-    model = CoxPHModel(beta, cov, bt, bh, cols, n_events, n_iter, converged, ll)
-    mg.check_state(model.state_nbytes(), name="coxph.model")
-    return model
+            _, info, ll, _n_ev = _breslow_streaming(
+                reader, cols, time_col, event_col, beta, mg)
+        finally:
+            reader.close()
+        cov = np.linalg.pinv(info)
+
+        # Baseline arrays O(n_events); guard before allocation.
+        mg.check_state(3 * d * d * 8 + 2 * n_events * 8,
+                       name="coxph.baseline")
+        reader = ArrowIPCBatchReader(sorted_path, None)
+        try:
+            bt, bh = _baseline_hazard_streaming(
+                reader, cols, time_col, event_col, beta, mg)
+        finally:
+            reader.close()
+
+        model = CoxPHModel(beta, cov, bt, bh, cols, n_events, n_iter,
+                           converged, ll)
+        mg.check_state(model.state_nbytes(), name="coxph.model")
+        return model
+    finally:
+        if _cleanup:
+            shutil.rmtree(_spill_root, ignore_errors=True)

@@ -137,3 +137,122 @@ def test_source_contract():
     for line in src.splitlines():
         if "check_batch(" in line:
             assert "extra_factor=" in line
+
+def test_breslow_streaming_matches_in_ram(tmp_path):
+    """P5a-fix-coxph: streaming reduce bit-identical to in-RAM (tol 1e-10)."""
+    from cadw.io.batch_writer import ArrowIPCBatchWriter
+    from cadw.io.batch_reader import ArrowIPCBatchReader
+    from cadw.ml.coxph import _breslow, _breslow_streaming
+
+    rng = np.random.RandomState(42)
+    n, d = 500, 3
+    X = rng.normal(size=(n, d))
+    T = rng.exponential(scale=2.0, size=n) + 0.01
+    E = rng.randint(0, 2, size=n).astype(float)
+    # Sort by T desc — streaming expects pre-sorted input.
+    order = np.argsort(-T, kind="stable")
+    Xo, To, Eo = X[order], T[order], E[order]
+    b = np.array([0.3, -0.2, 0.1])
+
+    ref_grad, ref_info, ref_ll = _breslow(X, T, E, b)
+
+    # Write sorted file via Arrow IPC (mimics external_sort output).
+    import pyarrow as pa
+    path = str(tmp_path / "sorted.arrow")
+    schema = pa.schema(
+        [pa.field(f"x{j}", pa.float64()) for j in range(d)] +
+        [pa.field("T", pa.float64()), pa.field("E", pa.float64())]
+    )
+    _w = ArrowIPCBatchWriter(path, schema)
+    try:
+        step = 100
+        for start in range(0, n, step):
+            end = min(start + step, n)
+            cols_dict = {f"x{j}": pa.array(Xo[start:end, j])
+                         for j in range(d)}
+            cols_dict["T"] = pa.array(To[start:end])
+            cols_dict["E"] = pa.array(Eo[start:end])
+            _w.write_batch(pa.record_batch(
+                [cols_dict[f.name] for f in schema], schema=schema))
+    finally:
+        _w.close()
+
+    mg = MemoryGuard(max_memory_mb=100)
+    reader = ArrowIPCBatchReader(path, None)
+    try:
+        grad, info, ll, n_ev = _breslow_streaming(
+            reader, [f"x{j}" for j in range(d)], "T", "E", b, mg)
+    finally:
+        reader.close()
+
+    assert np.allclose(grad, ref_grad, atol=1e-10), (
+        f"grad streaming {grad} vs in-ram {ref_grad}")
+    assert np.allclose(info, ref_info, atol=1e-10)
+    assert abs(ll - ref_ll) < 1e-10
+    assert n_ev == int((E > 0).sum())
+
+
+def test_baseline_hazard_streaming_matches_in_ram(tmp_path):
+    """P5a-fix-coxph: streaming baseline hazard bit-identical to in-RAM."""
+    from cadw.io.batch_writer import ArrowIPCBatchWriter
+    from cadw.io.batch_reader import ArrowIPCBatchReader
+    from cadw.ml.coxph import _baseline_hazard, _baseline_hazard_streaming
+
+    rng = np.random.RandomState(7)
+    n, d = 400, 2
+    X = rng.normal(size=(n, d))
+    T = rng.exponential(scale=1.5, size=n) + 0.01
+    E = rng.randint(0, 2, size=n).astype(float)
+    order = np.argsort(-T, kind="stable")
+    Xo, To, Eo = X[order], T[order], E[order]
+    b = np.array([0.2, -0.1])
+
+    ref_t, ref_h = _baseline_hazard(X, T, E, b)
+
+    import pyarrow as pa
+    path = str(tmp_path / "sorted.arrow")
+    schema = pa.schema(
+        [pa.field(f"x{j}", pa.float64()) for j in range(d)] +
+        [pa.field("T", pa.float64()), pa.field("E", pa.float64())]
+    )
+    _w = ArrowIPCBatchWriter(path, schema)
+    try:
+        for start in range(0, n, 50):
+            end = min(start + 50, n)
+            cols_dict = {f"x{j}": pa.array(Xo[start:end, j])
+                         for j in range(d)}
+            cols_dict["T"] = pa.array(To[start:end])
+            cols_dict["E"] = pa.array(Eo[start:end])
+            _w.write_batch(pa.record_batch(
+                [cols_dict[f.name] for f in schema], schema=schema))
+    finally:
+        _w.close()
+
+    mg = MemoryGuard(max_memory_mb=100)
+    reader = ArrowIPCBatchReader(path, None)
+    try:
+        t_s, h_s = _baseline_hazard_streaming(
+            reader, [f"x{j}" for j in range(d)], "T", "E", b, mg)
+    finally:
+        reader.close()
+
+    assert np.allclose(t_s, ref_t, atol=1e-10), (
+        f"times differ: streaming {t_s[:3]} vs ram {ref_t[:3]}")
+    assert np.allclose(h_s, ref_h, atol=1e-10)
+
+
+def test_fit_coxph_OOC_small_guard():
+    """P5a-fix-coxph: fit completes at n=20000 with 2 MB guard, small
+    batches (batch check < budget; streaming works OOC)."""
+    import tempfile, pyarrow.parquet as pq
+    df, X, T, E = _surv(n=20000, seed=7, d=3)
+    parts = list(df._iter_filtered_batches())
+    path = tempfile.mktemp(suffix=".parquet")
+    pq.write_table(pa.Table.from_batches(parts), path, row_group_size=500)
+    d2 = CadwDataFrame.from_parquet(path, base_dir="/tmp", chunk_size=500)
+    mg = MemoryGuard(max_memory_mb=2)
+    m = fit_coxph(d2, ["x0", "x1", "x2"], "T", "E", memory_guard=mg)
+    assert m.fitted_
+    assert m.n_events_ > 0
+    assert m.converged_
+
