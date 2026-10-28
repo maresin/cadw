@@ -106,6 +106,15 @@ class ModelCard:
     leakage: LeakageInfo | None = None
     coverage: str | None = None
     pareto_axes: list[str] | None = None
+    # v0.9.87 P6: state taxonomy (METHODOLOGY §7, PRIMITIVES §1-6)
+    state_class: str | None = None
+    state_type: str | None = None
+    bounded_state: bool | None = None
+    n_scalability: str | None = None
+    streaming_strategy: str | dict | None = None
+    primitive_reuse: list[str] | None = None
+    # tier1_core + bounded_state=false exception (METHODOLOGY §7, §10)
+    tier1_core_exception: str | None = None
 
 
 @dataclass
@@ -262,6 +271,13 @@ def _parse_model(m: dict) -> ModelCard:
         leakage=_parse_leakage(m.get("leakage")),
         coverage=m.get("coverage"),
         pareto_axes=m.get("pareto_axes"),
+        state_class=m.get("state_class"),
+        state_type=m.get("state_type"),
+        bounded_state=m.get("bounded_state"),
+        n_scalability=m.get("n_scalability"),
+        streaming_strategy=m.get("streaming_strategy"),
+        primitive_reuse=m.get("primitive_reuse"),
+        tier1_core_exception=m.get("tier1_core_exception"),
     )
 
 
@@ -425,6 +441,55 @@ def _validate_model_v03(m: ModelCard, m_label: str, err, warn) -> None:
             f"learning_mode='supervised' requires temporal_split=True")
 
 
+def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
+    """v0.9.87 P6: state fields validation (METHODOLOGY §7).
+
+    Fires only if field present (backward compatible with pre-P6 cards).
+    tier1_core + bounded_state=False requires tier1_core_exception.
+    """
+    VALID_STATE_CLASS = {
+        "O(1)", "O(d)", "O(d²)", "O(d^2)", "O(batch)", "O(model)",
+        "O(n)", "O(n·w)", "O(n*w)", "O(n·K)", "O(n*K)",
+        "O(N·d)", "O(N*d)",
+    }
+    VALID_STATE_TYPE = {
+        "aggregation", "iterative", "partitioned", "cross_row",
+        "windowed", "elementwise", "mixed",
+    }
+    VALID_N_SCAL = {"constant", "linear", "quadratic", "refuse_at_guard"}
+
+    if m.state_class is not None and m.state_class not in VALID_STATE_CLASS:
+        err(f"{m_label}: state_class={m.state_class!r} not in "
+            f"{sorted(VALID_STATE_CLASS)}")
+    if m.state_type is not None and m.state_type not in VALID_STATE_TYPE:
+        err(f"{m_label}: state_type={m.state_type!r} not in "
+            f"{sorted(VALID_STATE_TYPE)}")
+    if m.bounded_state is not None and not isinstance(m.bounded_state, bool):
+        err(f"{m_label}: bounded_state must be bool, "
+            f"got {type(m.bounded_state).__name__}")
+    if m.n_scalability is not None and m.n_scalability not in VALID_N_SCAL:
+        err(f"{m_label}: n_scalability={m.n_scalability!r} not in "
+            f"{sorted(VALID_N_SCAL)}")
+    if m.streaming_strategy is not None and not isinstance(
+            m.streaming_strategy, (str, dict)):
+        err(f"{m_label}: streaming_strategy must be str or dict, "
+            f"got {type(m.streaming_strategy).__name__}")
+    if m.primitive_reuse is not None and not isinstance(
+            m.primitive_reuse, list):
+        err(f"{m_label}: primitive_reuse must be list, "
+            f"got {type(m.primitive_reuse).__name__}")
+    if m.tier1_core_exception is not None and not isinstance(
+            m.tier1_core_exception, str):
+        err(f"{m_label}: tier1_core_exception must be str, "
+            f"got {type(m.tier1_core_exception).__name__}")
+    # METHODOLOGY §10: tier1_core + bounded_state:false requires exception
+    if (m.tier_level == "tier1_core"
+            and m.bounded_state is False
+            and not (m.tier1_core_exception or "").strip()):
+        err(f"{m_label}: tier_level='tier1_core' + bounded_state=False "
+            f"requires non-empty tier1_core_exception (METHODOLOGY §10)")
+
+
 def validate_matrix(
     sections: list[Section],
     benchmarks: Benchmarks,
@@ -486,6 +551,7 @@ def validate_matrix(
                 if not m.real_life_examples:
                     warn(f"{m_label}: no real_life_examples")
                 _validate_model_v03(m, m_label, err, warn)
+                _validate_model_state(m, m_label, err)
                 for br in m.benchmark_results:
                     if br.benchmark not in benchmarks.benchmarks:
                         err(f"{m_label}: benchmark {br.benchmark!r} "
