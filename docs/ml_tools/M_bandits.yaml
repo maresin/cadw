@@ -75,6 +75,14 @@ subtypes:
       note: 'CADW-native: peak_mb=4.7 @n=10k, 19.4 @n=50k, 51.1 @n=150k (linucb.json); fit_s=0.04 @n=150k, 5 arms. NOT comparable to external CTR numbers.'
     cadw_module: cadw.ml.linucb
     cadw_function: fit_linucb
+    state_class: O(model)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-arm A (d²) + b (d) Reduce.'
+      predict: 'per-batch UCB = a.T @ A^-1 @ x + alpha·sqrt(...).'
+    primitive_reuse: [reduce]
   - name: EpsilonGreedy
     tier: baseline
     tier_level: tier1_core

@@ -83,6 +83,19 @@ subtypes:
       note: 'CADW-native: c_index=0.7229 @n=5000 and 0.7244 @n=50000 (coxph.json); std=half-range; NOT comparable to external LB.'
     cadw_module: cadw.ml.coxph
     cadw_function: fit_coxph
+    state_class: O(n)
+    state_type: iterative
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Fit path OOC after v0.9.87-P5a-fix-coxph (external_sort + streaming Breslow, RAM = O(batch·d + d²)). Model state baseline_t_/baseline_h_ are O(n_events), n_events ≤ n. Guard-checked at fit; refuse_at_guard if baseline > state_limit. Predict path is OOC (per-batch linear predictor); baseline arrays persisted with model.'
+    streaming_strategy:
+      fit: 'external_sort by T desc + streaming Breslow reduce; cov = pinv(info d²); baseline arrays O(n_events) guard-checked.'
+      predict: 'per-batch X @ coef_; baseline arrays held in model.'
+    primitive_reuse:
+    - external_sort
+    - reduce
+    - memmap
+    - spill_dir
   - name: KaplanMeier
     tier: baseline
     tier_level: tier1_core

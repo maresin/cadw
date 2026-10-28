@@ -94,6 +94,14 @@ subtypes:
       value: 0.9987789473684211
       std: null
       note: M2 parity on synthetic_odds_like DGP; cadw=0.9988, ref(sklearn.IsolationForest)=0.9992, verdict=consistent
+    state_class: O(model)
+    state_type: partitioned
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'bounded reservoir subsample; build trees per subsample.'
+      predict: 'per-batch traversal (path-length score).'
+    primitive_reuse: [reduce]
   - name: LOF
     tier: baseline
     tier_level: tier3_export
@@ -182,6 +190,14 @@ subtypes:
       value: 0.42
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'batch-wise class-weighted XTX/XTy Reduce.'
+      predict: 'per-batch sigmoid.'
+    primitive_reuse: [reduce]
   - name: GBDT_scale_pos_weight
     tier: sota
     tier_level: tier1_core
@@ -212,6 +228,17 @@ subtypes:
       value: 0.51
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'P1a-1c codes path; weighted grad/hess.'
+      predict: 'per-batch tree recursion.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   metrics:
   - name: pr_auc
     combination: anchor

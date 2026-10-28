@@ -36,6 +36,14 @@ subtypes:
         cadw_module: cadw.ml.gmm
         cadw_function: fit_gmm
 
+        state_class: O(model)
+        state_type: iterative
+        bounded_state: true
+        n_scalability: constant
+        streaming_strategy:
+        fit: 'bounded reservoir sample (max_samples=10k, v0.9.31); standard EM on sample; k·d params.'
+        predict: 'per-batch responsibility (no n-sized state).'
+        primitive_reuse: [reduce]
       - name: KernelDensity
         tier: baseline
         tier_level: tier2_wrapper
@@ -60,6 +68,14 @@ subtypes:
         cadw_module: cadw.ml.birch
         cadw_function: fit_birch
 
+        state_class: O(model)
+        state_type: aggregation
+        bounded_state: true
+        n_scalability: constant
+        streaming_strategy:
+        fit: 'CF-tree build per batch; threshold/leaf bounded.'
+        predict: 'per-batch nearest CF subcluster.'
+        primitive_reuse: [reduce]
       - name: HDBSCAN
         tier: sota
         tier_level: tier2_wrapper

@@ -89,6 +89,17 @@ subtypes:
       value: 0.3827250969586643
       std: null
       note: M2 parity on synthetic_recsys_like DGP; cadw=0.38273, ref(implicit)=0.36734, verdict=consistent; NDCG@10 on 20% holdout, user-item matrix ~10% density
+    state_class: O(N·d)
+    state_type: partitioned
+    bounded_state: true
+    n_scalability: linear
+    streaming_strategy:
+      fit: 'HashShuffle by user/item + external_sort item-sweep; per-factor state (m+n)·k param-bounded by k.'
+      predict: 'per-batch dot product on cached factors.'
+    primitive_reuse:
+    - hash_shuffle
+    - external_sort
+    - reduce
   metrics:
   - name: ndcg_at_k
     combination: anchor
@@ -164,6 +175,17 @@ subtypes:
       value: 0.3827250969586643
       std: null
       note: M2 parity on synthetic_recsys_like DGP; cadw=0.38273, ref(implicit)=0.36734, verdict=consistent; NDCG@10 on 20% holdout, user-item matrix ~10% density
+    state_class: O(N·d)
+    state_type: partitioned
+    bounded_state: true
+    n_scalability: linear
+    streaming_strategy:
+      fit: 'HashShuffle + external_sort (same as F1.ALS).'
+      predict: 'per-batch dot product.'
+    primitive_reuse:
+    - hash_shuffle
+    - external_sort
+    - reduce
   - name: Hybrid_MF_GBDT
     tier: sota
     tier_level: tier1_core
@@ -194,6 +216,19 @@ subtypes:
       value: 0.27
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'ALS factors (F1 pattern) + GBDT codes path (P1a) on stacked features.'
+      predict: 'per-batch ALS dot + GBDT recursion.'
+    primitive_reuse:
+    - hash_shuffle
+    - external_sort
+    - reduce
+    - spill_dir
+    - codes_bin
   metrics:
   - name: ndcg_at_k
     combination: anchor

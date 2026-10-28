@@ -78,6 +78,14 @@ subtypes:
       note: 'CADW-native: peak_mb=0.7/45.1/229.6 @n=10k/100k/500k (scripts/bench_tfidf.py, .pingis/benches/tfidf.json); std=half-range; hardware-specific.'
     cadw_module: cadw.ml.tfidf
     cadw_function: fit_tfidf
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'bounded vocab (max_features); sparse TF-IDF Reduce -> XTX on d².'
+      predict: 'per-batch sparse tf-idf dot + sigmoid.'
+    primitive_reuse: [reduce]
   - name: ComplementNB
     tier: baseline
     tier_level: tier1_core
@@ -244,6 +252,14 @@ subtypes:
       note: 'no_public_benchmark: STS-B GLUE LB ranks only fine-tuned PLMs; unsupervised LSA has no public row'
     cadw_module: cadw.ml.randsvd
     cadw_function: fit_randomized_svd
+    state_class: O(d)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'randomized SVD: random Ω (d×k) + batch-wise Y=XΩ Reduce + QR/SVD on k×k.'
+      predict: 'per-batch X @ V_k.'
+    primitive_reuse: [reduce]
   - name: Word2Vec
     tier: baseline
     tier_level: tier2_wrapper
@@ -422,6 +438,14 @@ subtypes:
       note: 'CADW-native: fit_s=4.491/21.382/102.892 @n=2k/10k/50k (scripts/bench_lda.py, .pingis/benches/lda.json); std=half-range; hardware-specific.'
     cadw_module: cadw.ml.lda
     cadw_function: fit_lda
+    state_class: O(model)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'v0.9.87-P5a-fix-lda-a: sparse CSR E-step per batch; M-step scatter-add to sstats (K×V param).'
+      predict: 'per-batch sparse E-step gamma.'
+    primitive_reuse: [reduce, spill_dir]
   - name: NMF
     tier: baseline
     tier_level: tier2_wrapper

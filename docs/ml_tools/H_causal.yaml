@@ -48,6 +48,17 @@ subtypes:
       value: 0.1
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'two arm-separated GBDT fits, each P1a codes path.'
+      predict: 'per-batch (mu1 - mu0).'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   - name: S_learner
     tier: baseline
     tier_level: tier1_core
@@ -77,6 +88,17 @@ subtypes:
       value: 0.12
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'single GBDT with treatment as feature (P1a codes path).'
+      predict: 'per-batch (mu(x,1) - mu(x,0)).'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   - name: DR_learner
     tier: sota
     tier_level: tier3_export
@@ -163,6 +185,17 @@ subtypes:
       value: 0.15
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'two-model uplift (arm-separated GBDT, P1a codes).'
+      predict: 'per-batch uplift = mu1 - mu0.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   - name: CausalTree
     tier: sota
     tier_level: tier1_core
@@ -193,6 +226,17 @@ subtypes:
       value: 0.12
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'tree split via codes-path ReduceOps (P1a pattern).'
+      predict: 'per-batch tree recursion.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   metrics:
   - name: qini
     combination: anchor
