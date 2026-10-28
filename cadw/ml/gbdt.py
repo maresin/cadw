@@ -1595,12 +1595,13 @@ def _fit_boosting_multiclass(
     if n_total == 0:
         raise ValueError("fit_gbdt_multiclass: no rows")
 
-    # v0.9.87-P1a-3b: pred moved to memmap (SpillDir-managed disk).
-    # RAM: y_all (n·8) + batch buffers (~n·8 worst case for
-    # _softmax/_grad_hess_multiclass per-batch). Persistent peak
-    # ~n·8·2. Was n·8·(K + 2) (P1a-3a), n·8·(1 + 2K) (P1a-2),
-    # n·8·(1 + 4K) (v0.9.22).
-    # K=10: 96n -> 16n (P1a-3b). K=3: 40n -> 16n. True OOC for pred.
+    # v0.9.87-P1a-4: pred, grad, hess, codes, AND y_all all on disk
+    # (SpillDir memmaps). Persistent RAM: batch buffers only
+    # (~batch_size × (K+2) × 8 for _softmax temp, p[valid],
+    # y_idx[valid]). Formula n·8·2 is a conservative upper bound
+    # (worst case = batch covers full n). Was (K + 2) (P1a-3a),
+    # (1 + 2K) (P1a-2), (1 + 4K) (v0.9.22).
+    # True OOC for all n-sized state in multiclass fit.
     est_n_state = n_total * 8 * 2
     try:
         mg.check_state(est_n_state, name="gbdt.multiclass_state")
@@ -1618,8 +1619,16 @@ def _fit_boosting_multiclass(
         df, X_cols, bins=int(bins), memory_guard=mg, guard=mg)
 
     try:
-        # 2. y as int64 (with -1 for null)
-        y_all = np.full(n_total, -1, dtype=np.int64)
+        # 2. y as int64 (with -1 for null) — memmap-backed
+        # (v0.9.87-P1a-4). Removes last n-sized RAM array in
+        # multiclass fit (was y_all = np.full(n_total, -1)).
+        # Explicit [:]=-1 init because numpy memmap mode="w+" returns
+        # 0.0-default bytes on fresh pages, not our -1 sentinel.
+        _y_path = binning_spill.path("y.bin")
+        y_all = np.memmap(
+            str(_y_path), dtype=np.int64, mode="w+",
+            shape=(n_total,))
+        y_all[:] = -1
         offset = 0
         for b in df._iter_filtered_batches():
             y = _column_to_f64(b.column(y_col))
@@ -1627,6 +1636,7 @@ def _fit_boosting_multiclass(
             y_all[offset:offset + b.num_rows] = np.where(
                 valid, y, -1).astype(np.int64)
             offset += b.num_rows
+        y_all.flush()
 
         # 3. Init pred — zeros, memmap-backed (v0.9.87-P1a-3b).
         # mode="w+" (numpy memmap): seeks to n*K*8-1, writes one
@@ -1656,11 +1666,11 @@ def _fit_boosting_multiclass(
             offset = 0
             for b in df._iter_filtered_batches():
                 n = b.num_rows
-                # v0.9.87-P1a-3b: pred is memmap; np.asarray
-                # materializes per-batch (batch_size × K × 8 bytes)
-                # so softmax runs on contiguous RAM. Bounded.
+                # v0.9.87-P1a-3b/P1a-4: pred + y_all are memmap;
+                # np.asarray materializes per-batch (batch_size ×
+                # (K+1) × 8 bytes) so softmax runs on contiguous RAM.
                 p = np.asarray(pred[offset:offset + n])
-                y_idx = y_all[offset:offset + n]
+                y_idx = np.asarray(y_all[offset:offset + n])
                 valid = (~nan_mask[offset:offset + n]) & (y_idx >= 0)
                 if valid.any():
                     g_valid, h_valid = _grad_hess_multiclass(
@@ -1769,13 +1779,16 @@ def _fit_boosting_multiclass(
 
             trees.append(round_trees)
 
-        # v0.9.87-P1a-3b: flush + free pred memmap before cleanup.
-        # pred.flush() ensures dirty pages written; del releases the
-        # mmap handle so cleanup_file can unlink safely (Linux OK
-        # either way; Windows needs explicit release).
+        # v0.9.87-P1a-3b/P1a-4: flush + free pred + y_all memmaps
+        # before cleanup. del releases mmap handle so cleanup_file
+        # unlinks safely (Linux OK either way; Windows needs
+        # explicit release).
         pred.flush()
         del pred
         binning_spill.cleanup_file(_pred_path)
+        y_all.flush()
+        del y_all
+        binning_spill.cleanup_file(_y_path)
     finally:
         try:
             del codes_mm

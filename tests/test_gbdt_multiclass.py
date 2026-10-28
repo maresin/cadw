@@ -614,3 +614,35 @@ def test_multiclass_pred_is_memmap(monkeypatch, tmp_path):
         f"pred.bin memmap not created: {captured}")
     assert "pred.bin" in captured[0]
 
+def test_multiclass_y_all_is_memmap(monkeypatch, tmp_path):
+    """P1a-4: y_all is np.memmap (y.bin), not RAM array.
+
+    Removes last n-sized RAM array from multiclass fit. With pred
+    (P1a-3b), grad/hess (P1a-2), codes (P1a-1b), all n-sized state
+    is disk-backed. True OOC.
+    """
+    from cadw.ml import gbdt as gbdt_mod
+
+    captured = []
+    orig_memmap = np.memmap
+
+    def spy_memmap(filename, *args, **kwargs):
+        fname = str(filename)
+        if "y.bin" in fname:
+            captured.append(fname)
+        return orig_memmap(filename, *args, **kwargs)
+
+    monkeypatch.setattr(np, "memmap", spy_memmap)
+
+    n = 300
+    data, X, y = _synth_multiclass(n, n_classes=3, seed=0)
+    df = make_df(tmp_path, data)
+    fit_gbdt_multiclass(
+        df, ["x0", "x1"], "y",
+        n_estimators=2, max_depth=2, learning_rate=0.2, bins=16,
+    )
+
+    assert len(captured) >= 1, (
+        f"y.bin memmap not created: {captured}")
+    assert "y.bin" in captured[0]
+

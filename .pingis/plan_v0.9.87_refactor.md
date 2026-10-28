@@ -101,7 +101,6 @@ When the block is empty, refactor is complete; gates become pure
 regression guards.
 
 <!-- gate-whitelist
-G1: cadw/ml/gbdt.py::_fit_boosting_multiclass
 G1: cadw/ml/lambdamart.py::fit_lambdamart
 G4: A.*
 G4: D1.*
@@ -269,3 +268,17 @@ P5 phase closed. Remaining refactor by priority:
 P5a-fix-gmm overlaps with P1a-b (same pattern O(n·k) per-iteration).
 Consolidate: do P1a-b first, then P5a-fix-gmm as separate narrow
 task OR skip if GBDT-parallel infrastructure applies.
+
+## P1a-4 status (2026-10-28)
+
+P1a-4 done: y_all in fit_gbdt_multiclass moved to np.memmap
+(y.bin, SpillDir-managed). All n-sized state in multiclass fit is
+now disk-backed: codes (P1a-1b), grad+hess (P1a-2), pred (P1a-3b),
+y_all (P1a-4).
+
+Guard formula n*8*2 = conservative bound covering batch buffers
+(p[valid], _softmax temp arrays, y_idx[valid]) when batch spans n.
+
+G1 whitelist entry for cadw/ml/gbdt.py::_fit_boosting_multiclass
+REMOVED. G1 whitelist now has only:
+  G1: cadw/ml/lambdamart.py::fit_lambdamart  (P2b-full backlog)
