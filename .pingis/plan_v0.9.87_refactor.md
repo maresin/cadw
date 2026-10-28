@@ -102,14 +102,6 @@ regression guards.
 
 <!-- gate-whitelist
 G1: cadw/ml/lambdamart.py::fit_lambdamart
-G4: A.*
-G4: D1.*
-G4: D2.*
-G4: D3.1.*
-G4: D3.2.*
-G4: D3.3.*
-G4: D4.*
-G4: D5.*
 G4: E.*
 G4: F.*
 G4: G.*

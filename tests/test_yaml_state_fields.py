@@ -9,8 +9,8 @@ Two tests:
 2. Strict requirement (deferred — controlled by
    REQUIRE_STATE_FIELDS): every card with `verified_in_cadw: true`
    must declare state_class and bounded_state. Today this is
-   informational (REQUIRE_STATE_FIELDS = False); flip to True after
-   P6 (YAML registration across all cards).
+   informational until P6 flips REQUIRE_STATE_FIELDS; after flip it
+   is enforced (P6a/b registered D*+A*; P7 pending for E-O).
 
 Whitelist entries (plan gate-whitelist G4) are section-level
 wildcards like `A.*` = all A subtype cards whitelisted until P6
@@ -40,8 +40,9 @@ VALID_STATE_TYPE = {
 }
 VALID_N_SCAL = {"constant", "linear", "quadratic", "refuse_at_guard"}
 
-# Flip to True after P6 registers state fields in all cards.
-REQUIRE_STATE_FIELDS = False
+# Flipped to True after P6 registered state fields in D*+A*.
+# E/F/G/H/I/J/K/L/M/N/O still whitelisted (P7 pending).
+REQUIRE_STATE_FIELDS = True
 
 
 def _iter_yaml_cards():
@@ -137,3 +138,37 @@ def test_g4_verified_cards_have_state_fields():
         "G4: verified cards missing state fields (flip REQUIRE_STATE_FIELDS"
         " only after P6 fills them):\n" + "\n".join(violations)
     )
+
+def test_is_whitelisted_section_wildcard():
+    """v0.9.87-P6c-β-fix1: `E.*` must match E1.x, E2.x, E10.x (not EE1.x)."""
+    from tests._gate_whitelist import is_whitelisted
+    wl = {"E.*"}
+    assert is_whitelisted(wl, "E1.IForest")
+    assert is_whitelisted(wl, "E2.Logistic_balanced")
+    assert is_whitelisted(wl, "E10.x")
+    assert is_whitelisted(wl, "E1.*")     # subtype-level key still matches
+    assert not is_whitelisted(wl, "F1.x")   # different section
+    assert not is_whitelisted(wl, "EE1.x")  # not a real section key
+    assert not is_whitelisted(wl, "D1.x")   # different section
+
+
+def test_is_whitelisted_subtype_wildcard():
+    """v0.9.87-P6c-β-fix1: `D3.1.*` matches only D3.1.x (dots in subtype id)."""
+    from tests._gate_whitelist import is_whitelisted
+    wl = {"D3.1.*"}
+    assert is_whitelisted(wl, "D3.1.Sub-PCA")
+    assert is_whitelisted(wl, "D3.1.*")
+    assert not is_whitelisted(wl, "D3.2.BOCPD")
+    assert not is_whitelisted(wl, "D3.x")
+    assert not is_whitelisted(wl, "D1.NaiveForecaster")
+
+
+def test_is_whitelisted_exact_and_no_wildcard():
+    """Exact entry matches; non-wildcard entry matches nothing else."""
+    from tests._gate_whitelist import is_whitelisted
+    wl = {"cadw/ml/lambdamart.py::fit_lambdamart", "A1.GBDT"}
+    assert is_whitelisted(wl, "cadw/ml/lambdamart.py::fit_lambdamart")
+    assert is_whitelisted(wl, "A1.GBDT")
+    assert not is_whitelisted(wl, "A1.LogisticRegression")
+    assert not is_whitelisted(wl, "cadw/ml/gbdt.py::fit_gbdt_multiclass")
+

@@ -57,6 +57,14 @@ subtypes:
       value: 0.78
       std: null
       note: median across AMLB binary tasks; ranking only [legacy v0.9.44, migrated v0.9.50]
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'batch-wise XTX / XTy Reduce; Newton/L-BFGS on d×d.'
+      predict: 'per-batch sigmoid.'
+    primitive_reuse: [reduce]
   - name: GBDT
     tier: sota
     tier_level: tier1_core
@@ -88,6 +96,17 @@ subtypes:
       value: 0.82
       std: null
       note: median across AMLB binary tasks [legacy v0.9.44, migrated v0.9.50]
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'binning + codes ReduceOps via SpillDir (P1a-1c path).'
+      predict: 'per-batch tree recursion.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   - name: BernoulliNB
     tier: baseline
     tier_level: tier1_core
@@ -117,6 +136,14 @@ subtypes:
       value: 0.72
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(d)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'batch-wise feature count + log-prior Reduce.'
+      predict: 'per-row log-score sum.'
+    primitive_reuse: [reduce]
   - name: TabPFN
     tier: sota
     tier_level: tier3_export
@@ -228,6 +255,14 @@ subtypes:
       value: 0.74
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'batch-wise XTX / XTy Reduce; softmax Newton/L-BFGS; C-class state C*d² is param (C fixed).'
+      predict: 'per-batch softmax.'
+    primitive_reuse: [reduce]
   - name: GBDT_multiclass
     tier: sota
     tier_level: tier1_core
@@ -257,6 +292,18 @@ subtypes:
       value: 0.81
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'P1a series: codes/grad/hess/pred/y_all all SpillDir-backed; true OOC.'
+      predict: 'per-batch tree recursion.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - memmap
+    - codes_bin
   - name: GaussianNB
     tier: baseline
     tier_level: tier1_core
@@ -285,6 +332,14 @@ subtypes:
       value: 0.68
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(d)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'batch-wise per-class mean/var Reduce (Welford).'
+      predict: 'per-row Gaussian log-score sum.'
+    primitive_reuse: [reduce]
   metrics:
   - name: accuracy
     combination: anchor
@@ -351,6 +406,14 @@ subtypes:
       value: 0.42
       std: null
       note: normalised RMSE median across AMLB regression tasks [legacy v0.9.44, migrated v0.9.50]
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'batch-wise XTX / XTy Reduce; closed-form solve.'
+      predict: 'per-batch X @ coef.'
+    primitive_reuse: [reduce]
   - name: Lasso
     tier: baseline
     tier_level: tier1_core
@@ -380,6 +443,14 @@ subtypes:
       value: 0.43
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'XTX / XTy Reduce; coordinate descent on d² state.'
+      predict: 'per-batch X @ coef.'
+    primitive_reuse: [reduce]
   - name: GBDT_L2
     tier: sota
     tier_level: tier1_core
@@ -424,6 +495,17 @@ subtypes:
       value: 1.0970246900316962
       std: null
       note: M2 parity on synthetic_amlb_regression_like DGP; ref(sklearn.GradientBoostingRegressor)=1.0498, verdict=consistent
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'P1a-1c codes path; SpillDir state.'
+      predict: 'per-batch tree recursion.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   metrics:
   - name: rmse
     combination: anchor
@@ -489,6 +571,14 @@ subtypes:
       value: 0.62
       std: null
       note: subset accuracy [legacy v0.9.44, migrated v0.9.50]
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-class binary logistic; L binary fits, each O(d²) Reduce.'
+      predict: 'per-batch stack of L sigmoids.'
+    primitive_reuse: [reduce]
   - name: ClassifierChains
     tier: sota
     tier_level: tier1_core
@@ -518,6 +608,14 @@ subtypes:
       value: 0.66
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'L chained logistic fits on (X + prior labels); O(d²) per classifier.'
+      predict: 'per-batch chained prediction.'
+    primitive_reuse: [reduce]
   metrics:
   - name: subset_accuracy
     combination: anchor
@@ -579,6 +677,14 @@ subtypes:
       value: 0.55
       std: null
       note: exact-match accuracy [legacy v0.9.44, migrated v0.9.50]
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'K-1 cumulative-logit Reduces over shared beta (d² Hessian).'
+      predict: 'per-row cumulative P(y<=k) from fitted thresholds.'
+    primitive_reuse: [reduce]
   - name: GBDT_threshold
     tier: sota
     tier_level: tier1_core
@@ -667,6 +773,14 @@ subtypes:
       value: 0.42
       std: null
       note: AMLB imbalance subset [legacy v0.9.44, migrated v0.9.50]
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'batch-wise class-weighted XTX / XTy Reduce.'
+      predict: 'per-batch sigmoid.'
+    primitive_reuse: [reduce]
   - name: GBDT_scale_pos_weight
     tier: sota
     tier_level: tier1_core
@@ -697,6 +811,17 @@ subtypes:
       value: 0.51
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    state_class: O(batch)
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'P1a-1c codes path; weighted grad/hess.'
+      predict: 'per-batch tree recursion.'
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - codes_bin
   metrics:
   - name: pr_auc
     combination: anchor
