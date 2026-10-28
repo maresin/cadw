@@ -72,3 +72,5 @@ from .anomaly_pipeline import (  # noqa: E402,F401
     AnomalyPipeline,
     AnomalyPipelineResult,
 )
+
+from cadw.ml.rocket import fit_rocket, RocketModel  # noqa: E402

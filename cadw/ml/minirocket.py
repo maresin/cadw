@@ -68,61 +68,8 @@ def _ppv_series(x, weights, dilation):
     return float(np.mean(acc > 0.0))
 
 
-def _iter_series(df, value_col, id_col, mg, name):
-    """Yield (series_id, np.ndarray values) one series at a time.
-
-    Memory is O(longest series); only one series is materialised at a time.
-    Input must be grouped by id_col (sorted), which the dataset contract
-    guarantees for the exported batches.
-    """
-    if id_col is None:
-        vals = []
-        n = 0
-        for b in df._iter_filtered_batches():
-            mg.check_batch(b, name=name, extra_factor=3.0)
-            vals.append(b.column(value_col).cast(pa.float64(), safe=False)
-                        .to_numpy(zero_copy_only=False))
-            n += b.num_rows
-            mg.check_state(n * 8, name=name + ".state")
-        if n == 0:
-            raise ValueError("minirocket: empty input")
-        yield 0, np.concatenate(vals)
-        return
-    cur_id = None
-    buf = []
-    seen = set()
-    for b in df._iter_filtered_batches():
-        mg.check_batch(b, name=name, extra_factor=3.0)
-        ids = b.column(id_col).to_pylist()
-        vals = b.column(value_col).cast(pa.float64(), safe=False)
-        arr = vals.to_numpy(zero_copy_only=False)
-        i = 0
-        n = b.num_rows
-        while i < n:
-            j = i
-            while j < n and ids[j] == ids[i]:
-                j += 1
-            sid = ids[i]
-            if cur_id is None:
-                cur_id = sid
-            if sid != cur_id:
-                if sid in seen:
-                    raise ValueError(
-                        "minirocket: input must be grouped/sorted by id_col; "
-                        f"saw {sid!r} again after yielding it")
-                if buf:
-                    seen.add(cur_id)
-                    yield cur_id, np.concatenate(buf)
-                cur_id = sid
-                buf = []
-            buf.append(arr[i:j])
-            mg.check_state(sum(x.size for x in buf) * 8, name=name + ".state")
-            i = j
-    if cur_id is None:
-        raise ValueError("minirocket: empty input")
-    if buf:
-        yield cur_id, np.concatenate(buf)
-
+# v0.9.89-D4-refactor: _iter_series extracted to cadw.ml._series
+from cadw.ml._series import iter_series as _iter_series
 
 class MiniRocketModel:
     """Fitted MiniRocket feature transform."""

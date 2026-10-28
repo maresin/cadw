@@ -116,7 +116,20 @@ def test_multi_batch_consistent(tmp_path):
 
 
 def test_source_contract_guard_and_log_fit():
+    # v0.9.89-D4-refactor: iter_series extracted to cadw.ml._series.
+    # Guard contract (check_batch, extra_factor=3.0, check_state) now
+    # lives in _series.py; minirocket must delegate, not duplicate.
+    from cadw.ml import _series as sr
     src = inspect.getsource(mr)
-    assert "check_batch" in src and "extra_factor=3.0" in src
+    ssrc = inspect.getsource(sr)
+    # Guard contract present in shared module:
+    assert "check_batch" in ssrc and "extra_factor=3.0" in ssrc
+    assert "check_state" in ssrc
+    # minirocket delegates (single source of truth):
+    assert "from cadw.ml._series import iter_series" in src
+    # Direct-call state guard remains in minirocket (fit + transform);
+    # check_batch lives only in _series.py now (checked above).
+    assert "check_state" in src
+    # No pandas dependency; log_fit still called in fit_minirocket:
     assert "log_fit" in src
     assert "import pandas" not in src
