@@ -11,10 +11,18 @@ Implementation notes:
 - Per iteration: compute lambda gradients and hessians for every document
   from all pairs within a query (O(n_q^2) per query — LETOR queries are
   tens of documents), then fit one regression tree to (lambda, hessian)
-  on quantile-binned features.
-- State: scores (N), binned X (N*d uint8), lambda/hess (N each) — O(N*d),
-  the same class as the existing GBDT (Newton boosting needs per-row
-  gradients). Guarded via check_state before allocation.
+  on uniformly-binned features (v0.9.87-P2b-full: uniform bins replace
+  pre-P2b quantile edges; same-version determinism preserved).
+- State (v0.9.87-P2b-full): ALL n-sized state on SpillDir-backed
+  memmap — codes (uint8), y / scores / grad / hess (float64),
+  node_id (int32). Tree build is level-synchronous BFS via ReduceOps
+  (_AllNodeHistOpCodes_LM / _AssignLeavesOpCodes_LM / _LeafValuesOp_LM);
+  no per-row arange over full n, no codes[idx, j] fancy indexing on
+  full-n. RAM = O(batch*d + n_nodes*d*bins).
+- KNOWN GAP (P2b-full-2 backlog): query grouping uses a Python dict
+  (O(n_q) keys + O(n) Python-int row-index values, ~36n transient peak
+  at dict-to-array conversion). For n_q > ~1M, use external_sort by
+  query. Refuses at guard for very large n.
 """
 from __future__ import annotations
 

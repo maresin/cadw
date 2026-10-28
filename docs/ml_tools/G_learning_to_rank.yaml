@@ -76,18 +76,20 @@ subtypes:
       value: 0.51
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot'
-    state_class: O(N·d)
+    state_class: O(n)
     state_type: iterative
     bounded_state: false
-    n_scalability: quadratic
-    tier1_core_exception: 'P2b-full backlog: X memmap (P2b-narrow done), but codes (n·d uint8), y (n), scores/grad/hess still RAM. Full OOC requires level-synchronous _build_tree rewrite (BFS with node_id memmap + chunked bincount). Currently refuses at guard for very large n.'
+    n_scalability: linear
+    tier1_core_exception: 'P2b-full-2 backlog: all n-sized feature/label/score state on SpillDir memmap (P2b-full done). Remaining hot spot: query grouping dict — O(n_q) keys + O(n) Python-int row-index values (~36n transient peak during dict-to-array conversion; 36 GB @ n=1e9). For n_q > ~1M use external_sort by query (P2b-full-2 plan). Refuses at guard for very large n.'
     streaming_strategy:
-      fit: 'external_sort by query for X; codes/scores/grad/hess in RAM (P2b-narrow partial).'
-      predict: 'per-batch tree recursion.'
+      fit: 'P2b-full: binning + BFS tree build via ReduceOps; all feature/label/score/grad/hess state on SpillDir-backed memmap. Query grouping via Python dict (bounded by n_q; see P2b-full-2 backlog).'
+      predict: 'chunked tree recursion over codes memmap; per-batch._raw.'
     primitive_reuse:
     - external_sort
     - reduce
     - memmap
+    - spill_dir
+    - codes_bin
   metrics:
   - name: ndcg_at_k
     combination: anchor
