@@ -1,5 +1,84 @@
 ## [Unreleased]
 
+### v0.9.88 (2026-10-28) - Post-release: audit closure + P2b-full-2
+
+Follow-up to v0.9.87. Closes remaining honest gaps and false
+positives from P5 audit; formalizes TSAD metric honesty.
+
+P2b-full (4b71709): lambdamart true OOC via BFS
+  Rewrite fit_lambdamart tree-build from DFS to level-synchronous
+  BFS via ReduceOps (adapted from gbdt P1a _AllNodeHistOpCodes /
+  _AssignLeavesOpCodes / _LeafValuesOp). All n-sized state on
+  SpillDir memmap: codes/y/scores/grad/hess/node_id. Uniform binning
+  replaces quantile edges (documented deviation, same-version
+  determinism). Eliminated last G1 whitelist entry — G1 empty.
+
+v0.9.87-fix2 (bd15aaf): LambdaMART YAML + docstring honest
+  P2b-full message overstated query grouping (said O(n_q) RAM;
+  source showed O(n) Python ints, ~36n transient peak). Reclassified
+  bounded_state:false, n_scalability:linear; docstring updated with
+  "KNOWN GAP" block.
+
+v0.9.87-fix3 (98fc08b): anomaly metrics honest
+  YAML D3.1/D3.2/D3.3/D5 declared 24 TSAD metric cards; 20 absent
+  from source (vus_pr, vus_roc, auprc, range_f1, affiliation_f1,
+  point_f1, point_adjusted_f1, nab, detection_delay, best_5_ranking).
+  New MetricCard.not_implemented_in_cadw field + parse + WARN on
+  anchor-with-flag. 20 cards marked. TSAD metric implementation is
+  v0.9.88+ feature backlog (not refactor).
+
+v0.9.87-fix4 (0aa9404): STL + AnomalyPipeline guard
+  stl_decompose gained memory_guard kw with est = n*8*8 + 4096
+  check_state before first alloc (~8n float64). AnomalyPipeline.
+  fit_predict passes through; diff branch guards (n-1)*8. Honest
+  scope: STLTransformer/MSTL/Differencer/AutoStationarizer/
+  AutoForecastPipeline fit still no guard propagation — v0.9.88
+  backlog (~0.5 session).
+
+v0.9.87-P2b-full-2 (a3a1368): query grouping external_sort
+  Eliminated last O(n) hot spot: q_groups Python dict (O(n_q) keys +
+  O(n) Python-int values = ~36n transient peak). external_sort by
+  query_col → _SortedStream adapter; group_offsets int64 (n_q+1);
+  per-group contiguous slices bounded by max_group_size.
+  Bit-identical to P2b-full. Test tightened to prove fit SUCCEEDS at
+  4 MB guard with 80k rows.
+
+v0.9.87-fix5 (23a8cd2): LambdaMART YAML stale flip
+  After P2b-full-2: bounded_state false -> true, n_scalability
+  linear -> constant, tier1_core_exception removed.
+  13 tier1_core_exception entries -> 12 (all remaining honest:
+  single-series TS, DP-changepoint, STAMP MatrixProfile,
+  multivariate VAR, STRAY n<=20k, CoxPH baseline arrays).
+
+v0.9.87-P5a-fix-als (d1c5692): streaming dict build + objective
+  Two O(n) paths in fit_als: (1) users/items list accum + concat +
+  unique (O(n) transient, ~3 GB @ n=1e8); (2) _objective n-sized
+  u_arr/i_arr with X[up] fancy-index (n*k = 12.8 GB @ n=1e8,k=16 per
+  ALS iteration). Fixed via streaming set (O(U+I)) and
+  _objective_streaming (per-batch fancy index). Bit-identical formula.
+
+P5a-review-feature_select: false positive (dismissed)
+  Guard check_state INSIDE batch loop raises BEFORE np.vstack —
+  honest refuse_at_guard, not silent OOM. AST scan limitation.
+
+Methodology consequence:
+  - Whitelist: all 4 gates empty (G1 post-P2b-full, G2 post-P1a,
+    G3 post-windowed, G4 post-P6/P7).
+  - tier1_core_exception: 13 -> 12 (LambdaMART graduated to true OOC).
+  - not_implemented_in_cadw markers: 20 TSAD metric cards (honest
+    capability statement).
+  - Fast suite: 3869 -> 3879 (+10).
+
+v0.9.88 feature backlog (not refactor):
+  - implement TSAD metrics (VUS-PR/VUS-ROC per TSB-AD;
+    point_adjusted_f1 / range_f1 / affiliation_f1 per UCR/TAB; NAB;
+    detection_delay; best_5_ranking; auprc). ~2 sessions.
+  - propagate memory_guard through ts/transforms.py (STLTransformer,
+    MSTL, Differencer, AutoStationarizer, AutoForecastPipeline,
+    TransformedTargetForecaster). ~0.5 session.
+  - P5a-fix-gmm-full (optional): full-data streaming EM (quality
+    feature; v0.9.31 sample-based currently fine).
+
 ### v0.9.87 (2026-10-28) - OOC refactor + state taxonomy registration
 
 Two themes: (1) restore out-of-core where audit found silent OOM
