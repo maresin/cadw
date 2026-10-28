@@ -209,10 +209,14 @@ Triage:
 
 ### Real new issues (P5a-fix candidates)
 
-- [ ] **P5a-fix-gmm**: gmm.py::_responsibilities — np.empty((n, k))
-      per EM iteration. Same pattern as GBDT multiclass (O(n·k) RAM,
-      2-3 alloc per iter). Estimated fix: 1-2 sessions (chunked
-      E-step + M-step via Reduce-like accumulator).
+- [~] **P5a-fix-gmm**: FALSE POSITIVE (verified 2026-10-28).
+      `_responsibilities(X, ...)` operates on X = reservoir sample
+      (max_samples=10k, v0.9.31) or per-batch (predict/score). n in
+      np.empty((n, k)) is SAMPLE SIZE, not dataset N. Bounded
+      state, no OOM. Docstring v0.9.31 explicitly states: "True
+      per-batch streaming EM is a future D.6.x item" — limitation,
+      not bug. Quality improvement (use full data, not 10k sample)
+      moved to v0.9.88 feature backlog, not v0.9.87 OOM fix.
 - [ ] **P5a-fix-coxph**: coxph.py::fit_coxph — vstack@L189 builds
       risk matrix (n, d). P2a-class fix: pre-allocate (n, d). 0.5 session.
 - [ ] **P5a-fix-lda**: lda.py::fit_lda — vstack@L257 builds
