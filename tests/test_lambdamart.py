@@ -166,26 +166,47 @@ def test_fit_lambdamart_preallocate_uses_df_count():
     assert ("np.memmap(" in src and "shape=(n_total" in src), (
         "X should be np.memmap with shape=(n_total, ...)")
 
-def test_fit_lambdamart_x_is_memmap(monkeypatch):
-    """P2b-narrow: X passed to _bin_features is a memmap, not RAM array."""
+def test_fit_lambdamart_codes_is_memmap(monkeypatch):
+    """P2b-full: codes passed to BFS tree build is a memmap."""
     captured = {}
-    orig = lm._bin_features
+    orig = lm._build_tree_bfs
 
-    def spy(X, *a, **kw):
-        captured["X_type"] = type(X).__name__
-        captured["X_path"] = getattr(X, "filename", None)
-        return orig(X, *a, **kw)
+    def spy(df_, X_cols_, codes_mm, *a, **kw):
+        captured["codes_type"] = type(codes_mm).__name__
+        captured["codes_path"] = getattr(codes_mm, "filename", None)
+        return orig(df_, X_cols_, codes_mm, *a, **kw)
 
-    monkeypatch.setattr(lm, "_bin_features", spy)
+    monkeypatch.setattr(lm, "_build_tree_bfs", spy)
 
     df, X_arr, y_arr, q_arr = _dataset(seed=11)
     cols = [f"f{j}" for j in range(4)]
     lm.fit_lambdamart(df, cols, "y", "q", n_estimators=3)
 
-    assert "memmap" in captured["X_type"], (
-        f"X should be np.memmap; got {captured['X_type']}")
-    assert captured["X_path"] is not None, (
-        "X memmap should have .filename attribute")
+    assert "memmap" in captured["codes_type"], (
+        f"codes should be np.memmap; got {captured['codes_type']}")
+    assert captured["codes_path"] is not None, (
+        "codes memmap should have .filename attribute")
+
+
+def test_fit_lambdamart_no_arange_in_fit_path():
+    """P2b-full: no n-sized array allocation in fit path.
+
+    Uses assignment/call patterns, not raw substring (docstrings and
+    comments may legitimately mention np.arange as prose — see
+    PRIMITIVES §5.2 lesson).
+    """
+    import inspect
+    src = inspect.getsource(lm.fit_lambdamart)
+    # Assignment forms (RHS or LHS):
+    assert " = np.arange(" not in src
+    assert "= np.arange(n_total)" not in src
+    assert "= np.arange(n_rows)" not in src
+    # Direct allocs:
+    assert "np.zeros(n_total" not in src
+    assert "np.zeros((n_total" not in src
+    assert "np.empty(n_total" not in src
+    assert "np.empty((n_total" not in src
+    assert "np.full(n_total" not in src
 
 
 def test_fit_lambdamart_spilldir_cleanup(monkeypatch):

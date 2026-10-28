@@ -101,7 +101,6 @@ When the block is empty, refactor is complete; gates become pure
 regression guards.
 
 <!-- gate-whitelist
-G1: cadw/ml/lambdamart.py::fit_lambdamart
 -->
 
 
