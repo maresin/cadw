@@ -878,8 +878,8 @@ subtypes:
     - Macroeconomic indicator forecast
     config:
       p: int
-    cadw_module: cadw.ts.models
-    cadw_function: VAR
+    cadw_module: cadw.ts.var
+    cadw_function: VARModel
     benchmark_results:
     - benchmark: M5
       benchmark_url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
@@ -956,6 +956,63 @@ subtypes:
     - reduce
     - spill_dir
     - codes_bin
+  - name: BVAR
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - temporal_dynamics
+    purpose: 'Bayesian VAR with Minnesota (random-walk) prior; Normal-Inverted Wishart conjugate posterior. Shrinks coefficients toward random walk, stabilizes forecasts on short series and large panels (Litterman 1986; Banbura-Giannone-Reichlin 2010). Streaming via sufficient statistics XTX/XTY/YTY Reduce.'
+    real_life_examples:
+    - FRED-MD macroeconomic panel forecasting
+    - Central bank short-horizon projections
+    config:
+      p: int
+      lambda1: float
+      lambda2: float
+      mu: float
+    cadw_module: cadw.ts.bvar
+    cadw_function: BVARModel
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch lag-pair extraction + XTX/XTY/YTY Reduce; closed-form Normal-Inverted Wishart posterior (state O(k²·p²) independent of n).'
+      predict: 'recursive forecast using posterior mean beta.'
+    primitive_reuse:
+    - reduce
+  - name: VECM
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - temporal_dynamics
+    purpose: 'Vector Error Correction Model via Johansen MLE; recovers cointegrating relations β and adjustment speeds α for series sharing a stochastic trend. Streaming cross-covariance accumulation + generalized eigenproblem on k×k matrices (Johansen 1988/1991).'
+    real_life_examples:
+    - Yield curve modeling (level/slope/curvature cointegrated)
+    - Pairs trading / spread forecasting
+    - Macro panel with cointegrated series
+    config:
+      k_ar_diff: int
+      coint_rank: int
+      det_order: int
+    cadw_module: cadw.ts.vecm
+    cadw_function: VECMModel
+    state_class: O(d²)
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-batch cross-cov accumulation (M00/M01/M02/M11/M12/M22) + concentration + generalized eigenproblem on k×k matrices (state O(k²·p²) independent of n).'
+      predict: 'error-correction recursion α·βᵀ·Y_{t-1} + Γ·ΔY_lags.'
+    primitive_reuse:
+    - reduce
+
   metrics:
   - name: wrmse
     combination: anchor
@@ -967,6 +1024,17 @@ subtypes:
     direction: lower
     responsibility: Flat-scale accuracy.
     special: Ignores hierarchy; use WRMSSE as the decision metric.
+  ensemble_recommendation:
+  - roles:
+    - temporal_dynamics
+    models:
+    - VAR
+    - BVAR
+    - VECM
+    - GBDT_multiseries
+    max_per_role: 4
+    note: 'Complementary inductive biases — linear (VAR) + Bayesian shrinkage (BVAR) + cointegration (VECM) + nonlinear lag (GBDT_multiseries). Use VAR/GBDT on stationary panels; BVAR on short samples / large d; VECM when series share a stochastic trend.'
+
 - id: D3.1
   name: TS anomaly — point
   description: 'Detect isolated points that deviate sharply from local

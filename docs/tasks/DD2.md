@@ -25,7 +25,7 @@
 
 **Config:** `{'p': 'int'}`
 
-**CADW:** `cadw.ts.models.VAR`
+**CADW:** `cadw.ts.var.VARModel`
 
 **Benchmarks:**
 - **[literature]** M5 → smape=14.2
@@ -61,6 +61,41 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### BVAR — sota / tier1_core
+
+**Roles:** temporal_dynamics
+**Status:** ✓ cadw, ✓ agent
+
+**Purpose:** Bayesian VAR with Minnesota (random-walk) prior; Normal-Inverted Wishart conjugate posterior. Shrinks coefficients toward random walk, stabilizes forecasts on short series and large panels (Litterman 1986; Banbura-Giannone-Reichlin 2010). Streaming via sufficient statistics XTX/XTY/YTY Reduce.
+
+**Use cases:**
+- FRED-MD macroeconomic panel forecasting
+- Central bank short-horizon projections
+
+**Config:** `{'p': 'int', 'lambda1': 'float', 'lambda2': 'float', 'mu': 'float'}`
+
+**CADW:** `cadw.ts.bvar.BVARModel`
+
+**Benchmarks:** —
+
+### VECM — sota / tier1_core
+
+**Roles:** temporal_dynamics
+**Status:** ✓ cadw, ✓ agent
+
+**Purpose:** Vector Error Correction Model via Johansen MLE; recovers cointegrating relations β and adjustment speeds α for series sharing a stochastic trend. Streaming cross-covariance accumulation + generalized eigenproblem on k×k matrices (Johansen 1988/1991).
+
+**Use cases:**
+- Yield curve modeling (level/slope/curvature cointegrated)
+- Pairs trading / spread forecasting
+- Macro panel with cointegrated series
+
+**Config:** `{'k_ar_diff': 'int', 'coint_rank': 'int', 'det_order': 'int'}`
+
+**CADW:** `cadw.ts.vecm.VECMModel`
+
+**Benchmarks:** —
+
 ## Metrics
 - **wrmse** (anchor, lower)
   - Hierarchical weighted error (M5 official).
@@ -68,3 +103,7 @@
 - **smape** (diagnostic, lower)
   - Flat-scale accuracy.
   - *special:* Ignores hierarchy; use WRMSSE as the decision metric.
+
+## Ensemble rules
+- **[temporal_dynamics]** → VAR + BVAR + VECM + GBDT_multiseries (max_per_role=4)
+  - Complementary inductive biases — linear (VAR) + Bayesian shrinkage (BVAR) + cointegration (VECM) + nonlinear lag (GBDT_multiseries). Use VAR/GBDT on stationary panels; BVAR on short samples / large d; VECM when series share a stochastic trend.

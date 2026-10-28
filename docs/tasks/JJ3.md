@@ -52,7 +52,7 @@
 ### NMF — baseline / tier2_wrapper
 
 **Roles:** representation
-**Status:** desc
+**Status:** —
 
 **Purpose:** Lee & Seung 1999 - non-negative matrix factorization of the doc-term matrix. Inductive bias: additive parts-based topics with sparsity enforced by non-negativity; no probabilistic likelihood, so perplexity is undefined.
 
@@ -73,7 +73,7 @@
 ### BERTopic — sota / tier3_export
 
 **Roles:** representation, nonlinear_interactions
-**Status:** desc, export
+**Status:** export
 
 **Purpose:** Grootendorst 2022 - pipeline of PLM embeddings + UMAP + HDBSCAN + c-TF-IDF for topic representation. Inductive bias: contextual embeddings + density clustering; SOTA coherence on short texts, but torch-only via to_batches(format='torch').
 

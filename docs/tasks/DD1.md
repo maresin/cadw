@@ -178,7 +178,7 @@
 ### Chronos-Bolt-Tiny — sota / tier3_export
 
 **Roles:** temporal_dynamics, representation
-**Status:** desc, export
+**Status:** —
 
 **Purpose:** Chronos-Bolt-Tiny (Amazon, 2024): 9M-parameter pretrained T5 encoder-decoder for time-series forecasting; patch-based input, direct multi-step, quantile-native output (produces full predictive distribution). 250x faster and 20x more memory-efficient than original Chronos. Notable NEGATIVE scaling result: on electricity-price data Tiny (8.65M) beats Bolt-Mini (21M), Bolt-Small (48M), Bolt-Base (205M) - smaller is better here.
 
@@ -198,7 +198,7 @@
 ### Chronos-Bolt-Mini — sota / tier3_export
 
 **Roles:** temporal_dynamics, representation
-**Status:** desc, export
+**Status:** —
 
 **Purpose:** Chronos-Bolt-Mini (Amazon, 2024): 21M params. Larger than Tiny; on most fev-bench datasets has comparable or slightly better MASE. IEEE electricity showed Tiny beats Mini (MAE 0.0393 vs 0.0394). Apache 2.0, CPU-feasible.
 
@@ -217,7 +217,7 @@
 ### Chronos-Bolt-Small — sota / tier3_export
 
 **Roles:** temporal_dynamics, representation
-**Status:** desc, export
+**Status:** —
 
 **Purpose:** Chronos-Bolt-Small (Amazon, 2024): 48M params. Underperforms Tiny on electricity-price (MAE 0.0530 vs 0.0393); kept as horizontal reference showing "larger does not help".
 
@@ -236,7 +236,7 @@
 ### Chronos-Bolt-Base — sota / tier3_export
 
 **Roles:** temporal_dynamics, representation
-**Status:** desc, export
+**Status:** —
 
 **Purpose:** Chronos-Bolt-Base (Amazon, 2024): 205M params. Top of Bolt family on fev-bench (MASE 1.393); but performs WORSE than Tiny on electricity. Illustrates that rank depends on benchmark - no universal "best Bolt".
 
@@ -255,7 +255,7 @@
 ### Chronos-2-small — sota / tier3_export
 
 **Roles:** temporal_dynamics, representation, nonlinear_interactions
-**Status:** desc, export
+**Status:** —
 
 **Purpose:** Chronos-2-small (Amazon, Nov 2025): 28M params. Second-gen Chronos: multivariable native support, covariates (past+future, real+categorical), cross-learning. Context 8192 (4x Bolt). Only foundation model reference for D2 multi-forecast and D1 exog.
 
@@ -275,7 +275,7 @@
 ### AutoGluon-TS — sota / tier3_export
 
 **Roles:** nonlinear_interactions, temporal_dynamics, calibration
-**Status:** desc, export
+**Status:** —
 
 **Purpose:** AutoGluon-TimeSeries (AWS Labs, 2023+): stack ensemble over statistical + GBDT + (optional) DL; learned weights via repeated k-fold bagging + holdout MASE. The winning approach family for M5 (WRMSE 0.52). Reference for simple-weighted / FFORMA-style ensembles in D1.
 
@@ -295,7 +295,7 @@
 ### Timer-S1 — sota / tier3_export
 
 **Roles:** temporal_dynamics, representation
-**Status:** desc, export
+**Status:** —
 
 **Purpose:** Timer-S1 (ByteDance, 2026): 1B+ param decoder-only foundation model for time series; top-1 of GIFT-Eval at snapshot (MASE 0.693, CRPS 0.485). GPU-only; true SOTA horizon for foundation forecasters.
 
@@ -314,7 +314,7 @@
 ### t0-beta — sota / tier3_export
 
 **Roles:** temporal_dynamics, representation
-**Status:** desc, export
+**Status:** —
 
 **Purpose:** t0-beta (2026): foundation model second on GIFT-Eval (MASE 0.687, CRPS 0.474) - marginally beats Timer-S1 on MASE/CRPS. Included for completeness; only one of {Timer-S1, t0-beta} needed in ensemble_recommendation horizon.
 

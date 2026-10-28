@@ -45,7 +45,7 @@
 ### KernelDensity — baseline / tier2_wrapper
 
 **Roles:** local_structure, probabilistic
-**Status:** desc
+**Status:** —
 
 **Purpose:** Non-parametric kernel density estimator; the density is a sum of kernel bumps at every training point. Inductive bias: smooth local structure with bandwidth-controlled smoothing — no parametric form, but O(n) scoring and fragile in high dimensions.
 
@@ -110,7 +110,7 @@
 ### NormalizingFlow — sota / tier3_export
 
 **Roles:** representation, probabilistic
-**Status:** desc, export
+**Status:** export
 
 **Purpose:** Invertible neural network (RealNVP/MAF/Glow) that maps data to a latent Gaussian via a chain of bijections. Inductive bias: arbitrary smooth density with exact likelihood — SOTA in high dimensions but torch-only, reached only via to_batches(format='torch').
 

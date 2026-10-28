@@ -52,7 +52,7 @@
 ### EpsilonGreedy — baseline / tier1_core
 
 **Roles:** linear_signal
-**Status:** ✓ agent, desc
+**Status:** ✓ agent
 
 **Purpose:** Epsilon-greedy exploration over per-arm reward estimates. Inductive bias: no structural assumption — uniform random exploration with rate epsilon, then exploit the empirical mean. Canonical baseline; weak when rewards are context-dependent.
 
@@ -73,7 +73,7 @@
 ### UCB1 — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ agent, desc
+**Status:** ✓ agent
 
 **Purpose:** Auer et al. 2002 UCB1 — non-contextual optimism under uncertainty with an O(sqrt(log T / n_a)) bonus. Inductive bias: stationary arm means with no context; outperforms epsilon-greedy on stationary problems but not context-dependent ones.
 
@@ -94,7 +94,7 @@
 ### ThompsonSampling — sota / tier2_wrapper
 
 **Roles:** probabilistic
-**Status:** ✓ agent, desc
+**Status:** ✓ agent
 
 **Purpose:** Chapelle & Li 2011 — Beta-Bernoulli posterior sampling per arm; plays an arm with probability proportional to its posterior probability of being optimal. Inductive bias: conjugate Bayesian per-arm model; naturally balances exploration and exploitation and is empirically strong on CTR data.
 
@@ -120,7 +120,7 @@
 ### NeuralUCB — sota / tier3_export
 
 **Roles:** nonlinear_interactions, representation
-**Status:** desc, export
+**Status:** export
 
 **Purpose:** Zhou et al. 2020 — UCB exploration on top of a neural-network reward surrogate, using the network's gradient as a feature map. Inductive bias: arbitrary nonlinear reward function learnable by an MLP; strong on high-dimensional context (image/text) but needs torch.
 

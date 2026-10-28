@@ -56,7 +56,7 @@
 ### KaplanMeier — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ agent, desc
+**Status:** ✓ agent
 
 **Purpose:** Non-parametric product-limit estimator of the marginal survival curve. Inductive bias: no covariate effects — only the pooled survival function, so it is the canonical right-censored baseline that any covariate model must improve.
 
@@ -77,7 +77,7 @@
 ### WeibullAFT — baseline / tier1_core
 
 **Roles:** linear_signal, probabilistic
-**Status:** ✓ agent, desc
+**Status:** ✓ agent
 
 **Purpose:** Parametric accelerated-failure-time model with Weibull baseline. Inductive bias: log-time is linear in covariates plus a Weibull noise shape — stronger than Cox when the Weibull assumption holds; misspecified when hazard is non-monotone.
 
@@ -119,7 +119,7 @@
 ### DeepSurv — sota / tier3_export
 
 **Roles:** nonlinear_interactions, representation
-**Status:** desc, export
+**Status:** export
 
 **Purpose:** Katzman 2018 — Cox proportional hazards with an MLP as the log-risk function. Inductive bias: learned nonlinear covariate representation feeding the Cox partial likelihood; torch-only, reachable only via to_batches(format='torch').
 
@@ -140,7 +140,7 @@
 ### DeepHit — sota / tier3_export
 
 **Roles:** nonlinear_interactions, representation
-**Status:** desc, export
+**Status:** export
 
 **Purpose:** Lee 2018 — deep network predicting a discrete-time cause-specific hazard distribution directly, no PH assumption. Inductive bias: fully nonparametric hazard curve learned by NN + ranking loss; SOTA when hazards cross, torch-only.
 

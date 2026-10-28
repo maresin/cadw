@@ -52,7 +52,7 @@
 ### ComplementNB — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ agent, desc
+**Status:** ✓ agent
 
 **Purpose:** Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter.
 
@@ -94,7 +94,7 @@
 ### BERT — sota / tier3_export
 
 **Roles:** representation, nonlinear_interactions
-**Status:** desc, export
+**Status:** export
 
 **Purpose:** Devlin 2019 - bidirectional transformer pre-trained with masked LM, fine-tuned per task. Inductive bias: contextual token representations with self-attention over the full sequence - SOTA on SST-2/GLUE; torch-only, reached via to_batches(format='torch').
 

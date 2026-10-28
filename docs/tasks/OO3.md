@@ -17,7 +17,7 @@
 ### OneHotEncoder — baseline / tier1_core
 
 **Roles:** representation
-**Status:** desc
+**Status:** —
 
 **Purpose:** Expand a categorical column to one binary indicator per category. Inductive bias: categories are independent; high cardinality explodes dimensionality.
 

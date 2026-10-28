@@ -63,7 +63,7 @@
 ### SentenceTransformer — sota / tier3_export
 
 **Roles:** representation, nonlinear_interactions
-**Status:** desc, export
+**Status:** export
 
 **Purpose:** Reimers & Gurevych 2019 - siamese BERT fine-tuned contrastively to produce sentence embeddings directly. Inductive bias: contextual, order-aware semantics from large corpora; SOTA on STS/MTEB, torch-only via to_batches(format='torch').
 
