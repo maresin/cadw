@@ -92,7 +92,10 @@ subtypes:
       - name: NormalizingFlow
         tier: sota
         tier_level: tier3_export
-        implementation_status: {described_only: true, not_implemented_in_cadw: true}
+        implementation_status:
+          described_only: false
+          not_implemented_in_cadw: true
+          requires_torch: true
         roles: [representation, probabilistic]
         purpose: "Invertible neural network (RealNVP/MAF/Glow) that maps data to a latent Gaussian via a chain of bijections. Inductive bias: arbitrary smooth density with exact likelihood — SOTA in high dimensions but torch-only, reached only via to_batches(format='torch')."
         real_life_examples: ["High-d generative modeling", "Likelihood-based anomaly detection", "Tabular density for CATE posterior"]

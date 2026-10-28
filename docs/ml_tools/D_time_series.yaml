@@ -2701,6 +2701,7 @@ subtypes:
 - id: D5
   name: TS change-point detection (alias of D3.2)
   description: DEPRECATED — use D3.2. Kept for taxonomy completeness only.
+  deprecated: true
   real_life:
   - See D3.2
   benchmarks:

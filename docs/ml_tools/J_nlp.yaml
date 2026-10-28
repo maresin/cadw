@@ -146,8 +146,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
+      described_only: false
       not_implemented_in_cadw: true
+      requires_torch: true
     roles:
     - representation
     - nonlinear_interactions
@@ -294,8 +295,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
+      described_only: false
       not_implemented_in_cadw: true
+      requires_torch: true
     roles:
     - representation
     - nonlinear_interactions
@@ -480,8 +482,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
+      described_only: false
       not_implemented_in_cadw: true
+      requires_torch: true
     roles:
     - representation
     - nonlinear_interactions

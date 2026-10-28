@@ -69,6 +69,10 @@ class ImplStatus:
     # verified_in_cadw (validator enforces). Flip to verified_in_cadw
     # when integrated.
     reference_impl_ready: bool = False
+    # v0.9.89: model implemented in cadw_torch/ (optional dep), not
+    # cadw/. Pretrained inference is O(model) + bounded_state=true.
+    # NOT described_only — model exists, just in another package.
+    requires_torch: bool = False
 
 
 # v0.9.51.1: leakage info (optional, backward compatible).
@@ -156,6 +160,9 @@ class Subtype:
     models: list[ModelCard]
     metrics: list[MetricCard]
     ensemble_recommendation: list[EnsembleRule]
+    # v0.9.89: deprecated subtypes kept for taxonomy docs but excluded
+    # from completeness metrics and distinct-model counts.
+    deprecated: bool = False
 
 
 @dataclass
@@ -260,6 +267,7 @@ def _parse_model(m: dict) -> ModelCard:
             described_only=bool(status.get("described_only", False)),
             not_implemented_in_cadw=bool(status.get("not_implemented_in_cadw", False)),
             reference_impl_ready=bool(status.get("reference_impl_ready", False)),
+            requires_torch=bool(status.get("requires_torch", False)),
         ),
         roles=list(m["roles"]),
         purpose=m["purpose"],
@@ -324,6 +332,7 @@ def _parse_subtype(s: dict) -> Subtype:
         models=[_parse_model(m) for m in s.get("models") or []],
         metrics=[_parse_metric(m) for m in s.get("metrics") or []],
         ensemble_recommendation=[_parse_ens(r) for r in s.get("ensemble_recommendation") or []],
+        deprecated=bool(s.get("deprecated", False)),
     )
 
 
@@ -496,6 +505,15 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
             m.tier1_core_exception, str):
         err(f"{m_label}: tier1_core_exception must be str, "
             f"got {type(m.tier1_core_exception).__name__}")
+    # v0.9.89: requires_torch is exclusive with verified/ref_ready
+    if m.implementation_status.requires_torch and \
+       m.implementation_status.verified_in_cadw:
+        err(f"{m_label}: requires_torch and verified_in_cadw mutually "
+            f"exclusive (cadw_torch/ is optional dep)")
+    if m.implementation_status.requires_torch and \
+       m.implementation_status.reference_impl_ready:
+        err(f"{m_label}: requires_torch and reference_impl_ready mutually "
+            f"exclusive")
     # v0.9.89: reference_impl_ready means impl lives in .pingis/impl/,
     # not cadw/. cadw_module/cadw_function must be empty.
     if m.implementation_status.reference_impl_ready:
