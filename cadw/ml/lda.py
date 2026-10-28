@@ -42,6 +42,34 @@ def _digamma(x):
     return digamma(x)
 
 
+def _tokenize_to_csr(texts, idx, V):
+    """Sparse CSR doc-term count matrix (v0.9.87-P5a-fix-lda-a).
+
+    Memory: O(nnz + D), independent of V. Replaces the dense
+    (D, V) intermediate that OOM'd at V >= 10k.
+    """
+    from scipy.sparse import csr_matrix
+    D = len(texts)
+    rows, cols, vals = [], [], []
+    for i, tx in enumerate(texts):
+        counts = {}
+        for tok in tokenize(tx):
+            j = idx.get(tok)
+            if j is not None:
+                counts[j] = counts.get(j, 0) + 1
+        for j, c in counts.items():
+            rows.append(i)
+            cols.append(j)
+            vals.append(float(c))
+    if not vals:
+        return csr_matrix((D, V), dtype=np.float64)
+    return csr_matrix(
+        (np.asarray(vals, dtype=np.float64),
+         (np.asarray(rows, dtype=np.int64),
+          np.asarray(cols, dtype=np.int64))),
+        shape=(D, V))
+
+
 class LdaModel:
     """Fitted LDA: topic-word distributions and a transform()."""
 
@@ -64,35 +92,61 @@ class LdaModel:
                 "params": self.params_}
 
     def _encode(self, texts):
+        """Sparse CSR doc-term counts (v0.9.87-P5a-fix-lda-a)."""
         V = len(self.vocab_)
-        C = np.zeros((len(texts), V), dtype=np.float64)
-        for i, t in enumerate(texts):
-            for tok in tokenize(t):
-                j = self._index.get(tok)
-                if j is not None:
-                    C[i, j] += 1.0
-        return C
+        return _tokenize_to_csr(texts, self._index, V)
 
-    def _e_step(self, C, alpha, max_inner=20, tol=1e-4):
+    def _e_step(self, C, alpha, max_inner=20, tol=1e-4, return_phi=False):
+        """Sparse E-step (v0.9.87-P5a-fix-lda-a).
+
+        Accepts CSR or dense C; converts dense to CSR first. Per-doc
+        fixed-point touches only non-zero vocab positions. Mathematically
+        identical to dense path (zero C[d,v] contributes exact 0 to
+        gamma). Returns:
+          return_phi=False -> (gamma, None)
+          return_phi=True  -> (gamma, list[(nz_v, p_nnz)])
+        """
+        from scipy.sparse import csr_matrix, issparse
+        if not issparse(C):
+            C = csr_matrix(C)
         D, V = C.shape
         K = self.components_.shape[0]
         beta = self.components_
-        Elogbeta = _digamma(beta) - _digamma(beta.sum(axis=1))[:, None]
-        gamma = np.full((D, K), alpha + C.sum(axis=1)[:, None] / K)
-        phi = np.zeros((D, V, K), dtype=np.float64)
+        Elogbeta = _digamma(beta) - _digamma(beta.sum(axis=1))[:, None]  # (K,V)
+        Elogbeta_T = Elogbeta.T  # (V, K)
+        row_sum = np.asarray(C.sum(axis=1)).ravel()  # (D,)
+        gamma = np.full((D, K), float(alpha))
+        gamma += row_sum[:, None] / K
+        phi_rows = [] if return_phi else None
         for _ in range(max_inner):
             Elogtheta = _digamma(gamma) - _digamma(gamma.sum(axis=1))[:, None]
-            logp = Elogtheta[:, None, :] + Elogbeta.T[None, :, :]
-            logp -= logp.max(axis=2, keepdims=True)
-            p = np.exp(logp)
-            p /= p.sum(axis=2, keepdims=True)
-            phi = p
-            new = alpha + (C[:, :, None] * phi).sum(axis=1)
-            if np.max(np.abs(new - gamma)) < tol:
-                gamma = new
+            new_gamma = np.full((D, K), float(alpha))
+            cur_phi = [] if return_phi else None
+            for d in range(D):
+                s = C.indptr[d]
+                e = C.indptr[d + 1]
+                if s == e:
+                    if return_phi:
+                        cur_phi.append(
+                            (np.zeros(0, dtype=np.int64),
+                             np.zeros((0, K), dtype=np.float64)))
+                    continue
+                nz_v = C.indices[s:e]
+                nz_c = C.data[s:e]
+                logp = Elogtheta[d][None, :] + Elogbeta_T[nz_v]  # (nnz,K)
+                logp -= logp.max(axis=1, keepdims=True)
+                p = np.exp(logp)
+                p /= p.sum(axis=1, keepdims=True)
+                new_gamma[d] += nz_c @ p
+                if return_phi:
+                    cur_phi.append((nz_v, p))
+            delta = float(np.max(np.abs(new_gamma - gamma))) if D > 0 else 0.0
+            gamma = new_gamma
+            if return_phi:
+                phi_rows = cur_phi
+            if delta < tol:
                 break
-            gamma = new
-        return gamma, phi
+        return gamma, phi_rows
 
     def transform(self, df, *, text_col, max_inner=20, memory_guard=None):
         """Document-topic distribution gamma (normalised) per document."""
@@ -117,19 +171,32 @@ class LdaModel:
         mg = memory_guard or df._memory_guard
         alpha = float(self.params_["alpha"])
         beta = self.components_
+        K = beta.shape[0]
         ll = 0.0
         ntok = 0.0
         for b in df._iter_filtered_batches():
             mg.check_batch(b, name="lda.perplexity", extra_factor=3.0)
             texts = b.column(text_col).to_pylist()
-            C = self._encode(texts)
-            if C.size == 0 or C.sum() == 0:
+            C = self._encode(texts)  # CSR
+            mg.check_state(
+                C.nnz * K * 8 * 6 + C.shape[0] * K * 8 + 1024,
+                name="lda.perplexity_batch_state")
+            if C.nnz == 0:
                 continue
-            g, _ = self._e_step(C, alpha)
-            theta = g / g.sum(axis=1, keepdims=True)      # (D, K)
-            logp = np.log(np.maximum(theta @ beta, 1e-300))  # (D, V)
-            ll += float((C * logp).sum())
-            ntok += float(C.sum())
+            g, _ = self._e_step(C, alpha)  # dispatches sparse
+            theta = g / g.sum(axis=1, keepdims=True)  # (D, K)
+            # v0.9.87-P5a-fix-lda-a: logp on non-zeros only.
+            for d in range(C.shape[0]):
+                s = C.indptr[d]
+                e = C.indptr[d + 1]
+                if s == e:
+                    continue
+                nz_v = C.indices[s:e]
+                nz_c = C.data[s:e]
+                logp_nz = np.log(
+                    np.maximum(theta[d] @ beta[:, nz_v], 1e-300))
+                ll += float((nz_c * logp_nz).sum())
+                ntok += float(nz_c.sum())
         if ntok == 0:
             return float("nan")
         return float(math.exp(-ll / ntok))
@@ -169,11 +236,25 @@ def _fit_once(C_batches_fn, K, V, alpha, beta, max_iter, seed, mg, dummy_cls,
     for it in range(int(max_iter)):
         sstats = np.zeros((K, V), dtype=np.float64)
         for C in C_batches_fn():
-            if C.sum() == 0:
+            if C.nnz == 0:
                 continue
             dummy.components_ = comp
-            g, phi = dummy._e_step(C, float(alpha))
-            sstats += (C[:, :, None] * phi).sum(axis=0).T
+            g, phi_rows = dummy._e_step(
+                C, float(alpha), return_phi=True)
+            # v0.9.87-P5a-fix-lda-a: sparse M-step. Accumulate
+            # (v, nz_c * phi_doc) contributions and scatter-add once.
+            all_v = []
+            all_contrib = []
+            for d, (nz_v, p) in enumerate(phi_rows):
+                if len(nz_v) == 0:
+                    continue
+                nz_c = C.data[C.indptr[d]:C.indptr[d + 1]]
+                all_v.append(nz_v)
+                all_contrib.append(nz_c[:, None] * p)
+            if all_v:
+                all_v = np.concatenate(all_v)
+                all_contrib = np.concatenate(all_contrib)
+                np.add.at(sstats.T, all_v, all_contrib)
         beta_hat = sstats + float(beta)
         beta_hat /= beta_hat.sum(axis=1, keepdims=True)
         comp = beta_hat
@@ -185,17 +266,25 @@ def _train_ppl(C_batches_fn, comp, alpha):
     ll = 0.0
     ntok = 0.0
     for C in C_batches_fn():
-        if C.sum() == 0:
+        if C.nnz == 0:
             continue
         D = C.shape[0]
         K = beta.shape[0]
-        gamma = np.full((D, K), alpha + C.sum(axis=1)[:, None] / K)
         dummy = LdaModel(beta, [], {"alpha": alpha})
         g, _ = dummy._e_step(C, float(alpha))
         theta = g / g.sum(axis=1, keepdims=True)
-        logp = np.log(np.maximum(theta @ beta, 1e-300))
-        ll += float((C * logp).sum())
-        ntok += float(C.sum())
+        # v0.9.87-P5a-fix-lda-a: logp on non-zeros only (CSR).
+        for d in range(D):
+            s = C.indptr[d]
+            e = C.indptr[d + 1]
+            if s == e:
+                continue
+            nz_v = C.indices[s:e]
+            nz_c = C.data[s:e]
+            logp_nz = np.log(
+                np.maximum(theta[d] @ beta[:, nz_v], 1e-300))
+            ll += float((nz_c * logp_nz).sum())
+            ntok += float(nz_c.sum())
     if ntok == 0:
         return float("inf")
     return float(math.exp(-ll / ntok))
@@ -233,28 +322,42 @@ with N. True streaming E-step is future work.
     doc_sample: list = []
     doc_sample_rows = 0
 
+    # v0.9.87-P5a-fix-lda-a-fix1: cap doc_sample TOTAL, not per-take.
+    # Pre-fix bug: per-take cap allowed doc_sample to grow to
+    # MAX_SAMPLE_ROWS=2000 rows; at V=50000 that is 800 MB silent OOM.
+    # Post-fix: total capped at state_limit // (2 * row_bytes), so
+    # doc_sample <= state_limit / 2 (half for it, half for other state).
+    max_sample_rows = MAX_SAMPLE_ROWS
+    if V > 0:
+        budget_rows = mg.state_limit_bytes // (V * 8 * 2)
+        max_sample_rows = min(max_sample_rows, max(0, budget_rows))
+
     def _batches():
         nonlocal doc_sample_rows
         for b in df._iter_filtered_batches():
             mg.check_batch(b, name="lda.fit", extra_factor=3.0)
             texts = b.column(text_col).to_pylist()
-            C = np.zeros((len(texts), V), dtype=np.float64)
-            for i, tx in enumerate(texts):
-                for tok in tokenize(tx):
-                    j = idx.get(tok)
-                    if j is not None:
-                        C[i, j] += 1.0
-            if doc_sample_rows < MAX_SAMPLE_ROWS:
-                take = min(C.shape[0], MAX_SAMPLE_ROWS - doc_sample_rows)
+            C = _tokenize_to_csr(texts, idx, V)  # sparse
+            mg.check_state(
+                C.nnz * K * 8 * 6 + C.shape[0] * K * 8 + 1024,
+                name="lda.fit_batch_state")
+            if doc_sample_rows < max_sample_rows:
+                take = min(C.shape[0], max_sample_rows - doc_sample_rows)
                 if take > 0:
-                    doc_sample.append(C[:take])
+                    doc_sample.append(C[:take].toarray())
                     doc_sample_rows += take
             yield C
 
     best_comp = None
     best_ppl = float("inf")
     for r in range(int(n_restarts)):
-        ds = (np.vstack(doc_sample) if doc_sample else None)
+        if doc_sample:
+            n_ds = sum(d.shape[0] for d in doc_sample)
+            mg.check_state(n_ds * V * 8 + 1024,
+                           name="lda.doc_sample")
+            ds = np.vstack(doc_sample)
+        else:
+            ds = None
         comp = _fit_once(_batches, K, V, float(alpha), float(beta),
                          max_iter, seed + r, mg, LdaModel, doc_sample=ds)
         ppl = _train_ppl(_batches, comp, float(alpha))

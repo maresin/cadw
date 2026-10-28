@@ -143,3 +143,87 @@ def test_source_contract_guard_and_log_fit():
     assert "check_batch" in src and "extra_factor=3.0" in src
     assert "log_fit" in src
     assert "import pandas" not in src
+
+def test_lda_e_step_sparse_matches_dense():
+    """v0.9.87-P5a-fix-lda-a: sparse E-step bit-identical to dense.
+
+    Independent reference implementation (dense, small V) vs production
+    _e_step dispatched via CSR. Zero positions contribute exact 0, so
+    fixed-point sum order matches (CSR indices sorted).
+    """
+    from scipy.sparse import csr_matrix
+    from cadw.ml.lda import LdaModel, _digamma
+
+    rng = np.random.RandomState(42)
+    D, V, K = 20, 50, 3
+    # Sparse-ish counts (70% zero)
+    C_dense = rng.poisson(lam=1.2, size=(D, V)).astype(np.float64)
+    C_dense = C_dense * (rng.rand(D, V) < 0.7)
+    beta = rng.dirichlet(np.ones(V), size=K)
+    beta /= beta.sum(axis=1, keepdims=True)
+    alpha = 0.1
+
+    # Reference dense E-step (explicit, matches original v0.9.42 math)
+    Elogbeta_ref = _digamma(beta) - _digamma(beta.sum(axis=1))[:, None]
+    gamma_ref = np.full((D, K), alpha + C_dense.sum(axis=1)[:, None] / K)
+    for _ in range(20):
+        Elogtheta = _digamma(gamma_ref) - _digamma(
+            gamma_ref.sum(axis=1))[:, None]
+        logp = Elogtheta[:, None, :] + Elogbeta_ref.T[None, :, :]
+        logp -= logp.max(axis=2, keepdims=True)
+        p = np.exp(logp)
+        p /= p.sum(axis=2, keepdims=True)
+        new = alpha + (C_dense[:, :, None] * p).sum(axis=1)
+        delta = np.max(np.abs(new - gamma_ref))
+        gamma_ref = new
+        if delta < 1e-4:
+            break
+
+    model = LdaModel(beta, [], {"alpha": alpha})
+    gamma_sp, _ = model._e_step(csr_matrix(C_dense), alpha)
+    assert np.allclose(gamma_sp, gamma_ref, atol=1e-12), (
+        f"sparse vs dense E-step: max diff "
+        f"{np.max(np.abs(gamma_sp - gamma_ref))}")
+
+def test_lda_large_vocab_no_oom():
+    """v0.9.87-P5a-fix-lda-a: true large-V fit (no silent OOM).
+
+    Corpus: 200 docs x 250 unique words each = 50000 unique tokens
+    total -> V=50000 (not capped; vocab_size=50000 matches actual).
+    D per batch = 200 (single-batch df).
+
+    Old dense path: phi = (D, V, K) = 200 * 50000 * 10 * 8 = 800 MB
+    per E-step call. Guard saw only batch text (~50 KB), no raise
+    -> silent 800 MB alloc.
+
+    New sparse path: phi per doc = nnz * K * 8 = 250 * 10 * 8 = 20 KB.
+    Whole fit under 100 MB guard.
+    """
+    import psutil, os
+
+    n_docs = 200
+    words_per_doc = 250  # 200 * 250 = 50000 unique
+    docs = [" ".join(f"w{i*words_per_doc + j}"
+                     for j in range(words_per_doc))
+            for i in range(n_docs)]
+    df = _df(docs)
+
+    mg = MemoryGuard(max_memory_mb=100)
+    proc = psutil.Process(os.getpid())
+    base = proc.memory_info().rss
+
+    m = fit_lda(df, "text", n_topics=10, vocab_size=50000,
+                max_iter=2, n_restarts=1, seed=0, memory_guard=mg)
+    peak_delta_mb = (proc.memory_info().rss - base) / 1e6
+
+    assert m.fitted_
+    # V is actual unique count (50000) — vocab_size cap does not
+    # artificially inflate; corpus spans exactly 50000 tokens.
+    assert m.components_.shape == (10, 50000), (
+        f"expected (10, 50000), got {m.components_.shape}; "
+        f"corpus should have 50000 unique words")
+    # Dense phi (800 MB) would blow this; sparse path ~100-150 MB.
+    assert peak_delta_mb < 300, (
+        f"peak +{peak_delta_mb:.0f} MB; dense phi would be ~800 MB, "
+        f"sparse should be under 200 MB")
+
