@@ -422,8 +422,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      described_only: false
+      not_implemented_in_cadw: false
+      requires_torch: true
     roles:
     - temporal_dynamics
     - representation
@@ -466,8 +467,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      described_only: false
+      not_implemented_in_cadw: false
+      requires_torch: true
     roles:
     - temporal_dynamics
     - representation
@@ -507,8 +509,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      described_only: false
+      not_implemented_in_cadw: false
+      requires_torch: true
     roles:
     - temporal_dynamics
     - representation
@@ -548,8 +551,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      described_only: false
+      not_implemented_in_cadw: false
+      requires_torch: true
     roles:
     - temporal_dynamics
     - representation
@@ -589,8 +593,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      described_only: false
+      not_implemented_in_cadw: false
+      requires_torch: true
     roles:
     - temporal_dynamics
     - representation
@@ -633,8 +638,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      described_only: false
+      not_implemented_in_cadw: false
+      requires_torch: true
     roles:
     - nonlinear_interactions
     - temporal_dynamics
@@ -677,8 +683,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      described_only: false
+      not_implemented_in_cadw: false
+      requires_torch: true
     roles:
     - temporal_dynamics
     - representation
@@ -718,8 +725,9 @@ subtypes:
     tier: sota
     tier_level: tier3_export
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      described_only: false
+      not_implemented_in_cadw: false
+      requires_torch: true
     roles:
     - temporal_dynamics
     - representation
