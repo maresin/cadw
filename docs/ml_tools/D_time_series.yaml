@@ -1645,12 +1645,14 @@ subtypes:
       metric recommended by TSB-AD (NeurIPS 2024) and TAB (VLDB 2025).
     special: Range-aware; resistant to best-of-N seed shopping. Not
       comparable to point-wise auprc numerically; report which protocol.
+    not_implemented_in_cadw: true
   - name: auprc
     combination: diagnostic
     direction: higher
     responsibility: Point-wise area under PR curve.
     special: Point-wise; ignores anomaly range; prefer vus_pr for
       range-aware anomalies. Not comparable to vus_pr.
+    not_implemented_in_cadw: true
   - name: point_adjusted_f1
     combination: diagnostic
     direction: higher
@@ -1658,6 +1660,7 @@ subtypes:
     special: LEGACY and gameable — random ranking hits near-perfect PA-F1
       on long series. Reported only for UCR paper comparison; NOT a
       reliable decision metric.
+    not_implemented_in_cadw: true
   - name: recall
     combination: diagnostic
     direction: higher
@@ -1671,18 +1674,22 @@ subtypes:
     responsibility: Range-aware ROC-AUC; TSB-AD secondary metric.
     special: Less imbalance-sensitive than VUS-PR but less discriminative;
       not numerically comparable to point-wise AUC-ROC.
+    not_implemented_in_cadw: true
   - name: range_f1
     combination: diagnostic
     direction: higher
     responsibility: Range-aware F1 with tolerance windows (TSB-AD).
     special: Combines precision and recall over anomaly ranges; not
       comparable to point-wise F1.
+    not_implemented_in_cadw: true
   - name: affiliation_f1
     combination: diagnostic
     direction: higher
     responsibility: Affiliation-F1 (TAB/UCR primary for UCR evaluation).
     special: Partial credit for near-miss detections; not comparable to
       range_f1.
+    not_implemented_in_cadw: true
+    not_implemented_in_cadw: true
   - name: auc_roc
     combination: diagnostic
     direction: higher
@@ -1694,6 +1701,8 @@ subtypes:
     direction: higher
     responsibility: Point-wise F1 without tolerance (TSB-AD baseline).
     special: Strict; no credit for near-miss detections.
+    not_implemented_in_cadw: true
+    not_implemented_in_cadw: true
   ensemble_recommendation:
   - roles:
     - temporal_dynamics
@@ -1982,6 +1991,7 @@ subtypes:
     responsibility: Change-point discrimination against imbalance.
     special: WEAK anchor for changepoint — point-wise auprc ignores
       timing. Prefer NAB + detection_delay when both reported (SKAB).
+    not_implemented_in_cadw: true
   - name: nab
     combination: diagnostic
     direction: higher
@@ -1989,23 +1999,27 @@ subtypes:
       convention.
     special: Combines false-positive rate and detection delay at
       application profile; ground truth tolerance-window dependent.
+    not_implemented_in_cadw: true
   - name: detection_delay
     combination: pareto_axis
     direction: lower
     responsibility: Samples between true and detected changepoint.
     special: Only meaningful if detection_rate is reported alongside.
+    not_implemented_in_cadw: true
   - name: range_f1
     combination: diagnostic
     direction: higher
     responsibility: Range-aware F1 with tolerance windows.
     special: For changepoint, report detection_delay alongside; single
       ground-truth point makes range_f1 sensitive to tolerance choice.
+    not_implemented_in_cadw: true
   - name: point_f1
     combination: diagnostic
     direction: higher
     responsibility: Point-wise F1 without tolerance.
     special: Strict for changepoint (single timestamp); use
       detection_delay as the timing-aware alternative.
+    not_implemented_in_cadw: true
   - name: recall
     combination: diagnostic
     direction: higher
@@ -2493,33 +2507,39 @@ subtypes:
       TSAD metric for range-aware shape anomalies (TSB-AD, TAB).
     special: Range-aware; robust to point-level AUPRC inflation on shape
       anomalies. Not numerically comparable to point-wise auprc.
+    not_implemented_in_cadw: true
   - name: auprc
     combination: diagnostic
     direction: higher
     responsibility: Point-wise area under PR curve at window resolution.
     special: Point-level AUPRC inflates scores on shape anomalies; use
       for cross-paper UCR comparison only, not as primary.
+    not_implemented_in_cadw: true
   - name: best_5_ranking
     combination: diagnostic
     direction: lower
     responsibility: Rank of top-5 detections in ground truth (UCR-style).
     special: Authoritative for UCR paper comparisons; not continuous.
+    not_implemented_in_cadw: true
   - name: vus_roc
     combination: diagnostic
     direction: higher
     responsibility: Range-aware ROC-AUC; TSB-AD secondary metric.
     special: Not numerically comparable to point-wise AUC-ROC.
+    not_implemented_in_cadw: true
   - name: range_f1
     combination: diagnostic
     direction: higher
     responsibility: Range-aware F1 with tolerance windows (TSB-AD).
     special: Combines precision and recall over anomaly ranges.
+    not_implemented_in_cadw: true
   - name: affiliation_f1
     combination: diagnostic
     direction: higher
     responsibility: Affiliation-F1 (TAB/UCR primary for UCR evaluation).
     special: Partial credit for near-miss detections; not comparable to
       range_f1.
+    not_implemented_in_cadw: true
   - name: auc_roc
     combination: diagnostic
     direction: higher
@@ -2530,6 +2550,7 @@ subtypes:
     direction: higher
     responsibility: Point-wise F1 without tolerance (TSB-AD baseline).
     special: Strict; no credit for near-miss detections.
+    not_implemented_in_cadw: true
   ensemble_recommendation:
   - roles:
     - local_structure
@@ -2788,6 +2809,7 @@ subtypes:
     direction: higher
     responsibility: See D3.2.
     special: See D3.2.
+    not_implemented_in_cadw: true
   ensemble_recommendation:
   - roles:
     - temporal_dynamics

@@ -124,6 +124,13 @@ class MetricCard:
     direction: str
     responsibility: str
     special: str = ""
+    # v0.9.87-anomaly-metrics-honest: honest flag; if true, CADW does
+    # not implement this metric (e.g. VUS, range_f1, point_adjusted_f1,
+    # NAB — TSAD-specific algorithms). Users evaluate externally
+    # (TSB-AD toolkit, sktime.performance_metrics.anomaly).
+    # Anchor metrics with this flag => subtype has no computable anchor;
+    # validator emits WARN.
+    not_implemented_in_cadw: bool = False
 
 
 @dataclass
@@ -288,6 +295,7 @@ def _parse_metric(m: dict) -> MetricCard:
         direction=m["direction"],
         responsibility=m["responsibility"],
         special=m.get("special", ""),
+        not_implemented_in_cadw=bool(m.get("not_implemented_in_cadw", False)),
     )
 
 
@@ -573,6 +581,13 @@ def validate_matrix(
                     if not mc.special:
                         err(f"{st_label}.{mc.name}: anchor metric lacks "
                             f"'special' field (required for anchor)")
+                    if getattr(mc, "not_implemented_in_cadw", False):
+                        warn(
+                            f"{st_label}.{mc.name}: anchor metric is "
+                            f"not_implemented_in_cadw — subtype has no "
+                            f"computable anchor metric in CADW; benchmark "
+                            f"values in model cards were sourced "
+                            f"externally (TSB-AD/UCR/etc)")
             if anchor_count != 1:
                 err(f"{st_label}: exactly one anchor metric required, "
                     f"found {anchor_count}")
