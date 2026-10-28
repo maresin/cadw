@@ -1,5 +1,133 @@
 ## [Unreleased]
 
+### v0.9.87 (2026-10-28) - OOC refactor + state taxonomy registration
+
+Two themes: (1) restore out-of-core where audit found silent OOM
+(HIGH-1 windowed, BOCPD, GBDT multiclass, coxph, LDA); (2) make the
+promise enforceable — state taxonomy as METHODOLOGY, 4 AST-scan
+gates, all 84 verified cards registered. 26 commits.
+
+PHASE 0 — Methodology + gates (eace4f9..c1e0729):
+  - METHODOLOGY_ALGORITHM_SELECTION.md: 5-step process, state
+    taxonomy (state_class / state_type / bounded_state /
+    n_scalability), §7 mandatory YAML fields, §8 4 gates, §9
+    anti-patterns, §10 tier rules.
+  - PRIMITIVES_AND_PRINCIPLES.md: 6 postulates, Reduce/HashShuffle/
+    Sort/Batch I/O, MemoryGuard API, 3 spill patterns,
+    anti-patterns, commit-pitfall (§9 backticks in -m).
+  - cadw/core/spill.py: SpillDir + ArrowIPC array adapters.
+  - cadw/io/batch_reader.py: ArrowIPCBatchReader.get_batch(idx) +
+    num_batches (random access via IPC footer).
+  - 4 gate tests (test_primitive_reuse, test_guard_before_alloc,
+    test_no_dense_windows, test_yaml_state_fields); whitelist in
+    .pingis/plan_v0.9.87_refactor.md.
+
+HIGH-1 windowed + BOCPD (9fc9f8f..f97c22f):
+  - sub_pca O(n·d) -> O(chunk·d) via 4-pass streaming Welford cov.
+  - dwt_mlead O(n·w) -> O(chunk·w + w²) chunked mahalanobis.
+  - s2g O(n·w)×2 -> O(chunk·w) streaming conv/quantize.
+  - patch_memory_ad O(n·w) train -> memmap+SpillDir.
+  - kshape O(n·w+n·L+n·k·L) -> O(chunk·(w+L)) memmap+chunked.
+  - BOCPD O(n·max_run) -> O(keep·max_run) rolling posterior
+    (163 MB -> 0.5 MB @ n=100k, 300×).
+
+P5 audit (9378a2b):
+  - scripts/audit_pass2_ml.py: AST scan (--dirs/--out).
+  - 62 models classified (48 ML files, 417 fns; 28 TS/ops, 301 fns).
+  - Triage: 5 real issues (gmm, coxph, lda, als, feature_select);
+    rest acceptable-by-design.
+
+GBDT multiclass true OOC (adb76c6..388213b, P1a series):
+  - Persistent binning. _AllNodeHistOpCodes (bincount, ~10×).
+  - Multiclass codes path (K× speedup); binary + regression codes
+    path (5-10× speedup).
+  - Grad/hess (n,K) -> memmap; pred (n,K) -> memmap; y_all -> memmap.
+  - Guard: (1+4K) -> (1+2K) -> (K+2) -> 2.
+  - Cumulative: 328n -> 16n @ K=10 (20×). True OOC.
+  - G1 whitelist for gbdt REMOVED.
+
+Lambdamart partial (0c049c9, fa5f20c, a3bf7ad):
+  - P2a: pre-allocate X (was Xs.append + vstack transient 2×).
+  - P2b-narrow: X -> memmap (SpillDir). Deletes after binning.
+  - Remaining codes (n·d) / y / scores / grad / hess in RAM.
+  - P2b-full: level-sync BFS rewrite — v0.9.88 backlog.
+
+P5a-fix-coxph (a3ac543) — streaming OOC:
+  - Real OOM was NOT vstack X (n·d) — it was S2 =
+    cumsum(w*Xo[:,:,None]*Xo[:,None,:]) in _breslow, materializing
+    (n,d,d) = 8 GB @ n=1e6, d=10. Plus O(n) allocs throughout.
+  - New: _breslow_streaming + _baseline_hazard_streaming. External
+    sort by T desc; per-ties-block accumulate S0/S1/S2.
+    RAM: O(batch·d + d² + pending_ties·d).
+  - fit_coxph gains optional spill_dir=None (tempfile default).
+  - Model baseline arrays O(n_events); guard-checked at fit;
+    refuse_at_guard if > state_limit (documented exception).
+  - Bit-identical to in-RAM _breslow (atol=1e-10) verified.
+
+P5a-fix-lda-a (ae9f4a0) — sparse E-step:
+  - Real OOM was NOT vstack doc_sample (capped v0.9.42) — it was
+    phi (D, V, K) = 800 MB @ D=200, V=50000, K=10. Guard saw only
+    text bytes (~50 KB).
+  - _tokenize_to_csr: sparse CSR doc-term counts.
+  - _e_step dispatches via CSR; touches only non-zero vocab
+    positions. Bit-identical to dense (atol=1e-12).
+  - _fit_once M-step scatter-add via np.add.at. perplexity /
+    _train_ppl logp on non-zeros only.
+  - doc_sample cap TOTAL (not per-take): min(2000,
+    state_limit // (V*8*2)).
+  - Model beta K×V param-bounded; refuse_at_guard if > state_limit.
+
+P5a-review-gmm (8407a80) — false positive:
+  - Audit flagged _responsibilities as O(n·k), but n = sample size
+    (v0.9.31 max_samples=10k), not dataset N. Bounded, no OOM.
+  - True per-batch streaming EM = future D.6.x feature (not OOM).
+
+P6 — state taxonomy registration (b76acb0..fa98aee):
+  - schema.py: ModelCard gains state_class / state_type /
+    bounded_state / n_scalability / streaming_strategy /
+    primitive_reuse / tier1_core_exception. _validate_model_state
+    with METHODOLOGY §7 + §10 rules.
+  - All 84 verified cards registered:
+      D_time_series 39 (D1:7 D2:2 D3.1:13 D3.2:5 D3.3:8 D4:2 D5:2)
+      A_classification 14 (A1:3 A2:3 A3:3 A4:2 A5:1 A6:2)
+      E_anomaly 3, F_recsys 3, G_learning_to_rank 1, H_causal 4,
+      I_survival 1, J_nlp 3, M_bandits 1, N_density 2, O_eda 13.
+      (K_vision, L_graph: 0 verified.)
+  - 13 tier1_core_exception entries (bounded=false tier1_core):
+      ETS/AutoETS/Theta/AutoTheta/SARIMA (single-series TS)
+      VAR (multivariate TS d²p params)
+      LambdaMART (P2b-full backlog)
+      CoxPH (baseline arrays O(n_events))
+      MatrixProfile/MatrixProfile_discord (STAMP O(n·w))
+      BinarySegmentation/PELT (D3.2 + D5, DP array O(n))
+      STRAY (n<=20k hard limit)
+  - REQUIRE_STATE_FIELDS = True. G4 strict asserts all verified
+    cards have state_class + bounded_state (unless whitelisted).
+
+_gate_whitelist.is_whitelisted fix (v0.9.87-P6c-β-fix1):
+  Section wildcard `E.*` was documented in plan §whitelist but
+  never implemented — entry[:-1] = "E." matched nothing. Two-rule
+  fix: subtype-level (prefix+".") for dotted entries (D3.1.*), and
+  section-level (digit-follows-prefix) for single-letter (E ->
+  E1, E2, E10; not EE1). +3 unit tests.
+
+FINAL WHITELIST (v0.9.87 release):
+  G1: cadw/ml/lambdamart.py::fit_lambdamart
+      (accepted MEDIUM debt; P2b-full v0.9.88 backlog)
+  G2: (empty)
+  G3: (empty)
+  G4: (empty — all 84 verified cards complete)
+
+Test count: 3522 -> 3868 (+346 tests).
+Fast suite: 3868 passed, 8 skipped.
+
+Next session (v0.9.88 backlog):
+  - P2b-full: lambdamart codes/y/scores -> memmap; level-sync BFS
+    _build_tree; removes last G1 entry.
+  - P5a-fix-gmm-full: streaming full-data EM (quality feature, not
+    OOM); v0.9.31 sample-based currently fine.
+  - P5a-review-als, feature_select: source review.
+
 ### v0.9.86.3 (2026-10-27) - Remove HybridETSGBDT (redundant with EnsembleForecaster)
 
 Removes HybridETSGBDTForecaster (introduced v0.9.86, corrected
