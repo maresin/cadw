@@ -26,6 +26,8 @@ Implementation notes:
 """
 from __future__ import annotations
 
+import shutil
+import tempfile
 from typing import Optional, Sequence
 
 import numpy as np
@@ -35,6 +37,7 @@ from cadw.core.memory_guard import MemoryGuard
 from cadw.ml._logging import log_fit
 from cadw.core.spill import SpillDir
 from cadw.ops.reduce import reduce, ReduceOp
+from cadw.ops.sort import external_sort
 from cadw.ml.gbdt import (
     _binning_pass,
     _stack_numeric,
@@ -223,6 +226,35 @@ def _dict_to_node(tree_struct, leaf_values, nid):
     node.left = _dict_to_node(tree_struct, leaf_values, int(left_id))
     node.right = _dict_to_node(tree_struct, leaf_values, int(right_id))
     return node
+
+
+# ============================================================
+# P2b-full-2: streaming query grouping via external_sort.
+# Removes Python dict accumulation (was O(n_q) keys + O(n)
+# Python-int values = ~36n transient peak). Data sorted by query
+# once; boundaries captured as int64 offsets (n_q+1 entries).
+# ============================================================
+
+
+class _SortedStream:
+    """Duck-typed df over an external_sort output file."""
+
+    def __init__(self, path, n_total, columns):
+        self.path = path
+        self._n_total = int(n_total)
+        self._columns = list(columns)
+
+    def count(self) -> int:
+        return self._n_total
+
+    def _iter_filtered_batches(self):
+        from cadw.io.batch_reader import ArrowIPCBatchReader
+        reader = ArrowIPCBatchReader(str(self.path), None)
+        try:
+            for b in reader:
+                yield b
+        finally:
+            reader.close()
 
 
 # ============================================================
@@ -600,148 +632,185 @@ def fit_lambdamart(df, X_cols, y_col, query_col, *, n_estimators=100,
                    max_depth=3, learning_rate=0.1, bins=32, sigma=1.0,
                    min_child_weight=1.0, reg_lambda=1.0, ndcg_k=10,
                    memory_guard: Optional[MemoryGuard] = None):
-    """Fit a LambdaMART ranker, true out-of-core (v0.9.87-P2b-full).
+    """Fit a LambdaMART ranker, true out-of-core (v0.9.87-P2b-full-2).
 
     All n-sized state is SpillDir-backed memmap: codes (uint8), y
-    (float64), scores/grad/hess (float64), node_id (int32). Tree
-    build is level-synchronous BFS via ReduceOps (_AllNodeHistOpCodes_LM,
-    _AssignLeavesOpCodes_LM, _LeafValuesOp_LM); no per-row arange
-    over full n, no codes[idx, j] fancy indexing on full-n.
-    RAM = O(batch*d + n_nodes*d*bins).
+    (float64), scores/grad/hess (float64), node_id (int32). Query
+    grouping via external_sort by query_col; group boundaries are
+    int64 offsets (n_q+1). No Python dict, no Python ints per row.
 
-    Uniform binning (mn/mx/bins) replaces quantile edges — deviation
-    from pre-P2b version; documented in CHANGELOG. Same-version
-    determinism preserved (no cross-version bit-identical contract).
+    Tree build is level-synchronous BFS via ReduceOps; all iterators
+    walk the sorted stream so memmaps and batch boundaries stay in
+    sync. RAM = O(batch*d + n_nodes*d*bins) — bounded by batch and
+    tree size, independent of n.
 
-    Query grouping is dict-based (Python lists) — bounded by n_q.
-    Pathological n_q > ~1M requires external_sort (future P2b-full-2).
+    Uniform binning (mn/mx/bins) replaces pre-P2b quantile edges;
+    documented in CHANGELOG. Same-version determinism preserved.
     """
     cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
     if not cols:
         raise ValueError("fit_lambdamart: X_cols must be non-empty")
     for c in cols + [y_col, query_col]:
         if c not in df._columns:
-            raise KeyError(f"fit_lambdamart: column {c!r} not in {df._columns}")
+            raise KeyError(
+                f"fit_lambdamart: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
 
     n_total = df.count()
     if n_total == 0:
         raise ValueError("fit_lambdamart: empty input")
 
-    # Batch-bound guard only — all persistent n-sized state on disk.
     mg.check_state(n_total * 4, name="lambdamart.batch_bound")
 
-    mn, mx, range_, codes_mm, nan_mask, binning_spill = _binning_pass(
-        df, cols, bins=int(bins), memory_guard=mg, guard=mg)
-    nbins = int(bins)
-
+    _sort_dir = tempfile.mkdtemp(prefix="lm_sort_")
     try:
-        # y_mm
-        _y_path = binning_spill.path("y.bin")
-        y_mm = np.memmap(str(_y_path), dtype=np.float64, mode="w+",
-                         shape=(n_total,))
+        sorted_path = external_sort(
+            df._iter_filtered_batches(),
+            [query_col],
+            [query_col, y_col] + cols,
+            mg, _sort_dir,
+            ascending=True, log=False,
+        )
+        sorted_df = _SortedStream(
+            sorted_path, n_total, [query_col, y_col] + cols)
 
-        # Group rows by query (dict-based; bounded by n_q)
-        q_groups = {}
-        off = 0
-        for b in df._iter_filtered_batches():
-            mg.check_batch(b, name="lambdamart.pass1", extra_factor=2.0)
-            q_arr = b.column(query_col).to_numpy(zero_copy_only=False)
-            y_arr = b.column(y_col).cast(
-                pa.float64(), safe=False).to_numpy(zero_copy_only=False)
-            nb = b.num_rows
-            y_mm[off:off + nb] = y_arr
-            for i, qv in enumerate(q_arr.tolist()):
-                q_groups.setdefault(qv, []).append(off + i)
-            off += nb
-        y_mm.flush()
-        if off != n_total:
-            raise RuntimeError(
-                f"fit_lambdamart: row count changed between count() "
-                f"({n_total}) and iterate ({off})")
+        mn, mx, range_, codes_mm, nan_mask, binning_spill = (
+            _binning_pass(
+                sorted_df, cols, bins=int(bins),
+                memory_guard=mg, guard=mg)
+        )
+        nbins = int(bins)
 
-        if len(q_groups) < 2:
-            raise ValueError(
-                "fit_lambdamart: need >= 2 queries to rank against")
-        if np.isnan(y_mm).any():
-            raise ValueError("fit_lambdamart: nulls in labels")
-        if y_mm.min() < 0:
-            raise ValueError("fit_lambdamart: relevance labels must be >= 0")
+        try:
+            _y_path = binning_spill.path("y.bin")
+            y_mm = np.memmap(
+                str(_y_path), dtype=np.float64, mode="w+",
+                shape=(n_total,))
 
-        q_groups = {q: np.array(idx, dtype=np.int64)
-                    for q, idx in q_groups.items()}
+            group_offsets_list = [0]
+            off = 0
+            last_q = None
+            for b in sorted_df._iter_filtered_batches():
+                mg.check_batch(b, name="lambdamart.y_mm", extra_factor=2.0)
+                nb = b.num_rows
+                if nb == 0:
+                    continue
+                if b.column(query_col).null_count > 0:
+                    raise ValueError(
+                        "fit_lambdamart: null values in query_col")
+                q_arr = b.column(query_col).to_numpy(
+                    zero_copy_only=False)
+                y_arr = b.column(y_col).cast(
+                    pa.float64(), safe=False).to_numpy(
+                    zero_copy_only=False)
+                y_mm[off:off + nb] = y_arr
+                if last_q is not None and q_arr[0] != last_q:
+                    group_offsets_list.append(off)
+                if nb > 1:
+                    diffs = q_arr[1:] != q_arr[:-1]
+                    for idx in np.flatnonzero(diffs):
+                        group_offsets_list.append(off + int(idx) + 1)
+                last_q = q_arr[-1]
+                off += nb
+            y_mm.flush()
+            if off != n_total:
+                raise RuntimeError(
+                    f"fit_lambdamart: row count changed between "
+                    f"count() ({n_total}) and iterate ({off})")
+            group_offsets_list.append(off)
+            group_offsets = np.asarray(
+                group_offsets_list, dtype=np.int64)
+            n_q = len(group_offsets) - 1
 
-        # scores_mm, node_id_mm (both persistent across rounds)
-        _scores_path = binning_spill.path("scores.bin")
-        scores_mm = np.memmap(str(_scores_path), dtype=np.float64,
-                              mode="w+", shape=(n_total,))
-        _nid_path = binning_spill.path("node_id.bin")
-        node_id_mm = np.memmap(str(_nid_path), dtype=np.int32,
-                               mode="w+", shape=(n_total,))
+            if n_q < 2:
+                raise ValueError(
+                    "fit_lambdamart: need >= 2 queries to rank against")
+            if np.isnan(y_mm).any():
+                raise ValueError("fit_lambdamart: nulls in labels")
+            if y_mm.min() < 0:
+                raise ValueError(
+                    "fit_lambdamart: relevance labels must be >= 0")
 
-        trees = []
-        base = 0.0
-        for it in range(int(n_estimators)):
-            _g_path = binning_spill.path(f"g_r{it:04d}.bin")
-            _h_path = binning_spill.path(f"h_r{it:04d}.bin")
-            grad_mm = np.memmap(str(_g_path), dtype=np.float64,
-                                mode="w+", shape=(n_total,))
-            hess_mm = np.memmap(str(_h_path), dtype=np.float64,
-                                mode="w+", shape=(n_total,))
+            _scores_path = binning_spill.path("scores.bin")
+            scores_mm = np.memmap(
+                str(_scores_path), dtype=np.float64, mode="w+",
+                shape=(n_total,))
+            _nid_path = binning_spill.path("node_id.bin")
+            node_id_mm = np.memmap(
+                str(_nid_path), dtype=np.int32, mode="w+",
+                shape=(n_total,))
 
-            # Compute grad/hess per query
-            for q, idx in q_groups.items():
-                scores_q = np.asarray(scores_mm[idx])
-                y_q = np.asarray(y_mm[idx])
-                lam, h = _lambda_gradients(
-                    scores_q, y_q, ndcg_k, float(sigma))
-                grad_mm[idx] = -lam
-                hess_mm[idx] = np.maximum(h, 1e-6)
-            grad_mm.flush()
-            hess_mm.flush()
+            trees = []
+            base = 0.0
+            for it in range(int(n_estimators)):
+                _g_path = binning_spill.path(f"g_r{it:04d}.bin")
+                _h_path = binning_spill.path(f"h_r{it:04d}.bin")
+                grad_mm = np.memmap(
+                    str(_g_path), dtype=np.float64, mode="w+",
+                    shape=(n_total,))
+                hess_mm = np.memmap(
+                    str(_h_path), dtype=np.float64, mode="w+",
+                    shape=(n_total,))
 
-            # BFS tree build
-            tree_struct, leaf_values = _build_tree_bfs(
-                df, cols, codes_mm, grad_mm, hess_mm,
-                nan_mask, node_id_mm, mg,
-                max_depth=int(max_depth),
-                min_child_weight=float(min_child_weight),
-                reg_lambda=float(reg_lambda), nbins=nbins)
+                for k in range(n_q):
+                    start_k = int(group_offsets[k])
+                    end_k = int(group_offsets[k + 1])
+                    if start_k >= end_k:
+                        continue
+                    scores_q = np.asarray(scores_mm[start_k:end_k])
+                    y_q = np.asarray(y_mm[start_k:end_k])
+                    lam, h = _lambda_gradients(
+                        scores_q, y_q, ndcg_k, float(sigma))
+                    grad_mm[start_k:end_k] = -lam
+                    hess_mm[start_k:end_k] = np.maximum(h, 1e-6)
+                grad_mm.flush()
+                hess_mm.flush()
 
-            # Convert to _Node and update scores
-            root = _dict_to_node(tree_struct, leaf_values, 0)
-            _accumulate_tree_into_memmap(
-                root, codes_mm, scores_mm, float(learning_rate))
-            scores_mm.flush()
-            trees.append(root)
+                tree_struct, leaf_values = _build_tree_bfs(
+                    sorted_df, cols, codes_mm, grad_mm, hess_mm,
+                    nan_mask, node_id_mm, mg,
+                    max_depth=int(max_depth),
+                    min_child_weight=float(min_child_weight),
+                    reg_lambda=float(reg_lambda), nbins=nbins)
 
-            # NDCG for logging (all queries, bounded per-query arrays)
-            nd_vals = []
-            for q, idx in q_groups.items():
-                y_q = np.asarray(y_mm[idx])
-                s_q = np.asarray(scores_mm[idx])
-                nd_vals.append(ndcg_at_k(y_q, s_q, ndcg_k))
-            nd = float(np.mean(nd_vals)) if nd_vals else 0.0
-            log_fit("lambdamart", iter_i=it + 1,
-                    iter_n=int(n_estimators),
-                    loss=-nd, state_bytes=nbins * max_depth * 96)
+                root = _dict_to_node(tree_struct, leaf_values, 0)
+                _accumulate_tree_into_memmap(
+                    root, codes_mm, scores_mm, float(learning_rate))
+                scores_mm.flush()
+                trees.append(root)
 
-            # Cleanup per-round grad/hess
-            grad_mm.flush()
-            hess_mm.flush()
-            del grad_mm, hess_mm
-            binning_spill.cleanup_file(_g_path)
-            binning_spill.cleanup_file(_h_path)
+                nd_vals = []
+                for k in range(n_q):
+                    start_k = int(group_offsets[k])
+                    end_k = int(group_offsets[k + 1])
+                    if start_k >= end_k:
+                        continue
+                    y_q = np.asarray(y_mm[start_k:end_k])
+                    s_q = np.asarray(scores_mm[start_k:end_k])
+                    nd_vals.append(ndcg_at_k(y_q, s_q, ndcg_k))
+                nd = float(np.mean(nd_vals)) if nd_vals else 0.0
+                log_fit("lambdamart", iter_i=it + 1,
+                        iter_n=int(n_estimators),
+                        loss=-nd, state_bytes=nbins * max_depth * 96)
 
-        model = LambdaMARTModel(
-            trees, mn, mx, int(bins), base, len(cols),
-            {"n_estimators": int(n_estimators),
-             "max_depth": int(max_depth),
-             "learning_rate": float(learning_rate),
-             "bins": int(bins), "sigma": float(sigma),
-             "ndcg_k": int(ndcg_k)})
-        model.feature_names_ = cols
-        mg.check_state(model.state_nbytes(), name="lambdamart.model")
-        return model
+                grad_mm.flush()
+                hess_mm.flush()
+                del grad_mm, hess_mm
+                binning_spill.cleanup_file(_g_path)
+                binning_spill.cleanup_file(_h_path)
+
+            model = LambdaMARTModel(
+                trees, mn, mx, int(bins), base, len(cols),
+                {"n_estimators": int(n_estimators),
+                 "max_depth": int(max_depth),
+                 "learning_rate": float(learning_rate),
+                 "bins": int(bins), "sigma": float(sigma),
+                 "ndcg_k": int(ndcg_k)})
+            model.feature_names_ = cols
+            mg.check_state(model.state_nbytes(),
+                           name="lambdamart.model")
+            return model
+        finally:
+            binning_spill.__exit__(None, None, None)
     finally:
-        binning_spill.__exit__(None, None, None)
+        shutil.rmtree(_sort_dir, ignore_errors=True)

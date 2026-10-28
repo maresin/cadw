@@ -114,12 +114,36 @@ def test_ram_state_scales_with_n_not_unbounded():
     assert b.state_nbytes() < 4 * 1024 * 1024
 
 
-def test_guard_large_state():
+def test_guard_large_state_true_ooc(tmp_path):
+    """P2b-full-2: fit is now true OOC — 4MB guard handles 80k×12d.
+
+    Pre-P2b, fit's n-sized RAM (codes/y/scores/grad/hess at n=80000
+    ~ 8.6 MB) raised MemoryLimitExceeded even at 4MB. Post-P2b-2, all
+    n-sized state on SpillDir memmap; batches bounded by chunk_size.
+    Fit succeeds.
+    """
+    import pyarrow.parquet as pq
     df, X, y, q = _dataset(seed=5, nq=400, n=200, d=12)
+    tbl = pa.Table.from_batches(list(df._iter_filtered_batches()))
+    path = str(tmp_path / "d.parquet")
+    pq.write_table(tbl, path, row_group_size=500)
+    df_small = CadwDataFrame.from_parquet(
+        path, base_dir="/tmp", chunk_size=500)
     mg = MemoryGuard(max_memory_mb=4)
+    m = fit_lambdamart(
+        df_small, [f"f{j}" for j in range(12)], "y", "q",
+        n_estimators=2, memory_guard=mg)
+    assert m.fitted_
+    assert len(m.trees_) == 2
+
+
+def test_guard_tiny_batch_raises():
+    """P2b-full-2: 1KB guard raises on coarse batch-bound check_state."""
+    df, X, y, q = _dataset(seed=6, nq=400, n=200, d=12)
+    mg = MemoryGuard(max_memory_bytes=1024)
     with pytest.raises(MemoryLimitExceeded):
         fit_lambdamart(df, [f"f{j}" for j in range(12)], "y", "q",
-                       n_estimators=3, memory_guard=mg)
+                       n_estimators=2, memory_guard=mg)
 
 
 def test_errors():
@@ -232,4 +256,37 @@ def test_fit_lambdamart_spilldir_cleanup(monkeypatch):
     # All created dirs must be cleaned up
     for p in paths_created:
         assert not p.exists(), f"SpillDir {p} not cleaned up"
+
+def test_fit_lambdamart_no_python_dict_query_groups():
+    """P2b-full-2: no Python dict accumulation of per-query row lists."""
+    import inspect
+    src = inspect.getsource(lm.fit_lambdamart)
+    assert "q_groups" not in src, (
+        "P2b-full-2: query grouping must not use Python dict")
+
+
+def test_fit_lambdamart_uses_external_sort(monkeypatch):
+    """P2b-full-2: fit invokes external_sort by query_col."""
+    captured = {}
+    orig = lm.external_sort
+
+    def spy(batch_iter, key_columns, value_columns, mg, spill_dir,
+            **kwargs):
+        captured['key_columns'] = list(key_columns)
+        captured['value_columns'] = list(value_columns)
+        return orig(batch_iter, key_columns, value_columns,
+                    mg, spill_dir, **kwargs)
+
+    monkeypatch.setattr(lm, "external_sort", spy)
+
+    df, X_arr, y_arr, q_arr = _dataset(seed=20)
+    cols = [f"f{j}" for j in range(4)]
+    lm.fit_lambdamart(df, cols, "y", "q", n_estimators=3)
+
+    assert captured.get("key_columns") == ["q"], (
+        f"external_sort should sort by 'q', got "
+        f"{captured.get('key_columns')}")
+    assert "y" in captured["value_columns"]
+    for c in cols:
+        assert c in captured["value_columns"]
 
