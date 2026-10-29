@@ -49,6 +49,14 @@ def _extract_series(df, target_col, *, time_col=None, group_col=None,
     # Extract target as float64 numpy array; optionally filter to one
     # group, optionally sort by time_col. Streams batches, no full-frame
     # materialization.
+    #
+    # v0.9.90-S5: two paths.
+    #   - No group filter: pre-allocate np.empty(df.count(), float64),
+    #     fill per batch. Peak = n*8 bytes (not n*~36 via Python list);
+    #     guard.check_state(n*8) fires before alloc.
+    #   - Group filter: Python-list path retained (per-series n is
+    #     small; filtered count would require two-pass scan). Guarded
+    #     per batch by _check.
     if target_col not in df._columns:
         raise KeyError(f"target column {target_col!r} not in df")
     if time_col is not None and time_col not in df._columns:
@@ -60,14 +68,46 @@ def _extract_series(df, target_col, *, time_col=None, group_col=None,
         keys = ([group_col] if group_col is not None else []) + [time_col]
         df = df.sort_values(keys)
 
+    filter_active = (group_col is not None and group_value is not None)
+
+    if not filter_active:
+        n_total = int(df.count())
+        if n_total > 0 and df._memory_guard is not None:
+            df._memory_guard.check_state(
+                n_total * 8, name="ts.extract_series")
+        arr = np.empty(n_total, dtype=np.float64)
+        off = 0
+        for batch in df._iter_arrow_batches(batch_size=_BATCH):
+            _check(df._memory_guard, batch, "ts.extract_series", 3.5)
+            vals = batch.column(target_col).to_pylist()
+            n_b = len(vals)
+            if off + n_b > n_total:
+                # df.count() and iterate() disagree — fall back safely
+                # by trimming to first n_total (defensive).
+                n_b = max(0, n_total - off)
+                vals = vals[:n_b]
+            # Fill slice with float(v) or nan
+            slice_ = arr[off:off + n_b]
+            for i, v in enumerate(vals):
+                slice_[i] = float(v) if v is not None else np.nan
+            off += n_b
+            if off >= n_total:
+                break
+        if off < n_total:
+            # Fewer rows than count() claimed (filter mismatch inside
+            # df?) — trim.
+            arr = arr[:off]
+        return arr
+
+    # group-filter path (Python-list, per-series small)
     out = []
     for batch in df._iter_arrow_batches(batch_size=_BATCH):
         _check(df._memory_guard, batch, "ts.extract_series", 3.5)
         vals = batch.column(target_col).to_pylist()
-        if group_col is not None and group_value is not None:
-            gvals = batch.column(group_col).to_pylist()
-            vals = [v for v, g in zip(vals, gvals) if g == group_value]
-        out.extend(float(v) if v is not None else np.nan for v in vals)
+        gvals = batch.column(group_col).to_pylist()
+        out.extend(
+            float(v) if v is not None else np.nan
+            for v, g in zip(vals, gvals) if g == group_value)
     return np.asarray(out, dtype=np.float64)
 
 
@@ -630,12 +670,15 @@ class SARIMAForecaster(ForecasterBase):
 
 # ==================== GBDTForecaster ====================
 
-def _build_lag_matrix(y, lags, seasonal_periods=()):
+def _build_lag_matrix(y, lags, seasonal_periods=(), *, memory_guard=None):
     """Return (X, valid_idx) where X is (n - max_lag, n_features).
 
     Features: y_lag1..y_lagp, plus y_lag(s*k) for seasonal s.
     All features are NaNs for t < max_lag; those rows are dropped.
     Trend row index (t) is added as 'trend' column.
+
+    v0.9.90-S5: optional memory_guard. Guard before np.column_stack:
+    peak = (n - max_lag) * (n_lags + 1) * 8.
     """
     n = len(y)
     all_lags = list(lags)
@@ -649,6 +692,10 @@ def _build_lag_matrix(y, lags, seasonal_periods=()):
             f"GBDTForecaster: need n > max_lag + 1; n={n}, "
             f"max_lag={max_lag}"
         )
+    if memory_guard is not None:
+        n_rows = n - max_lag
+        est = n_rows * (len(all_lags) + 1) * 8
+        memory_guard.check_state(est, name="gbdt_forecaster.lag_matrix")
     idx = np.arange(max_lag, n)
     cols = []
     for k in all_lags:
@@ -851,6 +898,7 @@ class GBDTForecaster(ForecasterBase):
         self._memory_guard = df._memory_guard
         X, idx, all_lags = _build_lag_matrix(
             y, self.lags, self.seasonal_periods,
+            memory_guard=df._memory_guard,
         )
         self._feature_names = [f"y_lag{k}" for k in all_lags] + ["trend"]
         self._all_lags = all_lags

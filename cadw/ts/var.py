@@ -79,6 +79,15 @@ class VARModel(ForecasterBase):
             raise ValueError("VARModel: all series must have the same length")
         if n <= self.p + 1:
             raise ValueError(f"VARModel: need n > p+1; n={n}, p={self.p}")
+        # v0.9.90-S5: guard before O(n*k) + O(n*k*p) allocations.
+        # Peak = Y (n*k*8) + X (n-p)*(1+k*p)*8 + Yt ((n-p)*k*8).
+        mg = getattr(df, "_memory_guard", None)
+        k = len(cols)
+        if mg is not None:
+            est = (n * k
+                   + (n - self.p) * (1 + k * self.p)
+                   + (n - self.p) * k) * 8
+            mg.check_state(est, name="var.fit")
         Y = np.column_stack(series)
         if np.any(~np.isfinite(Y)):
             raise ValueError("VARModel: series contains non-finite values")

@@ -87,6 +87,12 @@ class _MultiplicativeWrapper(ForecasterBase):
         if np.any(y <= 0):
             raise ValueError(
                 "_MultiplicativeWrapper: y must be > 0")
+        # v0.9.90-S5: guard before log_y + pa.array + from_table
+        # (three O(n) copies: numpy, Arrow, Dataset). Peak ~3*n*8.
+        mg = getattr(df, "_memory_guard", None)
+        if mg is not None:
+            mg.check_state(3 * len(y) * 8,
+                           name="auto_theta.mult_wrapper")
         import pyarrow as pa
         from cadw import CadwDataFrame
         log_y = np.log(y)
