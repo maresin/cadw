@@ -1,3 +1,4 @@
+from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 """v0.7.0a: Linear/Ridge via Reduce."""
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from cadw import CadwDataFrame, MemoryGuard
-from cadw.ml.linear import LinearModel, XTXOp, fit_linear
+from cadw.ml.linear import LinearModel, XTXOp, fit_linear, _resolve_solver
 
 
 def make_df(tmp_path, data, chunk=10, name="L"):
@@ -333,3 +334,90 @@ def test_fit_linear_filtered(tmp_path):
     # On subset X>0, coef should still be 2.0, intercept 1.0
     assert abs(model.coef_[0] - 2.0) < 1e-9
     assert abs(model.intercept_ - 1.0) < 1e-9
+
+
+# v0.9.93: solver="auto"|"closed"|"sgd" — G10 dual-branch tests
+
+
+def _make_linear_sgd_df(n, d, seed=0, noise=0.1):
+    rng = np.random.RandomState(seed)
+    X = rng.randn(n, d)
+    beta_true = rng.randn(d)
+    y = X @ beta_true + noise * rng.randn(n)
+    X_cols = [f"x{i}" for i in range(d)]
+    table = pa.table({
+        **{c: pa.array(X[:, i]) for i, c in enumerate(X_cols)},
+        "y": pa.array(y),
+    })
+    from cadw.dataframe import CadwDataFrame
+    return CadwDataFrame.from_table(table), X_cols, beta_true
+
+
+def test_linear_solver_closed_vs_sgd_close():
+    """G10: closed vs sgd approximate equality (ridge, d=10, n=1000)."""
+    n, d = 1000, 10
+    df, X_cols, _ = _make_linear_sgd_df(n, d, seed=42)
+    m_closed = fit_linear(df, X_cols, "y", alpha=0.1, solver="closed")
+    m_sgd = fit_linear(df, X_cols, "y", alpha=0.1,
+                       solver="sgd", sgd_lr=0.05, sgd_epochs=200)
+    assert m_closed.solver_ == "closed"
+    assert m_sgd.solver_ == "sgd"
+    rel_err = np.linalg.norm(m_sgd.coef_ - m_closed.coef_) / max(
+        1e-12, np.linalg.norm(m_closed.coef_))
+    assert rel_err < 0.15, (
+        f"SGD vs closed rel err {rel_err:.3f} > 0.15")
+
+
+def test_linear_sgd_converges_to_true_coef():
+    n, d = 2000, 10
+    df, X_cols, beta_true = _make_linear_sgd_df(n, d, noise=0.05, seed=7)
+    m_sgd = fit_linear(df, X_cols, "y", alpha=0.0,
+                       solver="sgd", sgd_lr=0.05, sgd_epochs=200)
+    rel_err = np.linalg.norm(m_sgd.coef_ - beta_true) / max(
+        1e-12, np.linalg.norm(beta_true))
+    assert rel_err < 0.15, f"SGD vs truth rel err {rel_err:.3f}"
+
+
+def test_linear_sgd_deterministic():
+    n, d = 200, 5
+    df, X_cols, _ = _make_linear_sgd_df(n, d, seed=11)
+    m1 = fit_linear(df, X_cols, "y", solver="sgd",
+                    sgd_lr=0.05, sgd_epochs=10)
+    m2 = fit_linear(df, X_cols, "y", solver="sgd",
+                    sgd_lr=0.05, sgd_epochs=10)
+    assert np.array_equal(m1.coef_, m2.coef_)
+    assert m1.intercept_ == m2.intercept_
+
+
+def test_resolve_solver_picks_sgd_at_large_d():
+    mg = MemoryGuard(max_memory_mb=10)
+    assert _resolve_solver(10_000, 0.0, mg) == "sgd"
+
+
+def test_resolve_solver_picks_closed_at_small_d():
+    mg = MemoryGuard(max_memory_mb=1000)
+    assert _resolve_solver(50, 0.0, mg) == "closed"
+
+
+def test_linear_sgd_non_l2_raises():
+    n, d = 50, 3
+    df, X_cols, _ = _make_linear_sgd_df(n, d, seed=1)
+    with pytest.raises(ValueError, match="only supports penalty='l2'"):
+        fit_linear(df, X_cols, "y", penalty="l1", solver="sgd")
+
+
+def test_linear_closed_raises_on_tight_guard():
+    n, d = 20, 3000
+    df, X_cols, _ = _make_linear_sgd_df(n, d, seed=3)
+    with pytest.raises(MemoryLimitExceeded):
+        fit_linear(df, X_cols, "y", solver="closed",
+                   memory_guard=MemoryGuard(max_memory_mb=10))
+
+
+def test_linear_auto_at_large_d_uses_sgd():
+    n, d = 20, 2000
+    df, X_cols, _ = _make_linear_sgd_df(n, d, seed=5)
+    mg = MemoryGuard(max_memory_mb=10)
+    m = fit_linear(df, X_cols, "y", solver="auto",
+                   sgd_lr=0.05, sgd_epochs=20, memory_guard=mg)
+    assert m.solver_ == "sgd"

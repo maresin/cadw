@@ -94,6 +94,43 @@ class XTXOp(ReduceOp):
         }
 
 
+def _probe_memory_limit_mb(guard) -> float | None:
+    """Probe memory limit from duck-typed guard (max_memory_mb only).
+
+    Same helper as autoencoder.py (duplicated; extraction to
+    cadw/ml/_common.py is v0.9.94 backlog).
+    """
+    if guard is None:
+        return None
+    def _is_pos(v):
+        return (isinstance(v, (int, float))
+                and not isinstance(v, bool) and v > 0)
+    MB = ("max_memory_mb", "_max_memory_mb", "limit_mb", "budget_mb",
+          "_budget_mb", "max_mb", "_max_mb", "memory_limit_mb",
+          "_memory_limit_mb")
+    for a in MB:
+        v = getattr(guard, a, None)
+        if _is_pos(v):
+            return float(v)
+    BYTES = ("max_memory_bytes", "_max_memory_bytes", "max_bytes",
+             "_max_bytes", "limit_bytes", "_limit_bytes", "budget_bytes",
+             "_budget_bytes")
+    for a in BYTES:
+        v = getattr(guard, a, None)
+        if _is_pos(v):
+            return float(v) / (1024.0 * 1024.0)
+    try:
+        dd = guard.__dict__
+    except AttributeError:
+        return None
+    for k, v in dd.items():
+        kl = k.lower()
+        if _is_pos(v) and "mb" in kl and any(
+                t in kl for t in ("mem", "budget", "limit", "max")):
+            return float(v)
+    return None
+
+
 def _numeric_to_f64(arr: pa.Array) -> np.ndarray:
     """Convert Arrow numeric Array (possibly with nulls) to float64 with NaN."""
     np_arr = arr.to_numpy(zero_copy_only=False)
@@ -124,6 +161,7 @@ class LinearModel:
     n_iter_cd_: int = 0       # coordinate descent iters (0 for closed-form)
     converged_: bool = True   # CD convergence flag (True for closed-form)
     fitted_: bool = True
+    solver_: str = "closed"   # "closed" | "sgd" — v0.9.93
 
     def to_dict(self) -> dict:
         return {
@@ -135,6 +173,7 @@ class LinearModel:
             "n_iter_cd": int(self.n_iter_cd_),
             "converged": bool(self.converged_),
             "n_rows": int(self.n_rows_),
+            "solver": self.solver_,
         }
 
     def predict(self, X):
@@ -189,6 +228,129 @@ class LinearModel:
             memory_guard=X._memory_guard,
             spill_dir=X._spill_dir,
         )
+
+
+class _CenterReduceOp(ReduceOp):
+    """Accumulate (n, sum_x, sum_y) for SGD centering. State O(d)."""
+
+    def __init__(self, feature_cols, target_col):
+        if not feature_cols:
+            raise ValueError("_CenterReduceOp: feature_cols must be non-empty")
+        self.feature_cols = list(feature_cols)
+        self.target_col = target_col
+        self.d = len(self.feature_cols)
+
+    def init(self):
+        return (0, np.zeros(self.d, dtype=np.float64), 0.0)
+
+    def update(self, state, batch):
+        n, sx, sy = state
+        X = _stack_numeric(batch, self.feature_cols)
+        y = _numeric_to_f64(batch.column(self.target_col))
+        mask = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
+        X = X[mask]; y = y[mask]
+        if X.shape[0] == 0:
+            return state
+        return (n + X.shape[0], sx + X.sum(axis=0), sy + float(y.sum()))
+
+    def merge(self, a, b):
+        return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+
+    def state_nbytes(self, state):
+        return int(state[1].nbytes + 8 + 8)
+
+    def estimate_state_nbytes(self):
+        return 8 * self.d + 16
+
+    def finalize(self, state):
+        n, sx, sy = state
+        return {"n": int(n), "sum_x": sx, "sum_y": float(sy)}
+
+
+def _resolve_solver(d: int, alpha: float, mg) -> str:
+    """Choose solver for penalty='l2'.
+
+    Shortcut: d <= 1000 -> always 'closed' (8 MB XTX fits everywhere;
+    bit-identical existing behavior). Budget check kicks in only for
+    large d: est_closed = 3*(d+1)^2*8 > 50% available_bytes -> 'sgd'.
+    """
+    if mg is None or d <= 1000:
+        return "closed"
+    est_closed = 3 * (d + 1) * (d + 1) * 8
+    if hasattr(mg, "available_bytes") and callable(mg.available_bytes):
+        try:
+            avail = mg.available_bytes()
+            return "sgd" if est_closed > int(avail * 0.5) else "closed"
+        except Exception:
+            pass
+    limit_mb = _probe_memory_limit_mb(mg)
+    if limit_mb is None:
+        return "closed"
+    avail_bytes = int(limit_mb * 1024 * 1024)
+    return "sgd" if est_closed > int(avail_bytes * 0.5) else "closed"
+
+
+def _fit_sgd_l2(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
+    """Ridge via streaming SGD on centered data (O(d) state).
+
+    Objective match (lam = alpha/n):
+      closed: sum||Xb-y||² + alpha*||b||²
+      sgd:    0.5*mean||XW-Y||² + 0.5*lam*||W||²
+      Multiply closed by 1/(2n): 0.5*mean + (alpha/(2n))*||b||²
+      So lam = alpha/n (linear terms scale as 1/n * sum).
+    Peak: O(d) coef/mu; O(batch*d) transient in sgd_streaming.
+    """
+    from cadw.ops.optim import sgd_streaming
+    d = len(X_cols)
+    has_check_state = (
+        mg is not None and hasattr(mg, "check_state")
+        and callable(mg.check_state)
+    )
+
+    center_op = _CenterReduceOp(X_cols, y_col)
+    cs = reduce(df._iter_filtered_batches(), center_op, mg, log=False)
+    n = cs["n"]
+    if n == 0:
+        raise ValueError("fit_linear: no valid (non-null) rows")
+    mu_x = cs["sum_x"] / float(n)
+    mu_y = float(cs["sum_y"] / float(n))
+
+    sgd_lam = float(alpha) / float(n)
+
+    if has_check_state:
+        mg.check_state(3 * d * 8 + 64, name="linear.sgd.state")
+
+    def batch_stream():
+        for b in df._iter_filtered_batches():
+            X = _stack_numeric(b, X_cols)
+            y = _numeric_to_f64(b.column(y_col))
+            mask = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
+            X = X[mask]; y = y[mask]
+            if X.shape[0] == 0:
+                continue
+            yield (X - mu_x), (y - mu_y).reshape(-1, 1)
+
+    sgd_mg = mg if has_check_state else None
+    W = sgd_streaming(
+        batch_stream, n_features=d, n_outputs=1,
+        lam=sgd_lam, lr=sgd_lr, epochs=sgd_epochs,
+        mg=sgd_mg, name="linear.sgd")
+
+    coef = np.ascontiguousarray(W[0])
+    intercept = float(mu_y - mu_x @ coef)
+
+    from cadw.ml._logging import log_fit
+    log_fit("linear", iter_i=int(sgd_epochs), iter_n=int(sgd_epochs),
+            state_bytes=int(coef.nbytes + 8))
+
+    return LinearModel(
+        coef_=coef, intercept_=intercept,
+        feature_names_=list(X_cols), target_col_=y_col,
+        alpha_=float(alpha), n_rows_=int(n),
+        penalty_="l2", l1_ratio_=0.0,
+        n_iter_cd_=0, converged_=True,
+        solver_="sgd",
+    )
 
 
 def _soft_threshold(z: float, lambda_: float) -> float:
@@ -255,6 +417,9 @@ def fit_linear(
     alpha: float = 0.0,
     penalty: str = "l2",
     l1_ratio: float | None = None,
+    solver: str = "auto",
+    sgd_lr: float = 0.01,
+    sgd_epochs: int = 100,
     max_iter: int = 1000,
     tol: float = 1e-6,
     memory_guard: Optional[MemoryGuard] = None,
@@ -328,7 +493,32 @@ def fit_linear(
                 f"numeric required (use encode_categorical for strings)"
             )
 
+    # v0.9.93: solver routing.
+    if solver not in ("auto", "closed", "sgd"):
+        raise ValueError(
+            f"fit_linear: solver must be 'auto'|'closed'|'sgd'; "
+            f"got {solver!r}")
+    if penalty != "l2" and solver == "sgd":
+        raise ValueError(
+            f"fit_linear: solver='sgd' only supports penalty='l2'; "
+            f"got penalty={penalty!r}")
+
     mg = memory_guard or df._memory_guard
+    d_ = len(X_cols)
+    if solver == "auto":
+        solver = (_resolve_solver(d_, alpha, mg)
+                  if penalty == "l2" else "closed")
+
+    if solver == "sgd":
+        if sgd_lr <= 0:
+            raise ValueError(
+                f"fit_linear: sgd_lr must be > 0; got {sgd_lr}")
+        if sgd_epochs < 1:
+            raise ValueError(
+                f"fit_linear: sgd_epochs must be >= 1; got {sgd_epochs}")
+        return _fit_sgd_l2(df, X_cols, y_col, alpha,
+                           sgd_lr, sgd_epochs, mg)
+
     op = XTXOp(X_cols, y_col)
     res = reduce(df._iter_filtered_batches(), op, mg, log=False)
 
@@ -374,6 +564,7 @@ def fit_linear(
             l1_ratio_=0.0,
             n_iter_cd_=0,
             converged_=True,
+            solver_="closed",
         )
         from cadw.ml._logging import log_fit
         log_fit("linear", state_bytes=int(_model.coef_.nbytes + 8))
@@ -413,6 +604,7 @@ def fit_linear(
         l1_ratio_=float(l1_ratio),
         n_iter_cd_=int(n_iter),
         converged_=bool(converged),
+        solver_="closed",
     )
     from cadw.ml._logging import log_fit
     log_fit("linear", iter_i=int(n_iter), iter_n=int(max_iter),
