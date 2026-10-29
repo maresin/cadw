@@ -201,17 +201,92 @@ MemoryGuard.
 
 ---
 
-## §6. Roadmap спринтов
+**P11. `sgd_streaming` is for linear heads only.**
 
-| Sprint | Документ | LOC (est) | Session | Блокирует |
-|---|---|---|---|---|
-| **S0** | этот документ | ~350 | **v0.9.90** | — |
-| **S1** | `SpillBuffer`/`SpillArray` + тесты | ~450 | **v0.9.90** | S2–S6 |
-| S2 | 4 ops → `output=` | ~200 | v0.9.91 | — |
-| S3 | 11 G2 + `_collect`-refactor | ~150 | v0.9.91 | — |
-| S4 | ML predict/transform → `AutoArrayResult` | ~300 | v0.9.92 | S2 (S2 не блокирует S4, но связно) |
-| S5 | TS guards | ~150 | v0.9.92 | — |
-| S6 | refuse → spill | ~300 | v0.9.93+ | S1 |
+`sgd_streaming` (`cadw/ops/optim.py`) fits a single `W: (K, d)` on
+`(X_b, Y_b)` pairs with ridge loss + RMSprop. It is the correct
+primitive for **linear** models that OOC their features to disk:
+ROCKET (current use), and future logistic / coxph / linear-ridge
+when they need wide-feature OOC (currently closed-form XTX, which
+is O(d²) — fine for d ≤ 10⁴, wrong for wider).
 
-**Текущее состояние:** S0+S1 в v0.9.90. S2–S6 разбиты на сессии.
-Каждый спринт — свой набор файлов (см. сводку в CHANGELOG после S1).
+It is NOT for:
+- MLP (autoencoder, patch_memory_ad): 4+ weight matrices, ReLU
+  backprop, momentum. Need dedicated chunked training loop
+  (S6d pattern: `rng.permutation(n_w)` as int64 in RAM,
+  on-demand window fetch per mini-batch).
+- Clustering (kmeans_ad): EM (assign + accumulate + update),
+  not gradient descent.
+- Non-parametric (iforest, eif, matrix_profile): no gradient.
+
+For non-linear models the reusable parts are the batch_stream
+contract (`callable() -> iterator of (X_b, Y_b)`) and
+`mg.check_state` discipline — NOT the function itself.
+
+
+## §6. Roadmap спринтов — status (v0.9.91)
+
+**Closed in v0.9.90 (streaming-output API):**
+- S0 — этот документ
+- S1 — `SpillBuffer` / `AutoResult` / `SpillArray` / `AutoArrayResult`
+- S2 — 4 ops → `output=`
+- S2-fix — `spill_ratio=0.0`, `output=` validation
+- S3 — 11 G2 (guard-after-alloc)
+- S4 — 9 ML predict/transform/score → `output=`
+- S5 — TS root `_extract_series` + `var` / `_build_lag_matrix` /
+  `_MultiplicativeWrapper`
+- S5b — TS base path (thf / features / stats)
+
+**Closed in v0.9.91 (S6: refuse-at-guard → chunked / documented):**
+- S6a — `hampel` + `zms`: strided+chunked. **Bit-identical.**
+- S6b-eif — `eif`: chunked fit (`n_est*psi*d` hyperparameter-bound).
+  **NOT bit-identical** (rng state divergence from per-tree
+  `rng.choice`; see S6b-full below).
+- S6b-tspq — `tspq`: chunked mean/cov/scores. **Bit-identical.**
+- S6c-kmeans_ad — `kmeans_ad`: two paths (duck-typed guard → old
+  `_prepare_windows` bit-identical; real `MemoryGuard` → chunked
+  reservoir + Lloyd + score). NOT bit-identical (reservoir init
+  vs exact `rng.choice(n_w, size=k)`; see S6c-full below).
+- S6d-autoencoder — `autoencoder`: chunked SGD via
+  `rng.permutation(n_w)` as `(n_w,)` int64 (8·n_w bytes = 50× smaller
+  than `(n_w, d)` float64). **Bit-identical.**
+- S6e — `binseg` + `stray`: `refuse_at_guard` (documented).
+  O(n) prefix sums (binseg) and O(n²) brute KNN (stray) are intrinsic.
+
+### §6.1 Won't-fix (reclassified, with rationale)
+
+**S6b-full (eif bit-identical).** One-pass on-demand fetch
+(`n_est × O(n·w)` I/O) reproduces the pre-S6b rng sequence.
+Cost: `n_est × n_w × d × 8` extra reads per fit. For
+`n_est=100, n_w=10⁶, d=50`: 40 GB I/O, several minutes.
+Benefit: zero (functional result already meets recall threshold,
+test_fit_eif_detects_segments >= 0.5 passes). Rejected as
+cost >> benefit.
+
+**S6c-full (kmeans_ad bit-identical).** k-means++ init requires
+`k-1` chunked passes over `n_w` (each pass computes D² distance
+to current centroid set, then `rng.choice(n_w, p=probs)`). For
+`k=8, n_w=10⁶, d=50`: 3.2 GB extra I/O, ~100 seconds per fit.
+Current chunked reservoir init is **deterministic** (same
+`random_state` → same centroids) and tests pass at recall
+threshold. Rejected as cost >> benefit.
+
+**S6d-full (autoencoder bit-identical beyond `n_w = state_limit/16`).**
+Requires disk-permutation (`SpillDir` for `rng.permutation(n_w)`
+as Arrow IPC) + disk-batch-reader. 2-3 sessions, no urgent use
+case (`n_w = state_limit/16` is typically ≥ 10⁶ at 100 MB budget).
+Deferred to v0.9.92+ if a user reports needing it.
+
+### §6.2 Backlog (v0.9.92+)
+
+**Default `output="auto"` migration.** Currently `output="memory"`
+is default everywhere (back-compat). After all producers migrated
+(this version), flip default to `"auto"`. BREAKING (return type
+changes from `pa.Table`/`np.ndarray` to `AutoResult`/`AutoArrayResult`).
+Requires:
+- ~40 tests updated (`isinstance(x, pa.Table)` → `isinstance(x, AutoResult)`)
+- CHANGELOG entry with **BREAKING** banner
+- full fast+slow test suite run (~15 min)
+- independent v0.9.92 session
+
+See also STREAMING_OUTPUT_ARCHITECTURE.md §3 (migration matrix).

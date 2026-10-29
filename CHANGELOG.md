@@ -21,6 +21,84 @@ E_anomaly YAML in hand.
 
 CHANGELOG-only. Full suite unchanged: 3981 passed, 8 skipped.
 
+### v0.9.91-docs (2026-10-29) - P11 + §6 status consolidation
+
+Docs-only. STREAMING_OUTPUT_ARCHITECTURE.md:
+
+  §5 P11: sgd_streaming is for linear heads only. Not MLP, not EM
+  clustering, not non-parametric. Reusable parts for non-linear
+  models are batch_stream contract + mg.check_state discipline
+  (not the function itself).
+
+  §6 restructured: closed (S0-S5b in v0.9.90, S6a-e in v0.9.91),
+  §6.1 won't-fix (S6b-full eif, S6c-full kmeans_ad, S6d-full
+  autoencoder) with concrete cost calc, §6.2 backlog (default
+  output="auto" migration, BREAKING, v0.9.92).
+
+### v0.9.91-S6d (2026-10-29) - autoencoder chunked SGD (bit-identical)
+
+Autoencoder had guard-before-_prepare_windows but still
+materialized (n_w, d) after guard passed (400 MB for n=10^6,
+w=50). Chunked SGD via rng.permutation(n_w) as (n_w,) int64:
+8*n_w bytes = 50x smaller than (n_w, d) float64. On-demand window
+fetch per mini-batch (bs*d*8 bounded). Bit-identical to pre-S6d
+on same random_state (window_scores diff 0.00e+00,
+training_losses diff 0.00e+00). Peak: 16*n_w + bs*d*8*6 +
+params*8*2.
+
+Two paths: duck-typed guard -> old path (bit-identical); real
+MemoryGuard -> chunked. Test updated:
+test_fit_autoencoder_chunked_does_not_call_prepare_windows.
+
+### v0.9.91-S6b-tspq + S6c (2026-10-29) - tspq + kmeans_ad chunked
+
+tspq.fit_t2q: chunked mean (1a) + cov (M2, 1b) +
+proj/recon/resid (2). Peak = chunk*d*8*3 + 3*n_s*8 + d*d*8
+(was 4*n_s*d*8). Bit-identical (mean/cov same math).
+Guard pre-check updated from full-window (8*n_s*d) to chunked
+peak — old formula raised even when chunked path could fit.
+
+kmeans_ad.fit_kmeans_ad: two paths. Duck-typed guard -> old
+_prepare_windows (bit-identical). Real MemoryGuard -> chunked
+reservoir + Lloyd + score. Peak: S*d*8 + k*d*8 +
+chunk*d*8 + 3*n_w*8. NOT bit-identical (reservoir init vs
+exact rng.choice(n_w, size=k); see 6.1 S6c-full).
+
+Test updates: 2 (chunked_does_not_call path tests).
+
+### v0.9.91-S6b-eif (2026-10-29) - eif chunked fit
+
+Chunked eif.fit_eif eliminates (n_w, d) intermediate.
+Pre-sample per-tree indices (rng.choice(n_w, size=psi)) with
+same rng sequence as _EIFForest.fit; gather unique sampled
+windows in one chunked pass; build trees manually with
+rng_build advancing identically. NOT bit-identical (rng state
+divergence from original per-tree choice; see 6.1 S6b-full).
+Peak: n_est*psi*d*8 + n_w*8 + chunk*d*8*2 (was n_w*d*8).
+
+Fix iterations: fix1 (reservoir, recall<0.5), fix2 (single
+index sample, still wrong — per-tree vs single-sample), fix3
+(per-tree pre-sample + gather + manual build; tests green).
+
+### v0.9.91-S6e (2026-10-29) - binseg + stray refuse_at_guard
+
+Both correctly raise MemoryLimitExceeded on tight budget. This
+is a documented limitation, not a fixable violation. O(n)
+prefix sums (binseg) and O(n^2) brute KNN (stray) are intrinsic
+to the algorithms (spilling them = different algorithms).
+
+### v0.9.91-S6a (2026-10-29) - hampel + zms strided+chunked
+
+Both used sliding_window_view (0-copy) but then called
+np.median/np.mean/np.std on the view, which materialize a
+contiguous (n_w, w) copy inside numpy (400 MB for n=10^6,
+w=51). Chunked iteration -> peak O(chunk_nw*w*8*F),
+F=2. Bit-identical to batch reference (max diff 0.00e+00).
+
+Guard semantics preserved: real MemoryGuard -> per-chunk
+check_state (OOC, succeeds where old path raised); duck-typed
+guard -> legacy total-estimate check preserved (max_memory_mb).
+
 ### v0.9.90-S5b (2026-10-29) - TS guards (base path)
 
 Guard before O(n) allocations in 4 TS functions (base path only;
