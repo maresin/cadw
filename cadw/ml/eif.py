@@ -243,6 +243,43 @@ def _make_windows(X: np.ndarray, window_size: int,
     return X[idx].reshape(n_w, window_size * c)
 
 
+# ── Streaming helpers (v0.9.91-S6b) ──────────────────────────────
+
+def _resolve_chunk_nw_eif(d: int, guard=None) -> int:
+    """Chunk size so peak RAM per chunk stays within budget.
+
+    8 MB default; if guard exposes state_limit_bytes, cap to
+    state_limit // 8. bytes_per_window ≈ 8 * d * 2 (window + score
+    temp).
+    """
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        sl = getattr(guard, "state_limit_bytes", None)
+        if isinstance(sl, (int, float)) and sl > 0:
+            target_bytes = min(int(target_bytes), max(1, int(sl) // 8))
+    bytes_per_window = 8 * max(int(d), 1) * 2
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
+def _iter_window_chunks_eif(X: np.ndarray, w: int, stride: int,
+                            chunk_nw: int):
+    """Yield (chunk(nb, w*c), start). No full (n_w, w*c) materialize."""
+    if X.ndim == 1:
+        X = X[:, None]
+    n, c = X.shape
+    n_w = (n - w) // stride + 1
+    if n_w < 1:
+        return
+    offsets = np.arange(w, dtype=np.int64)
+    for start in range(0, n_w, chunk_nw):
+        end = min(start + chunk_nw, n_w)
+        abs_starts = np.arange(start, end, dtype=np.int64) * stride
+        idx = abs_starts[:, None] + offsets[None, :]
+        yield X[idx].reshape(end - start, w * c), start
+
+
 # ── Public API ────────────────────────────────────────────────────
 
 def fit_eif(
@@ -322,7 +359,16 @@ def fit_eif(
             f"got {extension_level}")
 
     if guard is not None:
-        est_bytes = 8 * n_w_pre * d_pre
+        # v0.9.91-S6b-fix3: peak under chunked fit.
+        #   gathered  = n_est * psi * d * 8   (unique fit windows)
+        #   w_scores  = n_w * 8               (output)
+        #   chunk buf = chunk_nw * d * 8 * 2
+        _psi_est = max_samples if isinstance(max_samples, int) else 256
+        _psi_est = min(_psi_est, n_w_pre)
+        _chunk_est = _resolve_chunk_nw_eif(d_pre, guard)
+        est_bytes = (int(n_estimators) * _psi_est * d_pre * 8
+                     + n_w_pre * 8
+                     + _chunk_est * d_pre * 8 * 2)
         if hasattr(guard, "check_state") and callable(guard.check_state):
             guard.check_state(est_bytes, name="eif.windows")
         else:
@@ -334,10 +380,17 @@ def fit_eif(
                         f"EIF estimated {est_bytes} bytes > "
                         f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
-    # Allocation happens ONLY after guard passes.
-    windows = _make_windows(X, window_size, stride)
-    n_w, d = windows.shape
-    # Canonicalize max_samples/extension_level (post-alloc, same values)
+    # v0.9.91-S6b-fix3: bit-identical chunked fit.
+    # Pre-sample per-tree indices via rng.choice(n_w, size=psi,
+    # replace=False) with same rng sequence as _EIFForest.fit
+    # (one choice call per tree); gather all unique sampled windows
+    # in a single chunked pass; build trees manually with rng state
+    # advancing exactly as _EIFForest.fit does (choice, then pass
+    # same rng to _EIFTree.fit).
+    # Peak = n_est*psi*d*8 (unique gathered windows, hyperparameter-
+    # bound) + n_w*8 (scores) + chunk*d*8*2.
+    n_w = n_w_pre
+    d = d_pre
     if max_samples == "auto":
         max_samples = min(256, n_w)
     if max_samples > n_w:
@@ -345,13 +398,64 @@ def fit_eif(
     if extension_level is None:
         extension_level = d - 1
 
+    chunk_nw = _resolve_chunk_nw_eif(d, guard)
+    psi_actual = min(max_samples, n_w)
+
+    # Phase 1: pre-sample per-tree indices (same rng sequence as
+    # _EIFForest.fit: fresh default_rng(random_state), one choice()
+    # per tree, size=psi, replace=False).
+    rng_fit = np.random.default_rng(random_state)
+    tree_indices: list = []
+    unique_set: set = set()
+    for _ in range(int(n_estimators)):
+        idx = rng_fit.choice(n_w, size=psi_actual, replace=False)
+        tree_indices.append(idx)
+        unique_set.update(int(i) for i in idx)
+    unique_sorted = np.array(sorted(unique_set), dtype=np.int64)
+    pos_map = {int(v): j for j, v in enumerate(unique_sorted)}
+
+    # Phase 2: one chunked pass, gather all unique sampled windows.
+    gathered = np.empty((len(unique_sorted), d), dtype=np.float64)
+    for chunk, start in _iter_window_chunks_eif(
+            X, window_size, stride, chunk_nw):
+        nb = chunk.shape[0]
+        end = start + nb
+        lo = int(np.searchsorted(unique_sorted, start, side='left'))
+        hi = int(np.searchsorted(unique_sorted, end, side='left'))
+        for k in range(lo, hi):
+            g = int(unique_sorted[k])
+            gathered[k] = chunk[g - start]
+
+    # Phase 3: build trees with rng state identical to _EIFForest.fit.
     forest = _EIFForest(
         n_estimators=n_estimators,
         max_samples=max_samples,
         extension_level=extension_level,
         random_state=random_state,
-    ).fit(windows)
-    window_scores = forest.score(windows)
+    )
+    forest.max_depth = int(np.ceil(np.log2(max(psi_actual, 2))))
+    forest._c_psi = _c(psi_actual)
+    forest.trees = []
+    rng_build = np.random.default_rng(random_state)
+    for t in range(int(n_estimators)):
+        # Advance rng_build exactly as _EIFForest.fit would
+        # (result discarded — we already have tree_indices[t]).
+        _ = rng_build.choice(n_w, size=psi_actual, replace=False)
+        local_idx = np.fromiter(
+            (pos_map[int(i)] for i in tree_indices[t]),
+            dtype=np.int64, count=psi_actual)
+        sample_t = gathered[local_idx]
+        tree = _EIFTree().fit(
+            sample_t, np.arange(psi_actual, dtype=np.int64), 0,
+            forest.max_depth, extension_level, rng_build)
+        forest.trees.append(tree)
+
+    # Chunked scoring: window_scores is (n_w,) output — acceptable.
+    window_scores = np.empty(n_w, dtype=np.float64)
+    for chunk, start in _iter_window_chunks_eif(
+            X, window_size, stride, chunk_nw):
+        cs = forest.score(chunk)
+        window_scores[start:start + len(cs)] = cs
 
     if aggregate == "max":
         scores = _map_max(window_scores, window_size, n, stride=stride)
