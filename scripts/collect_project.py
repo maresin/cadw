@@ -35,6 +35,19 @@ EXCLUDE_DIRS = {
 EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".so", ".dylib", ".pyd",
                     ".arrow", ".parquet", ".tar", ".gz"}
 ROOT_FILES_FULL = ["README.md", "pyproject.toml", "METHODOLOGY.md"]
+
+# v0.9.93-prep: AI-first files (always full in snapshot, any mode).
+# Order in snapshot: AI_CONSTITUTION.md → docs/ROADMAP.md →
+# docs/ml_tools/EXAMPLES_INDEX.md → PRIMITIVES_AND_PRINCIPLES.md.
+# Purpose: new AI session sees these before any code stub.
+# If file is absent on disk, snapshot silently skips it and prints
+# a WARNING to stderr (see main()).
+AI_FIRST_FILES = {
+    "AI_CONSTITUTION.md",
+    "docs/ROADMAP.md",
+    "docs/ml_tools/EXAMPLES_INDEX.md",
+    "docs/ml_tools/PRIMITIVES_AND_PRINCIPLES.md",
+}
 SEP = "# " + "=" * 76
 
 # v0.9.87-phase0a-fix1: tiny-mode context upgrade.
@@ -270,7 +283,11 @@ def main() -> int:
     for p in _walk_files(root):
         if p.resolve() == output.resolve():
             continue
-        if args.mode == "full":
+        rel = p.relative_to(root).as_posix()
+        # v0.9.93-prep: AI-first files always full, in all modes.
+        if rel in AI_FIRST_FILES:
+            mode = "full"
+        elif args.mode == "full":
             mode = "full"
             if p.name == "CHANGELOG.md":
                 mode = "changelog"
@@ -278,7 +295,6 @@ def main() -> int:
                 mode = "decisions"
         elif args.mode == "tiny":
             # v0.9.87-phase0a-fix1: context-rich tiny mode.
-            rel = p.relative_to(root).as_posix()
             if rel in TINY_FULL:
                 mode = "full"
             elif rel in TINY_SKELETON:
@@ -294,6 +310,26 @@ def main() -> int:
     if not classified:
         print("WARNING: no files collected", file=sys.stderr)
         return 2
+
+    # v0.9.93-prep: AI-first files go first in snapshot.
+    _ai_first = [
+        pm for pm in classified
+        if pm[0].relative_to(root).as_posix() in AI_FIRST_FILES]
+    if _ai_first:
+        classified = _ai_first + [
+            pm for pm in classified
+            if pm[0].relative_to(root).as_posix() not in AI_FIRST_FILES]
+
+    # Warn if expected AI-first files are missing on disk (snapshot
+    # would silently omit them — check that they were actually created).
+    _present = {
+        pm[0].relative_to(root).as_posix() for pm in classified}
+    _missing = AI_FIRST_FILES - _present
+    if _missing:
+        print(
+            f"WARNING: AI-first files not found on disk "
+            f"(snapshot will skip): {sorted(_missing)}",
+            file=sys.stderr)
 
     n_changelog_omitted = 0
     n_eps_omitted = 0
