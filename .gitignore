@@ -58,3 +58,4 @@ _verify_*.py
 
 # Pingis temp diagnostic scripts
 .pingis/_*.py
+audit_bundles/
