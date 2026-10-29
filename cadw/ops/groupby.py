@@ -31,6 +31,7 @@ from cadw.core.logging import get_logger
 from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from cadw.io.batch_reader import ArrowIPCBatchReader
 from cadw.io.batch_writer import ArrowIPCBatchWriter
+from cadw.core.spill import SpillBuffer, InMemoryResult, AutoResult
 from cadw.ops.shuffle import hash_shuffle, estimate_num_partitions, compute_hashes, _mod_p, _boundaries
 
 logger = get_logger("ops.groupby")
@@ -771,7 +772,8 @@ def groupby_aggregate(
     hash_seed: int = 0,
     combiner: bool = False,
     log: bool = True,
-) -> pa.Table:
+    output: str = "memory",
+) -> "pa.Table | AutoResult":
     """
     Out-of-core groupby: HashShuffle + LocalGroupBy + Concat.
 
@@ -961,10 +963,53 @@ def groupby_aggregate(
         logger.info("groupby_aggregate: %d partitions", len(partitions))
 
     # --- Фаза 2: LocalGroupBy по каждой партиции ---
-    partial_tables: list[pa.Table] = []
+    if output not in ("memory", "auto", "disk"):
+        raise ValueError(
+            f"groupby_aggregate: output must be 'memory', 'auto' or "
+            f"'disk'; got {output!r}")
+
+    if output == "memory":
+        partial_tables: list[pa.Table] = []
+        for i, p in enumerate(partitions):
+            if combiner_active:
+                t = _local_groupby(
+                    p, by_columns, agg_columns, agg_funcs,
+                    memory_guard=memory_guard,
+                    spill_dir=spill_dir,
+                    partial_merge=True,
+                )
+            else:
+                t = _local_groupby(
+                    p, by_columns, agg_columns, agg_funcs,
+                    memory_guard=memory_guard,
+                    spill_dir=spill_dir,
+                )
+            if t.num_rows > 0:
+                partial_tables.append(t)
+            if log and t.num_rows > 0:
+                memory_guard.log_step(
+                    "groupby_aggregate.partition",
+                    batch_id=i,
+                    n_rows=t.num_rows,
+                    batch_bytes=t.nbytes,
+                )
+
+        if not partial_tables:
+            fields = [pa.field(c, pa.string()) for c in by_columns]
+            for col, f in zip(agg_columns, agg_funcs):
+                out_type = pa.int64() if f == "count" else pa.float64()
+                fields.append(pa.field(f"{col}_{f}", out_type))
+            return pa.Table.from_pylist([], schema=pa.schema(fields))
+
+        result = pa.concat_tables(partial_tables, promote_options="default")
+        if log:
+            logger.info("groupby_aggregate done: %d rows", result.num_rows)
+        return result
+
+    # output in ("auto", "disk") — v0.9.90-S2 SpillBuffer path
+    buf: "SpillBuffer | None" = None
     for i, p in enumerate(partitions):
         if combiner_active:
-            # Частичные агрегаты → merge, а не group_by.
             t = _local_groupby(
                 p, by_columns, agg_columns, agg_funcs,
                 memory_guard=memory_guard,
@@ -977,29 +1022,34 @@ def groupby_aggregate(
                 memory_guard=memory_guard,
                 spill_dir=spill_dir,
             )
-        # Пустая таблица без данных не мешает конкатенации
         if t.num_rows > 0:
-            partial_tables.append(t)
+            if buf is None:
+                buf = SpillBuffer(
+                    guard=memory_guard, schema=t.schema,
+                    name="groupby",
+                    spill_ratio=0.0 if output == "disk" else 0.5,
+                )
+            for b in t.to_batches():
+                buf.write_batch(b)
         if log and t.num_rows > 0:
             memory_guard.log_step(
                 "groupby_aggregate.partition",
-                batch_id=i,
-                n_rows=t.num_rows,
-                batch_bytes=t.nbytes,
+                batch_id=i, n_rows=t.num_rows, batch_bytes=t.nbytes,
             )
 
-    # --- Фаза 3: Конкатенация (merge не нужен — партиции не пересекаются по ключам) ---
-    if not partial_tables:
-        # Пустая схема результата
+    if buf is None:
         fields = [pa.field(c, pa.string()) for c in by_columns]
         for col, f in zip(agg_columns, agg_funcs):
             out_type = pa.int64() if f == "count" else pa.float64()
             fields.append(pa.field(f"{col}_{f}", out_type))
-        return pa.Table.from_pylist([], schema=pa.schema(fields))
+        return InMemoryResult(
+            pa.Table.from_pylist([], schema=pa.schema(fields)))
 
-    result = pa.concat_tables(partial_tables, promote_options="default")
+    result = buf.finalize()
     if log:
-        logger.info("groupby_aggregate done: %d rows", result.num_rows)
+        logger.info(
+            "groupby_aggregate done: %d rows (output=%s, spilled=%s)",
+            len(result), output, result.is_spilled)
     return result
 
 

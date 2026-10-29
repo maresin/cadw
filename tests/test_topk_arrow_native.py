@@ -222,13 +222,30 @@ def test_topk_uses_select_k_or_sort_indices():
 
 
 def test_topk_to_disk_guards_before_merge():
-    """Impl: check_state before concat_tables."""
+    """Impl: check_state before SpillBuffer allocation (v0.9.90-S2).
+
+    v0.9.90-S2 replaced `per_batch: list[pa.Table]` + one big
+    `concat_tables(per_batch)` with incremental merge
+    (`current_top = _per_batch_topk(current_top + batch_top, k)`).
+    Now:
+      - Per-iteration guard: check_state(current_top.nbytes) — bounded
+        by k × row_size (output itself).
+      - Auto-path: SpillBuffer(...) after the loop.
+      - concat_tables appears only for 2-table merges inside the loop,
+        not for whole-list materialize.
+
+    Assertion: check_state (the guard) precedes the SpillBuffer
+    construction (the next potential allocation point).
+    """
     from cadw.patch_utils import assert_call_order
     from cadw.ops import topk as tk
     import inspect
     src = inspect.getsource(tk.topk_to_disk)
-    assert_call_order(src, "check_state", "concat_tables",
-                       fn_name="topk_to_disk")
+    # Guard exists
+    assert "check_state" in src, "topk_to_disk must call check_state"
+    # Guard before output allocation (SpillBuffer in auto path)
+    assert_call_order(src, "check_state", "SpillBuffer",
+                      fn_name="topk_to_disk")
 
 
 def test_topk_no_to_pandas_ast():

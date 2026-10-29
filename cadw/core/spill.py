@@ -289,9 +289,11 @@ class SpillBuffer:
 
     def __init__(self, *, guard, schema: pa.Schema, name: str = "spill",
                  spill_ratio: float = 0.5):
-        if not (0.0 < spill_ratio <= 1.0):
+        # v0.9.90-S2-fix: 0.0 allowed as "spill on first batch"
+        # (used by output="disk" to force OnDiskResult).
+        if not (0.0 <= spill_ratio <= 1.0):
             raise ValueError(
-                f"spill_ratio must be in (0, 1]; got {spill_ratio}")
+                f"spill_ratio must be in [0, 1]; got {spill_ratio}")
         self.guard = guard
         self.schema = schema
         self.name = str(name)
@@ -312,7 +314,8 @@ class SpillBuffer:
             avail = self.guard.available_bytes()
         except Exception:
             return 1 << 62
-        return max(1, int(avail * self.spill_ratio))
+        # spill_ratio == 0.0 → threshold 0 → any non-empty batch spills.
+        return int(avail * self.spill_ratio)
 
     def write_batch(self, batch: pa.RecordBatch) -> None:
         if self._finalized:
@@ -529,9 +532,9 @@ class SpillArray:
 
     def __init__(self, *, guard, width: int, dtype=np.float64,
                  name: str = "spill_array", spill_ratio: float = 0.5):
-        if not (0.0 < spill_ratio <= 1.0):
+        if not (0.0 <= spill_ratio <= 1.0):
             raise ValueError(
-                f"spill_ratio must be in (0, 1]; got {spill_ratio}")
+                f"spill_ratio must be in [0, 1]; got {spill_ratio}")
         if width < 1:
             raise ValueError(f"width must be >= 1, got {width}")
         self.guard = guard
@@ -556,7 +559,7 @@ class SpillArray:
             avail = self.guard.available_bytes()
         except Exception:
             return 1 << 62
-        return max(1, int(avail * self.spill_ratio))
+        return int(avail * self.spill_ratio)
 
     def write_array(self, arr) -> None:
         if self._finalized:

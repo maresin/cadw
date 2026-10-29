@@ -286,7 +286,22 @@ def test_ondisk_array_result_close_removes_tmpdir():
 def test_spill_ratio_out_of_range():
     mg = _mg_large()
     schema = pa.schema([("c0", pa.int64())])
+    # v0.9.90-S2: 0.0 allowed (= spill on first batch); -0.1 invalid.
     with pytest.raises(ValueError, match="spill_ratio"):
-        SpillBuffer(guard=mg, schema=schema, spill_ratio=0.0)
+        SpillBuffer(guard=mg, schema=schema, spill_ratio=-0.1)
     with pytest.raises(ValueError, match="spill_ratio"):
         SpillBuffer(guard=mg, schema=schema, spill_ratio=1.5)
+
+
+def test_spill_ratio_zero_spills_immediately():
+    """spill_ratio=0.0 -> threshold 0 -> first non-empty batch spills."""
+    mg = _mg_large()  # big budget; ratio=0 forces spill anyway
+    schema = pa.schema([("c0", pa.int64())])
+    buf = SpillBuffer(guard=mg, schema=schema, spill_ratio=0.0)
+    for b in _make_batches(100, 10):
+        buf.write_batch(b)
+    assert buf.is_spilled
+    result = buf.finalize()
+    assert isinstance(result, OnDiskResult)
+    assert len(result) == 100
+    result.close()

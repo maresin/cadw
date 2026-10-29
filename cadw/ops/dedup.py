@@ -30,6 +30,7 @@ import pyarrow.ipc as ipc
 from cadw.core.logging import get_logger
 from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from cadw.io.batch_reader import ArrowIPCBatchReader
+from cadw.core.spill import SpillBuffer, InMemoryResult, AutoResult
 from cadw.ops.shuffle import estimate_num_partitions, hash_shuffle
 
 logger = get_logger("ops.dedup")
@@ -187,7 +188,8 @@ def drop_duplicates(
     total_rows: int = 0,
     num_partitions: int | None = None,
     log: bool = True,
-) -> pa.Table:
+    output: str = "memory",
+) -> "pa.Table | AutoResult":
     """Out-of-core drop_duplicates.
 
     - subset: list of columns (non-empty). Dedup key.
@@ -242,18 +244,52 @@ def drop_duplicates(
         memory_guard, spill_dir / "shuffle", log=log,
     )
 
-    results: list[pa.Table] = []
+    out_schema = pa.schema(
+        [f for f in first.schema if f.name != "row_id"]
+    )
+
+    if output not in ("memory", "auto", "disk"):
+        raise ValueError(
+            f"drop_duplicates: output must be 'memory', 'auto' or "
+            f"'disk'; got {output!r}")
+
+    if output == "memory":
+        results: list[pa.Table] = []
+        for p in paths:
+            if not p.exists() or p.stat().st_size == 0:
+                continue
+            t = _local_dedup(p, subset, keep, memory_guard)
+            if t.num_rows > 0:
+                results.append(t)
+
+        if not results:
+            return pa.Table.from_batches([], schema=out_schema)
+
+        return pa.concat_tables(results, promote_options="default")
+
+    # output in ("auto", "disk") — v0.9.90-S2 SpillBuffer path
+    buf: "SpillBuffer | None" = None
     for p in paths:
         if not p.exists() or p.stat().st_size == 0:
             continue
         t = _local_dedup(p, subset, keep, memory_guard)
         if t.num_rows > 0:
-            results.append(t)
+            if buf is None:
+                buf = SpillBuffer(
+                    guard=memory_guard, schema=out_schema,
+                    name="dedup",
+                    spill_ratio=0.0 if output == "disk" else 0.5,
+                )
+            for b in t.to_batches():
+                buf.write_batch(b)
 
-    out_schema = pa.schema(
-        [f for f in first.schema if f.name != "row_id"]
-    )
-    if not results:
-        return pa.Table.from_batches([], schema=out_schema)
+    if buf is None:
+        return InMemoryResult(
+            pa.Table.from_batches([], schema=out_schema))
 
-    return pa.concat_tables(results, promote_options="default")
+    result = buf.finalize()
+    if log:
+        logger.info(
+            "drop_duplicates done: %d rows (output=%s, spilled=%s)",
+            len(result), output, result.is_spilled)
+    return result

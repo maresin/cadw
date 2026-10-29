@@ -26,6 +26,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.spill import SpillBuffer, InMemoryResult, AutoResult
 
 
 _RESERVED_ROW_ID_COL = "__cadw_row_id"
@@ -72,7 +73,8 @@ def topk_to_disk(
     n: int,
     kind: str,
     memory_guard: MemoryGuard,
-) -> pa.Table:
+    output: str = "memory",
+) -> "pa.Table | AutoResult":
     """Streaming top-n. Returns pa.Table (original schema).
 
     Args:
@@ -120,14 +122,15 @@ def topk_to_disk(
         )
     out_schema = first.schema
 
-    per_batch: list[pa.Table] = []
-    # v0.9.12 (F12-1): incremental (was O(P²) sum per batch;
-    # P=10000 → 100M iters ~1.6 GB attr accesses).
-    acc_bytes = 0
+    # v0.9.90-S2 (§13 audit #13): incremental merge, not per-batch
+    # accumulation. Prior code held O(P × k × row_size) in `per_batch`;
+    # now `current_top` is bounded by O(k × row_size) — for large
+    # n_total / small k, this is the difference between OOM and OOC.
+    current_top: "pa.Table | None" = None
     row_id_offset = 0
 
     def _process(batch: pa.RecordBatch, offset: int) -> None:
-        nonlocal row_id_offset, acc_bytes
+        nonlocal row_id_offset, current_top
         memory_guard.check_batch(batch, name=f"topk.{kind}.input")
         if batch.num_rows == 0:
             row_id_offset = offset
@@ -137,36 +140,52 @@ def topk_to_disk(
         )
         b = batch.append_column(_RESERVED_ROW_ID_COL, rid)
         t = pa.Table.from_batches([b])
-        top = _per_batch_topk(t, column, n, descending)
-        per_batch.append(top)
-        acc_bytes += top.nbytes  # v0.9.12 (F12-1): incremental
+        batch_top = _per_batch_topk(t, column, n, descending)
+        if current_top is None:
+            current_top = batch_top
+        else:
+            merged = pa.concat_tables([current_top, batch_top])
+            current_top = _per_batch_topk(merged, column, n, descending)
         row_id_offset = offset + batch.num_rows
 
-        # Fail-fast: accumulator + 2× overhead before adding more.
+        # Fail-fast: current_top is bounded by n × row_size (output size
+        # itself). If that exceeds state_limit, output cannot fit — raise.
         memory_guard.check_state(
-            2 * acc_bytes,
-            name=f"topk.{kind}.accum(P={len(per_batch)},n={n})",
+            current_top.nbytes,
+            name=f"topk.{kind}.current(n={n})",
         )
 
     _process(first, 0)
     for b in it:
         _process(b, row_id_offset)
 
-    if not per_batch:
-        return pa.Table.from_batches([], schema=out_schema)
+    if output not in ("memory", "auto", "disk"):
+        raise ValueError(
+            f"topk_to_disk: output must be 'memory', 'auto' or "
+            f"'disk'; got {output!r}")
 
-    merged = pa.concat_tables(per_batch)
-    order = "descending" if descending else "ascending"
-    final_idx = pc.sort_indices(
-        merged,
-        sort_keys=[
-            (column, order, "at_end"),
-            (_RESERVED_ROW_ID_COL, "ascending", "at_end"),
-        ],
+    if current_top is None:
+        if output == "memory":
+            return pa.Table.from_batches([], schema=out_schema)
+        return InMemoryResult(
+            pa.Table.from_batches([], schema=out_schema))
+
+    # current_top already sorted, top-n, has _RESERVED_ROW_ID_COL.
+    final = current_top.select(out_schema.names)
+
+    if output == "memory":
+        return final
+
+    # output in ("auto", "disk") — wrap in SpillBuffer so caller can
+    # iterate on disk instead of forcing materialize.
+    buf = SpillBuffer(
+        guard=memory_guard, schema=out_schema,
+        name=f"topk_{kind}",
+        spill_ratio=0.0 if output == "disk" else 0.5,
     )
-    top_final = merged.take(final_idx.slice(0, n))
-    # Drop internal tie-break column; return original schema order.
-    return top_final.select(out_schema.names)
+    for b in final.to_batches():
+        buf.write_batch(b)
+    return buf.finalize()
 
 
 __all__ = ["topk_to_disk"]
