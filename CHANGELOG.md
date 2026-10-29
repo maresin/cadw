@@ -1,5 +1,26 @@
 ## [Unreleased]
 
+### v0.9.91-S6e (2026-10-29) - binseg + stray: refuse_at_guard (documented)
+
+Both modules honestly raise `MemoryLimitExceeded` when the algorithmic
+O(n) / O(n^2) state exceeds `state_limit`. This is not a fixable
+violation — it is a **documented limitation**:
+
+  - `cadw/ml/binseg.py` — prefix-sum arrays (`cs`, `cs2`, O(n)) are
+    intrinsic to O(1)-per-split segment cost. Without them, binary
+    segmentation becomes O(n^2). Guard: `est = 8*n*3`. Refuse threshold:
+    n > state_limit / 24 (≈ 10^7 at 1 GB budget).
+  - `cadw/ml/stray.py` — brute-force KNN is O(n²) time, O(n*d) input
+    (not the algorithm's state, but unavoidable at exact KNN). Guard:
+    `est = 8*n*d*min(n, 4*k)`. Docstring already says: n <= 20k,
+    use EIF/Sub-PCA for larger.
+
+No code change. YAML update (mark `n_scalability: refuse_at_guard`,
+`tier1_core_exception: <reason>`) is backlog — needs D_time_series /
+E_anomaly YAML in hand.
+
+CHANGELOG-only. Full suite unchanged: 3981 passed, 8 skipped.
+
 ### v0.9.90-S5b (2026-10-29) - TS guards (base path)
 
 Guard before O(n) allocations in 4 TS functions (base path only;
