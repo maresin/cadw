@@ -105,11 +105,13 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
     n = 0
     for b in df._iter_filtered_batches():
         mg.check_batch(b, name="tfidf.fit", extra_factor=3.0)
+        # v0.9.90-S3 (G2): pre-check BEFORE dict grows.
+        mg.check_state(
+            (len(dfc) + b.num_rows) * 96 + 1024, name="tfidf.state")
         for t in b.column(text_col).to_pylist():
             n += 1
             for tok in set(tokenize(t)):
                 dfc[tok] = dfc.get(tok, 0) + 1
-        mg.check_state(len(dfc) * 96 + 1024, name="tfidf.state")
     if n == 0:
         raise ValueError("fit_tfidf: empty input")
     items = [(w, c) for w, c in dfc.items() if c >= min_df]

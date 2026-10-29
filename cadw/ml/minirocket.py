@@ -96,9 +96,10 @@ class MiniRocketModel:
                                          mg, "minirocket.transform"):
             feats = np.array([_ppv_series(series, w, d)
                               for (w, d) in self.kernels_], dtype=np.float64)
-            rows.append(feats)
-            mg.check_state(len(rows) * len(self.kernels_) * 8,
+            # v0.9.90-S3 (G2): pre-check BEFORE append.
+            mg.check_state((len(rows) + 1) * len(self.kernels_) * 8,
                            name="minirocket.features")
+            rows.append(feats)
         if not rows:
             return np.zeros((0, len(self.kernels_)), dtype=np.float64)
         return np.vstack(rows)

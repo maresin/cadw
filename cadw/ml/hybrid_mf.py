@@ -130,8 +130,10 @@ def fit_hybrid_mf(df, user_col, item_col, content_cols, *,
     mg = memory_guard or df._memory_guard
     base = fit_als(df, user_col, item_col, n_factors=n_factors, n_iter=n_iter,
                    reg=reg, alpha=alpha, seed=seed, memory_guard=mg)
+    # v0.9.90-S3 (G2): pre-check BEFORE _content_matrix allocates.
+    n_items = len(base.item_index_)
+    mg.check_state(n_items * len(cols) * 8, name="hybrid_mf.content")
     C, seen = _content_matrix(df, item_col, cols, base.item_index_)
-    mg.check_state(C.nbytes, name="hybrid_mf.content")
     Y = base.item_factors_
     # ridge: B = (C_w^T C_w + lambda I)^-1 C_w^T Y_w over items with interactions
     Cw = C[seen]

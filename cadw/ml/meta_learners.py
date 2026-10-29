@@ -132,13 +132,14 @@ def _collect(df, cols, t_col, y_col, mg):
     n = 0
     for b in df._iter_filtered_batches():
         mg.check_batch(b, name="meta_learner.pass1", extra_factor=2.0)
+        # v0.9.90-S3 (G2): pre-check BEFORE append.
+        n += b.num_rows
+        mg.check_state(n * (len(cols) * 8 + 16), name="meta_learner.state")
         Xs.append(_stack_numeric(b, cols))
         ts.append(b.column(t_col).cast(pa.float64(), safe=False)
                   .to_numpy(zero_copy_only=False))
         ys.append(b.column(y_col).cast(pa.float64(), safe=False)
                   .to_numpy(zero_copy_only=False))
-        n += b.num_rows
-        mg.check_state(n * (len(cols) * 8 + 16), name="meta_learner.state")
     if n == 0:
         raise ValueError("meta_learner: empty input")
     return np.vstack(Xs), np.concatenate(ts), np.concatenate(ys)

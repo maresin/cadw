@@ -206,10 +206,14 @@ def _build_vocab(df, text_col, vocab_size, mg):
     df_counts = {}
     for b in df._iter_filtered_batches():
         mg.check_batch(b, name="lda.vocab", extra_factor=3.0)
+        # v0.9.90-S3 (G2): pre-check BEFORE dict grows. Worst case
+        # this batch adds b.num_rows new unique tokens.
+        mg.check_state(
+            (len(df_counts) + b.num_rows) * 96 + 1024,
+            name="lda.vocab_state")
         for t in b.column(text_col).to_pylist():
             for tok in set(tokenize(t)):
                 df_counts[tok] = df_counts.get(tok, 0) + 1
-        mg.check_state(len(df_counts) * 96 + 1024, name="lda.vocab_state")
     top = sorted(df_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:vocab_size]
     return [w for w, _ in top]
 

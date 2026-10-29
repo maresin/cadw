@@ -62,6 +62,14 @@ class _MLBindingsMixin:
             uniques: set = set()
             for b in self._iter_filtered_batches():
                 arr = b.column(col)
+                # v0.9.90-S3 (G2): pre-check BEFORE set grows. Worst
+                # case this batch adds b.num_rows unique values.
+                # 180 B/entry = 50 (str) + ~40 (set slot)
+                # + ~90 (list copy margin for sorted()).
+                self._memory_guard.check_state(
+                    (len(uniques) + b.num_rows) * 180,
+                    name=f"encode_categorical({col})",
+                )
                 vc = pc.value_counts(arr)  # struct<values, counts>
                 if isinstance(vc, pa.ChunkedArray):
                     vc = vc.combine_chunks()
@@ -69,16 +77,6 @@ class _MLBindingsMixin:
                 for v in values.to_pylist():  # K per batch, not N
                     if v is not None:
                         uniques.add(v)
-                # v0.9.25c (part1_report B2): in-loop guard. Prior code
-                # accumulated Python-set of all uniques with no bound;
-                # @ 10M unique strings ~600 MB invisible to MemoryGuard
-                # (batch.nbytes ~130 KB/batch). 180 B/entry = 50 (str)
-                # + ~40 (set slot) + ~90 (list copy margin for sorted()).
-                # Fail-fast at state_limit (=available*0.5).
-                self._memory_guard.check_state(
-                    len(uniques) * 180,
-                    name=f"encode_categorical({col})",
-                )
             try:
                 sorted_vals = sorted(uniques)
             except TypeError:

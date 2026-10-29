@@ -292,6 +292,31 @@ def fit_dwt_mlead(
     if n < 4:
         raise ValueError(f"series too short for DWT-MLEAD (min 4), got {n}")
 
+    # v0.9.90-S3 (G2): estimate peak BEFORE pad+DWT allocations.
+    # n_padded = next power of 2 ≥ n; details total ≈ n_padded values.
+    n_padded_est = (1 << (n - 1).bit_length()) if n > 1 else 1
+    max_level_est = ((n_padded_est.bit_length() - 1)
+                     if n_padded_est > 1 else 0)
+    if guard is not None:
+        _w_peak_pre = max(2, 1 << ((max_level_est - start_level) // 2))
+        _chunk_pre = _resolve_chunk_nw(_w_peak_pre, guard)
+        est_details_pre = int(n_padded_est * 8 * 2)
+        est_chunk_pre = (_chunk_pre * _w_peak_pre * 8 * 4
+                         + _w_peak_pre * _w_peak_pre * 8 * 2)
+        est_bytes_pre = int(est_details_pre + est_chunk_pre)
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes_pre, name="dwt_mlead.state")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                max_bytes = limit_mb * 1024 * 1024
+                if est_bytes_pre > max_bytes:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"DWT-MLEAD estimated {est_bytes_pre} bytes > "
+                        f"guard {max_bytes} bytes (limit_mb={limit_mb})"
+                    )
+
     x_padded = _pad_to_next_power_of_two(x)
     details = _multilevel_haar_dwt(x_padded)
     max_level = len(details)
@@ -307,27 +332,11 @@ def fit_dwt_mlead(
             min_anomaly_consistency=min_anomaly_consistency,
         )
 
-    # v0.9.87-P4b (audit HIGH-1 full fix): chunked mahalanobis per
-    # level. Peak RAM = details list (~n*8, already in RAM before
-    # this guard) + per-chunk buffers (chunk_nw*w*8*4) + w^2*8*2.
+    # v0.9.90-S3 (G2): peak already checked BEFORE pad+DWT allocations.
+    # Here: chunk size for streaming mahalanobis (uses actual max_level,
+    # should match pre-guard estimate).
     _w_peak = max(2, 1 << ((max_level - start_level) // 2))
     _chunk_nw = _resolve_chunk_nw(_w_peak, guard)
-    if guard is not None:
-        est_details = int(n * 8 * 1.5)  # ~n*8 sum + 1.5x safety
-        est_chunk = _chunk_nw * _w_peak * 8 * 4 + _w_peak * _w_peak * 8 * 2
-        est_bytes = int(est_details + est_chunk)
-        if hasattr(guard, "check_state") and callable(guard.check_state):
-            guard.check_state(est_bytes, name="dwt_mlead.state")
-        else:
-            limit_mb = _probe_memory_limit_mb(guard)
-            if limit_mb is not None and limit_mb > 0:
-                max_bytes = limit_mb * 1024 * 1024
-                if est_bytes > max_bytes:
-                    from cadw.core.memory_guard import MemoryLimitExceeded
-                    raise MemoryLimitExceeded(
-                        f"DWT-MLEAD estimated {est_bytes} bytes > "
-                        f"guard {max_bytes} bytes (limit_mb={limit_mb})"
-                    )
 
     anomaly_counts = np.zeros(n, dtype=np.int64)
     level_counts = np.zeros(max_level, dtype=np.int64)
