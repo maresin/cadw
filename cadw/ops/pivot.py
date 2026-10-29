@@ -99,7 +99,9 @@ def pivot_to_disk(
             if b.num_rows > 0:
                 yield b
 
-    long_table = groupby_aggregate(
+    # v0.9.90-S2: output="auto" so K_pairs can exceed state_limit;
+    # groupby spills to disk instead of materializing pa.Table.
+    long_result = groupby_aggregate(
         _filtered(),
         by_columns=index_cols + [columns_col],
         agg_columns=[values_col],
@@ -107,18 +109,27 @@ def pivot_to_disk(
         memory_guard=memory_guard,
         spill_dir=spill_dir / "groupby",
         log=False,
+        output="auto",
     )
-    if long_table.num_rows == 0:
+    if len(long_result) == 0:
         raise ValueError(
             "pivot_to_disk: no rows after filtering null columns; "
             "cannot pivot empty data"
         )
 
-    long_batches = list(long_table.to_batches())
-    sample = long_batches[0]
+    # Find first non-empty batch as sample (AutoResult iterable is
+    # re-entrant; each iter() opens fresh reader for OnDiskResult).
+    sample = None
+    for b in long_result:
+        if b.num_rows > 0:
+            sample = b
+            break
+    if sample is None:
+        raise ValueError(
+            "pivot_to_disk: no non-empty batch in groupby result")
     k_columns_est = estimate_k_sample_arrow(sample, [columns_col])
     key_bytes = _column_key_size(
-        long_table.schema.field(columns_col).type
+        long_result.schema.field(columns_col).type
     )
     memory_guard.check_state(
         k_columns_est * key_bytes * 2,
@@ -126,7 +137,7 @@ def pivot_to_disk(
     )
 
     sorted_path = external_sort(
-        iter(long_batches),
+        iter(long_result),
         key_columns=index_cols + [columns_col],
         value_columns=index_cols + [columns_col, value_col_name],
         memory_guard=memory_guard,
@@ -150,7 +161,7 @@ def pivot_to_disk(
 
     value_dtype = _column_dtype_for_agg(aggfunc, values_type)
     out_fields = [
-        long_table.schema.field(c) for c in index_cols
+        long_result.schema.field(c) for c in index_cols
     ]
     out_col_names: list = []
     index_set = set(index_cols)
