@@ -1,5 +1,61 @@
 ## [Unreleased]
 
+### v0.9.90-S1 (2026-10-29) - Streaming-output API core
+
+Adds `SpillBuffer` / `AutoResult` / `SpillArray` / `AutoArrayResult`
+(`cadw/core/spill.py`, ~360 LOC) + `docs/ml_tools/
+STREAMING_OUTPUT_ARCHITECTURE.md` (normative, §1-§6).
+
+Spill-on-demand: threshold = `guard.available_bytes() × spill_ratio`
+(default 0.5 = `state_safety`). Once spilled, stays spilled (no
+un-spill). `OnDiskResult.to_table()` / `OnDiskArrayResult.to_numpy()`
+raise `MemoryLimitExceeded` with §1.3 reference (no escape hatches).
+
+Hotfix within S1: `cadw/ml/rocket.py::_read_batch` `check_state` →
+`check_batch(extra_factor=3.0)` — input is one `pa.RecordBatch`,
+peak ~3× `batch.nbytes`, not state; was classified `other-guard` by
+`scripts/service/diagnose_unguarded_to_pylist.py`.
+
+20 tests (`tests/test_spill_buffer.py`): SpillBuffer + AutoResult
+(no-spill/spill/empty/guard=None/order/re-iterable/lifecycle/context
+manager) + SpillArray + AutoArrayResult (width validation, 1d
+reshape, cleanup).
+
+### v0.9.89-D4 (2026-10-29) - ROCKET
+
+`cadw/ml/rocket.py` — Dempster, Petitjean, Webb, DMKD 2020.
+Random convolutional kernels (weights ~ N(0,1), biases ~ U(-1,1),
+dilations ∈ {1,2,4,...,max_dilation}). Feature extraction streams
+per series via `SpillDir`; classifier SGD ridge via `cadw.ops.
+optim.sgd_streaming`. OOC in `n_kernels` (state O(d·K), not O(d²)).
+Documented limitation: labels `O(n_series)` in RAM (guarded,
+refuse-at-guard) — truly unbounded requires two-pass labels protocol
+(backlog).
+
+`cadw/ml/_series.py::iter_series` extracted from `minirocket.py`
+(shared D4 helper). 11 tests.
+
+### v0.9.89-D2 (2026-10-29) - BVAR + VECM + D2 ensemble
+
+`cadw/ts/bvar.py::BVARModel` — Bayesian VAR with Minnesota prior
+(Litterman 1986, Banbura-Giannone-Reichlin 2010). Streaming
+sufficient stats (XTX, XTY, YTY) + Normal-Inverted Wishart conjugate
+posterior. State O(k²·p²), independent of n.
+
+`cadw/ts/vecm.py::VECMModel` — Johansen cointegration VECM
+(Johansen 1988/1991, Lutkepohl ch. 6-7). Streaming cross-covariance
+accumulation, generalized eigenproblem on k×k. State O(k²·p²),
+independent of n.
+
+VAR YAML fixed: `cadw_module cadw.ts.models` → `cadw.ts.var`,
+`cadw_function VAR` → `VARModel`.
+
+D2 ensemble_recommendation filled (was null, WARN from validator):
+VAR + BVAR + VECM + GBDT_multiseries, `max_per_role 2 → 4` (all
+share `temporal_dynamics`).
+
+18 tests (`tests/test_bvar.py` 9 + `tests/test_vecm.py` 9).
+
 ### v0.9.88 (2026-10-28) - Post-release: audit closure + P2b-full-2
 
 Follow-up to v0.9.87. Closes remaining honest gaps and false
