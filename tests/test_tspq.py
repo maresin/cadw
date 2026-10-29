@@ -156,10 +156,16 @@ def test_tspq_no_bench_deps_in_source():
             assert top not in forbidden, (
                 f"forbidden import-from: {mod}")
 
-def test_fit_t2q_guard_raises_before_allocation(monkeypatch):
-    """v0.9.87-fix1b(2/2): guard fires BEFORE _make_windows."""
+def test_fit_t2q_chunked_does_not_call_make_windows(monkeypatch):
+    """v0.9.91-S6b: real MemoryGuard → chunked path.
+
+    _make_windows is not called (OOC chunked mean/cov/scores path).
+    Prior v0.9.87-fix1b behaviour (raise before _make_windows on
+    tight budget) is superseded by chunked OOC. Duck-typed guards
+    still hit old path via fallback (see test_fit_t2q_memory_guard_logic).
+    """
     from cadw.ml import tspq as tspq_mod
-    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+    from cadw.core.memory_guard import MemoryGuard
 
     called = {"n": 0}
     orig = tspq_mod._make_windows
@@ -172,9 +178,9 @@ def test_fit_t2q_guard_raises_before_allocation(monkeypatch):
 
     guard = MemoryGuard(max_memory_mb=10)
     x = np.random.default_rng(0).standard_normal(100_000)
-    with pytest.raises(MemoryLimitExceeded):
-        tspq_mod.fit_t2q(x, window_size=64, guard=guard)
+    r = tspq_mod.fit_t2q(x, window_size=64, guard=guard)
+    assert r.decision_scores.shape == (100_000,)
     assert called["n"] == 0, (
-        f"guard should fire BEFORE _make_windows; "
-        f"_make_windows was called {called['n']} time(s)")
+        f"_make_windows should not be called in chunked path; "
+        f"was called {called['n']} time(s)")
 

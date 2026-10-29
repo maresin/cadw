@@ -157,6 +157,59 @@ def _fit_pca_eigh(centered: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return eigvals[order], eigvecs[:, order]
 
 
+def _fit_pca_eigh_from_cov(cov, n_w):
+    """v0.9.91-S6b: same eigendecomp, from pre-computed cov.
+
+    Matches _fit_pca_eigh output exactly (same eigh + descending sort).
+    """
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    order = np.argsort(eigvals)[::-1]
+    return eigvals[order], eigvecs[:, order]
+
+
+def _resolve_chunk_nw_tspq(d: int, guard=None) -> int:
+    """Chunk size, 8 MB target (or state_limit//8). Per-window:
+    chunk buffer (d*8) + proj (k*8) + recon (d*8) ~ 3*d*8.
+    """
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        sl = getattr(guard, "state_limit_bytes", None)
+        if isinstance(sl, (int, float)) and sl > 0:
+            target_bytes = min(int(target_bytes), max(1, int(sl) // 8))
+    bytes_per_window = 8 * max(int(d), 1) * 3
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
+def _iter_window_chunks_tspq(X, w, stride, chunk_nw):
+    """Yield (chunk(nb, d), start). w=1, stride>1 preserved."""
+    if X.ndim == 1:
+        X = X[:, None]
+    n, c = X.shape
+    if w == 1:
+        if stride == 1:
+            for s in range(0, n, chunk_nw):
+                e = min(s + chunk_nw, n)
+                yield X[s:e], s
+        else:
+            starts_all = np.arange(stride - 1, n, stride)
+            n_s = len(starts_all)
+            for s in range(0, n_s, chunk_nw):
+                e = min(s + chunk_nw, n_s)
+                yield X[starts_all[s:e]], s
+        return
+    n_s = (n - w) // stride + 1
+    if n_s < 1:
+        return
+    offsets = np.arange(w, dtype=np.int64)
+    for start in range(0, n_s, chunk_nw):
+        end = min(start + chunk_nw, n_s)
+        abs_starts = np.arange(start, end, dtype=np.int64) * stride
+        idx = abs_starts[:, None] + offsets[None, :]
+        yield X[idx].reshape(end - start, w * c), start
+
+
 def fit_t2q(
     series: np.ndarray,
     *,
@@ -224,9 +277,16 @@ def fit_t2q(
     d_pre = window_size * c
 
     if guard is not None:
-        est_bytes = 8 * n_s_pre * d_pre
+        # v0.9.91-S6b: chunked peak, not full-window.
+        #   chunk buf     = chunk * d * 8 (×3 temps)
+        #   t2/q output   = 2 * n_s * 8
+        #   cov + eigh    = d * d * 8 * 3
+        _chunk_pre = _resolve_chunk_nw_tspq(d_pre, guard)
+        est_bytes = (_chunk_pre * d_pre * 8 * 3
+                     + 2 * n_s_pre * 8
+                     + d_pre * d_pre * 8 * 3)
         if hasattr(guard, "check_state") and callable(guard.check_state):
-            guard.check_state(est_bytes, name="tspq.windows")
+            guard.check_state(est_bytes, name="tspq.chunked")
         else:
             limit_mb = _probe_memory_limit_mb(guard)
             if limit_mb is not None and limit_mb > 0:
@@ -236,26 +296,50 @@ def fit_t2q(
                         f"T2Q estimated {est_bytes} bytes > "
                         f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
-    # Allocation happens ONLY after guard passes.
-    samples = _make_windows(X, window_size, stride)
-    n_s, d = samples.shape
+    # v0.9.91-S6b: no full (n_s, d) materialize. Pass 1a mean,
+    # pass 1b cov (M2), pass 2 scores. Peak = chunk*d*8 +
+    # 3*n_s*8 + d*d*8 (was 4*n_s*d*8).
+    n_s = n_s_pre
+    d = d_pre
+    chunk_nw = _resolve_chunk_nw_tspq(d, guard)
 
-    mean = samples.mean(axis=0)
-    centered = samples - mean
-    eigvals, eigvecs = _fit_pca_eigh(centered)
+    # Pass 1a: mean (chunked)
+    mean = np.zeros(d, dtype=np.float64)
+    n_count = 0
+    for chunk, _ in _iter_window_chunks_tspq(
+            X, window_size, stride, chunk_nw):
+        mean += chunk.sum(axis=0)
+        n_count += chunk.shape[0]
+    mean /= max(n_count, 1)
+
+    # Pass 1b: cov via M2 (chunked)
+    M2 = np.zeros((d, d), dtype=np.float64)
+    for chunk, _ in _iter_window_chunks_tspq(
+            X, window_size, stride, chunk_nw):
+        centered_b = chunk - mean
+        M2 += centered_b.T @ centered_b
+    cov = M2 / max(n_count - 1, 1)
+
+    eigvals, eigvecs = _fit_pca_eigh_from_cov(cov, n_count)
     k = _resolve_k(n_components, eigvals)
-    components = eigvecs[:, :k].T
+    components = eigvecs[:, :k].T  # (k, d)
     kept_eigvals = eigvals[:k]
 
-    scores_proj = centered @ components.T  # (n_s, k)
-    recon = scores_proj @ components       # (n_s, d)
-    residual = centered - recon
-
-    # Hotelling T^2 (avoid /0 for degenerate eigenvalues)
     safe_eig = np.where(kept_eigvals < 1e-12, 1.0, kept_eigvals)
-    t2 = ((scores_proj ** 2) / safe_eig).sum(axis=1)  # (n_s,)
-    # Squared prediction error (Q)
-    q = (residual ** 2).sum(axis=1)  # (n_s,)
+    t2 = np.empty(n_s, dtype=np.float64)
+    q = np.empty(n_s, dtype=np.float64)
+
+    # Pass 2: chunked scores
+    for chunk, start in _iter_window_chunks_tspq(
+            X, window_size, stride, chunk_nw):
+        centered_b = chunk - mean
+        proj_b = centered_b @ components.T
+        recon_b = proj_b @ components
+        resid_b = centered_b - recon_b
+        nb = chunk.shape[0]
+        t2[start:start + nb] = (
+            (proj_b ** 2) / safe_eig).sum(axis=1)
+        q[start:start + nb] = (resid_b ** 2).sum(axis=1)
 
     # Percentile-based limits (SKAB convention: separate, OR threshold)
     t2_limit = float(np.percentile(t2, 100.0 * (1.0 - contamination)))

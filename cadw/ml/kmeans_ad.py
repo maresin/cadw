@@ -137,6 +137,41 @@ def _lloyd(X: np.ndarray, centroids: np.ndarray, max_iter: int,
     return centroids, labels, dists_sq, n_iter_run, inertia
 
 
+def _resolve_chunk_nw_km(d: int, guard=None) -> int:
+    """v0.9.91-S6c: chunk size, 8 MB target (or state_limit//8).
+
+    Per-window: chunk buffer (d*8) + dists_sq (k*8) + argmin/argmax
+    temps (~2*k*8) ~ 3*d*8 + 3*k*8.
+    """
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        sl = getattr(guard, "state_limit_bytes", None)
+        if isinstance(sl, (int, float)) and sl > 0:
+            target_bytes = min(int(target_bytes), max(1, int(sl) // 8))
+    bytes_per_window = 8 * max(int(d), 1) * 3 + 24
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
+def _iter_window_chunks_km(x: np.ndarray, w: int, chunk_nw: int):
+    """Yield (chunk(nb, w*c), start) from 1D or 2D x. stride=1."""
+    if x.ndim == 1:
+        X = x[:, None]
+    else:
+        X = x
+    n, c = X.shape
+    n_w = n - w + 1
+    if n_w < 1:
+        return
+    offsets = np.arange(w, dtype=np.int64)
+    for start in range(0, n_w, chunk_nw):
+        end = min(start + chunk_nw, n_w)
+        abs_starts = np.arange(start, end, dtype=np.int64)
+        idx = abs_starts[:, None] + offsets[None, :]
+        yield X[idx].reshape(end - start, w * c), start
+
+
 def fit_kmeans_ad(
     series: np.ndarray,
     *,
@@ -151,26 +186,17 @@ def fit_kmeans_ad(
 ) -> KMeansADResult:
     """KMeansAD anomaly detection.
 
-    Parameters
-    ----------
-    series : np.ndarray, shape (n,)
-    window_size : int, default=50
-    n_clusters : int, default=8
-    max_iter : int, default=100
-    tol : float, default=1e-4
-        Convergence tolerance on centroid shift / inertia.
-    contamination : float, default=0.1
-    aggregate : str, default="max"
-        "max" or "mean".
-    random_state : int or None, default=42
-    guard : MemoryGuard | None
-
-    Returns
-    -------
-    KMeansADResult
+    v0.9.91-S6c: two paths.
+      - Duck-typed guard (max_memory_mb only, no check_state):
+        old path (full (n_w, d) via _prepare_windows). Bit-identical
+        to pre-S6c. Tight budget → MemoryLimitExceeded.
+      - Real MemoryGuard (has check_state): chunked OOC path.
+        Reservoir sample S windows for kmeans++ init; chunked Lloyd
+        iterations (assign + accumulate per chunk); chunked final
+        score. Peak = S*d*8 + k*d*8 + chunk*d*8 + 3*n_w*8.
+        NOT bit-identical to old path (init sample differs); tests
+        with recall/contamination thresholds green.
     """
-    # v0.9.87-fix1b(2/2) (audit HIGH-1): guard check BEFORE
-    # _prepare_windows allocation. Analytic shape only.
     _arr = np.asarray(series)
     n_pre = int(_arr.shape[0]) if _arr.ndim >= 1 else 0
     c_pre = 1 if _arr.ndim == 1 else int(np.prod(_arr.shape[1:]))
@@ -185,11 +211,18 @@ def fit_kmeans_ad(
         raise ValueError(
             f"aggregate must be 'max' or 'mean', got {aggregate!r}")
     d_pre = window_size * c_pre
-    if guard is not None:
-        est_bytes = 8 * n_w_pre * d_pre * 2
-        if hasattr(guard, "check_state") and callable(guard.check_state):
-            guard.check_state(est_bytes, name="kmeans_ad.windows")
-        else:
+
+    has_check_state = (
+        guard is not None and hasattr(guard, "check_state")
+        and callable(guard.check_state)
+    )
+
+    if not has_check_state:
+        # ── Old path (back-compat, bit-identical) ─────────────
+        if guard is not None:
+            est_bytes = 8 * n_w_pre * d_pre * 2
+            if hasattr(guard, "check_state"):
+                pass  # unreachable (has_check_state is False)
             limit_mb = _probe_memory_limit_mb(guard)
             if limit_mb is not None and limit_mb > 0:
                 if est_bytes > limit_mb * 1024 * 1024:
@@ -198,20 +231,90 @@ def fit_kmeans_ad(
                         f"KMeansAD estimated {est_bytes} bytes > "
                         f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
-    # Allocation happens ONLY after guard passes.
-    windows, n, c = _prepare_windows(series, window_size, stride=1)
-    n_w = len(windows)
-    d = windows.shape[1]
+        windows, n, c = _prepare_windows(series, window_size, stride=1)
+        n_w = len(windows)
+        d = windows.shape[1]
+        rng = np.random.default_rng(random_state)
+        centroids = _kmeans_plus_plus_init(windows, n_clusters, rng)
+        centroids, labels_per_window, dists_sq, n_iter_run, inertia = (
+            _lloyd(windows, centroids, max_iter, tol, rng))
+        window_scores = np.sqrt(
+            dists_sq[np.arange(n_w), labels_per_window])
+    else:
+        # ── Chunked OOC path (real MemoryGuard) ───────────────
+        n = n_pre
+        c = c_pre
+        d = d_pre
+        n_w = n_w_pre
+        chunk_nw = _resolve_chunk_nw_km(d, guard)
 
+        # 1. Reservoir sample S windows for kmeans++ init
+        #    (bounded by max(n_clusters*10, min(10000, n_w))).
+        S = max(n_clusters * 10, min(10000, n_w))
+        S = min(S, n_w)
+        rng = np.random.default_rng(random_state)
+        sample = np.empty((S, d), dtype=np.float64)
+        n_seen = 0
+        for chunk, _ in _iter_window_chunks_km(
+                series, window_size, chunk_nw):
+            for row in chunk:
+                if n_seen < S:
+                    sample[n_seen] = row
+                else:
+                    j = int(rng.integers(0, n_seen + 1))
+                    if j < S:
+                        sample[j] = row
+                n_seen += 1
 
-    rng = np.random.default_rng(random_state)
-    centroids = _kmeans_plus_plus_init(windows, n_clusters, rng)
-    centroids, labels_per_window, dists_sq, n_iter_run, inertia = _lloyd(
-        windows, centroids, max_iter, tol, rng)
+        centroids = _kmeans_plus_plus_init(sample[:n_seen], n_clusters, rng)
 
-    window_scores = np.sqrt(
-        dists_sq[np.arange(n_w), labels_per_window])
+        # 2. Chunked Lloyd iterations (assign + accumulate)
+        n_iter_run = 0
+        prev_inertia = np.inf
+        for it in range(int(max_iter)):
+            sums = np.zeros((n_clusters, d), dtype=np.float64)
+            counts = np.zeros(n_clusters, dtype=np.int64)
+            inertia_acc = 0.0
+            for chunk, _ in _iter_window_chunks_km(
+                    series, window_size, chunk_nw):
+                nb = chunk.shape[0]
+                d_sq = _distances_sq(chunk, centroids)
+                labs = np.argmin(d_sq, axis=1)
+                inertia_acc += float(
+                    d_sq[np.arange(nb), labs].sum())
+                for j in range(n_clusters):
+                    m = labs == j
+                    if m.any():
+                        sums[j] += chunk[m].sum(axis=0)
+                        counts[j] += int(m.sum())
+            new_centroids = centroids.copy()
+            for j in range(n_clusters):
+                if counts[j] > 0:
+                    new_centroids[j] = sums[j] / counts[j]
+                # empty: keep old (fallback reinit deferred to S6c-fix)
+            shift = float(np.sum((new_centroids - centroids) ** 2))
+            centroids = new_centroids
+            n_iter_run = it + 1
+            if shift < tol * max(1.0, float((centroids ** 2).sum())):
+                break
+            if abs(prev_inertia - inertia_acc) < tol * max(prev_inertia, 1.0):
+                break
+            prev_inertia = inertia_acc
 
+        # 3. Chunked final score
+        window_scores = np.empty(n_w, dtype=np.float64)
+        labels_per_window = np.empty(n_w, dtype=np.int64)
+        for chunk, start in _iter_window_chunks_km(
+                series, window_size, chunk_nw):
+            nb = chunk.shape[0]
+            d_sq = _distances_sq(chunk, centroids)
+            labs = np.argmin(d_sq, axis=1)
+            labels_per_window[start:start + nb] = labs
+            window_scores[start:start + nb] = np.sqrt(
+                d_sq[np.arange(nb), labs])
+        inertia = float(np.sum(window_scores ** 2))
+
+    # ── Common: aggregate + threshold ─────────────────────────
     if aggregate == "max":
         scores = _map_max(window_scores, window_size, n, stride=1)
     else:
@@ -236,4 +339,3 @@ def fit_kmeans_ad(
         aggregate=aggregate,
         inertia=inertia,
     )
-

@@ -205,10 +205,17 @@ def test_kmeans_ad_no_bench_deps_in_source():
             top = (node.module or "").split(".")[0]
             assert top not in forbidden, f"forbidden: {node.module}"
 
-def test_fit_kmeans_ad_guard_raises_before_allocation(monkeypatch):
-    """v0.9.87-fix1b(2/2): guard fires BEFORE _prepare_windows."""
+def test_fit_kmeans_ad_chunked_does_not_call_prepare_windows(monkeypatch):
+    """v0.9.91-S6c: real MemoryGuard → chunked path.
+
+    _prepare_windows is not called (chunked reservoir + Lloyd +
+    score path). Prior v0.9.87-fix1b behaviour (raise before
+    _prepare_windows) is superseded by chunked OOC on tight budget.
+    Duck-typed guards still hit old path via fallback
+    (test_fit_kmeans_ad_memory_guard_logic).
+    """
     from cadw.ml import kmeans_ad as km_mod
-    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+    from cadw.core.memory_guard import MemoryGuard
 
     called = {"n": 0}
     orig = km_mod._prepare_windows
@@ -221,9 +228,9 @@ def test_fit_kmeans_ad_guard_raises_before_allocation(monkeypatch):
 
     guard = MemoryGuard(max_memory_mb=10)
     x = np.random.default_rng(0).standard_normal(100_000)
-    with pytest.raises(MemoryLimitExceeded):
-        km_mod.fit_kmeans_ad(x, window_size=64, guard=guard)
+    r = km_mod.fit_kmeans_ad(x, window_size=64, guard=guard)
+    assert r.decision_scores.shape == (100_000,)
     assert called["n"] == 0, (
-        f"guard should fire BEFORE _prepare_windows; "
-        f"_prepare_windows was called {called['n']} time(s)")
+        f"_prepare_windows should not be called in chunked path; "
+        f"was called {called['n']} time(s)")
 
