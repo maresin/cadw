@@ -253,6 +253,7 @@ def test_drop_duplicates_empty_input_raises(tmp_path):
             keep="first",
             memory_guard=mg,
             spill_dir=tmp_path / "spill",
+            output="memory",
         )
 
 

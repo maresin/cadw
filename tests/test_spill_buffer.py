@@ -243,7 +243,12 @@ def test_spill_array_1d_reshape():
     buf = SpillArray(guard=mg, width=1, dtype=np.float64)
     buf.write_array(np.array([1.0, 2.0, 3.0]))
     result = buf.finalize()
-    assert result.to_numpy().shape == (3, 1)
+    # v0.9.92: width=1 -> 1-D output (matches memory-branch contract;
+    # SpillArray stores (b, 1) internally, finalize ravels).
+    # Prior contract was (3, 1); changed to (3,) so memory- and
+    # spill-branches of callers (iforest.score_samples, ordinal.
+    # predict) return the same shape.
+    assert result.to_numpy().shape == (3,)
 
 
 def test_spill_array_1d_wrong_width():

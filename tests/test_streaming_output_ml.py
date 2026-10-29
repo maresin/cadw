@@ -105,7 +105,7 @@ def test_iforest_disk_spills():
 
 def test_iforest_auto_equals_memory():
     m, df = _iforest_model()
-    mem = m.score_samples(df)
+    mem = m.score_samples(df, output="memory")
     auto = m.score_samples(df, output="auto")
     got = np.concatenate([a for a in auto], axis=0).ravel()
     np.testing.assert_array_equal(mem, got)
@@ -133,7 +133,7 @@ def test_chains_predict_auto_disk():
 
 def test_chains_auto_equals_memory():
     m, df = _chains_model()
-    mem = m.predict_proba(df)
+    mem = m.predict_proba(df, output="memory")
     auto = m.predict_proba(df, output="auto")
     got = np.concatenate([a for a in auto], axis=0)
     np.testing.assert_allclose(mem, got)
@@ -155,7 +155,7 @@ def test_ordinal_predict_auto_disk():
     a = m.predict(df, output="auto")
     assert isinstance(a, AutoArrayResult)
     # verify class values match memory
-    mem = m.predict(df)
+    mem = m.predict(df, output="memory")
     got = np.concatenate([a for a in a], axis=0).ravel()
     np.testing.assert_array_equal(mem, got)
 
@@ -173,7 +173,7 @@ def test_tfidf_dense_auto_disk():
 
 def test_tfidf_dense_auto_equals_memory():
     m, df = _tfidf_model()
-    mem = m.transform_dense(df, text_col="text")
+    mem = m.transform_dense(df, text_col="text", output="memory")
     auto = m.transform_dense(df, text_col="text", output="auto")
     got = np.concatenate([a for a in auto], axis=0)
     np.testing.assert_allclose(mem, got)
@@ -192,7 +192,7 @@ def test_randsvd_auto_disk():
 
 def test_randsvd_auto_equals_memory():
     m, df = _randsvd_model()
-    mem = m.transform(df)
+    mem = m.transform(df, output="memory")
     auto = m.transform(df, output="auto")
     got = np.concatenate([a for a in auto], axis=0)
     np.testing.assert_allclose(mem, got)
@@ -222,7 +222,7 @@ def test_gmm_predict_auto_disk():
 
 def test_gmm_auto_equals_memory():
     m, df = _gmm_model()
-    mem = m.score_samples(df).column("log_likelihood").to_pylist()
+    mem = m.score_samples(df, output="memory").column("log_likelihood").to_pylist()
     auto = m.score_samples(df, output="auto")
     got = [r["log_likelihood"] for b in auto for r in b.to_pylist()]
     np.testing.assert_allclose(np.array(mem), np.array(got),

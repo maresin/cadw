@@ -61,7 +61,7 @@ class RandomizedSVDModel:
         ev = self.singular_values_ ** 2
         return ev / max(total, 1e-300) if n else ev
 
-    def transform(self, df, memory_guard=None, *, output: str = "memory"):
+    def transform(self, df, memory_guard=None, *, output: str = "auto"):
         """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
         if output not in ("memory", "auto", "disk"):
             raise ValueError(

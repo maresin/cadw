@@ -29,7 +29,7 @@ def test_groupby_mean_simple(tmp_path):
     })
     result = groupby_aggregate(
         make_iter(table, 2), ["cat"], ["val"], ["mean"],
-        make_guard(), tmp_path, num_partitions=2, log=False,
+        make_guard(), tmp_path, num_partitions=2, log=False, output="memory",
     )
     rows = sorted(result_to_dicts(result), key=lambda r: r["cat"])
     assert rows == [
@@ -45,7 +45,7 @@ def test_groupby_sum(tmp_path):
     })
     result = groupby_aggregate(
         make_iter(table, 2), "cat", "val", "sum",
-        make_guard(), tmp_path, num_partitions=2, log=False,
+        make_guard(), tmp_path, num_partitions=2, log=False, output="memory",
     )
     rows = sorted(result_to_dicts(result), key=lambda r: r["cat"])
     assert rows == [
@@ -61,7 +61,7 @@ def test_groupby_multiple_aggs(tmp_path):
     })
     result = groupby_aggregate(
         make_iter(table, 2), ["cat"], ["val", "val"], ["sum", "mean"],
-        make_guard(), tmp_path, num_partitions=2, log=False,
+        make_guard(), tmp_path, num_partitions=2, log=False, output="memory",
     )
     rows = sorted(result_to_dicts(result), key=lambda r: r["cat"])
     assert rows == [
@@ -86,7 +86,7 @@ def test_groupby_many_groups(tmp_path):
     guard = MemoryGuard(max_memory_bytes=200_000)   # 200 KB
     result = groupby_aggregate(
         make_iter(table, 100), ["cat"], ["val"], ["mean"],
-        guard, tmp_path, num_partitions=16, log=False,
+        guard, tmp_path, num_partitions=16, log=False, output="memory",
     )
     assert result.num_rows == n
     # Каждая группа = одна строка, mean = соответствующее значение
@@ -104,7 +104,7 @@ def test_groupby_skewed(tmp_path):
     })
     result = groupby_aggregate(
         make_iter(table, 20), ["cat"], ["val", "val"], ["sum", "count"],
-        make_guard(), tmp_path, num_partitions=8, log=False,
+        make_guard(), tmp_path, num_partitions=8, log=False, output="memory",
     )
     rows = sorted(result_to_dicts(result), key=lambda r: r["cat"])
     assert rows[0]["val_sum"] == 90.0
@@ -119,7 +119,7 @@ def test_groupby_single_group(tmp_path):
     table = pa.table({"cat": ["A"] * 10, "val": list(range(10))})
     result = groupby_aggregate(
         make_iter(table, 3), ["cat"], ["val"], ["mean"],
-        make_guard(), tmp_path, num_partitions=4, log=False,
+        make_guard(), tmp_path, num_partitions=4, log=False, output="memory",
     )
     assert result.num_rows == 1
     assert result_to_dicts(result)[0]["val_mean"] == pytest.approx(4.5)
@@ -133,7 +133,7 @@ def test_groupby_each_row_unique(tmp_path):
     })
     result = groupby_aggregate(
         make_iter(table, 7), ["cat"], ["val"], ["count"],
-        make_guard(), tmp_path, num_partitions=8, log=False,
+        make_guard(), tmp_path, num_partitions=8, log=False, output="memory",
     )
     assert result.num_rows == n
     for r in result_to_dicts(result):
@@ -144,7 +144,7 @@ def test_groupby_empty_input_raises(tmp_path):
     with pytest.raises(ValueError):
         groupby_aggregate(
             iter([]), ["cat"], ["val"], ["mean"],
-            make_guard(), tmp_path, num_partitions=4, log=False,
+            make_guard(), tmp_path, num_partitions=4, log=False, output="memory",
         )
 
 
@@ -158,7 +158,7 @@ def test_groupby_partitions_do_not_overlap_keys(tmp_path):
     })
     result = groupby_aggregate(
         make_iter(table, 3), ["cat"], ["val"], ["count"],
-        make_guard(), tmp_path, num_partitions=4, log=False,
+        make_guard(), tmp_path, num_partitions=4, log=False, output="memory",
     )
     rows = {r["cat"]: r["val_count"] for r in result_to_dicts(result)}
     assert rows == {"A": 5, "B": 5, "C": 5, "D": 5}
@@ -174,7 +174,7 @@ def test_groupby_multiple_by_columns(tmp_path):
     })
     result = groupby_aggregate(
         make_iter(table, 2), ["c1", "c2"], ["val"], ["sum"],
-        make_guard(), tmp_path, num_partitions=4, log=False,
+        make_guard(), tmp_path, num_partitions=4, log=False, output="memory",
     )
     rows = sorted(result_to_dicts(result), key=lambda r: (r["c1"], r["c2"]))
     assert [(r["c1"], r["c2"], r["val_sum"]) for r in rows] == [

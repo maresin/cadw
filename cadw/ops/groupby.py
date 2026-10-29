@@ -772,7 +772,7 @@ def groupby_aggregate(
     hash_seed: int = 0,
     combiner: bool = False,
     log: bool = True,
-    output: str = "memory",
+    output: str = "auto",
 ) -> "pa.Table | AutoResult":
     """
     Out-of-core groupby: HashShuffle + LocalGroupBy + Concat.

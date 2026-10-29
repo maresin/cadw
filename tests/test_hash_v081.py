@@ -288,7 +288,7 @@ def test_groupby_recursion_end_to_end_v081(tmp_path):
     guard = MemoryGuard(max_memory_bytes=50_000)
     result = groupby_aggregate(
         bi(), ["cat"], ["val"], ["mean"],
-        guard, tmp_path, num_partitions=4, log=False,
+        guard, tmp_path, num_partitions=4, log=False, output="memory",
     )
     assert result.num_rows == n
     rows = sorted(result.to_pylist(), key=lambda r: r["cat"])

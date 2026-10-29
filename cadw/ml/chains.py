@@ -72,7 +72,7 @@ class ChainsModel:
         return {"label_cols": self.label_cols_, "chain": self.chain_,
                 "params": self.params_}
 
-    def predict_proba(self, df, memory_guard=None, *, output: str = "memory"):
+    def predict_proba(self, df, memory_guard=None, *, output: str = "auto"):
         """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
         if output not in ("memory", "auto", "disk"):
             raise ValueError(
@@ -124,7 +124,7 @@ class ChainsModel:
         return out
 
     def predict(self, df, memory_guard=None, threshold=0.5, *,
-                output: str = "memory"):
+                output: str = "auto"):
         """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
         if output not in ("memory", "auto", "disk"):
             raise ValueError(

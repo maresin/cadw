@@ -86,7 +86,7 @@ def test_groupby_aggregate_recursion_end_to_end(tmp_path):
     guard = MemoryGuard(max_memory_bytes=50_000)
     result = groupby_aggregate(
         make_iter(table, 500), ["cat"], ["val"], ["mean"],
-        guard, tmp_path, num_partitions=4, log=False,
+        guard, tmp_path, num_partitions=4, log=False, output="memory",
     )
     assert result.num_rows == n
     rows = sorted(result.to_pylist(), key=lambda r: r["cat"])
@@ -106,5 +106,5 @@ def test_groupby_aggregate_sample_too_big_raises(tmp_path):
     with pytest.raises(MemoryLimitExceeded, match="sample"):
         groupby_aggregate(
             make_iter(table, 500), ["cat"], ["val"], ["mean"],
-            guard, tmp_path, num_partitions=None, log=False,
+            guard, tmp_path, num_partitions=None, log=False, output="memory",
         )

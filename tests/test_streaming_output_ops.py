@@ -27,13 +27,26 @@ def _small_guard():
 
 # ─── groupby_aggregate ─────────────────────────────────────────
 
-def test_groupby_output_memory_default_returns_table(tmp_path):
+def test_groupby_output_memory_returns_table(tmp_path):
+    # v0.9.92: default is now "auto"; explicit "memory" preserves
+    # pa.Table return (pre-v0.9.92 default behavior, still supported).
+    table = pa.table({"k": ["a", "b", "a", "b"], "v": [1, 2, 3, 4]})
+    result = groupby_aggregate(
+        _batches(table), ["k"], ["v"], ["sum"],
+        _small_guard(), tmp_path, num_partitions=2, log=False,
+        output="memory")
+    assert isinstance(result, pa.Table)
+    assert result.num_rows == 2
+
+
+def test_groupby_default_is_auto(tmp_path):
+    # v0.9.92 BREAKING: default output is "auto" (AutoResult).
     table = pa.table({"k": ["a", "b", "a", "b"], "v": [1, 2, 3, 4]})
     result = groupby_aggregate(
         _batches(table), ["k"], ["v"], ["sum"],
         _small_guard(), tmp_path, num_partitions=2, log=False)
-    assert isinstance(result, pa.Table)
-    assert result.num_rows == 2
+    assert isinstance(result, AutoResult)
+    assert len(result) == 2
 
 
 def test_groupby_output_auto_small_inmemory(tmp_path):
@@ -108,10 +121,12 @@ def test_dedup_output_disk_spills(tmp_path):
 
 
 def test_dedup_output_memory_back_compat(tmp_path):
+    # v0.9.92: default flipped to "auto"; explicit "memory" preserves
+    # pa.Table return (still supported, back-compat).
     table = pa.table({"k": ["a", "a", "b"], "v": [1, 2, 3]})
     result = ops_dedup(
         _batches(table), ["k"], "first",
-        _small_guard(), tmp_path, num_partitions=2)
+        _small_guard(), tmp_path, num_partitions=2, output="memory")
     assert isinstance(result, pa.Table)
 
 

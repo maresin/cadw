@@ -75,7 +75,7 @@ class GMMModel:
         return np.column_stack(arrays)
 
     def score_samples(self, df, X_cols=None, memory_guard=None, *,
-                      output: str = "memory"):
+                      output: str = "auto"):
         """v0.9.90-S4: output= for spill-on-demand (auto/disk).
 
         "memory" (default) → pa.Table.
@@ -121,7 +121,7 @@ class GMMModel:
         return float(np.nanmean(vals))
 
     def predict(self, df, X_cols=None, memory_guard=None, *,
-                output: str = "memory"):
+                output: str = "auto"):
         """v0.9.90-S4: output= for spill-on-demand (auto/disk).
 
         "memory" (default) → pa.Table.

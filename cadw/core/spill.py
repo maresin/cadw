@@ -440,6 +440,14 @@ class InMemoryResult(AutoResult):
     def to_table(self) -> pa.Table:
         return self._t
 
+    # v0.9.92: legacy-test compat. In-memory result delegates
+    # pa.Table attributes (.num_rows, .column, .to_pylist, .to_pandas,
+    # .shape). Spilled result raises via OnDiskResult.
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._t, name)
+
 
 class OnDiskResult(AutoResult):
     def __init__(self, path, schema: pa.Schema, rows: int = -1,
@@ -495,6 +503,15 @@ class OnDiskResult(AutoResult):
             f"OnDiskResult.to_table(): result is spilled ({size} B). "
             f"METHODOLOGY §1.3 — no escape hatches. "
             f"Use `for batch in result`.")
+
+    # v0.9.92: spilled result raises on any pa.Table attribute
+    # access (num_rows, column, to_pylist, to_pandas, ...). User
+    # must iterate via `for b in result`.
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        self.to_table()  # always raises
+        return None
 
     def close(self) -> None:
         if self._closed:
@@ -611,6 +628,15 @@ class SpillArray:
                 arr = np.concatenate(self._buf, axis=0)
             else:
                 arr = np.empty((0, self.width), dtype=self.dtype)
+            # v0.9.92: width==1 → 1-D output. Memory-branch of callers
+            # (iforest.score_samples, ordinal.predict) return (n,) via
+            # np.concatenate(parts_1d) / np.argmax(p, axis=1). The
+            # SpillArray stores (b, 1); ravel to match. Without this,
+            # np.where / np.array_equal in downstream produce (n, 1)
+            # shapes → pyarrow bool cast fails, ordinal predict
+            # broadcasting produces (n, n) mask instead of (n,).
+            if self.width == 1 and arr.ndim == 2:
+                arr = arr.ravel()
             return InMemoryArrayResult(arr)
         self._writer.close()
         result = OnDiskArrayResult(
@@ -668,21 +694,113 @@ class AutoArrayResult:
 
 
 class InMemoryArrayResult(AutoArrayResult):
-    def __init__(self, arr: np.ndarray):
+    """In-memory numpy result.
+
+    v0.9.92: transparent wrapper (NOT ndarray-subclass). Explicit
+    dunders return plain np.ndarray so downstream (pyarrow,
+    np.argsort, np.where, np.unique->set) sees standard ndarray
+    rather than subclass. Attribute access (.shape, .dtype, .mean,
+    .sum, .tolist, .ravel) delegated via __getattr__.
+
+    __array__: conversions (np.asarray, np.array).
+    __array_ufunc__: elementwise (np.add, np.multiply, ...).
+    __array_function__: reductions/reshaping (np.unique,
+      np.concatenate, np.stack, np.sort, np.argsort, np.where).
+      Without this, numpy would return subclass from np.unique →
+      __iter__ yields whole array → set() hash fails
+      (unhashable ndarray). §13.4-class dunder-dispatch pitfall:
+      __array__ handles conversions, __array_function__ handles
+      functions.
+
+    Spilled results (OnDiskArrayResult) raise MemoryLimitExceeded on
+    any numpy access (§1.3). Only small (state_limit-bounded) arrays
+    reach this class.
+    """
+
+    def __init__(self, arr):
         self._a = np.asarray(arr)
 
     @property
     def is_spilled(self) -> bool:
         return False
 
+    def __array__(self, dtype=None, copy=None):
+        if dtype is None:
+            return self._a
+        return self._a.astype(
+            dtype, copy=bool(copy) if copy is not None else False)
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        conv = tuple(
+            x._a if isinstance(x, InMemoryArrayResult) else x
+            for x in inputs)
+        if 'out' in kwargs:
+            out = kwargs.pop('out')
+            kwargs['out'] = tuple(
+                x._a if isinstance(x, InMemoryArrayResult) else x
+                for x in out)
+        return getattr(ufunc, method)(*conv, **kwargs)
+
+    def __array_function__(self, func, types, args, kwargs):
+        conv_args = tuple(
+            x._a if isinstance(x, InMemoryArrayResult) else x
+            for x in args)
+        conv_kwargs = {
+            k: (v._a if isinstance(v, InMemoryArrayResult) else v)
+            for k, v in kwargs.items()}
+        return func(*conv_args, **conv_kwargs)
+
+    def __eq__(self, other):
+        return self._a == (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __ne__(self, other):
+        return self._a != (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __gt__(self, other):
+        return self._a > (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __ge__(self, other):
+        return self._a >= (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __lt__(self, other):
+        return self._a < (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __le__(self, other):
+        return self._a <= (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __add__(self, other):
+        return self._a + (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __radd__(self, other):
+        return other + self._a
+    def __sub__(self, other):
+        return self._a - (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __rsub__(self, other):
+        return other - self._a
+    def __mul__(self, other):
+        return self._a * (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __rmul__(self, other):
+        return other * self._a
+    def __truediv__(self, other):
+        return self._a / (other._a if isinstance(other, InMemoryArrayResult) else other)
+    def __neg__(self):
+        return -self._a
+    def __abs__(self):
+        return abs(self._a)
+    def __getitem__(self, idx):
+        return self._a[idx]
+
     def __iter__(self):
         yield self._a
 
     def __len__(self) -> int:
-        return self._a.shape[0]
+        return int(self._a.shape[0]) if self._a.ndim > 0 else 1
 
     def to_numpy(self) -> np.ndarray:
         return self._a
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._a, name)
+
+    def __repr__(self) -> str:
+        return (
+            f"InMemoryArrayResult(shape={self._a.shape}, "
+            f"dtype={self._a.dtype})")
 
 
 class OnDiskArrayResult(AutoArrayResult):
@@ -725,6 +843,17 @@ class OnDiskArrayResult(AutoArrayResult):
             f"{self._rows} rows x {self._width}). "
             f"METHODOLOGY §1.3 — no escape hatches. "
             f"Use `for arr in result`.")
+
+    # v0.9.92: spilled result raises on any numpy access (§1.3).
+    def __array__(self, dtype=None, copy=None):
+        self.to_numpy()  # always raises
+        return np.empty((0, 0))
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        self.to_numpy()  # always raises
+        return None
 
     def close(self) -> None:
         if self._closed:

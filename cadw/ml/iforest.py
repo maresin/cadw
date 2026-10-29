@@ -197,7 +197,7 @@ class IsolationForestModel:
         return np.power(2.0, -acc / self.c_norm_)
 
     def score_samples(self, df, X_cols=None, memory_guard=None, *,
-                      output: str = "memory"):
+                      output: str = "auto"):
         """Per-batch scoring. Peak RAM O(batch) (v0.9.31-fix1).
 
         v0.9.90-S4: output=

@@ -73,7 +73,7 @@ def topk_to_disk(
     n: int,
     kind: str,
     memory_guard: MemoryGuard,
-    output: str = "memory",
+    output: str = "auto",
 ) -> "pa.Table | AutoResult":
     """Streaming top-n. Returns pa.Table (original schema).
 

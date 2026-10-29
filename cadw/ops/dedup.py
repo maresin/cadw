@@ -188,7 +188,7 @@ def drop_duplicates(
     total_rows: int = 0,
     num_partitions: int | None = None,
     log: bool = True,
-    output: str = "memory",
+    output: str = "auto",
 ) -> "pa.Table | AutoResult":
     """Out-of-core drop_duplicates.
 
@@ -267,20 +267,34 @@ def drop_duplicates(
 
         return pa.concat_tables(results, promote_options="default")
 
-    # output in ("auto", "disk") — v0.9.90-S2 SpillBuffer path
+    # output in ("auto", "disk") — SpillBuffer path.
+    # v0.9.92-fix: schema from _local_dedup result, not input out_schema.
+    # _local_dedup returns hash_shuffle partition order
+    # ([*subset, *value_cols]), which may differ from first.schema order.
+    # ArrowIPCBatchWriter requires exact schema match → prior code
+    # raised ArrowInvalid on any input where hash_shuffle reordered
+    # columns (e.g., subset=["v"] on input schema=["a","b","v"]).
+    # Mirror memory path: all _local_dedup calls on one hash_shuffle
+    # produce identical schema (same reader.schema), so first non-empty
+    # t.schema is canonical. Defensive cast if partition schema ever
+    # diverges (should not happen).
     buf: "SpillBuffer | None" = None
+    buf_schema = None
     for p in paths:
         if not p.exists() or p.stat().st_size == 0:
             continue
         t = _local_dedup(p, subset, keep, memory_guard)
         if t.num_rows > 0:
             if buf is None:
+                buf_schema = t.schema
                 buf = SpillBuffer(
-                    guard=memory_guard, schema=out_schema,
+                    guard=memory_guard, schema=buf_schema,
                     name="dedup",
                     spill_ratio=0.0 if output == "disk" else 0.5,
                 )
             for b in t.to_batches():
+                if buf_schema is not None and b.schema != buf_schema:
+                    b = b.cast(buf_schema)
                 buf.write_batch(b)
 
     if buf is None:

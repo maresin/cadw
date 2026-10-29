@@ -76,7 +76,7 @@ class TfidfModel:
         return rows
 
     def transform_dense(self, df, *, text_col, norm="l2",
-                        memory_guard=None, output: str = "memory"):
+                        memory_guard=None, output: str = "auto"):
         """Dense D x V matrix (small inputs / tests only).
 
         v0.9.90-S4: output= for spill-on-demand.

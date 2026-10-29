@@ -34,7 +34,7 @@ def test_groupby_many_groups_10_6_under_10mb(tmp_path):
     try:
         result = groupby_aggregate(
             make_iter(table, 10_000), ["k"], ["v"], ["count"],
-            guard, tmp_path, num_partitions=64, log=False,
+            guard, tmp_path, num_partitions=64, log=False, output="memory",
         )
         # Если успех — 10^6 строк, count=1 каждая
         assert result.num_rows == n
@@ -59,7 +59,7 @@ def test_groupby_skew_10_6_under_10mb(tmp_path):
     guard = MemoryGuard(max_memory_mb=10)
     result = groupby_aggregate(
         make_iter(table, 10_000), ["k"], ["v"], ["count"],
-        guard, tmp_path, log=False,
+        guard, tmp_path, log=False, output="memory",
     )
     rows = {r["k"]: r["v_count"] for r in result.to_pylist()}
     assert rows == {"A": heavy, "B": n - heavy}

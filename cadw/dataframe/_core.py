@@ -416,10 +416,25 @@ class CadwDataFrame(_ExportsMixin, _IteratorsMixin, _MiscMixin, _IndexingMixin, 
 
     # ---------------- helpers ----------------
 
-    def _wrap_result_table(self, table: pa.Table) -> "CadwDataFrame":
+    def _wrap_result_table(self, table) -> "CadwDataFrame":
+        # v0.9.92: accept AutoResult (default output="auto") in addition
+        # to pa.Table (explicit output="memory"). Facade API always
+        # returns CadwDataFrame; internally Dataset.from_batches is
+        # eager (fully consumes iterable before returning), so
+        # OnDiskResult's tmpdir cannot be GC'd mid-consumption.
+        from cadw.core.spill import AutoResult
+        if isinstance(table, AutoResult):
+            schema = table.schema
+            batches = iter(table)
+        elif isinstance(table, pa.Table):
+            schema = table.schema
+            batches = iter(table.to_batches())
+        else:
+            raise TypeError(
+                f"_wrap_result_table: expected pa.Table or AutoResult; "
+                f"got {type(table).__name__}")
         new_ds = Dataset.from_batches(
-            table.schema, iter(table.to_batches()), self._new_dataset_dir()
-        )
+            schema, batches, self._new_dataset_dir())
         # Default RangeIndex(0, total_rows) — результат операций сбрасывает
         # исходный index (как pandas после groupby/sort/merge).
         return CadwDataFrame(
