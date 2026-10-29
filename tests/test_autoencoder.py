@@ -217,10 +217,17 @@ def test_autoencoder_no_bench_deps_in_source():
             top = (node.module or "").split(".")[0]
             assert top not in forbidden, f"forbidden: {node.module}"
 
-def test_fit_autoencoder_guard_raises_before_allocation(monkeypatch):
-    """v0.9.87-fix1b(2/2): guard fires BEFORE _prepare_windows."""
+def test_fit_autoencoder_chunked_does_not_call_prepare_windows(monkeypatch):
+    """v0.9.91-S6d: real MemoryGuard -> chunked SGD path.
+
+    _prepare_windows not called (chunked on-demand fetch +
+    rng.permutation(n_w) in RAM). Prior v0.9.87-fix1b raise
+    superseded by chunked OOC at budget >= 16*n_w. Duck-typed
+    guards still hit old path via fallback
+    (test_fit_autoencoder_memory_guard_logic).
+    """
     from cadw.ml import autoencoder as ae_mod
-    from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+    from cadw.core.memory_guard import MemoryGuard
 
     called = {"n": 0}
     orig = ae_mod._prepare_windows
@@ -233,9 +240,9 @@ def test_fit_autoencoder_guard_raises_before_allocation(monkeypatch):
 
     guard = MemoryGuard(max_memory_mb=10)
     x = np.random.default_rng(0).standard_normal(100_000)
-    with pytest.raises(MemoryLimitExceeded):
-        ae_mod.fit_autoencoder(x, window_size=64, guard=guard)
+    r = ae_mod.fit_autoencoder(x, window_size=64, guard=guard, n_epochs=2)
+    assert r.decision_scores.shape == (100_000,)
     assert called["n"] == 0, (
-        f"guard should fire BEFORE _prepare_windows; "
-        f"_prepare_windows was called {called['n']} time(s)")
+        f"_prepare_windows should not be called in chunked path; "
+        f"was called {called['n']} time(s)")
 
