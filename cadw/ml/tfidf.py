@@ -20,6 +20,7 @@ from typing import Optional
 import numpy as np
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.spill import SpillArray, AutoArrayResult
 from cadw.ml._logging import log_fit
 from cadw.ml.lda import tokenize
 
@@ -74,19 +75,47 @@ class TfidfModel:
                 rows.append(self._row(t, norm))
         return rows
 
-    def transform_dense(self, df, *, text_col, norm="l2", memory_guard=None):
-        """Dense D x V matrix (small inputs / tests only)."""
+    def transform_dense(self, df, *, text_col, norm="l2",
+                        memory_guard=None, output: str = "memory"):
+        """Dense D x V matrix (small inputs / tests only).
+
+        v0.9.90-S4: output= for spill-on-demand.
+          "memory" (default) → np.ndarray (D, V).
+          "auto"/"disk"      → AutoArrayResult (iterable batches of
+                                (b, V)); .to_numpy() raises on spilled.
+        """
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"tfidf.transform_dense: output must be 'memory', "
+                f"'auto' or 'disk'; got {output!r}")
         mg = memory_guard or df._memory_guard
         V = len(self.vocab_)
-        out = []
+
+        if output == "memory":
+            out = []
+            for b in df._iter_filtered_batches():
+                mg.check_batch(b, name="tfidf.transform_dense",
+                               extra_factor=3.0)
+                for t in b.column(text_col).to_pylist():
+                    idx, val = self._row(t, norm)
+                    row = np.zeros(V)
+                    row[idx] = val
+                    out.append(row)
+            return np.vstack(out) if out else np.zeros((0, V))
+
+        buf = SpillArray(guard=mg, width=V, dtype=np.float64,
+                         name="tfidf.dense",
+                         spill_ratio=0.0 if output == "disk" else 0.5)
         for b in df._iter_filtered_batches():
-            mg.check_batch(b, name="tfidf.transform_dense", extra_factor=3.0)
-            for t in b.column(text_col).to_pylist():
+            mg.check_batch(b, name="tfidf.transform_dense",
+                           extra_factor=3.0)
+            texts = b.column(text_col).to_pylist()
+            mat = np.zeros((len(texts), V))
+            for i, t in enumerate(texts):
                 idx, val = self._row(t, norm)
-                row = np.zeros(V)
-                row[idx] = val
-                out.append(row)
-        return np.vstack(out) if out else np.zeros((0, V))
+                mat[i, idx] = val
+            buf.write_array(mat)
+        return buf.finalize()
 
 
 def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,

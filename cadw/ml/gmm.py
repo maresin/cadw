@@ -20,6 +20,7 @@ import numpy as np
 import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.spill import SpillBuffer, AutoResult
 
 
 def _log_gauss_diag(X, mu, var):
@@ -73,10 +74,28 @@ class GMMModel:
             arrays.append(arr.cast(pa.float64(), safe=False).to_numpy(zero_copy_only=False))
         return np.column_stack(arrays)
 
-    def score_samples(self, df, X_cols=None, memory_guard=None) -> pa.Table:
+    def score_samples(self, df, X_cols=None, memory_guard=None, *,
+                      output: str = "memory"):
+        """v0.9.90-S4: output= for spill-on-demand (auto/disk).
+
+        "memory" (default) → pa.Table.
+        "auto"/"disk"      → AutoResult (iterable pa.RecordBatch);
+                              .to_table() raises on spilled.
+        """
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"gmm.score_samples: output must be 'memory', 'auto' "
+                f"or 'disk'; got {output!r}")
         cols = list(X_cols) if X_cols is not None else self.feature_names_
         mg = memory_guard or MemoryGuard(max_memory_mb=64)
-        ll_parts: list[np.ndarray] = []
+        schema = pa.schema([("log_likelihood", pa.float64())])
+
+        if output == "memory":
+            ll_parts: list[np.ndarray] = []
+        else:
+            buf = SpillBuffer(guard=mg, schema=schema, name="gmm.score",
+                              spill_ratio=0.0 if output == "disk" else 0.5)
+
         for b in df._iter_filtered_batches():
             X = self._dense_batch(b, cols, mg)
             mask = ~np.isnan(X).any(axis=1)
@@ -84,19 +103,44 @@ class GMMModel:
             if mask.any():
                 _, ll = _responsibilities(X[mask], self.weights_, self.means_, self.covariances_)
                 out[mask] = ll
-            ll_parts.append(out)
-        arr = np.concatenate(ll_parts) if ll_parts else np.zeros(0)
-        return pa.table({"log_likelihood": pa.array(arr, type=pa.float64())})
+            if output == "memory":
+                ll_parts.append(out)
+            else:
+                rb = pa.RecordBatch.from_arrays(
+                    [pa.array(out, type=pa.float64())], schema=schema)
+                buf.write_batch(rb)
+
+        if output == "memory":
+            arr = np.concatenate(ll_parts) if ll_parts else np.zeros(0)
+            return pa.table({"log_likelihood": pa.array(arr, type=pa.float64())})
+        return buf.finalize()
 
     def score(self, df, X_cols=None, memory_guard=None) -> float:
         t = self.score_samples(df, X_cols, memory_guard)
         vals = t.column("log_likelihood").to_numpy(zero_copy_only=False)
         return float(np.nanmean(vals))
 
-    def predict(self, df, X_cols=None, memory_guard=None) -> pa.Table:
+    def predict(self, df, X_cols=None, memory_guard=None, *,
+                output: str = "memory"):
+        """v0.9.90-S4: output= for spill-on-demand (auto/disk).
+
+        "memory" (default) → pa.Table.
+        "auto"/"disk"      → AutoResult.
+        """
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"gmm.predict: output must be 'memory', 'auto' or "
+                f"'disk'; got {output!r}")
         cols = list(X_cols) if X_cols is not None else self.feature_names_
         mg = memory_guard or MemoryGuard(max_memory_mb=64)
-        lab_parts: list[np.ndarray] = []
+        schema = pa.schema([("cluster", pa.int64())])
+
+        if output == "memory":
+            lab_parts: list[np.ndarray] = []
+        else:
+            buf = SpillBuffer(guard=mg, schema=schema, name="gmm.predict",
+                              spill_ratio=0.0 if output == "disk" else 0.5)
+
         for b in df._iter_filtered_batches():
             X = self._dense_batch(b, cols, mg)
             mask = ~np.isnan(X).any(axis=1)
@@ -104,9 +148,17 @@ class GMMModel:
             if mask.any():
                 r, _ = _responsibilities(X[mask], self.weights_, self.means_, self.covariances_)
                 out[mask] = np.argmax(r, axis=1)
-            lab_parts.append(out)
-        arr = np.concatenate(lab_parts) if lab_parts else np.zeros(0, dtype=np.int64)
-        return pa.table({"cluster": pa.array(arr, type=pa.int64())})
+            if output == "memory":
+                lab_parts.append(out)
+            else:
+                rb = pa.RecordBatch.from_arrays(
+                    [pa.array(out, type=pa.int64())], schema=schema)
+                buf.write_batch(rb)
+
+        if output == "memory":
+            arr = np.concatenate(lab_parts) if lab_parts else np.zeros(0, dtype=np.int64)
+            return pa.table({"cluster": pa.array(arr, type=pa.int64())})
+        return buf.finalize()
 
 
 def _kmeanspp_init(X, k, rng):

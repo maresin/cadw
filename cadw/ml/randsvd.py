@@ -20,6 +20,7 @@ import numpy as np
 import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.spill import SpillArray, AutoArrayResult
 from cadw.ml._logging import log_fit
 
 
@@ -60,14 +61,31 @@ class RandomizedSVDModel:
         ev = self.singular_values_ ** 2
         return ev / max(total, 1e-300) if n else ev
 
-    def transform(self, df, memory_guard=None):
+    def transform(self, df, memory_guard=None, *, output: str = "memory"):
+        """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"randsvd.transform: output must be 'memory', "
+                f"'auto' or 'disk'; got {output!r}")
         mg = memory_guard or df._memory_guard
-        out = []
+        k = int(self.components_.shape[0])
+        if output == "memory":
+            out = []
+        else:
+            buf = SpillArray(guard=mg, width=k, dtype=np.float64,
+                             name="randsvd.transform",
+                             spill_ratio=0.0 if output == "disk" else 0.5)
         for b in df._iter_filtered_batches():
             mg.check_batch(b, name="randsvd.transform", extra_factor=3.0)
             X = _stack_numeric_safe(b, self.feature_cols_) - self.mean_
-            out.append(X @ self.components_.T)
-        return np.vstack(out) if out else np.zeros((0, self.components_.shape[0]))
+            proj_b = X @ self.components_.T
+            if output == "memory":
+                out.append(proj_b)
+            else:
+                buf.write_array(proj_b)
+        if output == "memory":
+            return np.vstack(out) if out else np.zeros((0, k))
+        return buf.finalize()
 
 
 def fit_randomized_svd(df, X_cols, *, n_components=8, n_oversamples=10,

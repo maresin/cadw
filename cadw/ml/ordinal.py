@@ -21,6 +21,7 @@ import numpy as np
 import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.spill import SpillArray, AutoArrayResult
 from cadw.ml._logging import log_fit
 
 
@@ -110,21 +111,56 @@ class OrdinalLogitModel:
                 "classes": [float(c) for c in self.classes_],
                 "params": self.params_}
 
-    def predict_proba(self, df, memory_guard=None):
+    def predict_proba(self, df, memory_guard=None, *, output: str = "memory"):
+        """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"ordinal.predict_proba: output must be 'memory', "
+                f"'auto' or 'disk'; got {output!r}")
         mg = memory_guard or df._memory_guard
         from cadw.ml.gbdt import _stack_numeric
-        chunks = []
+        K = int(self.classes_.size)
+        if output == "memory":
+            chunks = []
+        else:
+            buf = SpillArray(guard=mg, width=K, dtype=np.float64,
+                             name="ordinal.proba",
+                             spill_ratio=0.0 if output == "disk" else 0.5)
         for b in df._iter_filtered_batches():
             mg.check_batch(b, name="ordinal.predict", extra_factor=3.0)
-            chunks.append(_predict_proba_np(_stack_numeric(b, self.feature_cols_),
-                                            self.beta_, self.theta_))
-        if not chunks:
-            return np.zeros((0, self.classes_.size))
-        return np.vstack(chunks)
+            p_b = _predict_proba_np(_stack_numeric(b, self.feature_cols_),
+                                    self.beta_, self.theta_)
+            if output == "memory":
+                chunks.append(p_b)
+            else:
+                buf.write_array(p_b)
+        if output == "memory":
+            if not chunks:
+                return np.zeros((0, K))
+            return np.vstack(chunks)
+        return buf.finalize()
 
-    def predict(self, df, memory_guard=None):
-        p = self.predict_proba(df, memory_guard)
-        return self.classes_[np.argmax(p, axis=1)]
+    def predict(self, df, memory_guard=None, *, output: str = "memory"):
+        """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"ordinal.predict: output must be 'memory', 'auto' or "
+                f"'disk'; got {output!r}")
+        if output == "memory":
+            p = self.predict_proba(df, memory_guard)
+            return self.classes_[np.argmax(p, axis=1)]
+        mg = memory_guard or df._memory_guard
+        from cadw.ml.gbdt import _stack_numeric
+        buf = SpillArray(guard=mg, width=1, dtype=np.float64,
+                         name="ordinal.predict",
+                         spill_ratio=0.0 if output == "disk" else 0.5)
+        for b in df._iter_filtered_batches():
+            mg.check_batch(b, name="ordinal.predict", extra_factor=3.0)
+            p_b = _predict_proba_np(_stack_numeric(b, self.feature_cols_),
+                                    self.beta_, self.theta_)
+            cls_b = self.classes_[np.argmax(p_b, axis=1)]
+            buf.write_array(cls_b)
+        return buf.finalize()
 
 
 def fit_ordinal_logit(df, X_cols, y_col, *, max_iter=200, tol=1e-6,

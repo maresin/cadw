@@ -16,6 +16,7 @@ import numpy as np
 import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.spill import SpillArray, AutoArrayResult
 
 
 def _harmonic(n: int) -> float:
@@ -195,14 +196,19 @@ class IsolationForestModel:
             return np.full(n, 0.5, dtype=np.float64)
         return np.power(2.0, -acc / self.c_norm_)
 
-    def score_samples(self, df, X_cols=None, memory_guard=None) -> np.ndarray:
+    def score_samples(self, df, X_cols=None, memory_guard=None, *,
+                      output: str = "memory"):
         """Per-batch scoring. Peak RAM O(batch) (v0.9.31-fix1).
 
-        Prior version concatenated ALL batches to a single numpy array
-        (O(N) RAM, 227 MB @1M rows) — a hard violation of the
-        <=1-batch-in-RAM contract. Now scores each batch independently
-        with check_batch guard.
+        v0.9.90-S4: output=
+          "memory" (default) → np.ndarray (n,), backward compat.
+          "auto"/"disk"      → AutoArrayResult, iterable batches
+                                (b,1); .to_numpy() raises on spilled.
         """
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"iforest.score_samples: output must be 'memory', "
+                f"'auto' or 'disk'; got {output!r}")
         cols = list(X_cols) if X_cols is not None else self.feature_names_
         mg = memory_guard
         if mg is None:
@@ -210,7 +216,14 @@ class IsolationForestModel:
                 mg = df._memory_guard
             except Exception:
                 mg = MemoryGuard(max_memory_mb=64)
-        parts: list[np.ndarray] = []
+
+        if output == "memory":
+            parts: list[np.ndarray] = []
+        else:
+            buf = SpillArray(guard=mg, width=1, dtype=np.float64,
+                             name="iforest.score",
+                             spill_ratio=0.0 if output == "disk" else 0.5)
+
         for b in df._iter_filtered_batches():
             mg.check_batch(b, name="iforest.score", extra_factor=3.0)
             arrays = []
@@ -226,10 +239,16 @@ class IsolationForestModel:
             out = np.full(X_b.shape[0], np.nan, dtype=np.float64)
             if mask.any():
                 out[mask] = self._score_matrix(X_b[mask])
-            parts.append(out)
-        if not parts:
-            return np.zeros(0, dtype=np.float64)
-        return np.concatenate(parts, axis=0)
+            if output == "memory":
+                parts.append(out)
+            else:
+                buf.write_array(out)
+
+        if output == "memory":
+            if not parts:
+                return np.zeros(0, dtype=np.float64)
+            return np.concatenate(parts, axis=0)
+        return buf.finalize()
 
     def score(self, df, X_cols=None) -> pa.Table:
         s = self.score_samples(df, X_cols)

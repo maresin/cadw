@@ -20,6 +20,7 @@ import numpy as np
 import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.spill import SpillArray, AutoArrayResult
 from cadw.ml._logging import log_fit
 
 
@@ -71,13 +72,24 @@ class ChainsModel:
         return {"label_cols": self.label_cols_, "chain": self.chain_,
                 "params": self.params_}
 
-    def predict_proba(self, df, memory_guard=None):
+    def predict_proba(self, df, memory_guard=None, *, output: str = "memory"):
+        """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"chains.predict_proba: output must be 'memory', "
+                f"'auto' or 'disk'; got {output!r}")
         mg = memory_guard or df._memory_guard
-        outs = []
+        K = len(self.models_)
+        if output == "memory":
+            outs = []
+        else:
+            buf = SpillArray(guard=mg, width=K, dtype=np.float64,
+                             name="chains.proba",
+                             spill_ratio=0.0 if output == "disk" else 0.5)
         for b in df._iter_filtered_batches():
             mg.check_batch(b, name="chains.predict", extra_factor=3.0)
             X = _stack_numeric_safe(b, self.feature_cols_)
-            preds = np.empty((X.shape[0], len(self.models_)))
+            preds = np.empty((X.shape[0], K))
             prev = []
             for k, m in enumerate(self.models_):
                 if self.chain_ and prev:
@@ -87,8 +99,13 @@ class ChainsModel:
                 p = m.predict_proba(Xk)
                 preds[:, k] = p
                 prev.append(p)
-            outs.append(preds)
-        return np.vstack(outs) if outs else np.zeros((0, len(self.models_)))
+            if output == "memory":
+                outs.append(preds)
+            else:
+                buf.write_array(preds)
+        if output == "memory":
+            return np.vstack(outs) if outs else np.zeros((0, K))
+        return buf.finalize()
 
     def _predict_hard_batched(self, X, threshold):
         """Hard-label chaining: previous labels as 0/1 features."""
@@ -106,14 +123,33 @@ class ChainsModel:
             prev.append(lab)
         return out
 
-    def predict(self, df, memory_guard=None, threshold=0.5):
+    def predict(self, df, memory_guard=None, threshold=0.5, *,
+                output: str = "memory"):
+        """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"chains.predict: output must be 'memory', 'auto' or "
+                f"'disk'; got {output!r}")
         mg = memory_guard or df._memory_guard
-        chunks = []
+        K = len(self.models_)
+        if output == "memory":
+            chunks = []
+        else:
+            buf = SpillArray(guard=mg, width=K, dtype=np.int64,
+                             name="chains.predict",
+                             spill_ratio=0.0 if output == "disk" else 0.5)
         for b in df._iter_filtered_batches():
             mg.check_batch(b, name="chains.predict", extra_factor=3.0)
             X = _stack_numeric_safe(b, self.feature_cols_)
-            chunks.append(self._predict_hard_batched(X, threshold))
-        return np.vstack(chunks) if chunks else np.zeros((0, len(self.models_)), dtype=np.int64)
+            preds = self._predict_hard_batched(X, threshold)
+            if output == "memory":
+                chunks.append(preds)
+            else:
+                buf.write_array(preds)
+        if output == "memory":
+            return (np.vstack(chunks) if chunks
+                    else np.zeros((0, K), dtype=np.int64))
+        return buf.finalize()
 
     def subset_accuracy(self, df, memory_guard=None, threshold=0.5):
         mg = memory_guard or df._memory_guard
