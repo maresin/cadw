@@ -28,6 +28,22 @@ class ZMSResult:
     contamination: float | None
 
 
+def _resolve_chunk_nw_zms(w: int, guard=None) -> int:
+    """v0.9.91-S6a: chunk size so peak RAM stays O(chunk*w).
+
+    Bytes per window: view (w*8) + mean+std temp (~w*8). Total 2*w*8.
+    """
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        sl = getattr(guard, "state_limit_bytes", None)
+        if isinstance(sl, (int, float)) and sl > 0:
+            target_bytes = min(int(target_bytes), max(1, int(sl) // 8))
+    bytes_per_window = 8 * max(int(w), 1) * 2
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
 def _probe_memory_limit_mb(guard) -> float | None:
     def _is_pos(v):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
@@ -90,8 +106,15 @@ def fit_zms(
         raise ValueError(
             f"series length {n} < window_size {window_size}")
 
-    if guard is not None:
-        est_bytes = 8 * n * window_size
+    # v0.9.91-S6a: legacy fallback for duck-typed guards without
+    # check_state (max_memory_mb only). Real MemoryGuard uses chunked
+    # check_state below.
+    has_check_state = (
+        guard is not None and hasattr(guard, "check_state")
+        and callable(guard.check_state)
+    )
+    if guard is not None and not has_check_state:
+        est_bytes = int(n * window_size * 8 * 2)
         limit_mb = _probe_memory_limit_mb(guard)
         if limit_mb is not None and limit_mb > 0:
             if est_bytes > limit_mb * 1024 * 1024:
@@ -102,9 +125,21 @@ def fit_zms(
 
     # Trailing windows: pad window_size-1 with edge value
     padded = np.concatenate([np.full(window_size - 1, x[0]), x])
-    windows = np.lib.stride_tricks.sliding_window_view(padded, window_size)
-    mu = windows.mean(axis=1)
-    sigma = windows.std(axis=1)
+    view = np.lib.stride_tricks.sliding_window_view(padded, window_size)
+    n_w = view.shape[0]
+    chunk = _resolve_chunk_nw_zms(window_size, guard)
+
+    mu = np.empty(n_w, dtype=np.float64)
+    sigma = np.empty(n_w, dtype=np.float64)
+    for i in range(0, n_w, chunk):
+        end = min(i + chunk, n_w)
+        nb = end - i
+        if has_check_state:
+            guard.check_state(
+                nb * window_size * 8 * 2, name="zms.chunk")
+        blk = np.ascontiguousarray(view[i:end])
+        mu[i:end] = blk.mean(axis=1)
+        sigma[i:end] = blk.std(axis=1)
     sigma = np.where(sigma < 1e-12, 1e-12, sigma)
 
     scores = np.abs(x - mu) / sigma

@@ -30,6 +30,24 @@ class HampelResult:
     contamination: float | None
 
 
+def _resolve_chunk_nw_hampel(w: int, guard=None) -> int:
+    """v0.9.91-S6a: chunk size so peak RAM stays O(chunk*w).
+
+    Target: 8 MB default per chunk; if guard exposes state_limit_bytes,
+    cap to state_limit // 8. Bytes per window: window view (w*8) +
+    abs(window) copy (w*8) = 2 * w * 8.
+    """
+    default_target = 8 * 1024 * 1024
+    target_bytes = default_target
+    if guard is not None:
+        sl = getattr(guard, "state_limit_bytes", None)
+        if isinstance(sl, (int, float)) and sl > 0:
+            target_bytes = min(int(target_bytes), max(1, int(sl) // 8))
+    bytes_per_window = 8 * max(int(w), 1) * 2
+    n = max(100, target_bytes // bytes_per_window)
+    return min(10_000, n)
+
+
 def _probe_memory_limit_mb(guard) -> float | None:
     def _is_pos(v):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
@@ -99,8 +117,16 @@ def fit_hampel(
     if window_size > n:
         window_size = n if n % 2 == 1 else n - 1
 
-    if guard is not None:
-        est_bytes = 8 * n * window_size
+    # v0.9.91-S6a: legacy guard path (fallback — no check_state).
+    # Kept for duck-typed guards exposing only max_memory_mb.
+    # For real MemoryGuard, chunked loop below uses check_state per chunk.
+    has_check_state = (
+        guard is not None and hasattr(guard, "check_state")
+        and callable(guard.check_state)
+    )
+    if guard is not None and not has_check_state:
+        # Peak = window view + abs copy = 2 * n * w * 8.
+        est_bytes = int(n * window_size * 8 * 2)
         limit_mb = _probe_memory_limit_mb(guard)
         if limit_mb is not None and limit_mb > 0:
             if est_bytes > limit_mb * 1024 * 1024:
@@ -111,9 +137,23 @@ def fit_hampel(
 
     half = window_size // 2
     padded = np.pad(x, half, mode="edge")
-    windows = np.lib.stride_tricks.sliding_window_view(padded, window_size)
-    med = np.median(windows, axis=1)
-    mad = np.median(np.abs(windows - med[:, None]), axis=1)
+    view = np.lib.stride_tricks.sliding_window_view(padded, window_size)
+    n_w = view.shape[0]
+    chunk = _resolve_chunk_nw_hampel(window_size, guard)
+
+    med = np.empty(n_w, dtype=np.float64)
+    mad = np.empty(n_w, dtype=np.float64)
+    for i in range(0, n_w, chunk):
+        end = min(i + chunk, n_w)
+        nb = end - i
+        if has_check_state:
+            guard.check_state(
+                nb * window_size * 8 * 2, name="hampel.chunk")
+        blk = np.ascontiguousarray(view[i:end])
+        m_blk = np.median(blk, axis=1)
+        med[i:end] = m_blk
+        mad[i:end] = np.median(np.abs(blk - m_blk[:, None]), axis=1)
+
     sigma = 1.4826 * mad
     sigma = np.where(sigma < 1e-12, 1e-12, sigma)
 
