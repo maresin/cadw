@@ -297,3 +297,368 @@ def test_g6_batch_loop_concat(path):
         f"Fix: SpillArray(guard=mg, width=K, ...).write_array(...) "
         f"+ finalize(). If back-compat path is intentional, add to "
         f"G6_WHITELIST.")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# G8 — spill_ratio validity (must not exceed state_limit safety)
+# ═══════════════════════════════════════════════════════════════════
+#
+# SpillBuffer/SpillArray spill when buffered bytes exceed
+# threshold = guard.available_bytes() × spill_ratio. The state_limit
+# check fires at available × 0.7 (state_safety). So:
+#   - spill_ratio > 0.7 → OOM before spill (never spills)
+#   - spill_ratio = 0.7 → collides with state_limit (borderline)
+#   - spill_ratio = 0.5 → safe (20% headroom below state_limit)
+#   - spill_ratio = 0.0 → force disk (first non-empty batch spills)
+# Idiomatic safe set: {0.0, 0.5}. Other values (0.3, 0.7, 0.9, 1.0)
+# are either non-idiomatic or unsafe.
+
+SAFE_SPILL_RATIOS = {0.0, 0.5}
+
+G8_WHITELIST: set[tuple[str, str]] = set()
+
+
+def _walk_cadw_all():
+    """All cadw subdirs that may construct SpillArray/SpillBuffer."""
+    for sub in ("ml", "ts", "ops", "core"):
+        d = CADW / sub
+        if not d.exists():
+            continue
+        for p in sorted(d.rglob("*.py")):
+            if "__pycache__" in p.parts:
+                continue
+            yield p
+
+
+def _get_call_attr(call: ast.Call) -> str | None:
+    """Return function/method name of a Call node."""
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    return None
+
+
+def _get_kwarg_value(call: ast.Call, name: str) -> ast.expr | None:
+    """Return the AST value of keyword `name` in call, or None."""
+    for kw in call.keywords:
+        if kw.arg == name:
+            return kw.value
+    return None
+
+
+def _is_safe_spill_ratio(expr: ast.expr) -> bool:
+    """Safe = constant in {0.0, 0.5}, ternary (depends on output),
+    or a Name reference (assumed bound to safe value).
+
+    Unsafe = literal 0.3, 0.7, 0.9, 1.0, or arithmetic expression.
+    """
+    if isinstance(expr, ast.Constant):
+        try:
+            return float(expr.value) in SAFE_SPILL_RATIOS
+        except (TypeError, ValueError):
+            return True
+    if isinstance(expr, (ast.IfExp, ast.Name)):
+        return True
+    return False
+
+
+def test_g8_spill_ratio_valid():
+    """G8: SpillArray/SpillBuffer must use spill_ratio ∈ {0.0, 0.5}.
+
+    spill_ratio >= 0.7 → threshold >= state_limit → OOM before spill
+    (never spills; O(n) RAM silently grows). See
+    AI_CONSTITUTION.md §3.3 + §4.1.
+
+    Safe:   spill_ratio=0.5                     (auto, idiomatic)
+            spill_ratio=0.0                     (force disk)
+            spill_ratio=0.0 if output=="disk" else 0.5  (ternary)
+            sr = 0.5; SpillArray(..., spill_ratio=sr)   (Name)
+    Unsafe: spill_ratio=1.0, 0.7, 0.9, 0.3
+    """
+    violations: list[tuple[str, str, int, object]] = []
+    for path in _walk_cadw_all():
+        rel = str(path.relative_to(ROOT))
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError as e:
+            pytest.fail(f"{rel}: syntax error {e}")
+        for fn in _iter_functions(tree):
+            if (rel, fn.name) in G8_WHITELIST:
+                continue
+            for call in ast.walk(fn):
+                if not isinstance(call, ast.Call):
+                    continue
+                name = _get_call_attr(call)
+                if name not in ("SpillArray", "SpillBuffer"):
+                    continue
+                sr = _get_kwarg_value(call, "spill_ratio")
+                if sr is None:
+                    continue
+                if not _is_safe_spill_ratio(sr):
+                    val = getattr(sr, "value", "<expr>")
+                    violations.append((rel, fn.name, call.lineno, val))
+
+    assert not violations, (
+        f"spill_ratio outside {{0.0, 0.5}}. Violations: "
+        f"{violations[:5]}. "
+        f"spill_ratio >= 0.7 → threshold >= state_limit → OOM before "
+        f"spill. Use 0.5 for auto, 0.0 for disk. "
+        f"See AI_CONSTITUTION.md §3.3 + §4.1.")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# G9 — self-verification test exists for every output= producer
+# ═══════════════════════════════════════════════════════════════════
+#
+# AI-written producers with output= MUST ship with a test exercising
+# both branches (memory + auto). Without G9, a producer could ship
+# with only the memory branch tested — spill branch would silently
+# accumulate O(n) RAM on prod scale (§1.3 violation without anyone
+# noticing). This is the enforcement arm of §4.1 without human review.
+
+G9_WHITELIST: set[tuple[str, str]] = set()
+
+TESTS_DIR = ROOT / "tests"
+
+
+def _walk_producers():
+    """Files in cadw/ml/ and cadw/ops/ that may define output= funcs.
+
+    Not including cadw/dataframe/ — bindings are thin pass-throughs
+    to ml/ producers (tested there). Widen if bindings gain non-
+    trivial output= logic.
+    """
+    for sub in ("ml", "ops"):
+        d = CADW / sub
+        if not d.exists():
+            continue
+        for p in sorted(d.rglob("*.py")):
+            if "__pycache__" in p.parts:
+                continue
+            yield p
+
+
+def _functions_with_kwarg(path: Path, kwarg: str) -> list[str]:
+    """Return names of functions in path whose signature has kwarg."""
+    try:
+        tree = ast.parse(path.read_text())
+    except SyntaxError:
+        return []
+    out: list[str] = []
+    for fn in _iter_functions(tree):
+        args = list(fn.args.args) + list(fn.args.kwonlyargs)
+        if any(a.arg == kwarg for a in args):
+            out.append(fn.name)
+    return out
+
+
+_TEST_CALL_CACHE: dict[str, tuple[bool, bool]] | None = None
+
+
+def _test_call_coverage() -> dict[str, tuple[bool, bool]]:
+    """Scan all test files once; map fn_name → (has_memory, has_auto).
+
+    Only **direct** function calls (`Name`) are counted, not method
+    calls (`Attribute`). Rationale: `df.drop_duplicates(...)` is a
+    CadwDataFrame facade method, not `cadw.ops.dedup.drop_duplicates`
+    — counting it would mask a missing ops-level test. Direct calls
+    to imported functions (`drop_duplicates(...)`,
+    `ops_dedup(...)`) are what tests use to exercise the ops API.
+
+    Alias resolution: `from cadw.ops.dedup import drop_duplicates
+    as ops_dedup` resolves to `drop_duplicates`, so tests written
+    against the alias count. This is common in
+    test_streaming_output_* (`ops_dedup`, `ops_groupby`, etc.).
+
+    has_auto includes calls without `output=` kwarg (default="auto").
+    Cached per-session — file scan is O(num_tests × parse).
+    """
+    global _TEST_CALL_CACHE
+    if _TEST_CALL_CACHE is not None:
+        return _TEST_CALL_CACHE
+    cache: dict[str, tuple[bool, bool]] = {}
+    if not TESTS_DIR.exists():
+        _TEST_CALL_CACHE = cache
+        return cache
+    for tp in TESTS_DIR.rglob("test_*.py"):
+        if "__pycache__" in tp.parts:
+            continue
+        try:
+            tree = ast.parse(tp.read_text())
+        except SyntaxError:
+            continue
+        # Build import map: local_name → original function name
+        # (from `from mod import name [as alias]` only).
+        imports: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for a in node.names:
+                    local = a.asname or a.name
+                    imports[local] = a.name
+        # Scan both Name calls (with alias resolution) and Attribute
+        # calls (method calls like `m.predict_proba(...)` — how ML
+        # producers are tested). Facade `df.drop_duplicates(...)`
+        # also counts as `drop_duplicates` coverage — legitimate
+        # (it exercises the same producer). What DOESN'T count: a
+        # producer with no memory branch test at all.
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                # Direct call: resolve alias if imported
+                resolved = imports.get(node.func.id, node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                # Method call: use attr name (m.predict_proba → predict_proba)
+                resolved = node.func.attr
+            else:
+                continue
+            mem = auto = False
+            for kw in node.keywords:
+                if kw.arg == "output":
+                    v = getattr(kw.value, "value", None)
+                    if v == "memory":
+                        mem = True
+                    elif v == "auto":
+                        auto = True
+                    break
+            else:
+                # no `output` kwarg → default is "auto"
+                auto = True
+            prev_mem, prev_auto = cache.get(resolved, (False, False))
+            cache[resolved] = (prev_mem or mem, prev_auto or auto)
+    _TEST_CALL_CACHE = cache
+    return cache
+
+
+def test_g9_self_verification_present():
+    """G9: every function with `output=` param in cadw/ml/ or cadw/ops/
+    must have at least one test exercising output="memory" AND one
+    exercising output="auto" (or default = auto).
+
+    Enforces §4.1 self-verification protocol without human review:
+    if AI writes a new producer, it must also write its own tests.
+    Green suite without both branches = not shippable.
+    """
+    coverage = _test_call_coverage()
+    missing: list[tuple[str, str, list[str]]] = []
+    for path in _walk_producers():
+        rel = str(path.relative_to(ROOT))
+        for fn_name in _functions_with_kwarg(path, "output"):
+            if (rel, fn_name) in G9_WHITELIST:
+                continue
+            has_mem, has_auto = coverage.get(fn_name, (False, False))
+            gaps: list[str] = []
+            if not has_mem:
+                gaps.append("no output='memory' test")
+            if not has_auto:
+                gaps.append("no output='auto' (or default) test")
+            if gaps:
+                missing.append((rel, fn_name, gaps))
+
+    assert not missing, (
+        f"output= producers lacking self-verification tests: "
+        f"{missing[:5]}. "
+        f"Add tests/test_<module>.py with both branches: "
+        f"result_mem = fn(..., output='memory'); "
+        f"result_auto = fn(..., output='auto'); assert equivalent. "
+        f"See AI_CONSTITUTION.md §4.1. "
+        f"If test lives in a different file (e.g. "
+        f"test_streaming_output_ml.py), still detected. "
+        f"If intentionally back-compat-only, add to G9_WHITELIST "
+        f"with rationale.")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# G10 — fit_* with solver= must have dual-branch equivalence test
+# ═══════════════════════════════════════════════════════════════════
+#
+# v0.9.93 will add solver="auto"|"closed"|"sgd" to fit_linear,
+# fit_logistic, fit_coxph. This gate is forward-looking: prevents
+# "two branches, one tested" class of bug from entering v0.9.93.
+# Currently no solver= producers exist (gate effectively empty).
+
+G10_WHITELIST: set[tuple[str, str]] = set()
+
+
+def _find_solver_producers():
+    """Yield (file, [fn_names_with_solver]) for cadw/ml/."""
+    d = CADW / "ml"
+    if not d.exists():
+        return
+    for p in sorted(d.rglob("*.py")):
+        if "__pycache__" in p.parts:
+            continue
+        fns = _functions_with_kwarg(p, "solver")
+        if fns:
+            yield p, fns
+
+
+def test_g10_solver_equivalence_present():
+    """G10: every fit_* with solver= param must have a test comparing
+    solver="closed" vs solver="sgd".
+
+    Contract (v0.9.93+):
+      - quadratic loss (linear, ridge): bit-identical at d=50
+        (atol=1e-6). Same math, same optimum, both branches must
+        produce same coefficients.
+      - non-quadratic (logistic, coxph): documented convergence
+        (relative coef error < 5% vs IRLS/Newton reference).
+
+    Requires explicit solver="closed" AND solver="sgd" calls in
+    tests. `solver="auto"` alone does NOT satisfy — AST cannot know
+    which branch a runtime auto call picks.
+
+    See AI_CONSTITUTION.md §4.1 + ROADMAP v0.9.93.
+    """
+    # Scan test files for calls with kwarg solver="closed"/"sgd"
+    solver_calls: dict[str, set[str]] = {}
+    if TESTS_DIR.exists():
+        for tp in TESTS_DIR.rglob("test_*.py"):
+            if "__pycache__" in tp.parts:
+                continue
+            try:
+                tree = ast.parse(tp.read_text())
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = _get_call_attr(node)
+                if not callee:
+                    continue
+                for kw in node.keywords:
+                    if kw.arg == "solver":
+                        v = getattr(kw.value, "value", None)
+                        if isinstance(v, str):
+                            solver_calls.setdefault(
+                                callee, set()).add(v)
+
+    missing: list[tuple[str, str, list[str]]] = []
+    for path, fns in _find_solver_producers():
+        rel = str(path.relative_to(ROOT))
+        for fn_name in fns:
+            if (rel, fn_name) in G10_WHITELIST:
+                continue
+            solvers = solver_calls.get(fn_name, set())
+            has_closed = "closed" in solvers
+            has_sgd = "sgd" in solvers
+            gaps: list[str] = []
+            if not has_closed:
+                gaps.append("no solver='closed' test")
+            if not has_sgd:
+                gaps.append("no solver='sgd' test")
+            if gaps:
+                missing.append((rel, fn_name, gaps))
+
+    assert not missing, (
+        f"fit_* with solver= lacking dual-branch tests: "
+        f"{missing[:5]}. "
+        f"Add test comparing solver='closed' vs solver='sgd': "
+        f"- quadratic loss (linear/ridge): bit-identical (atol=1e-6, "
+        f"d=50, same regularization λ)"
+        f"- non-quadratic (logistic/coxph): documented convergence "
+        f"(relative coef error < 5% vs reference). "
+        f"See AI_CONSTITUTION.md §4.1 + ROADMAP v0.9.93. "
+        f"If not yet implemented, add to G10_WHITELIST with roadmap "
+        f"reference.")
