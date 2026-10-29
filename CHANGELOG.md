@@ -1,5 +1,140 @@
 ## [Unreleased]
 
+### v0.9.90-S5b (2026-10-29) - TS guards (base path)
+
+Guard before O(n) allocations in 4 TS functions (base path only;
+group path documented as STREAMING_OUTPUT_ARCHITECTURE.md §5 P10):
+
+  - ts/thf.py::_fit_one — guard before y_per_level + y_base copy.
+    est = n * (1 + sum(1/m_k)) * 8.
+  - ts/features.py::_shift_stream — guard before `out` dict
+    (`n × |lags| × 100 B`). Base path; group path uses per-group
+    deque (bounded by max_lag) but dict-per-group depends on
+    n_groups (documented limitation).
+  - ts/stats.py::rolling_stats — guard before `outs` dict
+    (`n × |windows| × |stats| × 100 B`). Same scope.
+  - ts/stats.py::rolling_crosscorr — guard before `outs`
+    (`n × |windows| × |lags| × 100 B`). Same scope.
+
+4 files, +40 LOC. All TS tests green (guard not triggered at
+typical n). Full fast suite: 3981 passed, 8 skipped.
+
+### v0.9.90-S5 (2026-10-29) - TS guards (root `_extract_series`)
+
+Root cause: `_extract_series` accumulated Python-list (n × ~36 B)
+instead of np.empty (n × 8 B). Fix: two paths — pre-alloc
+`np.empty(df.count())` for no-filter (guard `check_state(n*8)`
+BEFORE alloc), Python-list retained for group filter (per-series n
+small in typical TS).
+
+Also: `var.py::VARModel.fit` guard before `_stack_lags`
+(est = Y + X + Yt); `models.py::_build_lag_matrix` gained
+optional `memory_guard` kwarg (GBDTForecaster.fit passes it);
+`auto_theta.py::_MultiplicativeWrapper.fit` guard before 3× O(n)
+copies (log_y → pa.array → Dataset).
+
+3 files, +63 LOC. All 17 TS test files green. Full suite: 3981 passed.
+
+### v0.9.90-S4 (2026-10-29) - ML output= (9 functions)
+
+9 functions returning O(n) np.ndarray / pa.Table accept
+`output="memory"|"auto"|"disk"`:
+
+  np.ndarray → AutoArrayResult (SpillArray):
+    iforest.score_samples, chains.predict_proba, chains.predict,
+    ordinal.predict_proba, ordinal.predict, tfidf.transform_dense,
+    randsvd.transform.
+
+  pa.Table → AutoResult (SpillBuffer):
+    gmm.score_samples, gmm.predict.
+
+`output="memory"` (default): bit-identical to pre-S4.
+`output="auto"`: in-memory if fits, spills at threshold 0.5.
+`output="disk"`: forces spill (spill_ratio=0.0).
+
+Not in S4 (documented, not defects):
+  - linear/logistic/gbdt/kmeans predict return CadwDataFrame
+    (already OOC via Dataset.from_batches, no fix needed).
+  - eif.fit_eif takes np.ndarray — user contract.
+  - tfidf.transform (sparse) — variable per-row width; needs
+    binary/CSR SpillBuffer (backlog).
+
+6 modules + test_streaming_output_ml.py (+21 tests). Full: 3981.
+
+### v0.9.90-S3 (2026-10-29) - 11 G2 (guard-after-alloc) fixes
+
+Audit §6 of STREAMING_OUTPUT_ARCHITECTURE.md: check_state must
+precede allocation, not follow it. Prior pattern (append then
+check) left OOM window on a single oversized batch.
+
+11 sites fixed in 10 modules:
+
+  _collect family: feature_select, calibration, chains, ordinal,
+  meta_learners — n += b.num_rows and check_state moved BEFORE
+  Xs.append.
+
+  Vocab builders: lda::_build_vocab, tfidf::fit_tfidf,
+  _ml_bindings::encode_categorical — check_state((len + n_rows)
+  × per_entry) at top of loop, before insertion.
+
+  minirocket::transform — check_state before rows.append.
+
+  hybrid_mf::fit — check_state(n_items * d_content * 8) BEFORE
+  _content_matrix allocates C.
+
+  dwt_mlead::fit — full pre-guard (n_padded_est, max_level_est,
+  chunk_pre) BEFORE pad + DWT; old post-alloc guard removed.
+
+10 files, +66/-45 LOC. All existing tests in 10 affected modules
+green (guard reordering, no behavior change).
+
+### v0.9.90-S2-fix (2026-10-29) - spill_ratio=0.0 + validation
+
+1. SpillBuffer/SpillArray: allow spill_ratio=0.0 (= spill on first
+   batch). Used by output="disk" to force OnDiskResult regardless
+   of budget. Prior validation (0.0 < ratio <= 1.0) rejected 0.0,
+   ValueError from output="disk" path. Threshold formula changed
+   from `max(1, int(avail*ratio))` to `int(avail*ratio)` — 0.0
+   means "any non-empty batch spills", 0.5 unchanged.
+
+2. output= strict validation: groupby_aggregate / drop_duplicates /
+   topk_to_disk raise ValueError on output not in
+   (memory, auto, disk). Prior: unknown output fell through to
+   auto branch silently.
+
++2 tests. 7 files. Full suite: 3961 → 3963 → later 3981 (+S3 0,
++S4 21, +S5 0).
+
+### v0.9.90-S2 (2026-10-29) - 4 ops output= + topk fix + pivot OOC
+
+Public API (back-compat via default `output="memory"`):
+
+  groupby_aggregate(..., output="memory"|"auto"|"disk")
+  drop_duplicates(..., output="memory"|"auto"|"disk")
+  topk_to_disk(..., output="memory"|"auto"|"disk")
+
+`"memory"` → pa.Table (old behavior).
+`"auto"`   → AutoResult (SpillBuffer, spill at 0.5 threshold).
+`"disk"`   → AutoResult with spill_ratio=0.0 (forced).
+
+`pivot_to_disk` signature unchanged. Internally now:
+`groupby_aggregate(output="auto")` + iterate AutoResult instead of
+`list(long_table.to_batches())`. Fixes OOM when K_pairs >
+state_limit (prior raised before pivot output even started).
+
+**topk_to_disk algorithmic fix (audit #13):**
+
+  Prior: per_batch: list[pa.Table] = O(P × k × row_size). For
+  n_total=10^6 / chunk 100 / k=10, P=10^4, acc ≈ 800 KB → hit
+  state_limit on tight budgets even though k=10 (output 80 B).
+
+  Now: incremental merge. current_top = _per_batch_topk(current_top
+  + batch_top, k) each iteration. State = O(k × row_size) = output
+  size. check_state(current_top.nbytes) fires only if k × row_size
+  > state_limit (impossible output).
+
+4 files + test_streaming_output_ops.py (+14). Full: 3946 → 3960.
+
 ### v0.9.90-S1 (2026-10-29) - Streaming-output API core
 
 Adds `SpillBuffer` / `AutoResult` / `SpillArray` / `AutoArrayResult`

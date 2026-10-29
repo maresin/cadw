@@ -258,6 +258,13 @@ def rolling_stats(
                 if group_col is not None else None
             )
 
+            # v0.9.90-S5b: guard for outs = n*|windows|*|stats| list
+            # entries. Base path only; group path depends on n_groups
+            # (see STREAMING_OUTPUT_ARCHITECTURE.md §5 P10).
+            if grps is None and df._memory_guard is not None:
+                df._memory_guard.check_state(
+                    n * len(windows) * len(stats) * 100,
+                    name=f"ts.rolling_stats.{column}.outs")
             outs = {}
             for w in windows:
                 for s in stats:
@@ -420,6 +427,12 @@ def rolling_crosscorr(
                 batch.column(group_col).to_pylist()
                 if group_col is not None else None
             )
+            # v0.9.90-S5b: guard for outs = n*|windows|*|lags| list
+            # entries (base path only).
+            if grps is None and df._memory_guard is not None:
+                df._memory_guard.check_state(
+                    n * len(windows) * len(lags) * 100,
+                    name=f"ts.rolling_crosscorr.{col_x}__{col_y}.outs")
             outs = {}
             for w in windows:
                 for K in lags:

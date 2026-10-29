@@ -134,6 +134,14 @@ def _shift_stream(
             else:
                 grps = None
 
+            # v0.9.90-S5b: guard for out = {k: [None]*n for k in ks}.
+            # Peak = n * len(ks) * ~100 B (list cell + float obj).
+            # Base path only; group path depends on n_groups (see
+            # STREAMING_OUTPUT_ARCHITECTURE.md §5 P10).
+            if grps is None and df._memory_guard is not None:
+                df._memory_guard.check_state(
+                    n * len(ks) * 100,
+                    name=f"ts.{direction}.{column}.out")
             out = {k: [None] * n for k in ks}
             if grps is None:
                 hist = carry.get(None)

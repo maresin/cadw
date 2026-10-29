@@ -132,6 +132,8 @@ class TemporalHierarchy:
         self._is_fitted = False
 
     def fit(self, df, target_col, *, time_col=None, group_col=None):
+        # v0.9.90-S5b: store guard for _fit_one (base path only).
+        self._mg = getattr(df, "_memory_guard", None)
         if group_col is not None:
             if group_col not in df._columns:
                 raise KeyError(
@@ -173,6 +175,11 @@ class TemporalHierarchy:
                 f"TemporalHierarchy: need at least "
                 f"{max(self.levels) * 2} observations; got {len(y)}"
             )
+        # v0.9.90-S5b: guard before O(n) y_per_level + y_base copies.
+        # Peak = n*(1 + sum(1/m_k)) * 8 (y_base + per-level aggregates).
+        if group is None and getattr(self, "_mg", None) is not None:
+            est = int(len(y) * (1.0 + sum(1.0 / m for m in self.levels))) * 8
+            self._mg.check_state(est, name="thf.fit_one")
         y_per_level = [_aggregate(y, m, self.agg) for m in self.levels]
         models = []
         resid_var = []
