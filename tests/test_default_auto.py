@@ -104,7 +104,13 @@ def test_groupby_memory_still_returns_table(tmp_path):
     assert isinstance(result, pa.Table)
 
 
-def test_iforest_memory_still_returns_ndarray():
+def test_iforest_memory_returns_cadwdataframe():
+    """v0.9.95 BREAKING: unified CadwDataFrame regardless of output=.
+
+    Previously output='memory' returned np.ndarray. After v0.9.95
+    all output= values return CadwDataFrame; difference is only
+    storage strategy (in-memory vs auto-spill vs forced disk).
+    """
     from cadw.ml.iforest import fit_isolation_forest
     rng = np.random.RandomState(0)
     X = rng.normal(size=(200, 2))
@@ -113,5 +119,6 @@ def test_iforest_memory_still_returns_ndarray():
     m = fit_isolation_forest(df, ['x0', 'x1'], n_trees=5,
                               subsample_size=64, random_state=0)
     s = m.score_samples(df, output='memory')
-    assert isinstance(s, np.ndarray)
-    assert s.shape == (200,)
+    assert isinstance(s, CadwDataFrame)
+    assert s.count() == 200
+    assert s.columns == ["score"]

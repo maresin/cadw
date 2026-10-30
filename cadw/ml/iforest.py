@@ -200,11 +200,23 @@ class IsolationForestModel:
                       output: str = "auto"):
         """Per-batch scoring. Peak RAM O(batch) (v0.9.31-fix1).
 
-        v0.9.90-S4: output=
-          "memory" (default) → np.ndarray (n,), backward compat.
-          "auto"/"disk"      → AutoArrayResult, iterable batches
-                                (b,1); .to_numpy() raises on spilled.
+        v0.9.95 (BREAKING): unified CadwDataFrame return.
+        output= selects storage strategy only, not return type:
+          "memory" → in-memory (no disk, _InMemoryDataset)
+          "auto"   → in-memory if fits in budget, else disk
+          "disk"   → forced disk (Arrow IPC)
+        Column: ["score"].
+
+        v0.9.92: default flipped to "auto" (was AutoArrayResult).
+        v0.9.90: introduced output= with AutoArrayResult for auto/disk.
+        Pre-v0.9.95 migration: CadwDataFrame.from_producer_result
+        wraps any output= shape (memory/auto/disk) into CadwDataFrame.
         """
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"iforest.score_samples: output must be 'memory', "
+                f"'auto' or 'disk'; got {output!r}")
+        cols = list(X_cols) if X_cols is not None else self.feature_names_
         if output not in ("memory", "auto", "disk"):
             raise ValueError(
                 f"iforest.score_samples: output must be 'memory', "
@@ -244,21 +256,53 @@ class IsolationForestModel:
             else:
                 buf.write_array(out)
 
+        # v0.9.95: unified CadwDataFrame return (BREAKING). output=
+        # selects storage strategy only, not return type:
+        #   "memory" → CadwDataFrame (in-memory _InMemoryDataset)
+        #   "auto"   → CadwDataFrame (in-memory if small, else disk)
+        #   "disk"   → CadwDataFrame (disk-backed, forced spill)
+        # Column: ["score"].
         if output == "memory":
             if not parts:
-                return np.zeros(0, dtype=np.float64)
-            return np.concatenate(parts, axis=0)
-        return buf.finalize()
+                raw = np.zeros(0, dtype=np.float64)
+            else:
+                raw = np.concatenate(parts, axis=0)
+        else:
+            raw = buf.finalize()
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=["score"], memory_guard=mg)
 
-    def score(self, df, X_cols=None) -> pa.Table:
-        s = self.score_samples(df, X_cols)
-        return pa.table({"score": pa.array(s, type=pa.float64())})
+    def score(self, df, X_cols=None):
+        """Per-row anomaly score.
 
-    def predict(self, df, X_cols=None, threshold=None) -> pa.Table:
+        v0.9.95 (BREAKING): returns CadwDataFrame (unified return
+        type), column "score" (float64). Same values as
+        score_samples() — this is the pa.Table-shaped alias.
+        """
+        # score_samples now returns CadwDataFrame; both produce the
+        # same "score" column, so forward directly.
+        return self.score_samples(df, X_cols)
+
+    def predict(self, df, X_cols=None, threshold=None):
+        """Binary outlier prediction (score > threshold).
+
+        v0.9.95 (BREAKING): returns CadwDataFrame (unified return type),
+        column "is_outlier" (bool).
+
+        Score extraction: score_samples returns CadwDataFrame; pull
+        "score" column via iter to avoid pandas dependency.
+        """
         thr = float(threshold) if threshold is not None else self.threshold_
-        s = self.score_samples(df, X_cols)
-        labels = np.where(np.isnan(s), False, s > thr)
-        return pa.table({"is_outlier": pa.array(labels, type=pa.bool_())})
+        s_df = self.score_samples(df, X_cols)
+        parts = [b.column("score").to_numpy(zero_copy_only=False)
+                 for b in s_df._iter_filtered_batches()]
+        s_arr = (np.concatenate(parts, axis=0) if parts
+                 else np.zeros(0, dtype=np.float64))
+        labels = np.where(np.isnan(s_arr), False, s_arr > thr)
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_table(pa.table({
+            "is_outlier": pa.array(labels, type=pa.bool_())}))
 
 
 def _dense_from_df(df, cols):

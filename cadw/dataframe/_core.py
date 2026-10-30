@@ -424,6 +424,81 @@ class CadwDataFrame(_ExportsMixin, _IteratorsMixin, _MiscMixin, _IndexingMixin, 
     # ─────────────────────────────────────────────────────────────
 
     @classmethod
+    def from_producer_result(
+        cls,
+        result,
+        *,
+        col_names=None,
+        memory_guard=None,
+        spill_dir=None,
+    ) -> "CadwDataFrame":
+        """Universal wrap: AutoResult | AutoArrayResult → CadwDataFrame.
+
+        v0.9.95: single entry point for all 13 producers that flipped
+        default output="auto" → CadwDataFrame.
+
+        - InMemoryResult → from_table (no disk).
+        - OnDiskResult → from_auto_result (disk-backed Dataset, no
+          extra copy — re-uses original ArrowIPC file dir).
+        - InMemoryArrayResult → _from_numpy (no disk).
+        - OnDiskArrayResult → from_autoarray_result.
+
+        Prefer this over type-specific from_auto* when the caller
+        doesn't know which branch the producer returned (small data
+        → in-memory; large → spilled).
+        """
+        from cadw.core.spill import AutoResult, AutoArrayResult
+        # v0.9.95: also accept pa.Table / np.ndarray (legacy output=
+        # "memory" branches). Unified return type = CadwDataFrame.
+        if isinstance(result, pa.Table):
+            return cls.from_table(result, memory_guard=memory_guard)
+        if isinstance(result, np.ndarray):
+            return cls._from_numpy(
+                result, col_names=col_names, memory_guard=memory_guard)
+        if isinstance(result, AutoResult):
+            if not result.is_spilled:
+                return cls.from_table(result.to_table())
+            return cls.from_auto_result(
+                result, memory_guard=memory_guard, spill_dir=spill_dir)
+        if isinstance(result, AutoArrayResult):
+            if not result.is_spilled:
+                return cls._from_numpy(
+                    result.to_numpy(), col_names=col_names,
+                    memory_guard=memory_guard)
+            return cls.from_autoarray_result(
+                result, col_names=col_names,
+                memory_guard=memory_guard, spill_dir=spill_dir)
+        raise TypeError(
+            f"from_producer_result: expected pa.Table | np.ndarray | "
+            f"AutoResult | AutoArrayResult; got {type(result).__name__}")
+
+    @classmethod
+    def _from_numpy(cls, arr, *, col_names=None, memory_guard=None):
+        """Wrap (n,) or (n, K) numpy as in-memory CadwDataFrame (no disk).
+
+        Read-only (_InMemoryDataset). For persistent results, call
+        .to_parquet() or similar downstream.
+        """
+        arr = np.asarray(arr)
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, 1)
+        if arr.ndim != 2:
+            raise ValueError(
+                f"_from_numpy: expected 1D or 2D array; got ndim={arr.ndim}")
+        n, k = arr.shape
+        if col_names is None:
+            names = [f"c{i}" for i in range(k)]
+        else:
+            names = list(col_names)
+            if len(names) != k:
+                raise ValueError(
+                    f"_from_numpy: col_names length {len(names)} "
+                    f"!= width {k}")
+        arrays = [pa.array(arr[:, i]) for i in range(k)]
+        table = pa.Table.from_arrays(arrays, names=names)
+        return cls.from_table(table, memory_guard=memory_guard)
+
+    @classmethod
     def from_auto_result(
         cls,
         result,

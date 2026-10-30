@@ -48,7 +48,10 @@ def main():
             m = fit_isolation_forest(df, cols, n_trees=100, subsample_size=256, random_state=0)
             fit_dt=time.time()-t0
             t0=time.time()
-            sc = m.score_samples(df)
+            _ss = m.score_samples(df)
+            sc = np.concatenate(
+                [b.column("score").to_numpy(zero_copy_only=False)
+                 for b in _ss._iter_filtered_batches()])
             score_dt=time.time()-t0
         print(f"n={n:>8d} fit={fit_dt:6.2f}s score={score_dt:6.2f}s peak={s.delta/1048576:6.1f} MB "
               f"state={m.state_nbytes()} B mean_score={float(np.nanmean(sc)):.3f}")

@@ -114,7 +114,10 @@ def repro_iforest(seed: int = 0) -> ReproResult:
         memory_guard=mg, **_seed_kwargs(fit_isolation_forest, seed),
     )
     cadw_time = time.time() - t0
-    cadw_scores = cadw_model.score_samples(df)
+    _ss_df = cadw_model.score_samples(df)
+    cadw_scores = np.concatenate(
+        [b.column("score").to_numpy(zero_copy_only=False)
+         for b in _ss_df._iter_filtered_batches()])
     cadw_auc = roc_auc_score(y, cadw_scores)
     cadw_peak = 0.0  # MemoryGuard has no peak attr; use psutil if needed
 

@@ -13,6 +13,19 @@ from cadw.core.spill import (
 )
 
 
+
+def _scores_col_to_numpy(df, col="score"):
+    """Extract column from producer CadwDataFrame as 1-D numpy.
+
+    v0.9.95: producers return CadwDataFrame; old tests assumed
+    np.ndarray / AutoArrayResult. Helper bridges for numeric checks.
+    """
+    import numpy as np
+    parts = [b.column(col).to_numpy(zero_copy_only=False)
+             for b in df._iter_filtered_batches()]
+    return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float64)
+
+
 def _mk_df(cols_data):
     return CadwDataFrame.from_table(pa.table(cols_data))
 
@@ -86,29 +99,42 @@ def _gmm_model(n=200, seed=0):
 # ─── iforest ──────────────────────────────────────────────────────
 
 def test_iforest_auto_small_inmemory():
+    """v0.9.95: auto returns CadwDataFrame; small data → in-memory
+    backing (_InMemoryDataset), no spill."""
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _iforest_model()
     r = m.score_samples(df, output="auto")
-    assert isinstance(r, AutoArrayResult)
-    assert isinstance(r, InMemoryArrayResult)
-    assert len(r) == df.count()
+    assert isinstance(r, CadwDataFrame)
+    assert isinstance(r._dataset, _InMemoryDataset)  # in-memory, no spill
+    assert r.count() == df.count()
+    assert r.columns == ["score"]
 
 
 def test_iforest_disk_spills():
+    """v0.9.95: disk returns CadwDataFrame with disk-backed Dataset
+    (forced spill)."""
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _iforest_model()
     r = m.score_samples(df, output="disk")
-    assert isinstance(r, OnDiskArrayResult)
-    assert r.is_spilled
-    with pytest.raises(MemoryLimitExceeded):
-        r.to_numpy()
-    r.close()
+    assert isinstance(r, CadwDataFrame)
+    assert not isinstance(r._dataset, _InMemoryDataset)  # disk-backed
+    assert r.count() == df.count()
+    # Values preserved through spill round-trip
+    vals = _scores_col_to_numpy(r, "score")
+    assert vals.shape == (df.count(),)
 
 
 def test_iforest_auto_equals_memory():
+    """v0.9.95: both output= modes return CadwDataFrame with same
+    values; difference is only storage strategy."""
     m, df = _iforest_model()
     mem = m.score_samples(df, output="memory")
     auto = m.score_samples(df, output="auto")
-    got = np.concatenate([a for a in auto], axis=0).ravel()
-    np.testing.assert_array_equal(mem, got)
+    mem_vals = _scores_col_to_numpy(mem, "score")
+    auto_vals = _scores_col_to_numpy(auto, "score")
+    np.testing.assert_array_equal(mem_vals, auto_vals)
 
 
 # ─── chains ───────────────────────────────────────────────────────
