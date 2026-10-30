@@ -104,8 +104,14 @@ class ChainsModel:
             else:
                 buf.write_array(preds)
         if output == "memory":
-            return np.vstack(outs) if outs else np.zeros((0, K))
-        return buf.finalize()
+            raw = np.vstack(outs) if outs else np.zeros((0, K))
+        else:
+            raw = buf.finalize()
+        # v0.9.95 (BREAKING): unified CadwDataFrame return.
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=[f"prob_{i}" for i in range(K)],
+            memory_guard=mg)
 
     def _predict_hard_batched(self, X, threshold):
         """Hard-label chaining: previous labels as 0/1 features."""
@@ -147,9 +153,15 @@ class ChainsModel:
             else:
                 buf.write_array(preds)
         if output == "memory":
-            return (np.vstack(chunks) if chunks
-                    else np.zeros((0, K), dtype=np.int64))
-        return buf.finalize()
+            raw = (np.vstack(chunks) if chunks
+                   else np.zeros((0, K), dtype=np.int64))
+        else:
+            raw = buf.finalize()
+        # v0.9.95 (BREAKING): unified CadwDataFrame return.
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=[f"pred_{i}" for i in range(K)],
+            memory_guard=mg)
 
     def subset_accuracy(self, df, memory_guard=None, threshold=0.5):
         mg = memory_guard or df._memory_guard
@@ -160,7 +172,15 @@ class ChainsModel:
                 b.column(c).cast(pa.float64(), safe=False)
                  .to_numpy(zero_copy_only=False) for c in self.label_cols_]))
         Y = np.vstack(Ys)
-        P = self.predict(df, mg, threshold)
+        # v0.9.95: predict returns CadwDataFrame; extract via iter.
+        P_df = self.predict(df, mg, threshold)
+        P_cols = []
+        for b in P_df._iter_filtered_batches():
+            P_cols.append(np.column_stack([
+                b.column(c).to_numpy(zero_copy_only=False)
+                for c in P_df.columns]))
+        P = (np.concatenate(P_cols, axis=0) if P_cols
+             else np.zeros((0, len(P_df.columns)), dtype=np.int64))
         return float(np.mean(np.all(P == Y.astype(np.int64), axis=1)))
 
 

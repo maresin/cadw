@@ -140,50 +140,68 @@ def test_iforest_auto_equals_memory():
 # ─── chains ───────────────────────────────────────────────────────
 
 def test_chains_proba_auto_disk():
+    """v0.9.95: unified CadwDataFrame."""
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _chains_model()
     a = m.predict_proba(df, output="auto")
-    assert isinstance(a, AutoArrayResult)
+    assert isinstance(a, CadwDataFrame)
+    K = len(a.columns)
+    assert K >= 1 and all(c.startswith("prob_") for c in a.columns)
     d = m.predict_proba(df, output="disk")
-    assert isinstance(d, OnDiskArrayResult)
-    d.close()
+    assert isinstance(d, CadwDataFrame)
+    assert not isinstance(d._dataset, _InMemoryDataset)
 
 
 def test_chains_predict_auto_disk():
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _chains_model()
     a = m.predict(df, output="auto")
-    assert isinstance(a, AutoArrayResult)
+    assert isinstance(a, CadwDataFrame)
+    assert all(c.startswith("pred_") for c in a.columns)
     d = m.predict(df, output="disk")
-    assert isinstance(d, OnDiskArrayResult)
-    d.close()
+    assert isinstance(d, CadwDataFrame)
+    assert not isinstance(d._dataset, _InMemoryDataset)
 
 
 def test_chains_auto_equals_memory():
+    """v0.9.95: extract per-column via _iter_filtered_batches."""
     m, df = _chains_model()
-    mem = m.predict_proba(df, output="memory")
-    auto = m.predict_proba(df, output="auto")
-    got = np.concatenate([a for a in auto], axis=0)
-    np.testing.assert_allclose(mem, got)
+    mem_df = m.predict_proba(df, output="memory")
+    auto_df = m.predict_proba(df, output="auto")
+    for col in mem_df.columns:
+        mem = _scores_col_to_numpy(mem_df, col)
+        got = _scores_col_to_numpy(auto_df, col)
+        np.testing.assert_allclose(mem, got)
 
 
 # ─── ordinal ──────────────────────────────────────────────────────
 
 def test_ordinal_proba_auto_disk():
+    """v0.9.95: unified CadwDataFrame."""
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _ordinal_model()
     a = m.predict_proba(df, output="auto")
-    assert isinstance(a, AutoArrayResult)
+    assert isinstance(a, CadwDataFrame)
+    assert all(c.startswith("prob_") for c in a.columns)
     d = m.predict_proba(df, output="disk")
-    assert isinstance(d, OnDiskArrayResult)
-    d.close()
+    assert isinstance(d, CadwDataFrame)
+    assert not isinstance(d._dataset, _InMemoryDataset)
 
 
 def test_ordinal_predict_auto_disk():
+    from cadw import CadwDataFrame
     m, df = _ordinal_model()
     a = m.predict(df, output="auto")
-    assert isinstance(a, AutoArrayResult)
-    # verify class values match memory
-    mem = m.predict(df, output="memory")
-    got = np.concatenate([a for a in a], axis=0).ravel()
-    np.testing.assert_array_equal(mem, got)
+    assert isinstance(a, CadwDataFrame)
+    assert a.columns == ["pred"]
+    mem_df = m.predict(df, output="memory")
+    assert isinstance(mem_df, CadwDataFrame)
+    mem_vals = _scores_col_to_numpy(mem_df, "pred")
+    got_vals = _scores_col_to_numpy(a, "pred")
+    np.testing.assert_array_equal(mem_vals, got_vals)
 
 
 # ─── tfidf ────────────────────────────────────────────────────────

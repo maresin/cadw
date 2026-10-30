@@ -24,13 +24,34 @@ def _df(X, y):
         "y": pa.array(y)}))
 
 
+
+def _to_numpy_2d(df):
+    """CadwDataFrame of K-wide autoarrays → (n, K) numpy."""
+    import numpy as np
+    parts = []
+    for b in df._iter_filtered_batches():
+        cols = [b.column(c).to_numpy(zero_copy_only=False)
+                for c in df.columns]
+        parts.append(np.column_stack(cols))
+    return (np.concatenate(parts, axis=0) if parts
+            else np.zeros((0, len(df.columns)), dtype=np.float64))
+
+
+def _col_to_numpy(df, col):
+    """CadwDataFrame column → 1-D numpy."""
+    import numpy as np
+    parts = [b.column(col).to_numpy(zero_copy_only=False)
+             for b in df._iter_filtered_batches()]
+    return np.concatenate(parts) if parts else np.zeros(0)
+
+
 def test_synthetic_recovers_beta():
     X, y = _data(seed=0)
     m = fit_ordinal_logit(_df(X, y), ["x0", "x1"], "y")
     assert m.classes_.tolist() == [0.0, 1.0, 2.0, 3.0]
     assert m.beta_.size == 2 and m.theta_.size == 3
     assert np.all(np.diff(m.theta_) > 0)
-    pred = m.predict(_df(X, y))
+    pred = _col_to_numpy(m.predict(_df(X, y)), "pred")
     assert (pred == y).mean() > 0.7
 
 
@@ -48,7 +69,7 @@ def test_reference_statsmodels_ordered_logit():
 def test_proba_sums_to_one_and_monotone_thresholds():
     X, y = _data(n=400, seed=2)
     m = fit_ordinal_logit(_df(X, y), ["x0", "x1"], "y")
-    p = m.predict_proba(_df(X, y))
+    p = _to_numpy_2d(m.predict_proba(_df(X, y)))
     assert p.shape == (400, 4)
     assert np.allclose(p.sum(axis=1), 1.0, atol=1e-9)
     assert np.all(p >= 0) and np.all(p <= 1)
@@ -56,8 +77,8 @@ def test_proba_sums_to_one_and_monotone_thresholds():
 
 def test_determinism():
     X, y = _data(n=500, seed=3)
-    a = fit_ordinal_logit(_df(X, y), ["x0", "x1"], "y").predict_proba(_df(X, y))
-    b = fit_ordinal_logit(_df(X, y), ["x0", "x1"], "y").predict_proba(_df(X, y))
+    a = _to_numpy_2d(fit_ordinal_logit(_df(X, y), ["x0", "x1"], "y").predict_proba(_df(X, y)))
+    b = _to_numpy_2d(fit_ordinal_logit(_df(X, y), ["x0", "x1"], "y").predict_proba(_df(X, y)))
     assert np.array_equal(a, b)
 
 
@@ -67,7 +88,7 @@ def test_binary_case_equals_logistic():
     y = (rng.uniform(size=1500) < 1 / (1 + np.exp(-(0.8 * X[:, 0] - 0.5 * X[:, 1])))).astype(float)
     m = fit_ordinal_logit(_df(X, y), ["x0", "x1"], "y")
     assert m.classes_.size == 2 and m.theta_.size == 1
-    p = m.predict_proba(_df(X, y))
+    p = _to_numpy_2d(m.predict_proba(_df(X, y)))
     assert np.allclose(p.sum(axis=1), 1.0, atol=1e-9)
 
 

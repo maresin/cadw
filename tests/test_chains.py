@@ -29,6 +29,27 @@ def _df(X, Y):
         "c": pa.array(Y[:, 2])}))
 
 
+
+def _to_numpy_2d(df):
+    """CadwDataFrame of K-wide autoarrays → (n, K) numpy (v0.9.95)."""
+    import numpy as np
+    parts = []
+    for b in df._iter_filtered_batches():
+        cols = [b.column(c).to_numpy(zero_copy_only=False)
+                for c in df.columns]
+        parts.append(np.column_stack(cols))
+    return (np.concatenate(parts, axis=0) if parts
+            else np.zeros((0, len(df.columns)), dtype=np.float64))
+
+
+def _col_to_numpy(df, col):
+    """CadwDataFrame column → 1-D numpy."""
+    import numpy as np
+    parts = [b.column(col).to_numpy(zero_copy_only=False)
+             for b in df._iter_filtered_batches()]
+    return np.concatenate(parts) if parts else np.zeros(0)
+
+
 def test_synthetic_dependent_labels_chain_beats_independent():
     X, Y = _dependent(seed=0)
     df = _df(X, Y)
@@ -59,10 +80,10 @@ def test_shapes_and_threshold():
     X, Y = _dependent(n=500, seed=2)
     df = _df(X, Y)
     m = fit_chains(df, ["x0", "x1"], ["a", "b"], chain=True, n_estimators=10)
-    P = m.predict_proba(df)
+    P = _to_numpy_2d(m.predict_proba(df))
     assert P.shape == (500, 2)
     assert np.all(P >= 0) and np.all(P <= 1)
-    hard = m.predict(df, threshold=0.5)
+    hard = _to_numpy_2d(m.predict(df, threshold=0.5))
     assert hard.shape == (500, 2)
     assert set(np.unique(hard)).issubset({0, 1})
 
@@ -70,8 +91,10 @@ def test_shapes_and_threshold():
 def test_determinism():
     X, Y = _dependent(n=400, seed=3)
     df = _df(X, Y)
-    a = fit_chains(df, ["x0", "x1"], ["a", "b"], chain=True, n_estimators=10).predict_proba(df)
-    b = fit_chains(df, ["x0", "x1"], ["a", "b"], chain=True, n_estimators=10).predict_proba(df)
+    a = _to_numpy_2d(fit_chains(df, ["x0", "x1"], ["a", "b"], chain=True,
+                                 n_estimators=10).predict_proba(df))
+    b = _to_numpy_2d(fit_chains(df, ["x0", "x1"], ["a", "b"], chain=True,
+                                 n_estimators=10).predict_proba(df))
     assert np.array_equal(a, b)
 
 
@@ -107,7 +130,7 @@ def test_multi_batch_consistency(tmp_path):
     dmb = CadwDataFrame.from_parquet(path, base_dir="/tmp", chunk_size=100)
     m = fit_chains(df, ["x0", "x1", "x2"], ["a", "b", "c"], chain=True,
                    n_estimators=10)
-    assert np.allclose(m.predict_proba(df), m.predict_proba(dmb), atol=1e-9)
+    assert np.allclose(_to_numpy_2d(m.predict_proba(df)), _to_numpy_2d(m.predict_proba(dmb)), atol=1e-9)
 
 
 def test_source_contract_guard_and_log_fit():

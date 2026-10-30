@@ -135,35 +135,64 @@ class OrdinalLogitModel:
             else:
                 buf.write_array(p_b)
         if output == "memory":
-            if not chunks:
-                return np.zeros((0, K))
-            return np.vstack(chunks)
-        return buf.finalize()
+            raw = (np.vstack(chunks) if chunks
+                   else np.zeros((0, K)))
+        else:
+            raw = buf.finalize()
+        # v0.9.95 (BREAKING): unified CadwDataFrame return.
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=[f"prob_{i}" for i in range(K)],
+            memory_guard=mg)
 
     def predict(self, df, memory_guard=None, *, output: str = "auto"):
-        """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
+        """v0.9.95 (BREAKING): unified CadwDataFrame return. output=
+        selects storage strategy only.
+        Column: ["pred"] (dtype matches self.classes_.dtype).
+
+        v0.9.95-fix3: use SpillBuffer (pa.RecordBatch) for auto/disk
+        path — supports string class labels. Prior SpillArray(width=1,
+        dtype=float64) crashed on string classes; pre-existing bug.
+        """
         if output not in ("memory", "auto", "disk"):
             raise ValueError(
                 f"ordinal.predict: output must be 'memory', 'auto' or "
                 f"'disk'; got {output!r}")
-        if output == "memory":
-            # v0.9.92: pass output="memory" to inner predict_proba — its
-            # default flipped to "auto" (BREAKING); bare call returns
-            # AutoArrayResult and np.argmax fails.
-            p = self.predict_proba(df, memory_guard, output="memory")
-            return self.classes_[np.argmax(p, axis=1)]
         mg = memory_guard or df._memory_guard
         from cadw.ml.gbdt import _stack_numeric
-        buf = SpillArray(guard=mg, width=1, dtype=np.float64,
-                         name="ordinal.predict",
-                         spill_ratio=0.0 if output == "disk" else 0.5)
-        for b in df._iter_filtered_batches():
-            mg.check_batch(b, name="ordinal.predict", extra_factor=3.0)
-            p_b = _predict_proba_np(_stack_numeric(b, self.feature_cols_),
-                                    self.beta_, self.theta_)
-            cls_b = self.classes_[np.argmax(p_b, axis=1)]
-            buf.write_array(cls_b)
-        return buf.finalize()
+        # Determine pa type once from class labels (works for int, str,
+        # any numpy dtype supported by pa.array).
+        pred_pa_type = pa.array(self.classes_).type
+        schema = pa.schema([("pred", pred_pa_type)])
+
+        if output == "memory":
+            chunk_cls = []
+            for b in df._iter_filtered_batches():
+                mg.check_batch(b, name="ordinal.predict", extra_factor=3.0)
+                p_b = _predict_proba_np(_stack_numeric(b, self.feature_cols_),
+                                        self.beta_, self.theta_)
+                chunk_cls.append(self.classes_[np.argmax(p_b, axis=1)])
+            cls_arr = (np.concatenate(chunk_cls) if chunk_cls
+                       else np.zeros(0, dtype=self.classes_.dtype))
+            raw = pa.table({"pred": pa.array(cls_arr, type=pred_pa_type)})
+        else:
+            from cadw.core.spill import SpillBuffer
+            buf = SpillBuffer(guard=mg, schema=schema,
+                              name="ordinal.predict",
+                              spill_ratio=0.0 if output == "disk" else 0.5)
+            for b in df._iter_filtered_batches():
+                mg.check_batch(b, name="ordinal.predict", extra_factor=3.0)
+                p_b = _predict_proba_np(_stack_numeric(b, self.feature_cols_),
+                                        self.beta_, self.theta_)
+                cls_b = self.classes_[np.argmax(p_b, axis=1)]
+                rb = pa.RecordBatch.from_arrays(
+                    [pa.array(cls_b, type=pred_pa_type)], schema=schema)
+                buf.write_batch(rb)
+            raw = buf.finalize()
+
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=["pred"], memory_guard=mg)
 
 
 def fit_ordinal_logit(df, X_cols, y_col, *, max_iter=200, tol=1e-6,
