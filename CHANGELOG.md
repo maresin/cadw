@@ -1,5 +1,64 @@
 ## [Unreleased]
 
+### v0.9.101 (2026-10-30) — coxph reference-only + LDA dims fix
+
+**Task 1 — coxph `_breslow` reclassified as REFERENCE ONLY.**
+
+Audit pass 3 (v0.9.100) flagged `cadw/ml/coxph.py::_breslow` (L47)
+as an unguarded O(n) alloc: `S2 = cumsum(n·d²)` vs a `N·d·8` guard.
+Probe in v0.9.101 found that `_breslow` is **called only from
+`tests/test_coxph.py`** (L66, L72, L157) — the numeric reference for
+bit-identical checks against `_breslow_streaming` (L223), which is
+the production fit path with `state O(d² + pending_ties·d)` and
+guard `mg.check_state(3*d*d*8 + 5*pending_budget, name="coxph.state")`
+(L449).
+
+Reclassified as CLOSED (reference-only), same class as
+`dwt_mlead::_mahalanobis_distances` (pass 3 #5, closed in v0.9.100).
+
+Changes:
+  - `_breslow` docstring: explicit "REFERENCE ONLY" + pointer to
+    `_breslow_streaming` + "do NOT call from non-test code".
+  - pass3 audit: #3 → CLOSED (reference only); Result 1 open → 0
+    open, 4 closed → 5 closed.
+  - No prod-code logic change.
+
+**Task 2 — LDA YAML card dims fix (V-axis, tf=12).**
+
+`docs/ml_tools/J_nlp.yaml` LDA card declared
+`bounded_state_dims: {k: 1, d: 1}, transient_factor: 1.0`. The `d`
+axis was ambiguous: used as user's `vocab_size` cap, but the actual
+peak in `_build_vocab` is `K_raw * 96 B` (raw unique tokens, not
+the cap). At V_raw=10⁷, `estimate_memory("fit_lda", k=10, d=10⁶)`
+returned "fits" but `_build_vocab` guard fires at ~960 MB.
+
+Fixed:
+  - `bounded_state_dims: {k: 1, d: 1}` → `{d: 1}` (d = raw unique
+    tokens; user passes it explicitly).
+  - `transient_factor: 1.0` → `12.0` (96 B / 8 B-base per entry).
+  - sstats `K*V_cap*8` not modeled separately (smaller for
+    V_cap << V_raw; the dominant term is now correct).
+  - After: `estimate_memory("fit_lda", d=10^4)` → fits (0.96 MB);
+    `d=10⁷` → fits=False (960 MB).
+
+Tests: `tests/test_estimate_memory.py` +2 (`fits_small`,
+`refuses_large`).
+
+**Known issues (still tracked):**
+
+- **`lda::_build_vocab` O(K_raw) dict** — v0.9.102 target:
+  2-pass HashShuffle (token hash → partitions → k-way merge
+  top-vocab_size by `(-count, token)`).
+- **`encode_categorical` O(K) reverse_maps** — v0.9.102 target:
+  lazy `SpillMap` (breaking opt-in).
+
+**Tests:** ~4334 passed, 9 skipped (fast; +2 new estimate_memory
+tests). No prod-code logic changes (docstring + YAML + audit only).
+
+CHANGELOG/ROADMAP updated: v0.9.101 current; Next = v0.9.102
+(lda vocab K-spill + lazy reverse_maps), v0.9.103 (MultiRocket,
+D4 starts), v0.9.104 (Hydra + BOSS).
+
 ### v0.9.100 (2026-10-30) — version bump + audit pass 3
 
 **Task 1 — version bump (metadata).**

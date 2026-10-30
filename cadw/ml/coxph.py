@@ -45,7 +45,19 @@ def _stack_num(b, cols):
 
 
 def _breslow(X, T, E, b):
-    """Gradient and observed information at coefficients b (Breslow ties)."""
+    """Gradient and observed information at coefficients b (Breslow ties).
+
+    REFERENCE ONLY. Production fit uses `_breslow_streaming` (L223):
+    O(d^2 + pending_ties*d) state, independent of n, guard-checked in
+    `fit_coxph` via `mg.check_state(3*d*d*8 + 5*pending_budget,
+    name="coxph.state")` (L449). This `_breslow` builds S0/S1/S2 as
+    O(n) cumsums (S2 ~ n*d^2) — used only by tests as the numeric
+    reference for bit-identical checks against the streaming path
+    (tests/test_coxph.py L66/L72/L157). Do NOT call from non-test
+    code. Audit pass 3 (v0.9.100) flagged this as an unguarded O(n)
+    alloc; reclassified v0.9.101 as reference-only (a parallel of
+    `dwt_mlead::_mahalanobis_distances`).
+    """
     n, d = X.shape
     eta = np.clip(X @ b, -50.0, 50.0)
     w = np.exp(eta)

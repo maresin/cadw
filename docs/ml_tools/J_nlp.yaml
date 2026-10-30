@@ -446,8 +446,13 @@ subtypes:
     cadw_module: cadw.ml.lda
     cadw_function: fit_lda
     state_class: O(model)
-    bounded_state_dims: {k: 1, d: 1}
-    transient_factor: 1.0
+    # v0.9.101: axis is V (raw unique tokens) — _build_vocab peak is
+    # K_raw * 96 B. Prior {k:1,d:1} used user's vocab_size as `d`,
+    # which undercounts when corpus has more unique tokens than the
+    # cap. tf=12.0 = 96 B/entry / 8 B/base. sstats (K*V_cap*8) is
+    # separate and smaller for typical (V_cap << K_raw).
+    bounded_state_dims: {d: 1}
+    transient_factor: 12.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant

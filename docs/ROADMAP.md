@@ -1,8 +1,8 @@
 # CADW Roadmap
 
-Last updated: 2026-10-30 (after v0.9.100).
+Last updated: 2026-10-30 (after v0.9.101).
 
-## Current: v0.9.100
+## Current: v0.9.101
 
 **Closed:** streaming-output migration (v0.9.92), wide-d quartet
 (v0.9.93), unified narrow (v0.9.94), unified broad (v0.9.95),
@@ -10,7 +10,8 @@ G11 transitive-migration gate (v0.9.96),
 YAML bounded_state_dims + df.estimate_memory (v0.9.97),
 tfidf.transform_sparse(output=) (v0.9.98),
 metrics guards verification + encode_categorical error (v0.9.99),
-version bump + audit pass 3 (v0.9.100).
+version bump + audit pass 3 (v0.9.100),
+coxph reference-only reclassification + LDA dims fix (v0.9.101).
 
 All 13 producers return CadwDataFrame regardless of output=;
 output= selects storage strategy only. Pipeline works with all
@@ -37,59 +38,57 @@ migrated models out-of-the-box.
 
 ## Next 3 sessions
 
-### v0.9.101 — coxph _breslow guard fix + lda::_build_vocab K-spill
+### v0.9.102 — lda vocab K-spill + lazy reverse_maps (breaking, opt-in)
 
-**Goal:** close the 1 open audit-pass3 item (coxph `_breslow` guard
-underestimate) and one K-axis gap (lda vocab).
-
-**Deliverables:**
-- coxph `_breslow`: change guard `N·d·8` -> `n*(d + d*d)*8`.
-  The `S2 = cumsum(n·d²)` array was underestimated by factor `d`.
-  At d=1000, n=10⁶: ~8 GB S2 vs ~8 MB guard. Fix or refuse-at-guard
-  at large d.
-- `lda::_build_vocab`: 2-pass HashShuffle (token hash -> P
-  partitions -> k-way merge top-`vocab_size` by `(-count, token)`).
-  Deterministic tie-breaking matches current in-memory impl.
-  YAML card `LDA` gets `bounded_state_dims: {K: 1}` (or `{V: 1}`).
-
-**Tests:** coxph guard fires at d=1000, n=10⁶ (loud, not OOM);
-lda K=10⁶ on 10⁵ docs without OOM; bit-identical at K <= 10⁵.
-
-**Breaking:** none (guard fires earlier; lda spill is opt-in).
-
-### v0.9.102 — lazy reverse_maps (breaking, opt-in)
-
-**Goal:** `encode_categorical(columns, reverse_maps="disk")` —
-SpillMap on disk instead of `list[unique_values]`.
+**Goal:** both remaining K-axis gaps, in one session.
 
 **Deliverables:**
-- New `SpillMap` type: `.get(k)`, `.index(v)` (disk scan),
-  `.len()`, `.iter()`. NOT a `list` — breaking API.
-- `encode_categorical(columns, *, reverse_maps="memory"|"disk")`,
-  default `"memory"` (backward compat, current behaviour).
-- CHANGELOG banner: BREAKING only when user opts `"disk"`.
-- Underlying state becomes O(batch); K-axis moves to disk.
+- `lda::_build_vocab` — 2-pass HashShuffle:
+  1. Tokenize docs → emit `(token,)` rows → `hash_shuffle` by
+     `[token]` → P partitions.
+  2. Per partition: `Counter({token: count})` (bounded by K/P);
+     heapify top-`vocab_size` per partition → write to disk.
+  3. K-way merge top-`vocab_size` global by `(-count, token)`.
+  Bit-identical to current in-memory when K ≤ state_limit / 96.
+- `encode_categorical(columns, *, reverse_maps="memory"|"disk")` —
+  lazy `SpillMap` (SpillBuffer-backed, `.get(k)`, `.index(v)` disk
+  scan, `.len()`, `.iter()`). NOT a `list`; breaking only when
+  `"disk"` is opted in.
+- CHANGELOG banner: BREAKING for `reverse_maps="disk"` only.
 
-**Tests:** memory==disk at K=10⁵ (bit-identical); K=10⁷ OOC fit;
-`.index` semantics; SpillMap cleanup on GC.
+**Tests:**
+- `lda`: K_raw=10⁶ on 10⁵ docs without OOM; bit-identical at
+  K ≤ 10⁵; determinism; tie-break `(-count, token)`.
+- `encode`: memory==disk at K=10⁵ (bit-identical); K=10⁷ OOC fit;
+  `.index` semantics; SpillMap cleanup on GC.
 
-**Breaking:** yes (opt-in only).
+**Breaking:** `reverse_maps="disk"` only (opt-in).
 
 ### v0.9.103 — MultiRocket (D4 starts)
 
-**Goal:** first D4 (time-series classification) model: MultiRocket
-= MiniRocket + multi-pooling (PPV/MPV/MIPV) + 2nd-order
-differences. Numeric parity vs paper reference.
+**Goal:** first D4 (time-series classification) model.
 
 **Deliverables:**
 - `cadw/ml/multirocket.py::fit_multirocket` / `transform`.
-- YAML card + `state_class`, `primitive_reuse` (streaming-
-  transform over batches; state = kernels, O(k·d)).
-- Numerical parity vs `sktime`/`tsml` reference on UCR-style
-  synthetic data.
+- MiniRocket + multi-pooling (PPV/MPV/MIPV) + 2nd-order diffs.
+- YAML card + `state_class`, `primitive_reuse` (kernels O(k·d),
+  transform streaming per batch).
 
-**Tests:** parity within tolerance; streaming OOC at n=10⁷
-(kernels are bounded); determinism (same seed -> same kernels).
+**Tests:** numeric parity vs `sktime` reference; streaming OOC at
+n=10⁷ (kernels bounded); determinism (same seed → same kernels).
+
+**Breaking:** none.
+
+### v0.9.104 — Hydra + BOSS (D4 continues)
+
+**Goal:** two more D4 models.
+
+**Deliverables:**
+- Hydra: random convolution kernels (competes with MultiRocket).
+- BOSS: bag-of-SFA-symbols (symbolic Fourier + edit distance).
+- YAML card each; benchmark vs sklearn/sktime on UCR.
+
+**Tests:** parity; OOC; determinism.
 
 **Breaking:** none.
 

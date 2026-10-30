@@ -69,3 +69,24 @@ def test_all_verified_cards_have_dims():
         assert card.get("bounded_state_dims") is not None, (
             f"{op}: missing bounded_state_dims"
         )
+
+# ── v0.9.101: LDA card dims fix (V-axis, tf=12) ─────────────────────
+
+
+def test_lda_vocab_fits_small():
+    """d=10^4 raw unique tokens → est ~0.96 MB, fits 100 MB guard."""
+    df = _make_df()
+    r = df.estimate_memory("fit_lda", d=10**4)
+    assert r["fits"] is True
+    assert 0.5 < r["est_ram_mb"] < 2.0
+    assert "d^1" in r["bottleneck"]
+
+
+def test_lda_vocab_refuses_large():
+    """d=10^7 raw unique tokens → est ~960 MB > 100 MB → fits=False."""
+    df = _make_df()
+    r = df.estimate_memory("fit_lda", d=10**7)
+    assert r["fits"] is False
+    assert 500.0 < r["est_ram_mb"] < 2000.0
+    assert "d^1" in r["bottleneck"]
+
