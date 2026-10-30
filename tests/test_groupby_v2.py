@@ -16,7 +16,8 @@ def make_guard(mb=10):
     return MemoryGuard(max_memory_mb=mb)
 
 
-def result_to_dicts(t: pa.Table) -> list[dict]:
+def result_to_dicts(t) -> list[dict]:
+    """Extract rows from CadwDataFrame | pa.Table (v0.9.95)."""
     return t.to_pylist()
 
 
@@ -88,7 +89,7 @@ def test_groupby_many_groups(tmp_path):
         make_iter(table, 100), ["cat"], ["val"], ["mean"],
         guard, tmp_path, num_partitions=16, log=False, output="memory",
     )
-    assert result.num_rows == n
+    assert result.count() == n
     # Каждая группа = одна строка, mean = соответствующее значение
     rows = sorted(result_to_dicts(result), key=lambda r: r["cat"])
     for i, r in enumerate(rows):
@@ -121,7 +122,7 @@ def test_groupby_single_group(tmp_path):
         make_iter(table, 3), ["cat"], ["val"], ["mean"],
         make_guard(), tmp_path, num_partitions=4, log=False, output="memory",
     )
-    assert result.num_rows == 1
+    assert result.count() == 1
     assert result_to_dicts(result)[0]["val_mean"] == pytest.approx(4.5)
 
 
@@ -135,7 +136,7 @@ def test_groupby_each_row_unique(tmp_path):
         make_iter(table, 7), ["cat"], ["val"], ["count"],
         make_guard(), tmp_path, num_partitions=8, log=False, output="memory",
     )
-    assert result.num_rows == n
+    assert result.count() == n
     for r in result_to_dicts(result):
         assert r["val_count"] == 1
 

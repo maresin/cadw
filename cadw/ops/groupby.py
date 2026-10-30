@@ -999,12 +999,16 @@ def groupby_aggregate(
             for col, f in zip(agg_columns, agg_funcs):
                 out_type = pa.int64() if f == "count" else pa.float64()
                 fields.append(pa.field(f"{col}_{f}", out_type))
-            return pa.Table.from_pylist([], schema=pa.schema(fields))
-
-        result = pa.concat_tables(partial_tables, promote_options="default")
-        if log:
-            logger.info("groupby_aggregate done: %d rows", result.num_rows)
-        return result
+            result = pa.Table.from_pylist([], schema=pa.schema(fields))
+        else:
+            result = pa.concat_tables(
+                partial_tables, promote_options="default")
+            if log:
+                logger.info(
+                    "groupby_aggregate done: %d rows", result.num_rows)
+        # v0.9.95 (BREAKING): unified CadwDataFrame return.
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_table(result, memory_guard=memory_guard)
 
     # output in ("auto", "disk") — v0.9.90-S2 SpillBuffer path
     buf: "SpillBuffer | None" = None
@@ -1042,15 +1046,19 @@ def groupby_aggregate(
         for col, f in zip(agg_columns, agg_funcs):
             out_type = pa.int64() if f == "count" else pa.float64()
             fields.append(pa.field(f"{col}_{f}", out_type))
-        return InMemoryResult(
+        raw = InMemoryResult(
             pa.Table.from_pylist([], schema=pa.schema(fields)))
+    else:
+        raw = buf.finalize()
+        if log:
+            logger.info(
+                "groupby_aggregate done: %d rows (output=%s, spilled=%s)",
+                len(raw), output, raw.is_spilled)
 
-    result = buf.finalize()
-    if log:
-        logger.info(
-            "groupby_aggregate done: %d rows (output=%s, spilled=%s)",
-            len(result), output, result.is_spilled)
-    return result
+    # v0.9.95 (BREAKING): unified CadwDataFrame return. output=
+    # selects storage strategy only (memory/auto/disk), not type.
+    from cadw.dataframe import CadwDataFrame
+    return CadwDataFrame.from_producer_result(raw, memory_guard=memory_guard)
 
 
 def write_groupby_result(

@@ -10,6 +10,28 @@ import pyarrow as pa
 
 class _ColumnsMixin:
     """Column selection mixin (v0.9.26x)."""
+    def select(self, columns) -> "CadwDataFrame":
+        """Select subset of columns (pandas-compatible wrapper).
+
+        v0.9.95: convenience alias for `df[list(columns)]`.
+        Used internally by misc operations that previously relied on
+        pa.Table.select() before unified return type.
+
+        Parameters
+        ----------
+        columns : list[str] | str
+            Column name(s) to keep. Single str wraps in list.
+
+        Returns
+        -------
+        CadwDataFrame with only the selected columns.
+        """
+        if isinstance(columns, str):
+            columns = [columns]
+        else:
+            columns = list(columns)
+        return self[columns]
+
     def select_dtypes(
         self,
         include=None,

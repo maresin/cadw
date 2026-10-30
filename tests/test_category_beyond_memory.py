@@ -55,7 +55,7 @@ def test_groupby_100k_unique_10mb(tmp_path):
         _iter_batches(table), ["k"], ["v"], ["sum"],
         guard, tmp_path, num_partitions=None, log=False,
     )
-    assert result.num_rows == n
+    assert result.count() == n
     # Spot-check 100 rows
     for r in result.to_pylist()[:100]:
         assert r["v_sum"] == 1
@@ -73,7 +73,7 @@ def test_groupby_100k_unique_1mb_borderline(tmp_path):
             _iter_batches(table), ["k"], ["v"], ["sum"],
             guard, tmp_path, num_partitions=None, log=False,
         )
-        assert result.num_rows == n
+        assert result.count() == n
     except MemoryLimitExceeded:
         pass  # clean error also acceptable; assert not OOM
 
@@ -149,7 +149,7 @@ def test_groupby_1m_unique_10mb(tmp_path):
         _iter_batches(table, 5000), ["k"], ["v"], ["sum"],
         guard, tmp_path, num_partitions=None, log=False,
     )
-    assert result.num_rows == n
+    assert result.count() == n
     for r in result.to_pylist()[:50]:
         assert r["v_sum"] == 1
 
@@ -173,7 +173,7 @@ def test_groupby_1m_unique_1mb_succeeds_or_raises(tmp_path):
             _iter_batches(table, 5000), ["k"], ["v"], ["sum"],
             guard, tmp_path, num_partitions=None, log=False,
         )
-        assert result.num_rows == n
+        assert result.count() == n
     except MemoryLimitExceeded:
         pass  # clean error also acceptable; assert not OOM
 

@@ -516,3 +516,16 @@ class _AggregationsMixin:
             n += b.num_rows
         return n
 
+    def to_pylist(self) -> list:
+        """Materialize all rows as list of dicts (pa.Table-compatible).
+
+        v0.9.95: matches pa.Table.to_pylist() API. Unifies the
+        CadwDataFrame return type so existing test/script code that
+        did `result.to_pylist()` on a pa.Table continues to work.
+
+        WARNING: O(n) RAM. For inspection only — use
+        `_iter_filtered_batches()` for streaming consumers.
+        """
+        return [r for b in self._iter_filtered_batches()
+                for r in b.to_pylist()]
+

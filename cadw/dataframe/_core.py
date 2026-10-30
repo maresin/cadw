@@ -662,6 +662,10 @@ class CadwDataFrame(_ExportsMixin, _IteratorsMixin, _MiscMixin, _IndexingMixin, 
         # returns CadwDataFrame; internally Dataset.from_batches is
         # eager (fully consumes iterable before returning), so
         # OnDiskResult's tmpdir cannot be GC'd mid-consumption.
+        # v0.9.95: producers (ops) now return CadwDataFrame directly
+        # (unified). Facade pass-through; no re-wrap needed.
+        if isinstance(table, CadwDataFrame):
+            return table
         from cadw.core.spill import AutoResult
         if isinstance(table, AutoResult):
             schema = table.schema
@@ -671,8 +675,8 @@ class CadwDataFrame(_ExportsMixin, _IteratorsMixin, _MiscMixin, _IndexingMixin, 
             batches = iter(table.to_batches())
         else:
             raise TypeError(
-                f"_wrap_result_table: expected pa.Table or AutoResult; "
-                f"got {type(table).__name__}")
+                f"_wrap_result_table: expected pa.Table | AutoResult | "
+                f"CadwDataFrame; got {type(table).__name__}")
         new_ds = Dataset.from_batches(
             schema, batches, self._new_dataset_dir())
         # Default RangeIndex(0, total_rows) — результат операций сбрасывает

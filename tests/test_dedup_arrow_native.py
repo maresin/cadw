@@ -309,6 +309,7 @@ def test_dedup_schema_order_agnostic(tmp_path):
     guard = MemoryGuard(max_memory_mb=10)
     result = _local_dedup(p, ["k"], "first", guard)
 
+    # _local_dedup is internal helper; returns pa.Table (not CadwDataFrame).
     assert result.num_rows == 5
     assert "row_id" not in result.schema.names
     assert set(result.column("k").to_pylist()) == {"a", "b", "c", "d", "e"}

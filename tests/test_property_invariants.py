@@ -76,7 +76,7 @@ def test_dedup_len_lte(vals):
     g = MemoryGuard(max_memory_mb=200)
     out = drop_duplicates(_batches(vals), ["v"], "first", g, td)
     from cadw.io.batch_reader import ArrowIPCBatchReader
-    n_out = out.num_rows
+    n_out = out.count()
     assert n_out <= len(vals)
     assert n_out == len(set(vals))
 
@@ -192,4 +192,4 @@ def test_groupby_two_keys_group_count_bounded(pairs):
                 "v": pa.array([1]*len(c), type=pa.int64()),
             })
     t = groupby_aggregate(_bs(), ["a","b"], ["v"], ["sum"], g, tempfile.mkdtemp(), num_partitions=2)
-    assert t.num_rows <= len(set(pairs))
+    assert t.count() <= len(set(pairs))

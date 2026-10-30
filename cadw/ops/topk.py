@@ -165,27 +165,31 @@ def topk_to_disk(
             f"'disk'; got {output!r}")
 
     if current_top is None:
+        empty = pa.Table.from_batches([], schema=out_schema)
         if output == "memory":
-            return pa.Table.from_batches([], schema=out_schema)
-        return InMemoryResult(
-            pa.Table.from_batches([], schema=out_schema))
+            raw = empty
+        else:
+            raw = InMemoryResult(empty)
+    else:
+        # current_top already sorted, top-n, has _RESERVED_ROW_ID_COL.
+        final = current_top.select(out_schema.names)
+        if output == "memory":
+            raw = final
+        else:
+            # output in ("auto", "disk") — SpillBuffer so caller
+            # iterates on disk instead of materializing.
+            buf = SpillBuffer(
+                guard=memory_guard, schema=out_schema,
+                name=f"topk_{kind}",
+                spill_ratio=0.0 if output == "disk" else 0.5,
+            )
+            for b in final.to_batches():
+                buf.write_batch(b)
+            raw = buf.finalize()
 
-    # current_top already sorted, top-n, has _RESERVED_ROW_ID_COL.
-    final = current_top.select(out_schema.names)
-
-    if output == "memory":
-        return final
-
-    # output in ("auto", "disk") — wrap in SpillBuffer so caller can
-    # iterate on disk instead of forcing materialize.
-    buf = SpillBuffer(
-        guard=memory_guard, schema=out_schema,
-        name=f"topk_{kind}",
-        spill_ratio=0.0 if output == "disk" else 0.5,
-    )
-    for b in final.to_batches():
-        buf.write_batch(b)
-    return buf.finalize()
+    # v0.9.95 (BREAKING): unified CadwDataFrame return.
+    from cadw.dataframe import CadwDataFrame
+    return CadwDataFrame.from_producer_result(raw, memory_guard=memory_guard)
 
 
 __all__ = ["topk_to_disk"]

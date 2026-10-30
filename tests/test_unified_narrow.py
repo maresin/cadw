@@ -21,36 +21,42 @@ def _batches(table, bs=100):
 
 
 def _mk_groupby_auto(table, spill_dir):
-    from cadw.ops.groupby import groupby_aggregate
-    return groupby_aggregate(
-        _batches(table), ["k"], ["v"], ["sum"],
-        MemoryGuard(max_memory_mb=64), spill_dir / "gb",
-        num_partitions=2, log=False, output="auto")
+    """v0.9.95: groupby_aggregate returns CadwDataFrame now (unified).
+    Construct AutoResult manually for from_auto_result testing."""
+    from cadw.core.spill import InMemoryResult
+    return InMemoryResult(table)
 
 
 def _mk_groupby_disk(table, spill_dir):
-    from cadw.ops.groupby import groupby_aggregate
-    return groupby_aggregate(
-        _batches(table), ["k"], ["v"], ["sum"],
-        MemoryGuard(max_memory_mb=64), spill_dir / "gbd",
-        num_partitions=2, log=False, output="disk")
+    """v0.9.95: manually construct OnDiskResult via SpillBuffer."""
+    from cadw.core.spill import SpillBuffer
+    buf = SpillBuffer(
+        guard=MemoryGuard(max_memory_mb=64),
+        schema=table.schema, name="test_disk", spill_ratio=0.0)
+    for b in table.to_batches():
+        buf.write_batch(b)
+    return buf.finalize()
 
 
 # ─── from_auto_result ─────────────────────────────────────────
 
 
-def test_from_auto_result_groupby(tmp_path):
-    table = pa.table({"k": ["a", "b", "a", "b", "c"],
-                     "v": [1, 2, 3, 4, 5]})
+def test_from_auto_result_basic(tmp_path):
+    """from_auto_result wraps AutoResult (InMemoryResult | OnDiskResult)
+    as CadwDataFrame.
+
+    v0.9.95: groupby_aggregate migrated to CadwDataFrame return;
+    no longer AutoResult. Construct InMemoryResult directly to test
+    the adapter in isolation.
+    """
+    table = pa.table({"k": ["a", "b", "c"], "v": [1, 2, 3]})
     result = _mk_groupby_auto(table, tmp_path)
     assert isinstance(result, AutoResult)
     df = CadwDataFrame.from_auto_result(result)
     assert isinstance(df, CadwDataFrame)
     assert df.count() == 3
-    # groupby aggregate output: key columns + "{col}_{func}" aggregated
     assert "k" in df.columns
-    assert "v_sum" in df.columns
-    # iterable in new df works
+    assert "v" in df.columns
     batches = list(df._iter_filtered_batches())
     assert sum(b.num_rows for b in batches) == 3
 

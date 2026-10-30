@@ -37,7 +37,7 @@ def test_groupby_many_groups_10_6_under_10mb(tmp_path):
             guard, tmp_path, num_partitions=64, log=False, output="memory",
         )
         # Если успех — 10^6 строк, count=1 каждая
-        assert result.num_rows == n
+        assert result.count() == n
         for r in result.to_pylist()[:10]:
             assert r["v_count"] == 1
     except MemoryLimitExceeded:

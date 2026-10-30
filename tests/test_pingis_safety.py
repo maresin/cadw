@@ -142,7 +142,7 @@ def test_groupby_sample_capped_by_bytes(tmp_path, monkeypatch):
             it(), ["k"], ["c0"], ["sum"],
             guard, tmp_path, num_partitions=2, log=False,
         )
-        assert result.num_rows == 1
+        assert result.count() == 1
     except MemoryLimitExceeded:
         # Acceptable if 100KB budget is insufficient for downstream shuffle
         pass

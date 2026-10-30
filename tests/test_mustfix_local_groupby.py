@@ -88,7 +88,7 @@ def test_groupby_aggregate_recursion_end_to_end(tmp_path):
         make_iter(table, 500), ["cat"], ["val"], ["mean"],
         guard, tmp_path, num_partitions=4, log=False, output="memory",
     )
-    assert result.num_rows == n
+    assert result.count() == n
     rows = sorted(result.to_pylist(), key=lambda r: r["cat"])
     for i in [0, 1, n // 2, n - 1]:
         assert rows[i]["val_mean"] == float(i), f"row {i}: {rows[i]}"

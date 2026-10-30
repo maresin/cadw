@@ -27,37 +27,42 @@ def _small_guard():
 
 # ─── groupby_aggregate ─────────────────────────────────────────
 
-def test_groupby_output_memory_returns_table(tmp_path):
-    # v0.9.92: default is now "auto"; explicit "memory" preserves
-    # pa.Table return (pre-v0.9.92 default behavior, still supported).
+def test_groupby_output_memory_returns_cadwdataframe(tmp_path):
+    # v0.9.95 (BREAKING): unified CadwDataFrame; output= is storage only.
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     table = pa.table({"k": ["a", "b", "a", "b"], "v": [1, 2, 3, 4]})
     result = groupby_aggregate(
         _batches(table), ["k"], ["v"], ["sum"],
         _small_guard(), tmp_path, num_partitions=2, log=False,
         output="memory")
-    assert isinstance(result, pa.Table)
-    assert result.num_rows == 2
+    assert isinstance(result, CadwDataFrame)
+    assert isinstance(result._dataset, _InMemoryDataset)  # no spill
+    assert result.count() == 2
 
 
 def test_groupby_default_is_auto(tmp_path):
-    # v0.9.92 BREAKING: default output is "auto" (AutoResult).
+    # v0.9.95 BREAKING: default auto → CadwDataFrame (unified).
+    from cadw import CadwDataFrame
     table = pa.table({"k": ["a", "b", "a", "b"], "v": [1, 2, 3, 4]})
     result = groupby_aggregate(
         _batches(table), ["k"], ["v"], ["sum"],
         _small_guard(), tmp_path, num_partitions=2, log=False)
-    assert isinstance(result, AutoResult)
-    assert len(result) == 2
+    assert isinstance(result, CadwDataFrame)
+    assert result.count() == 2
 
 
 def test_groupby_output_auto_small_inmemory(tmp_path):
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     table = pa.table({"k": ["a", "b", "a", "b"], "v": [1, 2, 3, 4]})
     result = groupby_aggregate(
         _batches(table), ["k"], ["v"], ["sum"],
         _small_guard(), tmp_path, num_partitions=2, log=False,
         output="auto")
-    assert isinstance(result, AutoResult)
-    assert isinstance(result, InMemoryResult)
-    assert len(result) == 2
+    assert isinstance(result, CadwDataFrame)
+    assert isinstance(result._dataset, _InMemoryDataset)
+    assert result.count() == 2
 
 
 def test_groupby_output_auto_equals_memory(tmp_path):
@@ -76,22 +81,20 @@ def test_groupby_output_auto_equals_memory(tmp_path):
         _small_guard(), tmp_path / "a", num_partitions=8, log=False,
         output="auto")
     rows_m = sorted(m.to_pylist(), key=lambda r: r["k"])
-    rows_a = sorted(
-        [r for b in a for r in b.to_pylist()], key=lambda r: r["k"])
+    rows_a = sorted(a.to_pylist(), key=lambda r: r["k"])
     assert rows_m == rows_a
 
 
 def test_groupby_output_disk_forces_spill(tmp_path):
     table = pa.table({"k": ["a", "b", "a", "b"], "v": [1, 2, 3, 4]})
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     result = groupby_aggregate(
         _batches(table), ["k"], ["v"], ["sum"],
         _small_guard(), tmp_path, num_partitions=2, log=False,
         output="disk")
-    assert isinstance(result, OnDiskResult)
-    assert result.is_spilled
-    with pytest.raises(MemoryLimitExceeded):
-        result.to_table()
-    result.close()
+    assert isinstance(result, CadwDataFrame)
+    assert not isinstance(result._dataset, _InMemoryDataset)
 
 
 # ─── drop_duplicates ───────────────────────────────────────────
@@ -101,11 +104,12 @@ def test_dedup_output_auto(tmp_path):
         "k": ["a", "a", "b", "b", "c"],
         "v": [1, 2, 3, 4, 5],
     })
+    from cadw import CadwDataFrame
     result = ops_dedup(
         _batches(table), ["k"], "first",
         _small_guard(), tmp_path, num_partitions=2, output="auto")
-    assert isinstance(result, AutoResult)
-    assert len(result) == 3
+    assert isinstance(result, CadwDataFrame)
+    assert result.count() == 3
 
 
 def test_dedup_output_disk_spills(tmp_path):
@@ -113,21 +117,21 @@ def test_dedup_output_disk_spills(tmp_path):
         "k": ["a", "a", "b", "b", "c"],
         "v": [1, 2, 3, 4, 5],
     })
+    from cadw import CadwDataFrame
     result = ops_dedup(
         _batches(table), ["k"], "first",
         _small_guard(), tmp_path, num_partitions=2, output="disk")
-    assert isinstance(result, OnDiskResult)
-    result.close()
+    assert isinstance(result, CadwDataFrame)
 
 
 def test_dedup_output_memory_back_compat(tmp_path):
-    # v0.9.92: default flipped to "auto"; explicit "memory" preserves
-    # pa.Table return (still supported, back-compat).
+    # v0.9.95: output= is storage only; unified CadwDataFrame.
+    from cadw import CadwDataFrame
     table = pa.table({"k": ["a", "a", "b"], "v": [1, 2, 3]})
     result = ops_dedup(
         _batches(table), ["k"], "first",
         _small_guard(), tmp_path, num_partitions=2, output="memory")
-    assert isinstance(result, pa.Table)
+    assert isinstance(result, CadwDataFrame)
 
 
 # ─── topk_to_disk ──────────────────────────────────────────────
@@ -135,24 +139,25 @@ def test_dedup_output_memory_back_compat(tmp_path):
 def test_topk_output_auto_small(tmp_path):
     vals = list(range(1000, 0, -1))
     table = pa.table({"v": vals})
+    from cadw import CadwDataFrame
     result = topk_to_disk(
         _batches(table, 50), column="v", n=5, kind="largest",
         memory_guard=_small_guard(), output="auto")
-    assert isinstance(result, AutoResult)
-    assert len(result) == 5
-    got = [r["v"] for b in result for r in b.to_pylist()]
+    assert isinstance(result, CadwDataFrame)
+    assert result.count() == 5
+    got = [r["v"] for r in result.to_pylist()]
     assert got == [1000, 999, 998, 997, 996]
 
 
 def test_topk_output_disk(tmp_path):
     table = pa.table({"v": list(range(100))})
+    from cadw import CadwDataFrame
     result = topk_to_disk(
         _batches(table, 10), column="v", n=3, kind="smallest",
         memory_guard=_small_guard(), output="disk")
-    assert isinstance(result, OnDiskResult)
-    got = [r["v"] for b in result for r in b.to_pylist()]
+    assert isinstance(result, CadwDataFrame)
+    got = [r["v"] for r in result.to_pylist()]
     assert got == [0, 1, 2]
-    result.close()
 
 
 def test_topk_incremental_merge_ooc_friendly(tmp_path):
@@ -168,8 +173,9 @@ def test_topk_incremental_merge_ooc_friendly(tmp_path):
     result = topk_to_disk(
         _batches(table, 50), column="v", n=10, kind="largest",
         memory_guard=guard, output="memory")
-    assert isinstance(result, pa.Table)
-    assert result.num_rows == 10
+    from cadw import CadwDataFrame
+    assert isinstance(result, CadwDataFrame)
+    assert result.count() == 10
 
 
 def test_topk_output_invalid_n(tmp_path):

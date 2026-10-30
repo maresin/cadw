@@ -44,36 +44,36 @@ def test_combiner_count_equivalence(tmp_path):
     table = _flat()
     r0 = _run(tmp_path / "off", table, ["k"], ["v"], ["count"], combiner=False)
     r1 = _run(tmp_path / "on", table, ["k"], ["v"], ["count"], combiner=True)
-    assert r0.sort_by("k").to_pylist() == r1.sort_by("k").to_pylist()
+    assert sorted(r0.to_pylist(), key=lambda r: r["k"]) == sorted(r1.to_pylist(), key=lambda r: r["k"])
 
 
 def test_combiner_sum_equivalence(tmp_path):
     table = _flat()
     r0 = _run(tmp_path / "off", table, ["k"], ["v"], ["sum"], combiner=False)
     r1 = _run(tmp_path / "on", table, ["k"], ["v"], ["sum"], combiner=True)
-    assert r0.sort_by("k").to_pylist() == r1.sort_by("k").to_pylist()
+    assert sorted(r0.to_pylist(), key=lambda r: r["k"]) == sorted(r1.to_pylist(), key=lambda r: r["k"])
 
 
 def test_combiner_min_equivalence(tmp_path):
     table = _flat()
     r0 = _run(tmp_path / "off", table, ["k"], ["v"], ["min"], combiner=False)
     r1 = _run(tmp_path / "on", table, ["k"], ["v"], ["min"], combiner=True)
-    assert r0.sort_by("k").to_pylist() == r1.sort_by("k").to_pylist()
+    assert sorted(r0.to_pylist(), key=lambda r: r["k"]) == sorted(r1.to_pylist(), key=lambda r: r["k"])
 
 
 def test_combiner_max_equivalence(tmp_path):
     table = _flat()
     r0 = _run(tmp_path / "off", table, ["k"], ["v"], ["max"], combiner=False)
     r1 = _run(tmp_path / "on", table, ["k"], ["v"], ["max"], combiner=True)
-    assert r0.sort_by("k").to_pylist() == r1.sort_by("k").to_pylist()
+    assert sorted(r0.to_pylist(), key=lambda r: r["k"]) == sorted(r1.to_pylist(), key=lambda r: r["k"])
 
 
 def test_combiner_mean_equivalence(tmp_path):
     table = _flat()
     r0 = _run(tmp_path / "off", table, ["k"], ["v"], ["mean"], combiner=False)
     r1 = _run(tmp_path / "on", table, ["k"], ["v"], ["mean"], combiner=True)
-    rows0 = r0.sort_by("k").to_pylist()
-    rows1 = r1.sort_by("k").to_pylist()
+    rows0 = sorted(r0.to_pylist(), key=lambda r: r["k"])
+    rows1 = sorted(r1.to_pylist(), key=lambda r: r["k"])
     # Float comparison for mean.
     assert len(rows0) == len(rows1)
     for a, b in zip(rows0, rows1):
@@ -93,8 +93,8 @@ def test_combiner_mixed_aggs(tmp_path):
               combiner=False)
     r1 = _run(tmp_path / "on", table, ["k"], ["v", "w"], ["count", "mean"],
               combiner=True)
-    rows0 = r0.sort_by("k").to_pylist()
-    rows1 = r1.sort_by("k").to_pylist()
+    rows0 = sorted(r0.to_pylist(), key=lambda r: r["k"])
+    rows1 = sorted(r1.to_pylist(), key=lambda r: r["k"])
     assert len(rows0) == len(rows1)
     for a, b in zip(rows0, rows1):
         assert a["k"] == b["k"]
@@ -108,7 +108,7 @@ def test_combiner_same_col_sum_and_count(tmp_path):
               combiner=False)
     r1 = _run(tmp_path / "on", table, ["k"], ["v", "v"], ["sum", "count"],
               combiner=True)
-    assert r0.sort_by("k").to_pylist() == r1.sort_by("k").to_pylist()
+    assert sorted(r0.to_pylist(), key=lambda r: r["k"]) == sorted(r1.to_pylist(), key=lambda r: r["k"])
 
 
 # ---------- std rejected (not in _AGG_FUNCS) ----------
@@ -172,7 +172,7 @@ def test_combiner_large_n_low_k(tmp_path):
     table = _flat(n=1000, k=50)
     r_off = _run(tmp_path / "off", table, ["k"], ["v"], ["count"], combiner=False)
     r_on = _run(tmp_path / "on", table, ["k"], ["v"], ["count"], combiner=True)
-    assert r_off.sort_by("k").to_pylist() == r_on.sort_by("k").to_pylist()
+    assert sorted(r_off.to_pylist(), key=lambda r: r["k"]) == sorted(r_on.to_pylist(), key=lambda r: r["k"])
     for r in r_on.to_pylist():
         assert r["v_count"] == 20
 

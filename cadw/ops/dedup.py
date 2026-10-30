@@ -263,9 +263,13 @@ def drop_duplicates(
                 results.append(t)
 
         if not results:
-            return pa.Table.from_batches([], schema=out_schema)
-
-        return pa.concat_tables(results, promote_options="default")
+            result = pa.Table.from_batches([], schema=out_schema)
+        else:
+            result = pa.concat_tables(
+                results, promote_options="default")
+        # v0.9.95 (BREAKING): unified CadwDataFrame return.
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_table(result, memory_guard=memory_guard)
 
     # output in ("auto", "disk") — SpillBuffer path.
     # v0.9.92-fix: schema from _local_dedup result, not input out_schema.
@@ -298,12 +302,15 @@ def drop_duplicates(
                 buf.write_batch(b)
 
     if buf is None:
-        return InMemoryResult(
+        raw = InMemoryResult(
             pa.Table.from_batches([], schema=out_schema))
+    else:
+        raw = buf.finalize()
+        if log:
+            logger.info(
+                "drop_duplicates done: %d rows (output=%s, spilled=%s)",
+                len(raw), output, raw.is_spilled)
 
-    result = buf.finalize()
-    if log:
-        logger.info(
-            "drop_duplicates done: %d rows (output=%s, spilled=%s)",
-            len(result), output, result.is_spilled)
-    return result
+    # v0.9.95 (BREAKING): unified CadwDataFrame return.
+    from cadw.dataframe import CadwDataFrame
+    return CadwDataFrame.from_producer_result(raw, memory_guard=memory_guard)

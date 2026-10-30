@@ -53,14 +53,16 @@ def test_default_auto_signatures():
 
 # ─── Behavior: default returns AutoResult, facade unwraps ─────
 
-def test_groupby_default_returns_autoresult(tmp_path):
+def test_groupby_default_returns_cadwdataframe(tmp_path):
+    """v0.9.95 BREAKING: default auto → CadwDataFrame (unified)."""
+    from cadw import CadwDataFrame
     from cadw.core.memory_guard import MemoryGuard
     from cadw.ops.groupby import groupby_aggregate
     table = pa.table({'k': ['a', 'b', 'a', 'b'], 'v': [1, 2, 3, 4]})
     result = groupby_aggregate(
         _batches(table), ['k'], ['v'], ['sum'],
         MemoryGuard(max_memory_mb=64), tmp_path, num_partitions=2, log=False)
-    assert isinstance(result, AutoResult)
+    assert isinstance(result, CadwDataFrame)
 
 
 def test_groupby_facade_returns_cadwdataframe(tmp_path):
@@ -93,7 +95,10 @@ def test_nlargest_facade_returns_cadwdataframe():
 
 # ─── Backward compat: output="memory" returns old type ────────
 
-def test_groupby_memory_still_returns_table(tmp_path):
+def test_groupby_memory_returns_cadwdataframe(tmp_path):
+    """v0.9.95 BREAKING: output= is storage only, type is always
+    CadwDataFrame."""
+    from cadw import CadwDataFrame
     from cadw.core.memory_guard import MemoryGuard
     from cadw.ops.groupby import groupby_aggregate
     table = pa.table({'k': ['a', 'b'], 'v': [1, 2]})
@@ -101,7 +106,7 @@ def test_groupby_memory_still_returns_table(tmp_path):
         _batches(table), ['k'], ['v'], ['sum'],
         MemoryGuard(max_memory_mb=64), tmp_path, num_partitions=2,
         log=False, output='memory')
-    assert isinstance(result, pa.Table)
+    assert isinstance(result, CadwDataFrame)
 
 
 def test_iforest_memory_returns_cadwdataframe():
