@@ -1,5 +1,83 @@
 ## [Unreleased]
 
+### v0.9.97 (2026-10-30) — YAML bounded_state_dims + df.estimate_memory
+
+**Task 1: `bounded_state_dims` in YAML (86/86 verified cards).**
+
+New `StateFields` fields (`docs/ml_tools/schema.py`):
+  `bounded_state_dims: dict[str, int] | None`  — `{axis: power}`
+  `transient_factor: float = 1.0`
+
+Semantics: `est_bytes = sum(params[a] ** p for a, p in dims.items()) * 8 * tf`
+
+Populated 86 verified cards (84 via
+`scripts/patch_v0997_yaml_dims.py --apply`, 2 by hand for
+N_density GaussianMixture + BIRCH whose verified flag was
+flow-style `{verified_in_cadw: true, ...}` — see AP12).
+
+Mapping (`STATE_CLASS_TO_DIMS`):
+  `O(1)` → `{}`, tf=1.0; `O(batch)` → `{batch:1}`, tf=1.0;
+  `O(d)` → `{d:1}`, tf=1.0; `O(d²)` → `{d:2}`, tf=2.0;
+  `O(n)` → `{n:1}`, tf=1.0 (conservative, spill-backed);
+  `O(model)` → `{k:1, d:1}`, tf=1.0;
+  `O(n·w)` → `{n:1, w:1}`, tf=2.0;
+  `O(N·d)` → `{N:1, d:1}`, tf=1.0.
+
+`fit_binseg` tf=3.0 by hand (3 prefix arrays; brief §3.1 estimate
+of 240 MB at n=1e7 matches tf=3.0).
+
+`REQUIRE_STATE_FIELDS` already `True` since v0.9.87-P6 (brief
+claimed `False` — stale docstring). Fixed docstring + assert
+message + flag comment. `test_g4_verified_cards_have_state_fields`
+extended to require `bounded_state_dims` for non-refuse verified
+cards.
+
+**Task 2: `df.estimate_memory(op, **params)` — new API.**
+
+`cadw/dataframe/_misc.py::estimate_memory` + new
+`cadw/ml/_memory_estimate.py` (`@lru_cache(maxsize=1)` on
+`_load_cards`). Looks up YAML card by `cadw_function`,
+`"module::function"`, or card `name`; evaluates formula against
+`MemoryGuard.available_bytes()`; returns:
+  `{"fits": bool, "est_ram_mb": float|None, "bottleneck": str,
+    "available_mb": float, "alternatives": list[str]}`
+
+`n_scalability: refuse_at_guard` → `est_ram_mb=None`, fits=False.
+Alternatives per family: sgd for linear/logistic, pelt/stray for
+binseg, reduce hp for gbm, randomized for pca.
+
+Tests: `tests/test_estimate_memory.py` — 6 cases.
+
+**Task 3 (reduction): CoxPH concordance audit — no code change.**
+
+Brief v0.9.96 §8 claimed `concordance_index` was O(n²). Audit:
+already chunked (`chunk = 1_000_000 // n`, bool matrix ~8 MB per
+chunk). RAM is **O(n)**, not O(n²). Detailed docstring added to
+`cadw/ml/coxph.py::concordance_index`; moved to "Do not re-solve"
+in ROADMAP.
+
+**Anti-patterns surfaced (AI_CONSTITUTION §5):**
+
+- **AP10** — patch вслепую: `git log -- file` + `git show
+  HEAD:file | grep 'def X'` before writing "add X".
+- **AP12** — `\b`-pattern with `.match()` silently no-ops:
+  `.match()` anchors at position 0, `\b` needs word-char there.
+  Use `.search()` when pattern has no `^`.
+- **AP13** — `set -eo pipefail; cmd | tail` in VSCodium terminal
+  = visual "crash" (shell exit 1 → pty closed). Use `cmd >
+  /tmp/log 2>&1; echo "exit=$?"; tail /tmp/log`.
+- **AP14** — YAML anchor "next N chars" fails when nested
+  collections (`benchmark_results`) sit between anchor and
+  target. Anchor by structural marker + block-scoped search until
+  next `- name:` at same indent.
+
+**Known issue (still tracked, pre-existing):** `cadw.__version__`
+and `pyproject.toml::version` say 0.9.88 while tags exist through
+v0.9.97. Out of scope; target v0.9.98.
+
+**Test count:** ~4345 passed, 8 skipped (fast; +6 estimate_memory,
++schema count, +G11 param for new `_memory_estimate.py`).
+
 ### v0.9.96 (2026-10-30) — G11: transitive-migration AST gate
 
 **G11 (new gate).** AST scan for callers of migrated producers

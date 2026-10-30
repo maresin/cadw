@@ -84,6 +84,8 @@ subtypes:
     cadw_module: cadw.ml.coxph
     cadw_function: fit_coxph
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear

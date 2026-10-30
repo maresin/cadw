@@ -79,6 +79,8 @@ subtypes:
     cadw_module: cadw.ml.tfidf
     cadw_function: fit_tfidf
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -255,6 +257,8 @@ subtypes:
     cadw_module: cadw.ml.randsvd
     cadw_function: fit_randomized_svd
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -442,6 +446,8 @@ subtypes:
     cadw_module: cadw.ml.lda
     cadw_function: fit_lda
     state_class: O(model)
+    bounded_state_dims: {k: 1, d: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant

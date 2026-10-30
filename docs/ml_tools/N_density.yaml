@@ -37,6 +37,8 @@ subtypes:
         cadw_function: fit_gmm
 
         state_class: O(model)
+        bounded_state_dims: {k: 1, d: 1}
+        transient_factor: 1.0
         state_type: iterative
         bounded_state: true
         n_scalability: constant
@@ -71,6 +73,8 @@ subtypes:
         cadw_function: fit_birch
 
         state_class: O(model)
+        bounded_state_dims: {k: 1, d: 1}
+        transient_factor: 1.0
         state_type: aggregation
         bounded_state: true
         n_scalability: constant

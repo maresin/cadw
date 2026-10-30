@@ -58,6 +58,8 @@ subtypes:
     cadw_module: cadw.dataframe
     cadw_function: describe
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -95,6 +97,8 @@ subtypes:
     cadw_module: cadw.plot_accessor
     cadw_function: hist
     state_class: O(1)
+    bounded_state_dims: {}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -132,6 +136,8 @@ subtypes:
     cadw_module: cadw.dataframe
     cadw_function: value_counts
     state_class: O(model)
+    bounded_state_dims: {k: 1, d: 1}
+    transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
     n_scalability: constant
@@ -235,6 +241,8 @@ subtypes:
     cadw_module: cadw.dataframe
     cadw_function: fillna
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: elementwise
     bounded_state: true
     n_scalability: constant
@@ -492,6 +500,8 @@ subtypes:
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -529,6 +539,8 @@ subtypes:
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -567,6 +579,8 @@ subtypes:
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -936,6 +950,8 @@ subtypes:
     cadw_module: cadw.ml.importance
     cadw_function: permutation_importance
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -1065,6 +1081,8 @@ subtypes:
     cadw_module: cadw.ml.fairness
     cadw_function: fairness_metrics
     state_class: O(model)
+    bounded_state_dims: {k: 1, d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -1188,6 +1206,8 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_drift
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -1312,6 +1332,8 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     state_class: O(1)
+    bounded_state_dims: {}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -1360,6 +1382,8 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     state_class: O(model)
+    bounded_state_dims: {k: 1, d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -1398,6 +1422,8 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant

@@ -41,7 +41,10 @@ VALID_STATE_TYPE = {
 VALID_N_SCAL = {"constant", "linear", "quadratic", "refuse_at_guard"}
 
 # Flipped to True after P6 registered state fields in D*+A*.
-# E/F/G/H/I/J/K/L/M/N/O still whitelisted (P7 pending).
+# v0.9.97: bounded_state_dims added to all 84 verified cards
+# (E/F/G/H/I/J/K/L/M/N/O included). G4 whitelist may still exclude
+# some sections at the section-wildcard level; per-card check runs
+# for non-whitelisted verified cards.
 REQUIRE_STATE_FIELDS = True
 
 
@@ -106,11 +109,16 @@ def test_g4_state_field_format():
 
 
 def test_g4_verified_cards_have_state_fields():
-    """G4-part2: verified cards declare state_class + bounded_state.
+    """G4-part2: verified cards declare state taxonomy fields.
 
-    Strict mode: REQUIRE_STATE_FIELDS must be True AND card not
-    whitelisted. Today REQUIRE_STATE_FIELDS = False, so this test
-    only reports; flip after P6.
+    Strict mode: REQUIRE_STATE_FIELDS is True (since v0.9.87-P6)
+    AND card not whitelisted. Every verified non-refuse card MUST
+    declare:
+      - state_class    (O(...) asymptotic class)
+      - bounded_state  (bool; RAM bounded given disk)
+      - bounded_state_dims (v0.9.97; {axis: power} formula components)
+    Cards with n_scalability="refuse_at_guard" skip bounded_state_dims
+    (they refuse at guard, no RAM formula).
     """
     if not REQUIRE_STATE_FIELDS:
         pytest.skip("REQUIRE_STATE_FIELDS = False (deferred to P6)")
@@ -131,12 +139,19 @@ def test_g4_verified_cards_have_state_fields():
             missing.append("state_class")
         if card.get("bounded_state") is None:
             missing.append("bounded_state")
+        # v0.9.97: dims required for verified non-refuse cards
+        if (card.get("n_scalability") != "refuse_at_guard"
+                and card.get("bounded_state_dims") is None):
+            missing.append("bounded_state_dims")
         if missing:
             violations.append(f"{yp.name}::{key} missing {missing}")
 
     assert not violations, (
-        "G4: verified cards missing state fields (flip REQUIRE_STATE_FIELDS"
-        " only after P6 fills them):\n" + "\n".join(violations)
+        "G4: verified cards missing state taxonomy fields "
+        "(state_class, bounded_state, bounded_state_dims). "
+        "Run scripts/patch_v0997_yaml_dims.py --apply to fill "
+        "bounded_state_dims mechanically, or add field manually.\n"
+        + "\n".join(violations)
     )
 
 def test_is_whitelisted_section_wildcard():

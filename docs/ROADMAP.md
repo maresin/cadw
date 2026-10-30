@@ -1,12 +1,13 @@
 # CADW Roadmap
 
-Last updated: 2026-10-30 (after v0.9.96).
+Last updated: 2026-10-30 (after v0.9.97).
 
-## Current: v0.9.96
+## Current: v0.9.97
 
 **Closed:** streaming-output migration (v0.9.92), wide-d quartet
 (v0.9.93), unified narrow (v0.9.94), unified broad (v0.9.95),
-G11 transitive-migration gate (v0.9.96).
+G11 transitive-migration gate (v0.9.96),
+YAML bounded_state_dims + df.estimate_memory (v0.9.97).
 
 All 13 producers return CadwDataFrame regardless of output=;
 output= selects storage strategy only. Pipeline works with all
@@ -33,29 +34,7 @@ migrated models out-of-the-box.
 
 ## Next 3 sessions
 
-### v0.9.97 — YAML `bounded_state_dims` + CoxPH concordance streaming
-
-**Goal:** finish registration debt + close remaining O(n^2) gaps.
-
-**Deliverables:**
-- YAML: add `bounded_state_dims` for all 84 `verified_in_cadw: true`
-  cards (mechanical; needed by `df.estimate_memory`).
-- `cadw/ml/coxph.py::concordance_index` — streaming algorithm
-  (currently O(n^2) pairwise). Target: O(n log n) via sorted risk
-  scores + Fenwick/BIT; verify against brute-force reference.
-- `df.estimate_memory(op, params)` — pre-flight RAM estimate per
-  axis, with `fits`, `est_ram_mb`, `bottleneck`, `alternatives`.
-
-**Tests:**
-- YAML schema validation passes with `bounded_state_dims` field.
-- `concordance_index`: streaming output bit-identical to brute-force
-  on n <= 10^4; O(n log n) time on n = 10^6.
-- `estimate_memory("binseg", n=10^7)` returns `fits: false` with
-  alternatives.
-
-**Breaking:** none.
-
-### v0.9.98 — sparse `tfidf.transform` (CSR SpillBuffer) + K-spill
+### v0.9.98 — CSR SpillBuffer + K-spill (sparse outputs)
 
 **Goal:** unblock two remaining K-axis / sparse-output cases.
 
@@ -69,10 +48,8 @@ migrated models out-of-the-box.
 - Optionally `lda::_build_vocab`, `tfidf::fit_tfidf` (vocab via
   HashShuffle).
 
-**Tests:**
-- `K = 10^7` unique categories encoded without OOM.
-- Classification with `K = 10^6` classes OOC.
-- Sparse tfidf: `nnz` per row preserved through spill.
+**Tests:** `K = 10^7` categories OOC; `K = 10^6` classes OOC;
+sparse tfidf nnz preserved.
 
 **Breaking:** none (opt-in via `output="disk"` / `sparse=True`).
 
@@ -81,19 +58,29 @@ migrated models out-of-the-box.
 **Goal:** expand algorithm coverage in two families.
 
 **Deliverables:**
-- D4: `MultiRocket`, `Hydra`, `BOSS`, `Catch22` forecasters on top
-  of existing `minirocket` / `rocket` primitives.
-- TS forecast: `AutoARIMA`, `Croston` forecaster(s).
+- D4: `MultiRocket`, `Hydra`, `BOSS`, `Catch22` forecasters.
+- TS forecast: `AutoARIMA`, `Croston`.
 - YAML cards for all new models with §7 mandatory fields.
-- G11 auto-guards any new producer that adds `output=`.
+- G11 auto-guards any new producer with `output=`.
 
-**Tests:**
-- Numerical parity vs paper reference (`sktime` / `tsfresh`
-  implementation where available).
-- Each new model registered in YAML with `state_class`,
-  `bounded_state`, etc.
+**Tests:** numerical parity vs paper reference; YAML §7 complete.
 
-**Breaking:** none (new API surface only).
+**Breaking:** none.
+
+### v0.9.100 — version bump + release audit
+
+**Goal:** fix the long-standing `__version__ = "0.9.88"` while tags
+exist through v0.9.9x.
+
+**Deliverables:**
+- `cadw/__init__.py::__version__` and `pyproject.toml::version`
+  synchronized with current tag.
+- `test_version_consistency.py` verifies `tag == pyproject ==
+  cadw.__version__` on master.
+- Audit pass 3 (source conformance, STREAMING backlog).
+- `sgd_streaming` mini-batch optimization.
+
+**Breaking:** none (metadata only).
 
 ## Do not re-solve
 
@@ -111,6 +98,13 @@ Per STREAMING §6.1 — won't-fix with rationale:
   is correct behaviour.
 - **TS single-series fits** (STL, VAR, VECM, ETS, Theta):
   `tier1_core_exception`, n ≤ 10^6 typical.
+
+- **CoxPH concordance streaming** (v0.9.97 audit): current
+  implementation is O(n) chunked (~8 MB/chunk bool matrix),
+  NOT O(n²) as v0.9.96 brief §8 claimed. True streaming
+  (external sort + Fenwick inversion) gives O(n log n) I/O
+  for a statistic unstable at n > 10⁶ anyway. Won't-fix until
+  a real use case appears.
 
 If a future session considers one of these, **read STREAMING §6.1
 first** — cost calculations and rationale are there.

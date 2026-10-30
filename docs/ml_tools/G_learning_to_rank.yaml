@@ -77,6 +77,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot'
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant

@@ -56,6 +56,8 @@ subtypes:
       std: null
       note: naive2 M4 benchmark [legacy v0.9.44, migrated v0.9.50]
     state_class: O(1)
+    bounded_state_dims: {}
+    transient_factor: 1.0
     state_type: elementwise
     bounded_state: true
     n_scalability: constant
@@ -125,6 +127,8 @@ subtypes:
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -192,6 +196,8 @@ subtypes:
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -247,6 +253,8 @@ subtypes:
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -321,6 +329,8 @@ subtypes:
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -359,6 +369,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -408,6 +420,8 @@ subtypes:
   # All cards documented_only; excluded from ensemble_recommendation (rule).
   # ==========================================================================
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -907,6 +921,8 @@ subtypes:
       std: null
       note: 'M2 parity on synthetic_m4_like_multivariate DGP: RMSE(cadw_forecast, statsmodels_forecast)=0.0 (5.8e-18 round-off); verdict=consistent'
     state_class: O(N·d)
+    bounded_state_dims: {N: 1, d: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -946,6 +962,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -976,6 +994,8 @@ subtypes:
     cadw_module: cadw.ts.bvar
     cadw_function: BVARModel
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -1004,6 +1024,8 @@ subtypes:
     cadw_module: cadw.ts.vecm
     cadw_function: VECMModel
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -1106,6 +1128,8 @@ subtypes:
     evaluation_scope: synthetic
     dgp_source: gen_ts_point_anomaly
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1146,6 +1170,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(model)
+    bounded_state_dims: {k: 1, d: 1}
+    transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
     n_scalability: constant
@@ -1195,6 +1221,8 @@ subtypes:
       std: null
       note: 'CADW-native: fit_time_s=0.6 @n=100k and 3.174 @n=1M (matrix_profile.json); NOT comparable to external LB. No std across runs.'
     state_class: O(n·w)
+    bounded_state_dims: {n: 1, w: 1}
+    transient_factor: 2.0
     state_type: windowed
     bounded_state: false
     n_scalability: quadratic
@@ -1246,6 +1274,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1296,6 +1326,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1346,6 +1378,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1399,6 +1433,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1449,6 +1485,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1499,6 +1537,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1549,6 +1589,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: cross_row
     bounded_state: false
     n_scalability: linear
@@ -1600,6 +1642,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1650,6 +1694,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1701,6 +1747,8 @@ subtypes:
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -1856,6 +1904,8 @@ subtypes:
     evaluation_scope: synthetic
     dgp_source: synthetic_alternating_mean_shifts
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 3.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -1912,6 +1962,8 @@ subtypes:
       temporal_split: true
       target_leakage_checked: true
     state_class: O(model)
+    bounded_state_dims: {k: 1, d: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -1949,6 +2001,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -2000,6 +2054,8 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -2051,6 +2107,8 @@ subtypes:
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
     state_class: O(1)
+    bounded_state_dims: {}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -2183,6 +2241,8 @@ subtypes:
     evaluation_scope: synthetic
     dgp_source: gen_ts_shape_anomaly
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -2220,6 +2280,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n·w)
+    bounded_state_dims: {n: 1, w: 1}
+    transient_factor: 2.0
     state_type: windowed
     bounded_state: false
     n_scalability: quadratic
@@ -2260,6 +2322,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -2324,6 +2388,8 @@ subtypes:
       temporal_split: true
       target_leakage_checked: true
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -2387,6 +2453,8 @@ subtypes:
       temporal_split: true
       target_leakage_checked: true
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -2450,6 +2518,8 @@ subtypes:
       temporal_split: true
       target_leakage_checked: true
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -2515,6 +2585,8 @@ subtypes:
       temporal_split: true
       target_leakage_checked: true
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -2566,6 +2638,8 @@ subtypes:
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -2681,6 +2755,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -2720,6 +2796,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: windowed
     bounded_state: true
     n_scalability: constant
@@ -2835,6 +2913,8 @@ subtypes:
     evaluation_scope: synthetic
     dgp_source: synthetic_alternating_mean_shifts
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
@@ -2872,6 +2952,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n)
+    bounded_state_dims: {n: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear

@@ -72,6 +72,49 @@ class _MiscMixin:
         return self._wrap_result_table(result)
 
 
+    def estimate_memory(self, op: str, **params) -> dict:
+        """Pre-flight RAM estimate for a named op/model.
+
+        v0.9.97. Looks up YAML card state fields, evaluates the
+        formula against ``MemoryGuard.available_bytes()``, returns a
+        fit decision plus curated alternatives.
+
+        See ``docs/SESSION_BRIEF_v0.9.97.md`` §3 and
+        ``docs/ml_tools/METHODOLOGY_ALGORITHM_SELECTION.md`` §5-§6.
+
+        Parameters
+        ----------
+        op : str
+            Model/op name. Accepted forms: ``cadw_function``
+            (``"fit_linear"``), ``"cadw_module::cadw_function"``
+            (``"cadw.ml.linear::fit_linear"``), or YAML card
+            ``name`` (``"Linear/Ridge"``).
+        **params
+            Axis values: ``n``, ``d``, ``k``, ``K``, ``batch``,
+            ``w``, ``N``, ``n_groups``. Required axes are those
+            with power > 0 in ``bounded_state_dims``. Missing axis
+            -> ``ValueError``.
+
+        Returns
+        -------
+        dict
+            Keys: ``fits`` (bool), ``est_ram_mb`` (float | None),
+            ``bottleneck`` (str), ``available_mb`` (float),
+            ``alternatives`` (list[str]).
+            For ``n_scalability='refuse_at_guard'`` cards,
+            ``est_ram_mb`` is None.
+
+        Examples
+        --------
+        >>> df.estimate_memory("fit_linear", d=100)
+        {'fits': True, 'est_ram_mb': 0.16, ...}
+        >>> df.estimate_memory("fit_binseg", n=10_000_000)
+        {'fits': False, 'est_ram_mb': None, ...}
+        """
+        from cadw.ml._memory_estimate import estimate_from_yaml
+        return estimate_from_yaml(op, self._memory_guard, **params)
+
+
     @property
     def ts(self):
         """Time-series accessor (v0.9.24): df.ts.lag / .rolling_features / .fit_forecaster / ...

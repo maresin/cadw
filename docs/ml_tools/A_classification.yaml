@@ -58,6 +58,8 @@ subtypes:
       std: null
       note: median across AMLB binary tasks; ranking only [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -97,6 +99,8 @@ subtypes:
       std: null
       note: median across AMLB binary tasks [legacy v0.9.44, migrated v0.9.50]
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -137,6 +141,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -256,6 +262,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -293,6 +301,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -333,6 +343,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
+    bounded_state_dims: {d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -407,6 +419,8 @@ subtypes:
       std: null
       note: normalised RMSE median across AMLB regression tasks [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -444,6 +458,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -496,6 +512,8 @@ subtypes:
       std: null
       note: M2 parity on synthetic_amlb_regression_like DGP; ref(sklearn.GradientBoostingRegressor)=1.0498, verdict=consistent
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
@@ -572,6 +590,8 @@ subtypes:
       std: null
       note: subset accuracy [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -609,6 +629,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -678,6 +700,8 @@ subtypes:
       std: null
       note: exact-match accuracy [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -774,6 +798,8 @@ subtypes:
       std: null
       note: AMLB imbalance subset [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -812,6 +838,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(batch)
+    bounded_state_dims: {batch: 1}
+    transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant

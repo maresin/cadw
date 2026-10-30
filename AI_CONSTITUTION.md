@@ -465,6 +465,85 @@ Both hit in v0.9.95 wave 5 (value_counts, duplicated).
 Fix: use `from_batches` for RecordBatches; drop `.combine_chunks()`
 after `concat_arrays`.
 
+### AP10. Patch вслепую — «add X» без git history check
+
+В v0.9.96 дважды написан патч (`to_pylist`, rewrites
+`test_groupby_v2`/`test_streaming_output_ops`) для кода, **который
+уже был** в `HEAD` от v0.9.95-wave5. `git add` дал 0 diff.
+
+**Правило перед «add X to file Y»:**
+
+```bash
+git log --oneline --all -- FILE | head -3        # когда трогали
+git show HEAD:FILE | grep -n 'def X\|class X'    # уже есть?
+```
+
+**Признак проблемы:** `git add N files` → `commit M (M<N)`. Не
+баг — проверять `git diff --stat <parent> HEAD -- <remaining>`:
+пусто = ок, непусто = коммит неполный.
+
+### AP12. `\b`-pattern с `.match()` — silent no-op
+
+`.match()` анкорит на **позицию 0**. `\b` требует word-символ
+там; пробел в начале строки (`        verified_in_cadw: true`) —
+non-word → ни одна строка не матчится.
+
+```python
+# WRONG (silent no-op):
+RE = re.compile(r"\bverified_in_cadw:\s*true\b")
+RE.match(line)              # никогда не True
+
+# RIGHT:
+RE = re.compile(r"\bverified_in_cadw:\s*true(?=[,\s}]|$)")
+RE.search(line)
+```
+
+**Правило:** паттерн без `^` → всегда `.search()`, никогда
+`.match()`. End-token guard `(?=[,\s}]|$)` после `true` защищает
+от `true_xyz` в notes.
+
+### AP13. `set -eo pipefail; cmd | tail` — visual «crash» в VSCodium
+
+`set -eo pipefail; uv run pytest ... | tail` при падении теста →
+pipeline non-zero → `-e` закрывает shell → VSCodium визуально
+«терминал упал». Это **не crash**, а закрытие (pty-pipe-баг).
+
+```bash
+# WRONG:
+set -eo pipefail
+uv run pytest ... | tail -20     # крашит терминал при fail
+
+# RIGHT:
+uv run pytest ... > /tmp/log 2>&1
+echo "exit: $?"
+tail -20 /tmp/log
+```
+
+**Правило:** `set -eo pipefail` — для скриптов. Для интерактивной
+диагностики — `> /tmp/log 2>&1; echo $?; tail`.
+
+### AP14. YAML anchor «next N chars» — ломается о вложенные коллекции
+
+В YAML между `cadw_function: fit_binseg` и `state_class: O(n)`
+стоит `benchmark_results:` (сотни строк). Regex «next 500 chars
+after anchor» не нашёл `bounded_state_dims`.
+
+**Правило:** YAML-anchor — только по структурному маркеру
+(`- name:`, `state_class:`) + **block-scoped search** (до
+следующего `- name:` того же indent).
+
+```python
+# WRONG:
+pos = src.find("cadw_function: fit_binseg")
+tail = src[pos:pos+500]
+
+# RIGHT:
+m = re.search(r"^(\s*)- name: BinarySegmentation\s*$", src, re.M)
+indent = m.group(1)
+next_m = re.search(rf"^{re.escape(indent)}- name:", src[m.end():], re.M)
+block = src[m.start():m.end() + next_m.start()]
+```
+
 ## §6. Roadmap summary (3 sessions) + won't-fix
 
 **Next sessions** (see docs/ROADMAP.md for details):

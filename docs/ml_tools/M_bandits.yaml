@@ -76,6 +76,8 @@ subtypes:
     cadw_module: cadw.ml.linucb
     cadw_function: fit_linucb
     state_class: O(model)
+    bounded_state_dims: {k: 1, d: 1}
+    transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant

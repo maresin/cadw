@@ -150,7 +150,26 @@ class CoxPHModel:
             raw, col_names=["risk"], memory_guard=mg)
 
     def concordance_index(self, df, time_col, event_col, X_cols=None):
-        """Harrell's c-index (higher risk = shorter survival)."""
+        """Harrell's c-index (higher risk = shorter survival).
+
+        v0.9.97 audit (brief v0.9.96 §8 was inaccurate):
+
+        RAM complexity is O(n), NOT O(n^2). T/E/R arrays are
+        O(n) each (concatenated from batches); pair matrix is
+        computed in row-chunks of ~8 MB (`chunk = 1_000_000 // n`).
+        Peak transient = O(chunk * n) bytes, bounded independent
+        of n.
+
+        A true streaming version would need external sort on
+        (risk_score, time) and Fenwick-tree inversion —
+        O(n log n) I/O, stable RAM. NOT implemented: Harrell's
+        c-index is statistically unstable at n > 10^6 anyway,
+        and the current chunked version already handles the
+        practical range.
+
+        See docs/SESSION_BRIEF_v0.9.97.md §4 and
+        docs/ROADMAP.md 'Do not re-solve' (v0.9.97 addition).
+        """
         cols = list(X_cols) if X_cols is not None else self.feature_names_
         Ts, Es, Rs = [], [], []
         for b in df._iter_filtered_batches():

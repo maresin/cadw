@@ -122,6 +122,10 @@ class ModelCard:
     n_scalability: str | None = None
     streaming_strategy: str | dict | None = None
     primitive_reuse: list[str] | None = None
+    # v0.9.97: RAM formula components. {axis: power}; missing axis = 0.
+    # est_bytes = sum(val**pow for axis,pow in dims.items()) * 8 * transient_factor
+    bounded_state_dims: dict[str, int] | None = None
+    transient_factor: float = 1.0
     # tier1_core + bounded_state=false exception (METHODOLOGY §7, §10)
     tier1_core_exception: str | None = None
 
@@ -298,6 +302,11 @@ def _parse_model(m: dict) -> ModelCard:
         n_scalability=m.get("n_scalability"),
         streaming_strategy=m.get("streaming_strategy"),
         primitive_reuse=m.get("primitive_reuse"),
+        bounded_state_dims=m.get("bounded_state_dims"),
+        transient_factor=(
+            float(m["transient_factor"])
+            if m.get("transient_factor") is not None else 1.0
+        ),
         tier1_core_exception=m.get("tier1_core_exception"),
     )
 
@@ -487,6 +496,22 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
     if m.state_type is not None and m.state_type not in VALID_STATE_TYPE:
         err(f"{m_label}: state_type={m.state_type!r} not in "
             f"{sorted(VALID_STATE_TYPE)}")
+    if m.bounded_state_dims is not None:
+        if not isinstance(m.bounded_state_dims, dict):
+            err(f"{m_label}: bounded_state_dims must be dict[axis, power], "
+                f"got {type(m.bounded_state_dims).__name__}")
+        else:
+            for axis, power in m.bounded_state_dims.items():
+                if not isinstance(axis, str):
+                    err(f"{m_label}: bounded_state_dims axis must be str, "
+                        f"got {axis!r}")
+                if not isinstance(power, int) or power < 0 or power > 4:
+                    err(f"{m_label}: bounded_state_dims[{axis!r}] power "
+                        f"must be int in [0, 4], got {power!r}")
+    if (not isinstance(m.transient_factor, (int, float))
+            or m.transient_factor < 1.0):
+        err(f"{m_label}: transient_factor must be >= 1.0, "
+            f"got {m.transient_factor!r}")
     if m.bounded_state is not None and not isinstance(m.bounded_state, bool):
         err(f"{m_label}: bounded_state must be bool, "
             f"got {type(m.bounded_state).__name__}")
