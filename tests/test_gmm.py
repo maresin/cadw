@@ -14,6 +14,15 @@ def _df(X):
     return CadwDataFrame.from_table(pa.table({f"x{i}": pa.array(X[:, i]) for i in range(X.shape[1])}))
 
 
+
+def _col_to_numpy(df, col):
+    """Extract column from CadwDataFrame as numpy (v0.9.95)."""
+    import numpy as np
+    parts = [b.column(col).to_numpy(zero_copy_only=False)
+             for b in df._iter_filtered_batches()]
+    return np.concatenate(parts) if parts else np.zeros(0)
+
+
 def test_smoke_returns_model():
     rng = np.random.RandomState(0)
     X = rng.normal(size=(500, 2))
@@ -39,7 +48,7 @@ def test_score_samples_finite():
     X = rng.normal(size=(200, 2))
     m = fit_gmm(_df(X), ["x0", "x1"], n_components=2, random_state=0)
     t = m.score_samples(_df(X))
-    vals = t.column("log_likelihood").to_numpy(zero_copy_only=False)
+    vals = _col_to_numpy(t, "log_likelihood")
     assert np.all(np.isfinite(vals))
     assert vals.shape == (200,)
 
@@ -58,7 +67,7 @@ def test_predict_labels_match_argmax_density():
     rng = np.random.RandomState(4)
     X = np.vstack([rng.normal(-5, 0.1, (50, 1)), rng.normal(5, 0.1, (50, 1))])
     m = fit_gmm(_df(X), ["x0"], n_components=2, random_state=0, max_iter=200)
-    labels = m.predict(_df(X)).column("cluster").to_numpy(zero_copy_only=False)
+    labels = _col_to_numpy(m.predict(_df(X)), "cluster")
     # All -5 cluster rows must share one label, all +5 the other
     low = set(labels[:50].tolist())
     high = set(labels[50:].tolist())

@@ -115,36 +115,39 @@ class CoxPHModel:
     def predict_risk(self, df, X_cols=None, *, output: str = "auto"):
         """Predict risk scores (higher = shorter survival).
 
-        v0.9.94: output="auto" default for spill-on-demand.
-
-        output="memory": returns pa.Table with "risk" column
-          (back-compat; O(n) RAM).
-        output="auto"/"disk": returns AutoArrayResult (1-D numpy-like;
-          spill when guard exhausted). Iterate via `for arr in result`.
-          to_numpy() on spilled raises MemoryLimitExceeded (§1.3).
+        v0.9.95 (BREAKING): unified CadwDataFrame return. output=
+        selects storage strategy only:
+          "memory" → in-memory (no disk)
+          "auto"   → in-memory if fits budget, else disk
+          "disk"   → forced disk (Arrow IPC)
+        Column: ["risk"].
         """
         if output not in ("memory", "auto", "disk"):
             raise ValueError(
                 f"predict_risk: output must be 'memory', 'auto' or "
                 f"'disk'; got {output!r}")
         cols = list(X_cols) if X_cols is not None else self.feature_names_
+        mg = getattr(df, "_memory_guard", None)
 
         if output == "memory":
             out = []
             for b in df._iter_filtered_batches():
                 out.append(_stack_num(b, cols) @ self.coef_)
             arr = np.concatenate(out) if out else np.zeros(0)
-            return pa.table({"risk": pa.array(arr, type=pa.float64())})
+            raw = pa.table({"risk": pa.array(arr, type=pa.float64())})
+        else:
+            from cadw.core.spill import SpillArray
+            buf = SpillArray(
+                guard=mg, width=1, dtype=np.float64,
+                name="coxph.predict_risk",
+                spill_ratio=0.0 if output == "disk" else 0.5)
+            for b in df._iter_filtered_batches():
+                buf.write_array(_stack_num(b, cols) @ self.coef_)
+            raw = buf.finalize()
 
-        from cadw.core.spill import SpillArray
-        mg = getattr(df, "_memory_guard", None)
-        buf = SpillArray(
-            guard=mg, width=1, dtype=np.float64,
-            name="coxph.predict_risk",
-            spill_ratio=0.0 if output == "disk" else 0.5)
-        for b in df._iter_filtered_batches():
-            buf.write_array(_stack_num(b, cols) @ self.coef_)
-        return buf.finalize()
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=["risk"], memory_guard=mg)
 
     def concordance_index(self, df, time_col, event_col, X_cols=None):
         """Harrell's c-index (higher risk = shorter survival)."""

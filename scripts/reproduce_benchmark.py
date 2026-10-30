@@ -242,7 +242,9 @@ def repro_coxph(seed: int = 0) -> ReproResult:
     )
     cadw_time = time.time() - t0
     risk_table = cadw_model.predict_risk(df, output="memory")
-    risk = np.asarray(risk_table.column("risk").to_numpy(zero_copy_only=False))
+    _risk_parts = [b.column("risk").to_numpy(zero_copy_only=False)
+                    for b in risk_table._iter_filtered_batches()]
+    risk = np.concatenate(_risk_parts) if _risk_parts else np.zeros(0)
     # c-index expects higher risk = shorter survival
     from lifelines.utils import concordance_index as ci_ref
     cadw_ci = ci_ref(duration, -risk, event) if risk is not None else float("nan")

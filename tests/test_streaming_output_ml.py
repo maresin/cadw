@@ -227,32 +227,39 @@ def test_randsvd_auto_equals_memory():
 # ─── gmm (pa.Table path) ─────────────────────────────────────────
 
 def test_gmm_score_auto_disk():
+    """v0.9.95: unified CadwDataFrame; output= is storage only."""
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _gmm_model()
     a = m.score_samples(df, output="auto")
-    assert isinstance(a, AutoResult)
+    assert isinstance(a, CadwDataFrame)
+    assert a.columns == ["log_likelihood"]
     d = m.score_samples(df, output="disk")
-    assert isinstance(d, OnDiskResult)
-    with pytest.raises(MemoryLimitExceeded):
-        d.to_table()
-    d.close()
+    assert isinstance(d, CadwDataFrame)
+    assert not isinstance(d._dataset, _InMemoryDataset)  # disk-backed
 
 
 def test_gmm_predict_auto_disk():
+    """v0.9.95: unified CadwDataFrame."""
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _gmm_model()
     a = m.predict(df, output="auto")
-    assert isinstance(a, AutoResult)
+    assert isinstance(a, CadwDataFrame)
+    assert a.columns == ["cluster"]
     d = m.predict(df, output="disk")
-    assert isinstance(d, OnDiskResult)
-    d.close()
+    assert isinstance(d, CadwDataFrame)
+    assert not isinstance(d._dataset, _InMemoryDataset)
 
 
 def test_gmm_auto_equals_memory():
+    """v0.9.95: both modes CadwDataFrame; extract column via iter."""
     m, df = _gmm_model()
-    mem = m.score_samples(df, output="memory").column("log_likelihood").to_pylist()
-    auto = m.score_samples(df, output="auto")
-    got = [r["log_likelihood"] for b in auto for r in b.to_pylist()]
-    np.testing.assert_allclose(np.array(mem), np.array(got),
-                                equal_nan=True)
+    mem_df = m.score_samples(df, output="memory")
+    auto_df = m.score_samples(df, output="auto")
+    mem = _scores_col_to_numpy(mem_df, "log_likelihood")
+    got = _scores_col_to_numpy(auto_df, "log_likelihood")
+    np.testing.assert_allclose(mem, got, equal_nan=True)
 
 
 # ─── output= validation ─────────────────────────────────────────

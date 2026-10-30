@@ -76,11 +76,9 @@ class GMMModel:
 
     def score_samples(self, df, X_cols=None, memory_guard=None, *,
                       output: str = "auto"):
-        """v0.9.90-S4: output= for spill-on-demand (auto/disk).
-
-        "memory" (default) → pa.Table.
-        "auto"/"disk"      → AutoResult (iterable pa.RecordBatch);
-                              .to_table() raises on spilled.
+        """v0.9.95 (BREAKING): unified CadwDataFrame return. output=
+        selects storage strategy only.
+        Column: ["log_likelihood"].
         """
         if output not in ("memory", "auto", "disk"):
             raise ValueError(
@@ -112,20 +110,32 @@ class GMMModel:
 
         if output == "memory":
             arr = np.concatenate(ll_parts) if ll_parts else np.zeros(0)
-            return pa.table({"log_likelihood": pa.array(arr, type=pa.float64())})
-        return buf.finalize()
+            raw = pa.table({"log_likelihood": pa.array(arr, type=pa.float64())})
+        else:
+            raw = buf.finalize()
+
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=["log_likelihood"], memory_guard=mg)
 
     def score(self, df, X_cols=None, memory_guard=None) -> float:
+        """Mean log-likelihood (scalar).
+
+        v0.9.95: score_samples returns CadwDataFrame; extract
+        "log_likelihood" column via iter (was: pa.Table.column()).
+        """
         t = self.score_samples(df, X_cols, memory_guard)
-        vals = t.column("log_likelihood").to_numpy(zero_copy_only=False)
-        return float(np.nanmean(vals))
+        parts = [b.column("log_likelihood").to_numpy(zero_copy_only=False)
+                 for b in t._iter_filtered_batches()]
+        if not parts:
+            return 0.0
+        return float(np.concatenate(parts).mean())
 
     def predict(self, df, X_cols=None, memory_guard=None, *,
                 output: str = "auto"):
-        """v0.9.90-S4: output= for spill-on-demand (auto/disk).
-
-        "memory" (default) → pa.Table.
-        "auto"/"disk"      → AutoResult.
+        """v0.9.95 (BREAKING): unified CadwDataFrame return. output=
+        selects storage strategy only.
+        Column: ["cluster"] (int64; -1 for null rows).
         """
         if output not in ("memory", "auto", "disk"):
             raise ValueError(
@@ -157,8 +167,13 @@ class GMMModel:
 
         if output == "memory":
             arr = np.concatenate(lab_parts) if lab_parts else np.zeros(0, dtype=np.int64)
-            return pa.table({"cluster": pa.array(arr, type=pa.int64())})
-        return buf.finalize()
+            raw = pa.table({"cluster": pa.array(arr, type=pa.int64())})
+        else:
+            raw = buf.finalize()
+
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=["cluster"], memory_guard=mg)
 
 
 def _kmeanspp_init(X, k, rng):
