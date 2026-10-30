@@ -345,3 +345,44 @@ def test_coxph_solver_invalid_raises():
     df, X_cols = _make_survival_df(100, 3, seed=0)
     with pytest.raises(ValueError, match="solver must be"):
         fit_coxph(df, X_cols, "T", "E", solver="bogus")
+
+
+# v0.9.94: predict_risk output="auto"|"memory"|"disk"
+# G9 (self-verification): both branches must be tested.
+
+
+def test_predict_risk_memory_returns_table():
+    df, X_cols = _make_survival_df(100, 3, seed=42)
+    m = fit_coxph(df, X_cols, "T", "E", solver="closed")
+    result = m.predict_risk(df, output="memory")
+    assert isinstance(result, pa.Table)
+    assert result.num_rows == df.count()
+    assert "risk" in result.column_names
+
+
+def test_predict_risk_auto_returns_autoarrayresult():
+    from cadw.core.spill import AutoArrayResult
+    df, X_cols = _make_survival_df(100, 3, seed=42)
+    m = fit_coxph(df, X_cols, "T", "E", solver="closed")
+    result = m.predict_risk(df, output="auto")
+    assert isinstance(result, AutoArrayResult)
+    assert len(result) == df.count()
+    # width=1 → finalize ravels to (n,)
+    assert result.to_numpy().shape == (df.count(),)
+
+
+def test_predict_risk_memory_vs_auto_equivalent():
+    df, X_cols = _make_survival_df(150, 4, seed=7)
+    m = fit_coxph(df, X_cols, "T", "E", solver="closed")
+    mem = m.predict_risk(df, output="memory")
+    auto = m.predict_risk(df, output="auto")
+    mem_vals = mem.column("risk").to_numpy(zero_copy_only=False)
+    auto_vals = auto.to_numpy()
+    assert np.allclose(mem_vals, auto_vals, atol=1e-12)
+
+
+def test_predict_risk_invalid_output_raises():
+    df, X_cols = _make_survival_df(50, 3, seed=1)
+    m = fit_coxph(df, X_cols, "T", "E", solver="closed")
+    with pytest.raises(ValueError, match="output must be"):
+        m.predict_risk(df, output="bogus")
