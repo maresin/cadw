@@ -1,13 +1,14 @@
 # CADW Roadmap
 
-Last updated: 2026-10-30 (after v0.9.97).
+Last updated: 2026-10-30 (after v0.9.98).
 
-## Current: v0.9.97
+## Current: v0.9.98
 
 **Closed:** streaming-output migration (v0.9.92), wide-d quartet
 (v0.9.93), unified narrow (v0.9.94), unified broad (v0.9.95),
 G11 transitive-migration gate (v0.9.96),
-YAML bounded_state_dims + df.estimate_memory (v0.9.97).
+YAML bounded_state_dims + df.estimate_memory (v0.9.97),
+tfidf.transform_sparse(output=) (v0.9.98).
 
 All 13 producers return CadwDataFrame regardless of output=;
 output= selects storage strategy only. Pipeline works with all
@@ -34,53 +35,62 @@ migrated models out-of-the-box.
 
 ## Next 3 sessions
 
-### v0.9.98 — CSR SpillBuffer + K-spill (sparse outputs)
+### v0.9.99 — encode_categorical K-spill (HashShuffle)
 
-**Goal:** unblock two remaining K-axis / sparse-output cases.
-
-**Deliverables:**
-- CSR SpillBuffer primitive: variable-width per-row payload,
-  chunked Arrow IPC writes/reads (STREAMING §6.1 backlog).
-- `tfidf.transform` (sparse mode) via CSR SpillBuffer.
-- K-spill for `encode_categorical` (vocab > state_limit) via
-  HashShuffle.
-- K-spill for `metrics.classification` (K > state_limit).
-- Optionally `lda::_build_vocab`, `tfidf::fit_tfidf` (vocab via
-  HashShuffle).
-
-**Tests:** `K = 10^7` categories OOC; `K = 10^6` classes OOC;
-sparse tfidf nnz preserved.
-
-**Breaking:** none (opt-in via `output="disk"` / `sparse=True`).
-
-### v0.9.99 — D4 ROCKET variants + TS forecast extension
-
-**Goal:** expand algorithm coverage in two families.
+**Goal:** encode categorical columns with vocab > state_limit
+without O(K) RAM.
 
 **Deliverables:**
-- D4: `MultiRocket`, `Hydra`, `BOSS`, `Catch22` forecasters.
-- TS forecast: `AutoARIMA`, `Croston`.
-- YAML cards for all new models with §7 mandatory fields.
-- G11 auto-guards any new producer with `output=`.
+- 3-pass HashShuffle encoder:
+  1. hash vocab to P partitions, count per partition;
+  2. assign global id ranges per partition;
+  3. re-hash & encode rows with partition-local id offset.
+- `CadwDataFrame.encode_categorical(columns, *, spill_mode="auto")`.
+- `reverse_maps` reconstructed via partition-local id+name pairs.
 
-**Tests:** numerical parity vs paper reference; YAML §7 complete.
+**Tests:**
+- K = 10^7 unique categories encoded without OOM.
+- Bit-identical to current in-memory encoder for K <= 10^5.
+- Determinism: same seed → same ids across two runs.
+
+**Breaking:** none (opt-in via `spill_mode="disk"`).
+
+### v0.9.100 — metrics.classification K-guard probe + fix
+
+**Goal:** understand & fix `metrics.classification` for K > state_limit.
+Probe v0.9.98 showed **zero** `check_state` calls in `cadw/ops/metrics.py`
+— potential silent OOM at K=10^6 (confusion matrix K² cells).
+
+**Deliverables:**
+- Probe: which metric fns grow with K, which with K².
+- Add `check_state` guards at the right places (confusion matrix,
+  per-class arrays, ROC-AUC class loop).
+- If K² is intrinsic (macro-metrics confusion): document
+  `n_scalability: refuse_at_guard` in YAML card.
+- If K linear: wrap per-class loop in SpillBuffer.
+
+**Tests:**
+- K = 10^5: all metrics work, no OOM.
+- K = 10^6: either OOC, or explicit `MemoryLimitExceeded` with
+  actionable message.
+
+**Breaking:** none (guards fail-loud instead of silent OOM).
+
+### v0.9.101 — lda::_build_vocab K-spill
+
+**Goal:** same 3-pass HashShuffle pattern as v0.9.99, for LDA vocab.
+
+**Deliverables:**
+- `_build_vocab` via HashShuffle (partition by token hash, count
+  per partition, k-way merge top-vocab_size).
+- `tfidf::fit_tfidf` may reuse same primitive (check if same shape).
+
+**Tests:**
+- vocab_size = 10^6 on 10^5 docs without OOM.
+- Deterministic top-vocab_size (same tie-breaking as current:
+  `(-count, token)`).
 
 **Breaking:** none.
-
-### v0.9.100 — version bump + release audit
-
-**Goal:** fix the long-standing `__version__ = "0.9.88"` while tags
-exist through v0.9.9x.
-
-**Deliverables:**
-- `cadw/__init__.py::__version__` and `pyproject.toml::version`
-  synchronized with current tag.
-- `test_version_consistency.py` verifies `tag == pyproject ==
-  cadw.__version__` on master.
-- Audit pass 3 (source conformance, STREAMING backlog).
-- `sgd_streaming` mini-batch optimization.
-
-**Breaking:** none (metadata only).
 
 ## Do not re-solve
 

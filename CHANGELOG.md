@@ -1,5 +1,72 @@
 ## [Unreleased]
 
+### v0.9.98 (2026-10-30) — tfidf.transform_sparse(output=)
+
+**New API: `TfidfModel.transform_sparse(df, *, text_col, norm="l2",
+memory_guard=None, output="auto")`**
+
+CSR-like sparse rows without O(D) RAM. Each document becomes a
+`(indices, values)` pair. RAM is O(batch * avg_nnz_per_doc) for
+`output="auto"`/`"disk"`; only `output="memory"` holds O(D) RAM
+(backward compat with existing `transform()`).
+
+Return type by `output`:
+  "memory" -> list[tuple[np.ndarray int64, np.ndarray float64]]
+              (bit-identical to transform())
+  "auto"   -> AutoResult; iterable pa.RecordBatch with SPARSE_SCHEMA
+  "disk"   -> AutoResult (OnDiskResult; forces spill)
+
+**Explicit exception to v0.9.95 unified-CadwDataFrame.** List-typed
+columns (`pa.list_(pa.int32())`, `pa.list_(pa.float64())`) break the
+tabular contract (sort/groupby/join do not apply to list cells). For
+a tabular return use `transform_dense(output=...)` instead. This is
+documented in the method docstring.
+
+**Design (no new primitive):** `SpillBuffer` already accepts an
+arbitrary `pa.Schema` (v0.9.90-S1). Arrow list-types are native
+(precedent: `accessors/_str.py:321`, `pa.list_(pa.string())`). So
+`transform_sparse` is ~100 LOC wrapping existing primitives —
+not a new `SparseSpillBuffer` class.
+
+**Schema:** `SPARSE_SCHEMA = pa.schema([indices: list<int32>,
+values: list<float64>])`. int32 indices (vocab_size default 1e4; max
+2^31); float64 values (matches `_row()` dtype → sklearn reference
+bit-identical).
+
+**Tests:** `tests/test_tfidf.py` +6 cases (17 total; 11 existing + 6
+new): memory-shape, memory==transform bit-identical, output
+validation, auto==memory, nnz preserved, disk actually spills.
+
+**Not in this release (split from ROADMAP v0.9.97's v0.9.98 scope):**
+
+- `encode_categorical` K-spill (3-pass HashShuffle) → v0.9.99.
+- `metrics.classification` K-guard probe → v0.9.100.
+- `lda::_build_vocab` K-spill → v0.9.101.
+- D4 ROCKET + version bump → v0.9.102+.
+
+Each is a separate session; keeping each tag minimal avoids
+"half-CSR-primitive" states.
+
+**Anti-pattern surfaced this session:**
+
+- **AP10-adjacent** — tests written with assumed input format:
+  `tokenize` drops tokens with `len < 2` (`cadw/ml/lda.py:37`);
+  single-char test data (`"a b c"`) failed `fit_tfidf` with
+  "vocabulary has fewer than 2 tokens". Fix: multi-char words in
+  test data. Probe input-format assumptions **before** writing tests.
+- **AP8-adjacent (atomic patch)** — 5 sequential `src.replace()`
+  with per-step print; anchor miss on step 2 loses steps 1.
+  Patched to validate ALL anchors first, then mutate. Rule: for
+  multi-replace patches, `missing = [old for old in FIXES if old
+  not in src]; if missing: sys.exit(1)` before `write_text`.
+
+**Known issue (still tracked, pre-existing):** `__version__` and
+`pyproject.toml::version` say 0.9.88 while tags exist through
+v0.9.98. Target v0.9.102 (version bump + release audit).
+
+**Test count:** 4328 passed, 8 skipped (fast; +6 tfidf tests, no
+regressions).
+
 ### v0.9.97 (2026-10-30) — YAML bounded_state_dims + df.estimate_memory
 
 **Task 1: `bounded_state_dims` in YAML (86/86 verified cards).**

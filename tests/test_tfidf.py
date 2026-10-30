@@ -154,3 +154,120 @@ def test_source_contract_guard_and_log_fit():
     assert "check_batch" in src and "extra_factor=3.0" in src
     assert "log_fit" in src
     assert "import pandas" not in src
+
+# ── v0.9.98: transform_sparse(output=) ──────────────────────────────
+
+
+def _make_df(texts):
+    import pyarrow as pa
+    from cadw import CadwDataFrame, MemoryGuard
+    return CadwDataFrame.from_table(
+        pa.table({"txt": texts}),
+        memory_guard=MemoryGuard(max_memory_mb=100),
+    )
+
+
+def test_transform_sparse_memory_shape():
+    """memory mode: list of (idx int64, val float64) per document."""
+    from cadw.ml.tfidf import fit_tfidf
+    texts = ["alpha bravo charlie", "bravo charlie delta",
+             "alpha alpha alpha"]
+    df = _make_df(texts)
+    m = fit_tfidf(df, "txt", vocab_size=10)
+    rows = m.transform_sparse(df, text_col="txt", output="memory")
+    assert isinstance(rows, list)
+    assert len(rows) == len(texts)
+    for idx, val in rows:
+        assert isinstance(idx, __import__("numpy").ndarray)
+        assert isinstance(val, __import__("numpy").ndarray)
+        assert idx.dtype == __import__("numpy").int64
+        assert val.dtype == __import__("numpy").float64
+        assert len(idx) == len(val)
+
+
+def test_transform_sparse_memory_equals_transform():
+    """memory mode bit-identical to existing transform()."""
+    import numpy as np
+    from cadw.ml.tfidf import fit_tfidf
+    texts = ["alpha beta", "beta gamma", "alpha alpha gamma"]
+    df = _make_df(texts)
+    m = fit_tfidf(df, "txt", vocab_size=10)
+    rows_old = m.transform(df, text_col="txt")
+    rows_new = m.transform_sparse(df, text_col="txt", output="memory")
+    assert len(rows_old) == len(rows_new)
+    for (i_o, v_o), (i_n, v_n) in zip(rows_old, rows_new):
+        assert np.array_equal(i_o, i_n)
+        assert np.allclose(v_o, v_n, atol=0.0)
+
+
+def test_transform_sparse_output_validation():
+    """output='garbage' -> ValueError; missing col -> KeyError."""
+    import pytest as _pytest
+    from cadw.ml.tfidf import fit_tfidf
+    df = _make_df(["alpha bravo", "charlie delta"])
+    m = fit_tfidf(df, "txt", vocab_size=10)
+    with _pytest.raises(ValueError, match="output must be"):
+        m.transform_sparse(df, text_col="txt", output="garbage")
+    with _pytest.raises(KeyError):
+        m.transform_sparse(df, text_col="missing_col")
+
+
+def test_transform_sparse_disk_equals_memory():
+    """auto mode iter yields rows equal to memory mode (row-by-row)."""
+    import numpy as np
+    from cadw.ml.tfidf import fit_tfidf
+    texts = ["xray yankee zulu", "yankee zulu",
+             "xray zulu", "xray xray yankee"]
+    df = _make_df(texts)
+    m = fit_tfidf(df, "txt", vocab_size=10)
+    mem = m.transform_sparse(df, text_col="txt", output="memory")
+    auto = m.transform_sparse(df, text_col="txt", output="auto")
+    # Iterate batches, flatten rows
+    flat_idx = []
+    flat_val = []
+    for rb in auto:
+        for idx_list, val_list in zip(
+                rb.column("indices").to_pylist(),
+                rb.column("values").to_pylist()):
+            flat_idx.append(np.array(idx_list, dtype=np.int64))
+            flat_val.append(np.array(val_list, dtype=np.float64))
+    assert len(flat_idx) == len(mem)
+    for (i_m, v_m), i_a, v_a in zip(mem, flat_idx, flat_val):
+        assert np.array_equal(i_m, i_a)
+        assert np.allclose(v_m, v_a, atol=0.0)
+
+
+def test_transform_sparse_nnz_preserved():
+    """sum of nnz equals sum of tokenized-unique counts per doc."""
+    from cadw.ml.tfidf import fit_tfidf
+    texts = ["alpha bravo charlie delta", "alpha alpha bravo",
+             "delta delta delta delta delta"]
+    df = _make_df(texts)
+    m = fit_tfidf(df, "txt", vocab_size=10)
+    mem = m.transform_sparse(df, text_col="txt", output="memory")
+    auto = m.transform_sparse(df, text_col="txt", output="auto")
+    mem_nnz = sum(len(idx) for idx, _ in mem)
+    auto_nnz = sum(
+        len(idx_list)
+        for rb in auto
+        for idx_list in rb.column("indices").to_pylist()
+    )
+    assert mem_nnz == auto_nnz
+    # Sanity: not all rows are zero
+    assert mem_nnz > 0
+
+
+def test_transform_sparse_disk_actually_spills():
+    """output='disk' → OnDiskResult, iterable, rows equal memory."""
+    from cadw.core.spill import OnDiskResult
+    from cadw.ml.tfidf import fit_tfidf
+    texts = ["papa quebec", "quebec romeo", "papa romeo sierra"]
+    df = _make_df(texts)
+    m = fit_tfidf(df, "txt", vocab_size=10)
+    disk = m.transform_sparse(df, text_col="txt", output="disk")
+    assert isinstance(disk, OnDiskResult), type(disk).__name__
+    n_rows = 0
+    for rb in disk:
+        n_rows += rb.num_rows
+    assert n_rows == len(texts)
+

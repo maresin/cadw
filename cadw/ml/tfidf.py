@@ -18,11 +18,21 @@ import math
 from typing import Optional
 
 import numpy as np
+import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
-from cadw.core.spill import SpillArray, AutoArrayResult
+from cadw.core.spill import SpillArray, AutoArrayResult, SpillBuffer
 from cadw.ml._logging import log_fit
 from cadw.ml.lda import tokenize
+
+
+# v0.9.98: sparse row schema for transform_sparse (CSR-like).
+# int32 for indices (vocab_size default 1e4; max 2^31), float64 for
+# values (matches _row() dtype → sklearn reference bit-identical).
+SPARSE_SCHEMA = pa.schema([
+    pa.field("indices", pa.list_(pa.int32())),
+    pa.field("values",  pa.list_(pa.float64())),
+])
 
 
 class TfidfModel:
@@ -74,6 +84,89 @@ class TfidfModel:
             for t in b.column(text_col).to_pylist():
                 rows.append(self._row(t, norm))
         return rows
+
+    def transform_sparse(self, df, *, text_col, norm="l2",
+                         memory_guard=None, output: str = "auto"):
+        """Sparse (CSR-like) rows, spillable via SpillBuffer.
+
+        v0.9.98. Returns one (indices, values) pair per document. Each
+        pair is a CSR-style row of the D x V matrix; zero entries are
+        omitted. RAM is O(batch * avg_nnz_per_doc) when output is
+        "auto" or "disk"; only output="memory" holds O(D) RAM.
+
+        NOT a CadwDataFrame: list-typed columns break the tabular
+        contract (sort/groupby/join do not apply to list cells). This
+        is an explicit exception to v0.9.95 unified-CadwDataFrame.
+        For a tabular return use transform_dense(output=...) instead.
+
+        Parameters
+        ----------
+        df : CadwDataFrame
+        text_col : str
+        norm : {"l2", "l1", None}, default "l2"
+            Passed to _row().
+        memory_guard : MemoryGuard | None
+            Default: df._memory_guard.
+        output : {"memory", "auto", "disk"}, default "auto"
+
+            "memory" -> list[tuple[np.ndarray int64, np.ndarray float64]]
+                        (backward-compat with transform())
+            "auto"   -> AutoResult; iterable pa.RecordBatch
+                        with SPARSE_SCHEMA (in-memory if fits budget)
+            "disk"   -> AutoResult (OnDiskResult; forces spill)
+
+        Returns
+        -------
+        list[tuple] when output="memory"; AutoResult otherwise.
+
+        Raises
+        ------
+        ValueError
+            output not in {"memory", "auto", "disk"}.
+        KeyError
+            text_col not in df.columns.
+        """
+        if output not in ("memory", "auto", "disk"):
+            raise ValueError(
+                f"tfidf.transform_sparse: output must be 'memory', "
+                f"'auto' or 'disk'; got {output!r}")
+        if text_col not in df.columns:
+            raise KeyError(
+                f"tfidf.transform_sparse: {text_col!r} not in {df.columns}")
+
+        mg = memory_guard or df._memory_guard
+
+        if output == "memory":
+            rows = []
+            for b in df._iter_filtered_batches():
+                mg.check_batch(b, name="tfidf.transform_sparse",
+                               extra_factor=3.0)
+                for t in b.column(text_col).to_pylist():
+                    rows.append(self._row(t, norm))
+            return rows
+
+        buf = SpillBuffer(
+            guard=mg,
+            schema=SPARSE_SCHEMA,
+            name="tfidf.sparse",
+            spill_ratio=0.0 if output == "disk" else 0.5,
+        )
+        for b in df._iter_filtered_batches():
+            mg.check_batch(b, name="tfidf.transform_sparse",
+                           extra_factor=3.0)
+            texts = b.column(text_col).to_pylist()
+            idx_lists = []
+            val_lists = []
+            for t in texts:
+                idx, val = self._row(t, norm)
+                idx_lists.append(idx.astype(np.int32).tolist())
+                val_lists.append(val.tolist())
+            rb = pa.RecordBatch.from_arrays([
+                pa.array(idx_lists, type=pa.list_(pa.int32())),
+                pa.array(val_lists, type=pa.list_(pa.float64())),
+            ], schema=SPARSE_SCHEMA)
+            buf.write_batch(rb)
+        return buf.finalize()
 
     def transform_dense(self, df, *, text_col, norm="l2",
                         memory_guard=None, output: str = "auto"):
