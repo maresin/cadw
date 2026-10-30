@@ -1,15 +1,16 @@
 # CADW Roadmap
 
-Last updated: 2026-10-30 (after v0.9.99).
+Last updated: 2026-10-30 (after v0.9.100).
 
-## Current: v0.9.99
+## Current: v0.9.100
 
 **Closed:** streaming-output migration (v0.9.92), wide-d quartet
 (v0.9.93), unified narrow (v0.9.94), unified broad (v0.9.95),
 G11 transitive-migration gate (v0.9.96),
 YAML bounded_state_dims + df.estimate_memory (v0.9.97),
 tfidf.transform_sparse(output=) (v0.9.98),
-metrics guards verification + encode_categorical error (v0.9.99).
+metrics guards verification + encode_categorical error (v0.9.99),
+version bump + audit pass 3 (v0.9.100).
 
 All 13 producers return CadwDataFrame regardless of output=;
 output= selects storage strategy only. Pipeline works with all
@@ -36,42 +37,25 @@ migrated models out-of-the-box.
 
 ## Next 3 sessions
 
-### v0.9.100 — version bump + audit pass 3
+### v0.9.101 — coxph _breslow guard fix + lda::_build_vocab K-spill
 
-**Goal:** close the long-standing `__version__ = "0.9.88"` while
-tags exist through v0.9.99; audit source conformance.
-
-**Deliverables:**
-- `cadw/__init__.py::__version__` → current tag (`"0.9.100"`).
-- `pyproject.toml::version` → `"0.9.100"`.
-- `test_version_consistency.py` tightened: on master, `git tag
-  --points-at HEAD == vX.Y.Z` requires `pyproject.toml::version ==
-  X.Y.Z == cadw.__version__`. (Currently only checks
-  pyproject==cadw; tag mismatch silent.)
-- Audit pass 3 (STREAMING §6.1 backlog): grep `check_state` count
-  per module, verify no unguarded n-sized allocs in v0.9.90-99
-  new files, source conformance report.
-
-**Tests:** `test_version_consistency.py` + audit script output.
-
-**Breaking:** none (metadata).
-
-### v0.9.101 — lda::_build_vocab K-spill
-
-**Goal:** OOC LDA vocab build for K > state_limit (no API break).
+**Goal:** close the 1 open audit-pass3 item (coxph `_breslow` guard
+underestimate) and one K-axis gap (lda vocab).
 
 **Deliverables:**
-- 2-pass HashShuffle on tokens:
-  1. Shuffle docs by token hash → P partitions, per-partition
-     token counts.
-  2. K-way merge top-`vocab_size` by `(-count, token)`.
-- Bit-identical to current in-memory when K ≤ state_limit.
-- `MemoryGuard` guards on `state_limit` for per-partition dicts.
+- coxph `_breslow`: change guard `N·d·8` -> `n*(d + d*d)*8`.
+  The `S2 = cumsum(n·d²)` array was underestimated by factor `d`.
+  At d=1000, n=10⁶: ~8 GB S2 vs ~8 MB guard. Fix or refuse-at-guard
+  at large d.
+- `lda::_build_vocab`: 2-pass HashShuffle (token hash -> P
+  partitions -> k-way merge top-`vocab_size` by `(-count, token)`).
+  Deterministic tie-breaking matches current in-memory impl.
+  YAML card `LDA` gets `bounded_state_dims: {K: 1}` (or `{V: 1}`).
 
-**Tests:** K=10^6 on 10^5 docs without OOM; determinism;
-tie-breaking matches current impl.
+**Tests:** coxph guard fires at d=1000, n=10⁶ (loud, not OOM);
+lda K=10⁶ on 10⁵ docs without OOM; bit-identical at K <= 10⁵.
 
-**Breaking:** none.
+**Breaking:** none (guard fires earlier; lda spill is opt-in).
 
 ### v0.9.102 — lazy reverse_maps (breaking, opt-in)
 
@@ -82,15 +66,32 @@ SpillMap on disk instead of `list[unique_values]`.
 - New `SpillMap` type: `.get(k)`, `.index(v)` (disk scan),
   `.len()`, `.iter()`. NOT a `list` — breaking API.
 - `encode_categorical(columns, *, reverse_maps="memory"|"disk")`,
-  default `"memory"` (backward compat, current behavior).
+  default `"memory"` (backward compat, current behaviour).
 - CHANGELOG banner: BREAKING only when user opts `"disk"`.
 - Underlying state becomes O(batch); K-axis moves to disk.
 
-**Tests:** memory==disk at K=10^5 (bit-identical); K=10^7 OOC
-fit; `.index` semantics; SpillMap cleanup on GC.
+**Tests:** memory==disk at K=10⁵ (bit-identical); K=10⁷ OOC fit;
+`.index` semantics; SpillMap cleanup on GC.
 
 **Breaking:** yes (opt-in only).
 
+### v0.9.103 — MultiRocket (D4 starts)
+
+**Goal:** first D4 (time-series classification) model: MultiRocket
+= MiniRocket + multi-pooling (PPV/MPV/MIPV) + 2nd-order
+differences. Numeric parity vs paper reference.
+
+**Deliverables:**
+- `cadw/ml/multirocket.py::fit_multirocket` / `transform`.
+- YAML card + `state_class`, `primitive_reuse` (streaming-
+  transform over batches; state = kernels, O(k·d)).
+- Numerical parity vs `sktime`/`tsml` reference on UCR-style
+  synthetic data.
+
+**Tests:** parity within tolerance; streaming OOC at n=10⁷
+(kernels are bounded); determinism (same seed -> same kernels).
+
+**Breaking:** none.
 
 ## Do not re-solve
 

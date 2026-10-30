@@ -1,5 +1,68 @@
 ## [Unreleased]
 
+### v0.9.100 (2026-10-30) — version bump + audit pass 3
+
+**Task 1 — version bump (metadata).**
+
+`cadw/__init__.py::__version__` and `pyproject.toml::version`
+were stuck at `"0.9.88"` since v0.9.88 (2026-10-28). Tags v0.9.89
+through v0.9.99 exist but were never reflected in the version
+string — a real pip-install issue (pip sees 0.9.88 for a wheel
+built from a v0.9.99 commit).
+
+Both moved to `"0.9.100"`. Historical v0.9.89-v0.9.95 do not have
+`### v...` CHANGELOG entries (only `## [Unreleased]` content up
+to v0.9.96); not retro-fixed here — the tags exist, the release
+notes were split into CHANGELOG v0.9.96+ — documented in this
+entry, not repaired.
+
+**Task 2 — test_version_consistency.py strengthened (2 new tests).**
+
+Before v0.9.100, the test only checked `pyproject == cadw.__version__`
+and `### v<version>` present in CHANGELOG. Two new invariants:
+
+- `test_version_is_semver`: `^\d+\.\d+\.\d+$` (no suffix in
+  `__version__`, even though tags carry suffixes like
+  `v0.9.93-logistic`).
+- `test_version_matches_git_tag_on_master`: on master (release
+  context), `git describe --tags --exact-match --match "v[0-9]*"`
+  must equal `v<version>`. Skipped on patch branches. Catches the
+  v0.9.89-v0.9.99 class of drift at release-time, not after.
+
+**Task 3 — audit pass 3 (`pass3_2026-10-30.md`).**
+
+Reviewed the 5 UNGUARDED-RAM entries from pass 2 (v0.9.87):
+
+| # | Function | Verdict |
+|---|---|---|
+| 1 | `anomaly_pipeline::fit_predict` L278 | **guarded** — `check_state` on L264 (pass2 only looked at first alloc) |
+| 2 | `chains::_predict_hard_batched` L119 | **per-batch output** — `n = b.num_rows`, O(batch·K) by design |
+| 3 | `coxph::_breslow` L58 | **REAL CANDIDATE** — `S2 = cumsum(n·d²)` vs guard `N·d·8`; underestimate factor `d`; open item v0.9.101+ |
+| 4 | `dwt_mlead::_stream_mahalanobis` L141 | **false positive** — `if n_w < 2: return np.zeros(n_w)` = empty edge case |
+| 5 | `dwt_mlead::_mahalanobis_distances` L179 | **not production** — docstring: test-only reference |
+
+Result: **1 open candidate** (coxph `_breslow`), **4 closed**.
+Full report: `.pingis/audits/pass3_2026-10-30.md`.
+
+**Task 4 — ROADMAP bumped.**
+
+`Current: v0.9.100`; Next = v0.9.101 (lda vocab K-spill),
+v0.9.102 (lazy reverse_maps, breaking), v0.9.103 (MultiRocket,
+D4 starts).
+
+**Known issues (still tracked):**
+
+- **coxph `_breslow` guard underestimate** (pass3): `S2 =
+  cumsum(n·d²)` at guard `N·d·8`. At d=1000, n=10⁶ the S2 array is
+  ~8 GB but guard estimates ~8 MB. Not OOM-tested yet. Candidate
+  v0.9.101 fix: change `coxph.state` guard to `n * (d + d*d) * 8`
+  (or refuse-at-guard at large d). Out of scope for a metadata tag.
+
+**Tests:** ~4332 passed, 9 skipped (fast; +2 new version tests,
++3 git-tag/semver assertions; no prod-code changes beyond the
+version strings). Historical test count remains +4331 from
+v0.9.99 (unchanged).
+
 ### v0.9.99 (2026-10-30) — metrics guards verification + encode_categorical actionable error
 
 **Task 1 — YAML card for `encode_categorical`.**
