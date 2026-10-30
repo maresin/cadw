@@ -700,3 +700,355 @@ def test_g10_dual_branch_test_present():
         f"See AI_CONSTITUTION.md §4.2. "
         f"If not yet implemented, add to G10_WHITELIST with roadmap "
         f"reference.")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# G11 — transitive migration: caller uses pa.Table API on
+#       CadwDataFrame producer return.
+#
+# Rationale: v0.9.95 unified 13 producers to return CadwDataFrame.
+# Callers that used to receive pa.Table or np.ndarray still call
+# pa.Table-only methods (.column, .num_rows, .schema, ...) or apply
+# arithmetic directly. Those are silent AttributeError / TypeError
+# bugs at runtime, invisible to G1-G10 (shape/guard/self-verify gates).
+# G11 catches them by AST.
+#
+# See AI_CONSTITUTION.md §5 AP7 (multi-return producer migration).
+# ═══════════════════════════════════════════════════════════════════
+
+# Bare-name module-level producers. Safe to match by name anywhere:
+# these are module-level functions, uniquely named in cadw. Calls like
+# `groupby_aggregate(...)`, `_gba(...)` (import alias) resolve through
+# imports map to these names.
+G11_BARE_NAME_PRODUCERS = frozenset({
+    "groupby_aggregate", "drop_duplicates", "topk_to_disk",
+})
+
+# Backward-compat alias; new code should reference the split set above.
+CADW_DF_PRODUCER_NAMES = G11_BARE_NAME_PRODUCERS
+
+# NOTE: method names like predict_proba / score_samples / predict_risk /
+# transform_dense are NOT tracked globally — same name appears in both
+# migrated classes (returns CadwDataFrame) and unmigrated ones (returns
+# ndarray/Table: logistic.predict_proba, gbdt.predict_proba, calibration.
+# predict_proba, uplift.m1_.predict_proba). Tracked only via
+# `self.<method>()` when <method> has output= in the SAME class. See
+# _g11_is_producer_call.
+
+# pa.Table-only methods (not present on CadwDataFrame).
+G11_FORBIDDEN_METHODS = frozenset({
+    "column", "column_names", "num_rows", "num_columns",
+    "take", "combine_chunks", "rename_columns", "sort_by",
+    "group_by", "append_column", "set_column", "to_table",
+})
+
+# pa.Table-only attributes.
+G11_FORBIDDEN_ATTRS = frozenset({"shape", "schema", "data"})
+
+# Internal helpers that legitimately return pa.Table. G11 skips them.
+G11_PA_TABLE_INTERNAL = frozenset({
+    "_local_dedup", "_merge_partials", "_groupby_with_skew",
+    "_empty_result_schema", "_accum_to_table",
+})
+
+
+def _g11_function_has_output_param(fn_node: ast.FunctionDef) -> bool:
+    """True if function signature has output= kwarg."""
+    args = list(fn_node.args.args) + list(fn_node.args.kwonlyargs)
+    return any(a.arg == "output" for a in args)
+
+
+def _g11_build_imports_map(tree: ast.Module) -> dict[str, str]:
+    """local_name -> actual_name from `from mod import name [as alias]`."""
+    imports: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                local = a.asname or a.name
+                imports[local] = a.name
+    return imports
+
+
+def _g11_is_producer_call(
+    call: ast.Call,
+    imports: dict[str, str],
+    current_class: "str | None",
+    class_methods: set[str],
+) -> "str | None":
+    """Return producer name if call is to a tracked producer, else None.
+
+    Tracking modes (v1):
+
+      Bare-name (`groupby_aggregate(...)`, `_gba(...)`):
+        Match against G11_BARE_NAME_PRODUCERS. Imports map resolves
+        aliases (`_gba` -> `groupby_aggregate`, `_ops_dedup` ->
+        `drop_duplicates`).
+
+      Intra-class method (`self.<method>(...)`):
+        Match against `class_methods` = methods defined in the SAME
+        class with an `output=` param. This catches
+        `self.score_samples(df)` on gmm (migrated) and correctly
+        IGNORES `self.predict_proba(X)` on logistic/gbdt/calibration
+        (unmigrated — their predict_proba has no output= param and
+        returns ndarray, not CadwDataFrame).
+
+    NOT tracked: `obj.<method>()` for obj != self. Receiver type is
+    unknown at AST time. Common names (predict_proba) collide between
+    migrated and unmigrated classes. Accepted limitation; use
+    `# noqa: G11` for the rare cross-object real bug.
+    """
+    if isinstance(call.func, ast.Name):
+        name = imports.get(call.func.id, call.func.id)
+        if name in G11_PA_TABLE_INTERNAL:
+            return None
+        if name in G11_BARE_NAME_PRODUCERS:
+            return name
+        return None
+    if (
+        current_class is not None
+        and isinstance(call.func, ast.Attribute)
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "self"
+    ):
+        attr = call.func.attr
+        if attr in G11_PA_TABLE_INTERNAL:
+            return None
+        if attr in class_methods:
+            return attr
+    return None
+
+
+def _g11_find_tracked_vars(
+    fn_node: ast.FunctionDef,
+    imports: dict[str, str],
+    current_class: "str | None",
+    class_methods: set[str],
+) -> dict[str, list[tuple[int, "str | None"]]]:
+    """Map var_name -> timeline of (lineno, producer_or_None).
+
+    Each entry records an assignment at that line. producer=None means
+    "reassigned to a non-producer value" (untrack). Latest assignment
+    strictly before a use site determines tracking state.
+
+    This handles the AP7 pattern from AI_CONSTITUTION.md §5 and brief
+    §3.4 ("pa.Table.from_batches -> UNTRACK"):
+
+        result = groupby_aggregate(...)       # producer (tracked)
+        result = pa.Table.from_batches(...)   # pa.Table (untracked)
+        result.rename_columns(...)            # OK — not tracked
+
+    Without reassignment tracking, that last line is a false positive.
+    """
+    timeline: dict[str, list[tuple[int, "str | None"]]] = {}
+    for node in ast.walk(fn_node):
+        if isinstance(node, ast.Assign):
+            producer: "str | None" = (
+                _g11_is_producer_call(
+                    node.value, imports, current_class, class_methods,
+                )
+                if isinstance(node.value, ast.Call) else None
+            )
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    timeline.setdefault(tgt.id, []).append(
+                        (node.lineno, producer))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.value, ast.Call):
+            if isinstance(node.target, ast.Name):
+                producer = _g11_is_producer_call(
+                    node.value, imports, current_class, class_methods)
+                timeline.setdefault(node.target.id, []).append(
+                    (node.lineno, producer))
+    for lst in timeline.values():
+        lst.sort()
+    return timeline
+
+
+def _g11_tracked_at(
+    timeline: dict[str, list[tuple[int, "str | None"]]],
+    var: str, line: int,
+) -> "str | None":
+    """Producer name if `var` is tracked at `line`, else None.
+
+    "Tracked" = latest assignment strictly before `line` was from a
+    producer. Reassignment to a non-producer clears tracking.
+    """
+    lst = timeline.get(var)
+    if not lst:
+        return None
+    producer: "str | None" = None
+    for a_line, a_prod in lst:
+        if a_line >= line:
+            break
+        producer = a_prod
+    return producer
+
+
+def _g11_scan_violations(
+    fn_node: ast.FunctionDef,
+    timeline: dict[str, list[tuple[int, "str | None"]]],
+    src_lines: list[str],
+) -> list[dict]:
+    """Scan function body for forbidden usage of tracked vars.
+
+    `timeline` is per-var reassignment history from
+    _g11_find_tracked_vars. Each use site consults _g11_tracked_at()
+    to know whether the var is a CadwDataFrame at that line (vs
+    reassigned to pa.Table per AP7).
+    """
+    violations: list[dict] = []
+
+    def tracked(var: str, line: int) -> "str | None":
+        return _g11_tracked_at(timeline, var, line)
+
+    for node in ast.walk(fn_node):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            var = node.value.id
+            prod = tracked(var, node.lineno)
+            if prod is None:
+                continue
+            if node.attr in G11_FORBIDDEN_METHODS:
+                line = node.lineno
+                if "noqa: G11" in src_lines[line - 1]:
+                    continue
+                violations.append({
+                    "kind": "forbidden_method",
+                    "line": line,
+                    "variable": var,
+                    "produced_by": prod,
+                    "method": node.attr,
+                })
+            elif node.attr in G11_FORBIDDEN_ATTRS:
+                line = node.lineno
+                if "noqa: G11" in src_lines[line - 1]:
+                    continue
+                violations.append({
+                    "kind": "forbidden_attr",
+                    "line": line,
+                    "variable": var,
+                    "produced_by": prod,
+                    "attr": node.attr,
+                })
+
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "isinstance" and len(node.args) >= 2:
+                arg0 = node.args[0]
+                if isinstance(arg0, ast.Name):
+                    prod = tracked(arg0.id, node.lineno)
+                    if prod is None:
+                        continue
+                    t = node.args[1]
+                    tname: "str | None" = None
+                    if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name):
+                        if t.value.id in ("pa", "np", "numpy") and t.attr in ("Table", "ndarray"):
+                            tname = f"{t.value.id}.{t.attr}"
+                    if tname:
+                        line = node.lineno
+                        if "noqa: G11" in src_lines[line - 1]:
+                            continue
+                        violations.append({
+                            "kind": "isinstance_legacy",
+                            "line": line,
+                            "variable": arg0.id,
+                            "produced_by": prod,
+                            "type": tname,
+                        })
+
+        if isinstance(node, (ast.BinOp, ast.Compare)):
+            left = node.left
+            if isinstance(left, ast.Name):
+                prod = tracked(left.id, node.lineno)
+                if prod is None:
+                    continue
+                line = node.lineno
+                if "noqa: G11" in src_lines[line - 1]:
+                    continue
+                violations.append({
+                    "kind": "binop",
+                    "line": line,
+                    "variable": left.id,
+                    "produced_by": prod,
+                })
+    return violations
+
+
+def _g11_collect_class_producers(class_node: ast.ClassDef) -> set[str]:
+    """Method names in class with output= param (intra-class producers)."""
+    producers: set[str] = set()
+    for item in class_node.body:
+        if isinstance(item, ast.FunctionDef):
+            if _g11_function_has_output_param(item):
+                producers.add(item.name)
+    return producers
+
+
+def _g11_scan_file(path: Path) -> list[dict]:
+    """Scan one cadw file for G11 violations."""
+    try:
+        src = path.read_text()
+        tree = ast.parse(src)
+    except (SyntaxError, OSError):
+        return []
+    imports = _g11_build_imports_map(tree)
+    src_lines = src.splitlines()
+    violations: list[dict] = []
+
+    def _record(
+        fn_node: ast.FunctionDef,
+        timeline: dict[str, list[tuple[int, "str | None"]]],
+    ) -> None:
+        if not timeline:
+            return
+        for v in _g11_scan_violations(fn_node, timeline, src_lines):
+            v["file"] = str(path.relative_to(ROOT))
+            v["function"] = fn_node.name
+            violations.append(v)
+
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            class_methods = _g11_collect_class_producers(node)
+            for fn in node.body:
+                if isinstance(fn, ast.FunctionDef):
+                    tracked = _g11_find_tracked_vars(
+                        fn, imports, node.name, class_methods)
+                    _record(fn, tracked)
+        elif isinstance(node, ast.FunctionDef):
+            tracked = _g11_find_tracked_vars(
+                node, imports, None, set())
+            _record(node, tracked)
+
+    return violations
+
+
+@pytest.mark.parametrize(
+    "path",
+    [p for p in CADW.rglob("*.py") if "__pycache__" not in p.parts],
+    ids=lambda p: str(p.relative_to(CADW)),
+)
+def test_g11_transitive_migration(path):
+    """G11: caller of migrated producer must not use pa.Table API.
+
+    See AI_CONSTITUTION.md §5 AP7 (multiple return points).
+    """
+    violations = _g11_scan_file(path)
+    if not violations:
+        return
+
+    msgs = []
+    for v in violations[:5]:
+        msgs.append(
+            f"  {v['file']}:{v['line']} {v['function']}() "
+            f"var={v['variable']!r} from {v['produced_by']}(): "
+            f"{v['kind']}"
+        )
+
+    raise AssertionError(
+        f"G11 transitive-migration violations in {path.name}:\n"
+        + "\n".join(msgs)
+        + f"\n({len(violations)} total)\n"
+        f"\nFix: CadwDataFrame now returned by {violations[0]['produced_by']}().\n"
+        f"See AI_CONSTITUTION.md §5 AP7 for patterns:\n"
+        f"  - extract via [b.column(c) for b in result._iter_filtered_batches()]\n"
+        f"  - result.count() instead of .num_rows\n"
+        f"  - pa.Table.from_batches(list(batches)) to convert back if needed\n"
+        f"  - assert isinstance(result, CadwDataFrame) — CORRECT type check\n"
+    )

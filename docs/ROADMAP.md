@@ -1,11 +1,12 @@
 # CADW Roadmap
 
-Last updated: 2026-10-29 (after v0.9.92).
+Last updated: 2026-10-30 (after v0.9.96).
 
-## Current: v0.9.95
+## Current: v0.9.96
 
 **Closed:** streaming-output migration (v0.9.92), wide-d quartet
-(v0.9.93), unified narrow (v0.9.94), unified broad (v0.9.95).
+(v0.9.93), unified narrow (v0.9.94), unified broad (v0.9.95),
+G11 transitive-migration gate (v0.9.96).
 
 All 13 producers return CadwDataFrame regardless of output=;
 output= selects storage strategy only. Pipeline works with all
@@ -20,7 +21,8 @@ migrated models out-of-the-box.
 - All ops + ML predict return `CadwDataFrame` via facade
   (or `AutoResult` / `AutoArrayResult` direct, `output="auto"`).
 - No hidden OOM in migrated functions.
-- Test count: ~4128 passed, 8 skipped (fast; includes 139 gates).
+- Test count: 4308 passed, 8 skipped (fast; includes G1-G11;
+  G11 adds 142 transitive-migration parameters).
 
 **Known non-OOC** (per STREAMING §6.1) — documented, not regressions:
 - `binseg`, `stray`: intrinsic O(n)/O(n²), refuse-at-guard.
@@ -31,80 +33,67 @@ migrated models out-of-the-box.
 
 ## Next 3 sessions
 
-### v0.9.93 — wide-feature OOC (d-axis)
+### v0.9.97 — YAML `bounded_state_dims` + CoxPH concordance streaming
 
-**Goal:** handle `d > 10^4` for closed-form models without OOM.
+**Goal:** finish registration debt + close remaining O(n^2) gaps.
 
-**Approach:** `cadw/ops/optim.py::sgd_streaming` (ready since v0.9.89).
-Migrate:
-- `cadw/ml/linear.py::fit_linear` — add `solver="auto"|"closed"|"sgd"`.
-  auto = closed if d ≤ 10^4, else sgd.
-- `cadw/ml/logistic.py::fit_logistic` — same.
-- `cadw/ml/coxph.py::fit_coxph` — SGD on Breslow likelihood.
-- `cadw/ml/pca.py::fit_pca` — optional randomized SVD at large d
-  (`randsvd` already exists).
+**Deliverables:**
+- YAML: add `bounded_state_dims` for all 84 `verified_in_cadw: true`
+  cards (mechanical; needed by `df.estimate_memory`).
+- `cadw/ml/coxph.py::concordance_index` — streaming algorithm
+  (currently O(n^2) pairwise). Target: O(n log n) via sorted risk
+  scores + Fenwick/BIT; verify against brute-force reference.
+- `df.estimate_memory(op, params)` — pre-flight RAM estimate per
+  axis, with `fits`, `est_ram_mb`, `bottleneck`, `alternatives`.
 
 **Tests:**
-- `d ≤ 1000`: closed-form vs SGD bit-identical (atol=1e-6).
-- `d > 10^4`: SGD converges (relative coefficient error < 5%,
-  reference closed-form via `rankdef=...` on smaller subset).
-- `d = 10^5`: fit succeeds without OOM (only possible via SGD).
+- YAML schema validation passes with `bounded_state_dims` field.
+- `concordance_index`: streaming output bit-identical to brute-force
+  on n <= 10^4; O(n log n) time on n = 10^6.
+- `estimate_memory("binseg", n=10^7)` returns `fits: false` with
+  alternatives.
 
-**Breaking:** none if default auto selects closed for d ≤ 10^4.
+**Breaking:** none.
 
-### v0.9.94 — unified `CadwDataFrame` output
+### v0.9.98 — sparse `tfidf.transform` (CSR SpillBuffer) + K-spill
 
-**Goal:** collapse 7 return types to 1.
+**Goal:** unblock two remaining K-axis / sparse-output cases.
 
-Current: `CadwDataFrame`, `AutoResult`, `AutoArrayResult`,
-`pa.Table`, `np.ndarray`, `Dataset`, `(schema, Path)`.
+**Deliverables:**
+- CSR SpillBuffer primitive: variable-width per-row payload,
+  chunked Arrow IPC writes/reads (STREAMING §6.1 backlog).
+- `tfidf.transform` (sparse mode) via CSR SpillBuffer.
+- K-spill for `encode_categorical` (vocab > state_limit) via
+  HashShuffle.
+- K-spill for `metrics.classification` (K > state_limit).
+- Optionally `lda::_build_vocab`, `tfidf::fit_tfidf` (vocab via
+  HashShuffle).
 
-Target: **`CadwDataFrame` on every public facade method; inside —
-any wrapper**. Direct callers (`groupby_aggregate(...)` etc.) also
-return `CadwDataFrame` — same type as facade.
+**Tests:**
+- `K = 10^7` unique categories encoded without OOM.
+- Classification with `K = 10^6` classes OOC.
+- Sparse tfidf: `nnz` per row preserved through spill.
 
-**Breaking (2nd):** direct callers of `groupby_aggregate` /
-`drop_duplicates` / `iforest.score_samples` / etc. get
-`CadwDataFrame` instead of `AutoResult` / `np.ndarray`.
-`output="memory"` deprecation path (warn, remove v1.0).
+**Breaking:** none (opt-in via `output="disk"` / `sparse=True`).
 
-**Why:** `Pipeline` currently accepts only `transform(df) -> CadwDataFrame`.
-Half of ML models don't participate. Fix unlocks
-`df.groupby().agg().fit_predict()` chains.
+### v0.9.99 — D4 ROCKET variants + TS forecast extension
 
-**Tests:** new `test_pipeline_all_models.py` — chain `iforest` /
-`chains` / `ordinal` / `gmm` into `Pipeline`.
+**Goal:** expand algorithm coverage in two families.
 
-### v0.9.96 — G11 + polish + new features
+**Deliverables:**
+- D4: `MultiRocket`, `Hydra`, `BOSS`, `Catch22` forecasters on top
+  of existing `minirocket` / `rocket` primitives.
+- TS forecast: `AutoARIMA`, `Croston` forecaster(s).
+- YAML cards for all new models with §7 mandatory fields.
+- G11 auto-guards any new producer that adds `output=`.
 
-**G11 (transitive-migration check)**: AST scan for
-`producer(...).column(...)` / `.to_numpy(...)` — mirrors
-pivot/duplicated/subset_accuracy bugs caught in v0.9.95 wave 5.
-Backlog.
+**Tests:**
+- Numerical parity vs paper reference (`sktime` / `tsfresh`
+  implementation where available).
+- Each new model registered in YAML with `state_class`,
+  `bounded_state`, etc.
 
-**Polish**:
-- Sparse tfidf.transform (CSR SpillBuffer)
-- CoxPH concordance_index streaming (currently O(n²) pairwise)
-- YAML: `bounded_state_dims` for 84 cards
-- `df.estimate_memory(op, params)` pre-flight
-
-**New functionality** (choose):
-- D4 ROCKET variants (MultiRocket, Hydra, BOSS, Catch22)
-- TS forecast extension (AutoARIMA, Croston)
-- K-spill for `encode_categorical` / `metrics`
-
-**S5b-full** — TS group path guards:
-- `ts/features.py::_shift_stream` group path.
-- `ts/stats.py::rolling_stats`, `rolling_crosscorr` group path.
-- `ts/thf.py::_fit_one` multi-series.
-
-**K-spill** — HashShuffle-based:
-- `encode_categorical` (vocab > state_limit).
-- `metrics` classification (K > state_limit).
-- `lda::_build_vocab`, `tfidf::fit_tfidf` (vocab via HashShuffle).
-
-**Tests:** `K = 10^7` unique categories without OOM; classify with
-`K = 10^6` classes.
+**Breaking:** none (new API surface only).
 
 ## Do not re-solve
 

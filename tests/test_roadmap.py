@@ -82,8 +82,50 @@ def test_roadmap_md_structure():
     # Version reference must be present (current CADW version)
     assert "v0.9." in text, "ROADMAP.md missing version reference"
     # Every "Next 3 sessions" subsection names a version
-    for v in ("v0.9.93", "v0.9.94", "v0.9.95"):
-        assert f"### {v}" in text, f"ROADMAP.md missing {v} section"
+    # v0.9.96-fix: version-agnostic. Hardcoded list is itself a bug —
+    # guaranteed to fail on every release. New contract:
+    #   1. `## Current: vX.Y.Z` line present.
+    #   2. `## Next 3 sessions` names >=3 `### vX.Y.Z` subsections.
+    #   3. Every Next-version is strictly greater than Current.
+    import re as _re
+    current_m = _re.search(
+        r"^## Current:\s*(v\d+\.\d+\.\d+)\s*$",
+        text, flags=_re.MULTILINE,
+    )
+    assert current_m, (
+        "ROADMAP.md: '## Current: vX.Y.Z' line not found"
+    )
+    cur_ver = current_m.group(1)
+
+    _nx_start = text.find("## Next 3 sessions")
+    assert _nx_start >= 0, (
+        "ROADMAP.md: '## Next 3 sessions' section not found"
+    )
+    _nx_end = text.find("\n## ", _nx_start + 1)
+    if _nx_end < 0:
+        _nx_end = len(text)
+    next_body = text[_nx_start:_nx_end]
+
+    next_versions = _re.findall(
+        r"^### (v\d+\.\d+\.\d+)",
+        next_body, flags=_re.MULTILINE,
+    )
+    assert len(next_versions) >= 3, (
+        f"ROADMAP.md '## Next 3 sessions' must name >=3 future "
+        f"versions, found {len(next_versions)}: {next_versions}"
+    )
+
+    def _vkey(v: str) -> tuple[int, int, int]:
+        m = _re.match(r"v(\d+)\.(\d+)\.(\d+)$", v)
+        assert m, f"unrecognized version: {v!r}"
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+    cur_key = _vkey(cur_ver)
+    for v in next_versions:
+        assert _vkey(v) > cur_key, (
+            f"ROADMAP.md: {v} in '## Next 3 sessions' is not > "
+            f"current {cur_ver}"
+        )
 
 
 def test_docs_index_links_to_roadmap_and_recipes():

@@ -189,9 +189,13 @@ Writing:
 
 After:
 
-- [ ] G1–G7 gates pass (`pytest -q tests/test_primitive_reuse.py
+- [ ] G1–G11 gates pass (`pytest -q tests/test_primitive_reuse.py
       tests/test_guard_before_alloc.py tests/test_no_dense_windows.py
       tests/test_constitution_gates.py tests/test_ml_tools_schema.py`).
+      G11 (transitive-migration) runs on every `cadw/**/*.py` file
+      and catches callers using `pa.Table` / `np.ndarray` API on the
+      return of a producer that was migrated to `CadwDataFrame` — see
+      §5 AP7.
 
 ---
 
@@ -465,11 +469,12 @@ after `concat_arrays`.
 
 **Next sessions** (see docs/ROADMAP.md for details):
 
-- **v0.9.93**: wide-feature OOC — migrate `linear`/`logistic`/`coxph`/`pca`
-  to `cadw/ops/optim.py::sgd_streaming` when `d > 10^4`.
-- **v0.9.94**: unified `CadwDataFrame` output on facade (7 return types → 1).
-- **v0.9.95**: S5b-full (TS group path), K-spill (`encode_categorical`,
-  `metrics` classification).
+- **v0.9.97**: YAML `bounded_state_dims` (84 cards), CoxPH
+  concordance streaming, `df.estimate_memory`.
+- **v0.9.98**: sparse `tfidf.transform` (CSR SpillBuffer), K-spill
+  (`encode_categorical`, `metrics`, `lda`, `tfidf`).
+- **v0.9.99**: D4 ROCKET variants, TS forecast extension
+  (AutoARIMA, Croston).
 
 **Do not re-solve** (per STREAMING §6.1):
 

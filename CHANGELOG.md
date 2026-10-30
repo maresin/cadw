@@ -1,5 +1,53 @@
 ## [Unreleased]
 
+### v0.9.96 (2026-10-30) — G11: transitive-migration AST gate
+
+**G11 (new gate).** AST scan for callers of migrated producers
+using `pa.Table` / `np.ndarray` API on the `CadwDataFrame` return.
+Catches the AP7 class of v0.9.95 stragglers (pivot, value_counts,
+duplicated, subset_accuracy) that manual grep found one-by-one.
+
+Design:
+- **Bare-name tracking** (`groupby_aggregate(...)`, `_gba(...)` via
+  import alias) — resolves through imports map.
+- **Intra-class tracking** (`self.<method>(...)`) — only when
+  `<method>` has `output=` in the same class. This makes
+  `self.predict_proba(...)` on gmm tracked, but on logistic /
+  gbdt / calibration (unmigrated — return ndarray) NOT tracked.
+- **Reassignment untracks** — `result = pa.Table.from_batches(...)`
+  clears producer status for the rest of the function body.
+- **Four violation kinds**: `forbidden_method` (`.column`,
+  `.num_rows`, `.to_table`, ...), `forbidden_attr` (`.schema`,
+  `.shape`, `.data`), `isinstance_legacy` (`isinstance(result,
+  pa.Table)`), `binop` (`result == 0`, `result > 0`).
+- **`# noqa: G11 — <reason>`** per-line opt-out for the rare
+  cross-object real bug.
+
+Enforcement: `tests/test_constitution_gates.py::test_g11_transitive_migration`,
+142 parametrized cases (one per `cadw/**/*.py` file). Baseline at
+v0.9.95 HEAD: 0 violations after reassignment-tracking addition
+(the `_aggregations.value_counts` false positive drove that fix).
+
+**Also in this release:**
+- `CadwDataFrame.to_pylist()` — pa.Table-compatible materialization
+  for legacy callers; O(n) RAM, inspection only.
+- `tests/test_groupby_v2.py`, `tests/test_streaming_output_ops.py`
+  rewritten to the unified `CadwDataFrame` API (v0.9.95 contract).
+- `tests/test_roadmap.py::test_roadmap_md_structure` now
+  version-agnostic: parses `## Current:` and requires
+  `## Next 3 sessions` to name >=3 strictly-greater versions
+  (previously hardcoded `("v0.9.93", "v0.9.94", "v0.9.95")` —
+  guaranteed to fail on every release).
+
+**Known issue (not addressed here):** `cadw.__version__` and
+`pyproject.toml::version` still say `0.9.88` while tags exist
+through v0.9.96. Pre-existing since v0.9.89; out of scope for this
+session. Track for v0.9.97.
+
+**Test count:** 4308 passed, 8 skipped (fast; includes G1-G11,
+G11 adds 142 transitive-migration parameters). No prod-code
+changes — only gate infrastructure + tests + docs.
+
 ### v0.9.95 (2026-10-30) — unified CadwDataFrame (BREAKING)
 
 **BREAKING:** `output=` no longer selects return type. All 13
