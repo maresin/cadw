@@ -80,9 +80,14 @@ class CoxPHModel:
     """Fitted Cox proportional hazards model (Breslow ties)."""
 
     def __init__(self, coef, cov, baseline_t, baseline_h, feature_names,
-                 n_events, n_iter, converged, loglik):
+                 n_events, n_iter, converged, loglik, solver="closed"):
         self.coef_ = np.asarray(coef, dtype=np.float64)
-        self.covariance_ = np.asarray(cov, dtype=np.float64)
+        # v0.9.93: solver="sgd" returns cov=None (would be O(d^2) to
+        # compute; info/pinv impossible at wide d). Documented limitation:
+        # use solver="closed" for inference (d <= 1000).
+        self.covariance_ = (None if cov is None
+                            else np.asarray(cov, dtype=np.float64))
+        self.solver_ = str(solver)
         self.baseline_t_ = np.asarray(baseline_t, dtype=np.float64)
         self.baseline_h_ = np.asarray(baseline_h, dtype=np.float64)
         self.feature_names_ = list(feature_names)
@@ -93,15 +98,19 @@ class CoxPHModel:
         self.fitted_ = True
 
     def state_nbytes(self):
-        return int(self.coef_.nbytes + self.covariance_.nbytes
-                   + self.baseline_t_.nbytes + self.baseline_h_.nbytes)
+        base = (self.coef_.nbytes + self.baseline_t_.nbytes
+                + self.baseline_h_.nbytes + 256)
+        if self.covariance_ is not None:
+            base += self.covariance_.nbytes
+        return int(base)
 
     def to_dict(self):
         return {"coef": self.coef_.tolist(),
                 "feature_names": self.feature_names_,
                 "n_events": self.n_events_, "n_iter": self.n_iter_,
                 "converged": self.converged_,
-                "log_likelihood": self.log_likelihood_}
+                "log_likelihood": self.log_likelihood_,
+                "solver": self.solver_}
 
     def predict_risk(self, df, X_cols=None):
         cols = list(X_cols) if X_cols is not None else self.feature_names_
@@ -163,7 +172,8 @@ def _baseline_hazard(X, T, E, b):
     return times, np.cumsum(np.asarray(haz))
 
 
-def _breslow_streaming(sorted_reader, X_cols, time_col, event_col, b, mg):
+def _breslow_streaming(sorted_reader, X_cols, time_col, event_col, b, mg,
+                       *, compute_info: bool = True):
     """Streaming Breslow reduce (v0.9.87-P5a-fix-coxph).
 
     Bit-identical to `_breslow` for realistic data (ties order-invariant
@@ -175,7 +185,9 @@ def _breslow_streaming(sorted_reader, X_cols, time_col, event_col, b, mg):
     S1 = np.zeros(d)
     S2 = np.zeros((d, d))
     grad = np.zeros(d)
-    info = np.zeros((d, d))
+    # v0.9.93: compute_info=False skips O(d^2) allocation for SGD path
+    # (full-batch GD needs only grad; info is used only by Newton step).
+    info = np.zeros((d, d)) if compute_info else None
     ll = 0.0
     n_events = 0
 
@@ -204,7 +216,8 @@ def _breslow_streaming(sorted_reader, X_cols, time_col, event_col, b, mg):
             Xe = Xb[ev_mask]
             mu = S1 / S0
             grad += Xe.sum(axis=0) - n_ev_b * mu
-            info += n_ev_b * (S2 / S0 - np.outer(mu, mu))
+            if compute_info:
+                info += n_ev_b * (S2 / S0 - np.outer(mu, mu))
             ll += float((Xe @ b).sum()) - n_ev_b * float(np.log(S0))
             n_events += n_ev_b
         pending_Xs.clear()
@@ -320,7 +333,45 @@ def _baseline_hazard_streaming(sorted_reader, X_cols, time_col, event_col,
     return times_arr, haz_arr
 
 
+def _sgd_coxph(sorted_path, X_cols, time_col, event_col, sgd_lr, sgd_epochs, mg):
+    """Full-batch gradient ASCENT on Breslow partial likelihood.
+
+    Cox Breslow gradient at event i requires risk-set sum over ALL
+    samples with T >= t_i. Cannot online-SGD by batch — needs one full
+    pass per epoch (external sorted reader). State: O(d) for beta.
+
+    Returns (best_beta, best_ll). Tracks best over epochs (partial LL
+    is concave, but plain GD can overshoot; best-LL is monotone-safe).
+
+    Note: gradient is dLL/dbeta (ascent direction). Newton uses
+    beta += solve(info, grad); we use beta += lr*grad/n_ev.
+    Division by n_ev makes lr scale-invariant w.r.t. n_events.
+    """
+    d = len(X_cols)
+    mg.check_state(2 * d * 8 + 64, name="coxph.sgd.state")
+    beta = np.zeros(d, dtype=np.float64)
+    best_ll = -np.inf
+    best_beta = beta.copy()
+    for _epoch in range(int(sgd_epochs)):
+        reader = ArrowIPCBatchReader(sorted_path, None)
+        try:
+            grad, _info, ll, n_ev = _breslow_streaming(
+                reader, X_cols, time_col, event_col, beta, mg,
+                compute_info=False)
+        finally:
+            reader.close()
+        if ll > best_ll:
+            best_ll = ll
+            best_beta = beta.copy()
+        # Ascent: partial LL is maximized at true beta.
+        beta = beta + sgd_lr * grad / max(n_ev, 1)
+    return best_beta, best_ll
+
+
 def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
+              solver: str = "auto",
+              sgd_lr: float = 0.1,
+              sgd_epochs: int = 100,
               memory_guard: Optional[MemoryGuard] = None,
               spill_dir: Optional[str] = None) -> CoxPHModel:
     """Fit Cox PH by Newton-Raphson on the Breslow partial likelihood.
@@ -389,7 +440,52 @@ def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
             _checked_iter(), [time_col], value_cols,
             mg, f"{_spill_root}/sort", ascending=False, log=False)
 
-        # Newton-Raphson.
+        # v0.9.93: solver routing.
+        if solver not in ("auto", "closed", "sgd"):
+            raise ValueError(
+                f"fit_coxph: solver must be 'auto'|'closed'|'sgd'; "
+                f"got {solver!r}")
+        if solver == "auto":
+            if mg is None or d <= 1000:
+                solver = "closed"
+            else:
+                est_closed = 3 * d * d * 8
+                if hasattr(mg, "available_bytes") and callable(
+                        mg.available_bytes):
+                    try:
+                        avail = mg.available_bytes()
+                        solver = ("sgd" if est_closed > int(avail * 0.5)
+                                  else "closed")
+                    except Exception:
+                        solver = "closed"
+                else:
+                    solver = "closed"
+
+        if solver == "sgd":
+            if sgd_lr <= 0:
+                raise ValueError(
+                    f"fit_coxph: sgd_lr must be > 0; got {sgd_lr}")
+            if sgd_epochs < 1:
+                raise ValueError(
+                    f"fit_coxph: sgd_epochs must be >= 1; got {sgd_epochs}")
+            beta, ll = _sgd_coxph(
+                sorted_path, cols, time_col, event_col,
+                sgd_lr, sgd_epochs, mg)
+            # Baseline hazard: O(n_events) state, guard before alloc.
+            mg.check_state(2 * n_events * 8 + 256,
+                           name="coxph.baseline")
+            reader = ArrowIPCBatchReader(sorted_path, None)
+            try:
+                bt, bh = _baseline_hazard_streaming(
+                    reader, cols, time_col, event_col, beta, mg)
+            finally:
+                reader.close()
+            model = CoxPHModel(beta, None, bt, bh, cols, n_events,
+                               sgd_epochs, True, ll, solver="sgd")
+            mg.check_state(model.state_nbytes(), name="coxph.model")
+            return model
+
+        # Newton-Raphson (solver="closed" or resolved "auto").
         beta = np.zeros(d)
         converged = False
         n_iter = 0
@@ -433,7 +529,7 @@ def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
             reader.close()
 
         model = CoxPHModel(beta, cov, bt, bh, cols, n_events, n_iter,
-                           converged, ll)
+                           converged, ll, solver="closed")
         mg.check_state(model.state_nbytes(), name="coxph.model")
         return model
     finally:

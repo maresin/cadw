@@ -256,3 +256,92 @@ def test_fit_coxph_OOC_small_guard():
     assert m.n_events_ > 0
     assert m.converged_
 
+
+
+# v0.9.93: solver="auto"|"closed"|"sgd" — G10 dual-branch tests
+# Per AI_CONSTITUTION §4.2: non-quadratic loss → compare c-index +
+# partial LL, not coefficients.
+
+
+def _make_survival_df(n, d, seed=42, cens_rate=0.3):
+    """Well-conditioned survival data for closed-vs-sgd comparison.
+
+    Exponential survival with rate exp(X @ beta), no ties (perturb),
+    30% censoring. beta small so predictions are not saturated.
+    """
+    rng = np.random.RandomState(seed)
+    X = rng.randn(n, d)
+    beta_true = rng.randn(d) * 0.3
+    rate = np.exp(X @ beta_true)
+    T_event = rng.exponential(scale=1.0 / rate)
+    T_cens = rng.exponential(scale=2.0, size=n)
+    E = (T_event <= T_cens).astype(np.int64)
+    T_obs = np.minimum(T_event, T_cens)
+    T_obs = np.maximum(T_obs, 1e-6)
+    # No ties: perturb
+    T_obs = T_obs + rng.uniform(0, 1e-8, size=n)
+    X_cols = [f"x{i}" for i in range(d)]
+    tbl = pa.table({
+        **{c: pa.array(X[:, i]) for i, c in enumerate(X_cols)},
+        "T": pa.array(T_obs),
+        "E": pa.array(E, type=pa.int64()),
+    })
+    return CadwDataFrame.from_table(tbl), X_cols
+
+
+def test_coxph_solver_closed_vs_sgd_concordance():
+    """G10: closed vs sgd give equivalent c-index + partial LL.
+
+    Per §4.2, non-quadratic loss comparison uses c-index (rank
+    invariant) and partial LL (loss value), not coefficients.
+    """
+    n, d = 500, 5
+    df, X_cols = _make_survival_df(n, d, seed=42)
+    m_closed = fit_coxph(df, X_cols, "T", "E", solver="closed")
+    m_sgd = fit_coxph(df, X_cols, "T", "E",
+                     solver="sgd", sgd_lr=0.1, sgd_epochs=200)
+    assert m_closed.solver_ == "closed"
+    assert m_sgd.solver_ == "sgd"
+
+    # c-index: rank-invariant quality measure
+    c_closed = m_closed.concordance_index(df, "T", "E")
+    c_sgd = m_sgd.concordance_index(df, "T", "E")
+    assert np.isfinite(c_closed) and np.isfinite(c_sgd)
+    assert abs(c_closed - c_sgd) < 0.05, (
+        f"c-index diff {abs(c_closed - c_sgd):.3f} > 0.05 "
+        f"(closed={c_closed:.3f}, sgd={c_sgd:.3f})")
+
+    # Partial LL: loss value parity
+    ll_diff = abs(m_sgd.log_likelihood_ - m_closed.log_likelihood_)
+    ll_rel = ll_diff / max(1e-12, abs(m_closed.log_likelihood_))
+    assert ll_rel < 0.05, (
+        f"partial LL rel diff {ll_rel:.3f} > 0.05 "
+        f"(closed={m_closed.log_likelihood_:.2f}, "
+        f"sgd={m_sgd.log_likelihood_:.2f})")
+
+
+def test_coxph_solver_sgd_cov_none():
+    """sgd path returns cov=None (inference requires closed)."""
+    df, X_cols = _make_survival_df(200, 3, seed=1)
+    m = fit_coxph(df, X_cols, "T", "E", solver="sgd",
+                  sgd_lr=0.1, sgd_epochs=20)
+    assert m.solver_ == "sgd"
+    assert m.covariance_ is None
+    # to_dict exposes solver
+    d = m.to_dict()
+    assert d["solver"] == "sgd"
+
+
+def test_coxph_sgd_determinism():
+    df, X_cols = _make_survival_df(300, 4, seed=11)
+    m1 = fit_coxph(df, X_cols, "T", "E", solver="sgd",
+                   sgd_lr=0.1, sgd_epochs=10)
+    m2 = fit_coxph(df, X_cols, "T", "E", solver="sgd",
+                   sgd_lr=0.1, sgd_epochs=10)
+    assert np.array_equal(m1.coef_, m2.coef_)
+
+
+def test_coxph_solver_invalid_raises():
+    df, X_cols = _make_survival_df(100, 3, seed=0)
+    with pytest.raises(ValueError, match="solver must be"):
+        fit_coxph(df, X_cols, "T", "E", solver="bogus")

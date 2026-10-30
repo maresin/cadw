@@ -270,3 +270,84 @@ def test_pca_to_dict(tmp_path):
     assert "explained_variance" in d_
     assert "explained_variance_ratio" in d_
     assert d_["n_components"] == 2
+
+
+# v0.9.93: method="auto"|"exact"|"randomized"
+
+
+def _make_pca_df(n, d, seed=42, rank=3, noise=0.1):
+    """Rank-`rank` data + small Gaussian noise."""
+    rng = np.random.RandomState(seed)
+    U = rng.randn(n, rank)
+    W = rng.randn(rank, d)
+    X = U @ W + noise * rng.randn(n, d)
+    X_cols = [f"x{i}" for i in range(d)]
+    tbl = pa.table({
+        **{c: pa.array(X[:, i]) for i, c in enumerate(X_cols)},
+    })
+    return CadwDataFrame.from_table(tbl), X_cols
+
+
+def _recon_err_pca(model, df, X_cols):
+    """Relative Frobenius reconstruction error."""
+    err = 0.0
+    norm = 0.0
+    for b in df._iter_filtered_batches():
+        X = np.column_stack([
+            b.column(c).to_numpy(zero_copy_only=False) for c in X_cols])
+        Xc = X - model.mean_
+        proj = Xc @ model.components_.T
+        recon_c = proj @ model.components_
+        err += float(np.sum((Xc - recon_c) ** 2))
+        norm += float(np.sum(Xc ** 2))
+    return float(np.sqrt(err / max(norm, 1e-300)))
+
+
+def test_pca_method_exact_vs_randomized_reconstruction():
+    """method="exact" and method="randomized" give similar
+    reconstruction error on well-conditioned data.
+
+    Per §4.2: PCA has no solver (not an optimizer); use reconstruction
+    error, not component comparison (components are sign/rotation-
+    ambiguous; reconstruction is invariant)."""
+    n, d, k = 500, 20, 5
+    df, X_cols = _make_pca_df(n, d, seed=42, rank=3)
+    m_exact = fit_pca(df, X_cols, n_components=k, method="exact")
+    m_rand = fit_pca(df, X_cols, n_components=k, method="randomized",
+                     n_oversamples=10, random_state=0)
+    assert m_exact.method_ == "exact"
+    assert m_rand.method_ == "randomized"
+    e_exact = _recon_err_pca(m_exact, df, X_cols)
+    e_rand = _recon_err_pca(m_rand, df, X_cols)
+    # rank-3 data with k=5: both should capture nearly all variance
+    assert e_exact < 0.20, f"exact recon err {e_exact:.4f} > 0.20"
+    assert e_rand < 0.25, f"randomized recon err {e_rand:.4f} > 0.25"
+    # Also close to each other
+    assert abs(e_exact - e_rand) < 0.05, (
+        f"recon err difference {abs(e_exact - e_rand):.4f} > 0.05")
+
+
+def test_pca_method_randomized_deterministic():
+    df, X_cols = _make_pca_df(300, 15, seed=7, rank=3)
+    m1 = fit_pca(df, X_cols, n_components=3, method="randomized",
+                 random_state=42)
+    m2 = fit_pca(df, X_cols, n_components=3, method="randomized",
+                 random_state=42)
+    assert np.allclose(m1.components_, m2.components_)
+    assert np.allclose(m1.singular_values_, m2.singular_values_)
+
+
+def test_pca_method_auto_large_d_picks_randomized():
+    """auto at d=2000 + 10 MB guard -> randomized."""
+    n, d, k = 50, 2000, 3
+    df, X_cols = _make_pca_df(n, d, seed=3, rank=2, noise=0.05)
+    mg = MemoryGuard(max_memory_mb=10)
+    m = fit_pca(df, X_cols, n_components=k, method="auto",
+                memory_guard=mg)
+    assert m.method_ == "randomized"
+
+
+def test_pca_method_invalid_raises():
+    df, X_cols = _make_pca_df(100, 5, seed=0)
+    with pytest.raises(ValueError, match="method must be"):
+        fit_pca(df, X_cols, n_components=2, method="bogus")

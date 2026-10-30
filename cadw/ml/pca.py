@@ -67,6 +67,7 @@ class PCA:
     n_samples_: int
     n_features_in_: int
     fitted_: bool = True
+    method_: str = "exact"   # v0.9.93: "exact" | "randomized"
 
     def to_dict(self) -> dict:
         return {
@@ -80,6 +81,7 @@ class PCA:
             "feature_names": self.feature_names_,
             "n_components": int(self.n_components_),
             "n_samples": int(self.n_samples_),
+            "method": getattr(self, "method_", "exact"),
         }
 
     def _check_features(self, X: np.ndarray) -> None:
@@ -232,11 +234,78 @@ class PCA:
         )
 
 
+def _fit_pca_randomized(df, X_cols, k, mg, n_oversamples, random_state):
+    """Randomized SVD wrapper returning PCA-compatible model.
+
+    Uses cadw.ml.randsvd.fit_randomized_svd (already OOC via Reduce +
+    power iterations on (n, k) state). Convert its output to PCA
+    convention:
+      components_       <- randsvd.components_  (k, d)
+      mean_             <- randsvd.mean_        (d,)
+      singular_values_  <- randsvd.singular_values_  (k,)
+      explained_var_    <- singular_values^2 / (n-1)  [sample var]
+      explained_var_ratio_ <- singular_values^2 / sum_all_sv^2
+    The last requires one extra pass for total sum of squared centered X
+    (trace(cov)·(n-1)); randsvd.explained_variance_ratio() provides it.
+
+    Covariance_ is not exposed on PCA; only components/ev/ratios.
+    Deterministic given random_state.
+    """
+    from cadw.ml.randsvd import fit_randomized_svd
+
+    svd = fit_randomized_svd(
+        df, X_cols, n_components=int(k),
+        n_oversamples=int(n_oversamples),
+        seed=int(random_state),
+        memory_guard=mg)
+
+    # n_samples for sample-variance conversion.
+    n_samples = 0
+    for b in df._iter_filtered_batches():
+        n_samples += b.num_rows
+    if n_samples < 2:
+        raise ValueError(
+            f"fit_pca: need at least 2 valid rows; got {n_samples}")
+
+    sv = np.asarray(svd.singular_values_, dtype=np.float64)
+    ev = (sv ** 2) / max(n_samples - 1, 1)
+    ratio = svd.explained_variance_ratio(df, memory_guard=mg)
+    ratio = np.asarray(ratio, dtype=np.float64)
+    if ratio.size > 0 and ratio.sum() > 1e-12:
+        total_var = float(ev.sum() / ratio.sum())
+    else:
+        total_var = float(ev.sum())
+    if total_var > 0.0:
+        ev_ratio = ev / total_var
+    else:
+        ev_ratio = np.zeros_like(ev)
+
+    from cadw.ml._logging import log_fit
+    log_fit("pca",
+            state_bytes=int(svd.components_.nbytes + sv.nbytes))
+
+    return PCA(
+        components_=svd.components_,
+        mean_=svd.mean_,
+        explained_variance_=ev,
+        explained_variance_ratio_=ev_ratio,
+        singular_values_=sv,
+        feature_names_=list(X_cols),
+        n_components_=int(k),
+        n_samples_=int(n_samples),
+        n_features_in_=len(X_cols),
+        method_="randomized",
+    )
+
+
 def fit_pca(
     df,
     X_cols,
     n_components: Optional[int] = None,
     *,
+    method: str = "auto",
+    n_oversamples: int = 10,
+    random_state: int = 0,
     memory_guard: Optional[MemoryGuard] = None,
 ) -> PCA:
     """Fit PCA via Reduce(CovarianceOp) + eigh.
@@ -286,6 +355,34 @@ def fit_pca(
 
     mg = memory_guard or df._memory_guard
 
+    # v0.9.93: method routing.
+    if method not in ("auto", "exact", "randomized"):
+        raise ValueError(
+            f"fit_pca: method must be 'auto'|'exact'|'randomized'; "
+            f"got {method!r}")
+    if method == "auto":
+        if mg is None or d <= 1000:
+            method = "exact"
+        else:
+            est_closed = 3 * d * d * 8
+            if hasattr(mg, "available_bytes") and callable(mg.available_bytes):
+                try:
+                    avail = mg.available_bytes()
+                    method = ("randomized"
+                              if est_closed > int(avail * 0.5)
+                              else "exact")
+                except Exception:
+                    method = "exact"
+            else:
+                method = "exact"
+
+    if method == "randomized":
+        if n_oversamples < 0:
+            raise ValueError(
+                f"fit_pca: n_oversamples must be >= 0; got {n_oversamples}")
+        return _fit_pca_randomized(
+            df, X_cols, k, mg, n_oversamples, random_state)
+
     # v0.8.0: CovarianceMeanOp returns cov + mean + n in one pass.
     # 2× I/O reduction vs v0.7.2 (which re-scanned for mean).
     op = CovarianceMeanOp(X_cols)
@@ -332,4 +429,5 @@ def fit_pca(
         n_components_=int(k),
         n_samples_=int(n_valid),
         n_features_in_=int(d),
+        method_="exact",
     )

@@ -440,13 +440,21 @@ def _walk_producers():
 
 
 def _functions_with_kwarg(path: Path, kwarg: str) -> list[str]:
-    """Return names of functions in path whose signature has kwarg."""
+    """Return names of non-dunder functions whose signature has kwarg.
+
+    Dunders (__init__, __call__, ...) are constructors, not producers;
+    G9/G10 target fit_/predict_/transform_-style functions. Excluding
+    dunders prevents false positives when a Model class gains a
+    constructor kwarg (e.g. CoxPHModel(solver=...) at v0.9.93).
+    """
     try:
         tree = ast.parse(path.read_text())
     except SyntaxError:
         return []
     out: list[str] = []
     for fn in _iter_functions(tree):
+        if fn.name.startswith("__") and fn.name.endswith("__"):
+            continue
         args = list(fn.args.args) + list(fn.args.kwonlyargs)
         if any(a.arg == kwarg for a in args):
             out.append(fn.name)
