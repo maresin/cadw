@@ -25,6 +25,7 @@ import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
 from cadw.ops.reduce import ReduceOp, reduce
+from cadw.ml.linear import _resolve_solver  # v0.9.93: shared threshold
 
 
 class LogisticGradOp(ReduceOp):
@@ -195,6 +196,7 @@ class LogisticModel:
     converged_: bool
     log_likelihood_: float
     fitted_: bool = True
+    solver_: str = "closed"   # "closed" | "sgd" — v0.9.93
 
     def to_dict(self) -> dict:
         return {
@@ -205,6 +207,7 @@ class LogisticModel:
             "n_iter": int(self.n_iter_),
             "converged": bool(self.converged_),
             "log_likelihood": float(self.log_likelihood_),
+            "solver": self.solver_,
         }
 
     def predict_proba(self, X):
@@ -290,12 +293,93 @@ class LogisticModel:
         )
 
 
+def _fit_sgd_logistic(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
+    """Binary logistic via streaming SGD (O(d) state, ANY d).
+
+    Augments X with intercept column (ones), W shape (1, d+1). Penalty
+    on coef only (mask[0,0]=0), matching closed-form semantics.
+    lam = alpha/n (same as Ridge; derivation in optim.py docstring).
+
+    Caller has already validated: X_cols non-empty, y binary, both
+    classes present, all columns numeric.
+    """
+    from cadw.ops.optim import sgd_streaming
+
+    d = len(X_cols)
+    has_check_state = (
+        mg is not None and hasattr(mg, "check_state")
+        and callable(mg.check_state)
+    )
+
+    # Count valid (non-null) rows — single pass for lam = alpha/n.
+    n = 0
+    for b in df._iter_filtered_batches():
+        X, y = _stack_and_validate(b, X_cols, y_col)
+        n += X.shape[0]
+    if n == 0:
+        raise ValueError("fit_logistic: no valid (non-null, binary) rows")
+
+    if has_check_state:
+        mg.check_state(3 * (d + 1) * 8 + 64,
+                       name="logistic.sgd.state")
+
+    def batch_stream():
+        for b in df._iter_filtered_batches():
+            X, y = _stack_and_validate(b, X_cols, y_col)
+            if X.shape[0] == 0:
+                continue
+            X_aug = np.column_stack([np.ones(X.shape[0]), X])
+            yield X_aug, y.reshape(-1, 1)
+
+    penalty_mask = np.zeros((1, d + 1), dtype=np.float64)
+    penalty_mask[0, 1:] = 1.0  # intercept not penalized
+    lam = float(alpha) / float(n)
+
+    W = sgd_streaming(
+        batch_stream, n_features=d + 1, n_outputs=1,
+        loss="logistic", lam=lam, lr=sgd_lr, epochs=sgd_epochs,
+        penalty_mask=penalty_mask,
+        use_rmsprop=False,   # plain GD: strong reg → RMSprop oscillates
+        mg=mg if has_check_state else None, name="logistic.sgd")
+
+    coef = np.ascontiguousarray(W[0, 1:])
+    intercept = float(W[0, 0])
+
+    # Final log-likelihood (one extra pass; matches closed-path metric).
+    ll = 0.0
+    for b in df._iter_filtered_batches():
+        X, y = _stack_and_validate(b, X_cols, y_col)
+        if X.shape[0] == 0:
+            continue
+        z = X @ coef + intercept
+        p = 0.5 * (1.0 + np.tanh(0.5 * z))
+        p_clip = np.clip(p, 1e-15, 1.0 - 1e-15)
+        ll += float((y * np.log(p_clip)
+                     + (1.0 - y) * np.log(1.0 - p_clip)).sum())
+
+    from cadw.ml._logging import log_fit
+    log_fit("logistic", iter_i=int(sgd_epochs), iter_n=int(sgd_epochs),
+            state_bytes=int((d + 1) * 8))
+
+    return LogisticModel(
+        coef_=coef, intercept_=intercept,
+        feature_names_=list(X_cols), target_col_=y_col,
+        alpha_=float(alpha), n_rows_=int(n),
+        n_iter_=int(sgd_epochs), converged_=True,
+        log_likelihood_=float(ll),
+        solver_="sgd",
+    )
+
+
 def fit_logistic(
     df,
     X_cols,
     y_col: str,
     *,
     alpha: float = 1.0,
+    solver: str = "auto",
+    sgd_lr: float = 0.1,
+    sgd_epochs: int = 200,
     max_iter: int = 100,
     tol: float = 1e-6,
     memory_guard: Optional[MemoryGuard] = None,
@@ -351,7 +435,27 @@ def fit_logistic(
     # Validate binary y + both classes
     _validate_binary_y(df, y_col)
 
+    # v0.9.93: solver routing.
+    if solver not in ("auto", "closed", "sgd"):
+        raise ValueError(
+            f"fit_logistic: solver must be 'auto'|'closed'|'sgd'; "
+            f"got {solver!r}")
+
     mg = memory_guard or df._memory_guard
+
+    if solver == "auto":
+        solver = _resolve_solver(len(X_cols), alpha, mg)
+
+    if solver == "sgd":
+        if sgd_lr <= 0:
+            raise ValueError(
+                f"fit_logistic: sgd_lr must be > 0; got {sgd_lr}")
+        if sgd_epochs < 1:
+            raise ValueError(
+                f"fit_logistic: sgd_epochs must be >= 1; got {sgd_epochs}")
+        return _fit_sgd_logistic(
+            df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg)
+
     d = len(X_cols) + 1  # + intercept
     beta = np.zeros(d, dtype=np.float64)
     ll_prev = -np.inf
@@ -373,10 +477,30 @@ def fit_logistic(
 
         reg = alpha * np.eye(d, dtype=np.float64)
         reg[0, 0] = 0.0  # intercept not penalized
+        # v0.9.93-fix: IRLS step for PENALIZED logistic.
+        #
+        # Pre-fix bug: `step = solve(hess + reg, grad)` where grad is
+        # the UNPENALIZED gradient grad_L = X^T(p-y). Fixed point:
+        # solve(H_L + α·mask, grad_L) = 0 → grad_L = 0 → unregularized
+        # MLE. Alpha affected trajectory and early-stopping but NOT the
+        # optimum. At alpha=1000, n=1000, d=10 near-separable data:
+        # closed |coef|=1.33 (near-MLE), SGD |coef|=0.35 (correct);
+        # penalized objective 502 (closed) vs 44 (SGD). Closed was at
+        # the wrong point.
+        #
+        # Correct: solve (H_L + α·mask) step = grad_L + α·β·mask.
+        # Fixed point: grad_L + α·β·mask = 0 → true penalized optimum.
+        # Reference: standard IRLS with ridge in the weighted LS step:
+        #   z = Xβ + W^-1(y-p)
+        #   β_new = (X^T W X + α·I)^-1 X^T W z
+        #         = β - (H_L + α·mask)^-1 (grad_L + α·β·mask).
+        mask = np.ones(d, dtype=np.float64)
+        mask[0] = 0.0  # intercept not penalized
+        grad_pen = grad + alpha * beta * mask
         try:
-            step = np.linalg.solve(hess + reg, grad)
+            step = np.linalg.solve(hess + reg, grad_pen)
         except np.linalg.LinAlgError:
-            step = np.linalg.lstsq(hess + reg, grad, rcond=None)[0]
+            step = np.linalg.lstsq(hess + reg, grad_pen, rcond=None)[0]
 
         step_inf = float(np.max(np.abs(step)))
         beta = beta - step
@@ -409,4 +533,5 @@ def fit_logistic(
         n_iter_=int(n_iter),
         converged_=bool(converged),
         log_likelihood_=float(ll),
+        solver_="closed",
     )

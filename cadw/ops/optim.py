@@ -46,10 +46,14 @@ def sgd_streaming(
     epochs: int = 30,
     beta: float = 0.9,
     eps: float = 1e-8,
+    penalty_mask: Optional[np.ndarray] = None,
+    use_rmsprop: bool = True,
     mg: Optional[MemoryGuard] = None,
     name: str = "sgd",
 ) -> np.ndarray:
-    """Streaming SGD + RMSprop on ridge loss. Returns W (n_outputs, d).
+    """Streaming SGD + RMSprop. Supports ridge and logistic loss.
+
+    Returns W (n_outputs, d).
 
     Parameters
     ----------
@@ -92,11 +96,27 @@ def sgd_streaming(
     -----------------------------
     To match a closed-form objective `sum_loss + α·||W||²`:
       ridge:    lam = α / n
-      logistic: lam = 2·α / n
-    (different because ridge closed objective uses mean-of-squared
-    which scales as 1/n, logistic closed uses sum-of-negative-log-
-    likelihood — penalty coefficient is α in both, loss scaling
-    differs by factor of 2.)
+      logistic: lam = α / n
+    (Derivation: f/n where f = -sum_loss + α/2·||W||² gives
+    -mean_loss + α/(2n)·||W||². SGD's lam/2·||W||² matches when
+    lam = α/n in both cases. Earlier note "2·α/n" was incorrect
+    — the factor-2 in logistic's objective is already folded into
+    α/2 penalty scale; linear Ridge's alpha is on sum_sq not
+    sum_sq/2, so both reduce to lam = α/n.)
+
+    penalty_mask : np.ndarray, optional
+        Shape (n_outputs, n_features) or (1, n_features). Multiplicative
+        mask on the L2 penalty: grad += lam * W * penalty_mask.
+        Use to exempt intercept (mask[:, 0] = 0). Default None → all
+        parameters penalized.
+
+    use_rmsprop : bool, default True
+        True: RMSprop (h accumulator, per-param adaptive lr). Good for
+        ridge (quadratic, well-scaled gradients) and default rocket.
+        False: plain GD W -= lr*grad. Required for strongly-regularized
+        logistic (RMSprop oscillates at amplitude ~lr when penalty
+        dominates gradient; plain GD contracts geometrically at rate
+        1 - lr*lam). See _fit_sgd_logistic.
 
     State
     -----
@@ -152,7 +172,18 @@ def sgd_streaming(
                 pred = z
             else:  # logistic
                 pred = _sigmoid(z)
-            grad = (pred - Y_b).T @ X_b / max(len(X_b), 1) + lam * W
-            h = beta * h + (1.0 - beta) * grad * grad
-            W -= lr * grad / (np.sqrt(h) + eps)
+            grad = (pred - Y_b).T @ X_b / max(len(X_b), 1)
+            if penalty_mask is not None:
+                grad = grad + lam * W * penalty_mask
+            else:
+                grad = grad + lam * W
+            if use_rmsprop:
+                h = beta * h + (1.0 - beta) * grad * grad
+                W -= lr * grad / (np.sqrt(h) + eps)
+            else:
+                # Plain GD. Strongly-regularized logistic: RMSprop
+                # oscillates at amplitude ~lr (adaptive denominator
+                # can't resolve small grads). Plain GD contracts
+                # geometrically (rate 1 - lr*lam).
+                W -= lr * grad
     return W

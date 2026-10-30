@@ -1,3 +1,4 @@
+from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 """v0.7.0b: Logistic regression via iter-Reduce Newton IRLS."""
 from pathlib import Path
 
@@ -295,3 +296,190 @@ def test_fit_logistic_with_nulls(tmp_path):
     # n_rows_ reflects valid count
     assert model.n_rows_ < n
     assert model.n_rows_ > 0
+
+
+# v0.9.93: solver="auto"|"closed"|"sgd" — G10 dual-branch tests
+
+
+def _make_logistic_sgd_df(n, d, seed=0, scale=2.0):
+    rng = np.random.RandomState(seed)
+    X = rng.randn(n, d) * scale
+    beta_true = rng.randn(d) / scale
+    z = X @ beta_true
+    p = 1.0 / (1.0 + np.exp(-z))
+    y = (rng.rand(n) < p).astype(np.int64)
+    # Ensure both classes present
+    if y.sum() == 0:
+        y[0] = 1
+    elif y.sum() == n:
+        y[0] = 0
+    X_cols = [f"x{i}" for i in range(d)]
+    table = pa.table({
+        **{c: pa.array(X[:, i]) for i, c in enumerate(X_cols)},
+        "y": pa.array(y, type=pa.int64()),
+    })
+    from cadw.dataframe import CadwDataFrame
+    return CadwDataFrame.from_table(table), X_cols
+
+
+def test_logistic_solver_closed_vs_sgd_predictions():
+    """G10: closed vs sgd produce equivalent predictions at weak
+    regularization (alpha=0.5).
+
+    Why alpha=500 (lam = alpha/n = 0.5), not alpha=0.5:
+      `lam = alpha/n` — this is the mathematically correct scaling
+      to match closed-form `sum_loss + alpha/2·||β||²` with SGD
+      `mean_loss + lam/2·||W||²`. But at n=1000, this means
+      alpha=0.5 gives lam=0.0005 (effectively zero), alpha=1
+      gives lam=0.001 (effectively zero). Both are near-unregularized
+      logistic on near-separable data (X@β std ~sqrt(d)) → MLE at/
+      near infinity, SGD/Newton predict differently (~13-15% hard
+      disagreement observed).
+
+      Real regularization requires alpha ~ n × desired_lam. With
+      n=1000, alpha=500 → lam=0.5: hessian well-conditioned, loss
+      strictly convex → unique MLE; both methods converge to it.
+      Same G10 coverage (closed vs sgd), no ill-posed noise, AND
+      actually exercises the lam=alpha/n scaling.
+
+    Correct G10 comparison for non-quadratic loss: predictions +
+    LL, not coefficients. MLE unique but coefficient manifold can
+    be near-degenerate at weak signal + regularization; SGD
+    trajectory ≠ Newton trajectory; coef norms can differ 2-3×
+    while predictions match.
+
+    See AI_CONSTITUTION.md §4.1 — "bit-identical OR documented
+    convergence". This is the convergence test for logistic.
+    """
+    n, d = 1000, 10
+    df, X_cols = _make_logistic_sgd_df(n, d, seed=42)
+    # alpha=500 → lam = alpha/n = 0.5 (real regularization).
+    alpha_val = 500.0
+    m_closed = fit_logistic(df, X_cols, "y", alpha=alpha_val,
+                            solver="closed")
+    m_sgd = fit_logistic(df, X_cols, "y", alpha=alpha_val,
+                         solver="sgd", sgd_lr=0.5, sgd_epochs=500)
+    assert m_closed.solver_ == "closed"
+    assert m_sgd.solver_ == "sgd"
+
+    # 1. Hard predict (0/1) agreement >= 98%
+    import numpy as np
+    rng = np.random.RandomState(42)
+    X = rng.randn(n, d) * 2.0  # matches _make_logistic_sgd_df scale=2.0
+    yhat_closed = m_closed.predict(X)
+    yhat_sgd = m_sgd.predict(X)
+    agreement = float(np.mean(yhat_closed == yhat_sgd))
+    assert agreement >= 0.98, (
+        f"hard predict agreement {agreement:.3f} < 0.98 "
+        f"(SGD vs closed, alpha=500 → lam=0.5)")
+
+    # 2. Soft predict RMSE < 0.10 (well-conditioned, both near MLE)
+    p_closed = m_closed.predict_proba(X)
+    p_sgd = m_sgd.predict_proba(X)
+    rmse = float(np.sqrt(np.mean((p_closed - p_sgd) ** 2)))
+    assert rmse < 0.10, (
+        f"predict_proba RMSE {rmse:.4f} > 0.10 (SGD vs closed, "
+        f"alpha=500 → lam=0.5)")
+
+    # 3. Log-likelihood within 2% relative (well-conditioned)
+    ll_diff = abs(m_sgd.log_likelihood_ - m_closed.log_likelihood_)
+    ll_rel = ll_diff / max(1e-12, abs(m_closed.log_likelihood_))
+    assert ll_rel < 0.02, (
+        f"log_likelihood rel diff {ll_rel:.3f} > 0.02 "
+        f"(closed={m_closed.log_likelihood_:.2f}, "
+        f"sgd={m_sgd.log_likelihood_:.2f}, alpha=500 → lam=0.5)")
+
+    # 4. Coefficient norms ratio within 2x (well-conditioned; both
+    # near MLE, norms should be close)
+    n_closed = np.linalg.norm(m_closed.coef_)
+    n_sgd = np.linalg.norm(m_sgd.coef_)
+    ratio = n_sgd / max(1e-12, n_closed)
+    assert 0.5 < ratio < 2.0, (
+        f"coefficient norm ratio {ratio:.2f} outside [0.5, 2.0] "
+        f"(||closed||={n_closed:.3f}, ||sgd||={n_sgd:.3f}, "
+        f"alpha=500 → lam=0.5)")
+
+
+def test_logistic_solver_closed_vs_sgd_predictions_strong_reg():
+    """G10 variant: with STRONG regularization (alpha=1000 → lam=1.0),
+    predictions must agree tightly (both solve same regularized MLE;
+    SGD path differs, optimum is unique, hessian well-conditioned)."""
+    n, d = 1000, 10
+    df, X_cols = _make_logistic_sgd_df(n, d, seed=42)
+    m_closed = fit_logistic(df, X_cols, "y", alpha=1000.0, solver="closed")
+    m_sgd = fit_logistic(df, X_cols, "y", alpha=1000.0,
+                         solver="sgd", sgd_lr=0.5, sgd_epochs=500)
+    rng = np.random.RandomState(42)
+    X = rng.randn(n, d) * 2.0
+    p_closed = m_closed.predict_proba(X)
+    p_sgd = m_sgd.predict_proba(X)
+    rmse = float(np.sqrt(np.mean((p_closed - p_sgd) ** 2)))
+    # Strong reg (lam=1.0): MLE unique & tightly constrained; RMSE tight.
+    assert rmse < 0.10, (
+        f"predict_proba RMSE {rmse:.4f} > 0.10 at alpha=1000 (lam=1.0)")
+
+
+def test_logistic_sgd_deterministic():
+    n, d = 200, 5
+    df, X_cols = _make_logistic_sgd_df(n, d, seed=11)
+    m1 = fit_logistic(df, X_cols, "y", solver="sgd",
+                      sgd_lr=0.1, sgd_epochs=10)
+    m2 = fit_logistic(df, X_cols, "y", solver="sgd",
+                      sgd_lr=0.1, sgd_epochs=10)
+    assert np.array_equal(m1.coef_, m2.coef_)
+    assert m1.intercept_ == m2.intercept_
+
+
+def test_logistic_auto_at_large_d_uses_sgd():
+    n, d = 20, 2000
+    df, X_cols = _make_logistic_sgd_df(n, d, seed=5, scale=1.0)
+    mg = MemoryGuard(max_memory_mb=10)
+    m = fit_logistic(df, X_cols, "y", solver="auto",
+                     sgd_lr=0.2, sgd_epochs=20, memory_guard=mg)
+    assert m.solver_ == "sgd"
+
+
+def test_logistic_closed_raises_on_tight_guard():
+    n, d = 20, 3000
+    df, X_cols = _make_logistic_sgd_df(n, d, seed=3, scale=1.0)
+    with pytest.raises(MemoryLimitExceeded):
+        fit_logistic(df, X_cols, "y", solver="closed",
+                     memory_guard=MemoryGuard(max_memory_mb=10))
+
+
+def test_logistic_sgd_with_alpha_penalty():
+    """alpha > 0 + solver=sgd: penalty shrinks coef (intercept unpenalized).
+
+    lam = alpha/n. To get significant regularization at n=1000, need
+    alpha ~1000 (lam=1). Small alpha (e.g. 2) gives lam=0.002 — no
+    visible effect on coefficient norm.
+    """
+    n, d = 1000, 5
+    df, X_cols = _make_logistic_sgd_df(n, d, seed=1, scale=2.0)
+    # Strong penalty: lam = alpha/n = 1.0
+    m_pen = fit_logistic(df, X_cols, "y", alpha=1000.0,
+                         solver="sgd", sgd_lr=0.3, sgd_epochs=300)
+    # No penalty
+    m_no_pen = fit_logistic(df, X_cols, "y", alpha=0.0,
+                            solver="sgd", sgd_lr=0.3, sgd_epochs=300)
+    assert m_pen.solver_ == "sgd"
+    assert m_pen.alpha_ == 1000.0
+    # Strong penalty should shrink coef norm significantly (>10%)
+    norm_pen = np.linalg.norm(m_pen.coef_)
+    norm_no_pen = np.linalg.norm(m_no_pen.coef_)
+    assert norm_pen < norm_no_pen * 0.90, (
+        f"alpha=1000 (lam=1.0) expected >10% shrink; got "
+        f"||coef_pen||={norm_pen:.3f}, ||coef_no_pen||={norm_no_pen:.3f}")
+    # Intercept should be finite (not blown up by penalty)
+    assert np.isfinite(m_pen.intercept_)
+    assert abs(m_pen.intercept_) < 10.0
+
+
+def test_logistic_sgd_ll_computed():
+    """SGD path returns log_likelihood_ (not NaN)."""
+    n, d = 200, 3
+    df, X_cols = _make_logistic_sgd_df(n, d, seed=2)
+    m = fit_logistic(df, X_cols, "y", solver="sgd",
+                     sgd_lr=0.1, sgd_epochs=50)
+    assert np.isfinite(m.log_likelihood_)
+    assert m.log_likelihood_ < 0  # LL is negative for logistic
