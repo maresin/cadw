@@ -20,6 +20,19 @@ def _df(X):
     return CadwDataFrame.from_table(pa.table(d)), cols
 
 
+
+def _to_numpy_2d(df):
+    """CadwDataFrame of K-wide arrays → (n, K) numpy (v0.9.95)."""
+    import numpy as np
+    parts = []
+    for b in df._iter_filtered_batches():
+        cols = [b.column(c).to_numpy(zero_copy_only=False)
+                for c in df.columns]
+        parts.append(np.column_stack(cols))
+    return (np.concatenate(parts, axis=0) if parts
+            else np.zeros((0, len(df.columns)), dtype=np.float64))
+
+
 def test_synthetic_singular_values_match_pca():
     X = _low_rank(seed=0)
     df, cols = _df(X)
@@ -35,7 +48,7 @@ def test_transform_shape_and_projection_quality():
     X = _low_rank(seed=1)
     df, cols = _df(X)
     m = fit_randomized_svd(df, cols, n_components=3)
-    Z = m.transform(df)
+    Z = _to_numpy_2d(m.transform(df))
     assert Z.shape == (X.shape[0], 3)
     # reconstruct: Z @ components + mean should be close to X on the
     # rank-3 signal (noise 0.05)

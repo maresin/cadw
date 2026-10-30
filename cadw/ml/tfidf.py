@@ -79,10 +79,9 @@ class TfidfModel:
                         memory_guard=None, output: str = "auto"):
         """Dense D x V matrix (small inputs / tests only).
 
-        v0.9.90-S4: output= for spill-on-demand.
-          "memory" (default) → np.ndarray (D, V).
-          "auto"/"disk"      → AutoArrayResult (iterable batches of
-                                (b, V)); .to_numpy() raises on spilled.
+        v0.9.95 (BREAKING): unified CadwDataFrame return.
+        output= selects storage strategy only.
+        Columns: ["c0", ..., "c{V-1}"].
         """
         if output not in ("memory", "auto", "disk"):
             raise ValueError(
@@ -101,21 +100,27 @@ class TfidfModel:
                     row = np.zeros(V)
                     row[idx] = val
                     out.append(row)
-            return np.vstack(out) if out else np.zeros((0, V))
+            raw = np.vstack(out) if out else np.zeros((0, V))
+        else:
+            buf = SpillArray(guard=mg, width=V, dtype=np.float64,
+                             name="tfidf.dense",
+                             spill_ratio=0.0 if output == "disk" else 0.5)
+            for b in df._iter_filtered_batches():
+                mg.check_batch(b, name="tfidf.transform_dense",
+                               extra_factor=3.0)
+                texts = b.column(text_col).to_pylist()
+                mat = np.zeros((len(texts), V))
+                for i, t in enumerate(texts):
+                    idx, val = self._row(t, norm)
+                    mat[i, idx] = val
+                buf.write_array(mat)
+            raw = buf.finalize()
 
-        buf = SpillArray(guard=mg, width=V, dtype=np.float64,
-                         name="tfidf.dense",
-                         spill_ratio=0.0 if output == "disk" else 0.5)
-        for b in df._iter_filtered_batches():
-            mg.check_batch(b, name="tfidf.transform_dense",
-                           extra_factor=3.0)
-            texts = b.column(text_col).to_pylist()
-            mat = np.zeros((len(texts), V))
-            for i, t in enumerate(texts):
-                idx, val = self._row(t, norm)
-                mat[i, idx] = val
-            buf.write_array(mat)
-        return buf.finalize()
+        # v0.9.95 (BREAKING): unified CadwDataFrame return.
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=[f"c{i}" for i in range(V)],
+            memory_guard=mg)
 
 
 def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,

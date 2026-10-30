@@ -62,7 +62,10 @@ class RandomizedSVDModel:
         return ev / max(total, 1e-300) if n else ev
 
     def transform(self, df, memory_guard=None, *, output: str = "auto"):
-        """v0.9.90-S4: output= for spill-on-demand (auto/disk)."""
+        """v0.9.95 (BREAKING): unified CadwDataFrame return.
+        output= selects storage strategy only.
+        Columns: ["pc0", ..., "pc{k-1}"].
+        """
         if output not in ("memory", "auto", "disk"):
             raise ValueError(
                 f"randsvd.transform: output must be 'memory', "
@@ -84,8 +87,14 @@ class RandomizedSVDModel:
             else:
                 buf.write_array(proj_b)
         if output == "memory":
-            return np.vstack(out) if out else np.zeros((0, k))
-        return buf.finalize()
+            raw = np.vstack(out) if out else np.zeros((0, k))
+        else:
+            raw = buf.finalize()
+        # v0.9.95 (BREAKING): unified CadwDataFrame return.
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_producer_result(
+            raw, col_names=[f"pc{i}" for i in range(k)],
+            memory_guard=mg)
 
 
 def fit_randomized_svd(df, X_cols, *, n_components=8, n_oversamples=10,

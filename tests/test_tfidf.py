@@ -25,12 +25,25 @@ def _df(docs):
     return CadwDataFrame.from_table(pa.table({"text": pa.array(docs)}))
 
 
+
+def _to_numpy_2d(df):
+    """CadwDataFrame of K-wide arrays → (n, K) numpy (v0.9.95)."""
+    import numpy as np
+    parts = []
+    for b in df._iter_filtered_batches():
+        cols = [b.column(c).to_numpy(zero_copy_only=False)
+                for c in df.columns]
+        parts.append(np.column_stack(cols))
+    return (np.concatenate(parts, axis=0) if parts
+            else np.zeros((0, len(df.columns)), dtype=np.float64))
+
+
 def test_reference_sklearn_tfidf_exact():
     """Our TF-IDF must match sklearn's smoothed idf and l2 norm."""
     sk = pytest.importorskip("sklearn.feature_extraction.text")
     docs = _corpus(seed=0)
     m = fit_tfidf(_df(docs), "text", vocab_size=50, sublinear_tf=True, norm="l2")
-    ours = m.transform_dense(_df(docs), text_col="text", norm="l2")
+    ours = _to_numpy_2d(m.transform_dense(_df(docs), text_col="text", norm="l2"))
     # sklearn with the SAME tokenizer and the same vocabulary
     vec = sk.TfidfVectorizer(
         tokenizer=lambda s: [t for t in s.lower().split() if len(t) > 1],
@@ -68,8 +81,10 @@ def test_sublinear_tf_vs_linear():
     a = fit_tfidf(_df(docs), "text", vocab_size=10, sublinear_tf=True, norm=None)
     b = fit_tfidf(_df(docs), "text", vocab_size=10, sublinear_tf=False, norm=None)
     ja = a._index["apple"]
-    va = a.transform_dense(_df(docs), text_col="text", norm=None)[0, ja]
-    vb = b.transform_dense(_df(docs), text_col="text", norm=None)[0, a._index["apple"]]
+    _A = _to_numpy_2d(a.transform_dense(_df(docs), text_col="text", norm=None))
+    _B = _to_numpy_2d(b.transform_dense(_df(docs), text_col="text", norm=None))
+    va = _A[0, ja]
+    vb = _B[0, a._index["apple"]]
     assert abs(va - (1.0 + math.log(3.0)) * a.idf_[ja]) < 1e-9
     assert abs(vb - 3.0 * a.idf_[ja]) < 1e-9
 
@@ -77,7 +92,7 @@ def test_sublinear_tf_vs_linear():
 def test_l2_norm_is_unit():
     docs = _corpus(seed=3)
     m = fit_tfidf(_df(docs), "text", vocab_size=50, norm="l2")
-    X = m.transform_dense(_df(docs), text_col="text", norm="l2")
+    X = _to_numpy_2d(m.transform_dense(_df(docs), text_col="text", norm="l2"))
     nz = X[np.any(X != 0, axis=1)]
     assert np.allclose(np.linalg.norm(nz, axis=1), 1.0, atol=1e-9)
 

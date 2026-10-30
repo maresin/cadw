@@ -207,39 +207,53 @@ def test_ordinal_predict_auto_disk():
 # ─── tfidf ────────────────────────────────────────────────────────
 
 def test_tfidf_dense_auto_disk():
+    """v0.9.95: unified CadwDataFrame."""
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _tfidf_model()
     a = m.transform_dense(df, text_col="text", output="auto")
-    assert isinstance(a, AutoArrayResult)
+    assert isinstance(a, CadwDataFrame)
     d = m.transform_dense(df, text_col="text", output="disk")
-    assert isinstance(d, OnDiskArrayResult)
-    d.close()
+    assert isinstance(d, CadwDataFrame)
+    assert not isinstance(d._dataset, _InMemoryDataset)
 
 
 def test_tfidf_dense_auto_equals_memory():
+    """v0.9.95: extract per-column via _iter_filtered_batches."""
     m, df = _tfidf_model()
-    mem = m.transform_dense(df, text_col="text", output="memory")
-    auto = m.transform_dense(df, text_col="text", output="auto")
-    got = np.concatenate([a for a in auto], axis=0)
-    np.testing.assert_allclose(mem, got)
+    mem_df = m.transform_dense(df, text_col="text", output="memory")
+    auto_df = m.transform_dense(df, text_col="text", output="auto")
+    assert mem_df.columns == auto_df.columns
+    for col in mem_df.columns:
+        mem = _scores_col_to_numpy(mem_df, col)
+        got = _scores_col_to_numpy(auto_df, col)
+        np.testing.assert_allclose(mem, got)
 
 
 # ─── randsvd ──────────────────────────────────────────────────────
 
 def test_randsvd_auto_disk():
+    """v0.9.95: unified CadwDataFrame."""
+    from cadw import CadwDataFrame
+    from cadw.dataset._in_memory import _InMemoryDataset
     m, df = _randsvd_model()
     a = m.transform(df, output="auto")
-    assert isinstance(a, AutoArrayResult)
+    assert isinstance(a, CadwDataFrame)
     d = m.transform(df, output="disk")
-    assert isinstance(d, OnDiskArrayResult)
-    d.close()
+    assert isinstance(d, CadwDataFrame)
+    assert not isinstance(d._dataset, _InMemoryDataset)
 
 
 def test_randsvd_auto_equals_memory():
+    """v0.9.95: extract per-column via _iter_filtered_batches."""
     m, df = _randsvd_model()
-    mem = m.transform(df, output="memory")
-    auto = m.transform(df, output="auto")
-    got = np.concatenate([a for a in auto], axis=0)
-    np.testing.assert_allclose(mem, got)
+    mem_df = m.transform(df, output="memory")
+    auto_df = m.transform(df, output="auto")
+    assert mem_df.columns == auto_df.columns
+    for col in mem_df.columns:
+        mem = _scores_col_to_numpy(mem_df, col)
+        got = _scores_col_to_numpy(auto_df, col)
+        np.testing.assert_allclose(mem, got)
 
 
 # ─── gmm (pa.Table path) ─────────────────────────────────────────
