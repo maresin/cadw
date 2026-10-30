@@ -1,5 +1,67 @@
 ## [Unreleased]
 
+### v0.9.95 (2026-10-30) — unified CadwDataFrame (BREAKING)
+
+**BREAKING:** `output=` no longer selects return type. All 13
+producers return `CadwDataFrame` regardless of mode; `output=`
+selects **storage strategy only**:
+
+  "memory" → CadwDataFrame (in-memory, _InMemoryDataset, no disk)
+  "auto"   → CadwDataFrame (in-memory if fits budget, else disk)
+  "disk"   → CadwDataFrame (disk-backed, Arrow IPC)
+
+Migration pattern (for user code):
+  result = producer(...)   # CadwDataFrame, NOT pa.Table/np.ndarray
+  # extract numeric: [b.column(c).to_numpy(...)
+  #                    for b in result._iter_filtered_batches()]
+  # or: result.to_pylist() / result.select(["c1", "c2"])
+
+Producers migrated (5 waves):
+
+  Ops:
+    groupby_aggregate, drop_duplicates, topk_to_disk
+
+  ML:
+    iforest.score_samples/predict/score
+    coxph.predict_risk
+    gmm.score_samples/predict/score
+    chains.predict_proba/predict
+    ordinal.predict_proba/predict
+    tfidf.transform_dense
+    randsvd.transform
+
+CadwDataFrame additions (additive, non-breaking):
+- to_pylist()             — pa.Table-compatible materializer
+- select(columns)         — pandas-compatible column subset
+- from_auto_result(...)   — wrap AutoResult (v0.9.94-narrow)
+- from_autoarray_result(...) — wrap AutoArrayResult (v0.9.94-narrow)
+- from_producer_result(...)  — universal wrap
+                                (AutoResult|AutoArrayResult|pa.Table|np.ndarray)
+- _from_numpy(...)        — internal in-memory numpy wrap
+
+_wrap_result_table passthrough CadwDataFrame. Skew path
+(`_groupby_with_skew`) wrapped — was returning pa.Table,
+bypassing main return (multichunk value_counts used this path).
+
+Lessons (see AI_CONSTITUTION §5 AP7–AP9):
+- Tail-only patch insufficient when producer has multiple
+  return points (memory / auto/disk / skew / combiner /
+  partial_merge / early-return).
+- Silent anchor-miss: `str.replace` without `else: sys.exit`
+  hides failures. Always guard.
+- Arrow: pa.concat_tables(list[Table]) vs
+  pa.Table.from_batches(list[RecordBatch]) vs pa.concat_arrays
+  (returns Array, not ChunkedArray).
+
+Test count: 4167 passed, 8 skipped (full fast, ~9 min).
+
+Full fast pre-tag is the gate that caught ~50 transitive
+failures across 10+ test files.
+
+Next: v0.9.96 — G11 (transitive migration check),
+sparse tfidf.transform (CSR SpillBuffer), CoxPH concordance
+streaming, or new functionality (D4 variants, TS forecast).
+
 ### v0.9.93-logistic (2026-10-30) - wide-feature OOC + closed-path bug fix
 
 **BREAKING (production bug fix):** `fit_logistic(alpha>0)` closed

@@ -377,6 +377,90 @@ calls in the same class and pin the old default explicitly.
 
 ---
 
+### AP7. Producer has multiple return points — patch ALL of them
+
+A single `def produce(...)` may have:
+- memory branch: `return pa.Table(...)` (early, BEFORE tail)
+- auto/disk branch: `return buf.finalize()` (tail)
+- skew branch: `return _groupby_with_skew(...)` (early, before main path)
+- combiner / partial_merge / dict_overflows branches: separate returns
+- internal callers: `self.method(...)` might expect old contract
+
+If you patch only the tail, `output="memory"` and `output="skew"`
+still return pa.Table while `output="auto"` returns CadwDataFrame —
+silent inconsistency. Discovered in v0.9.95 (5 waves, 13 producers).
+
+Checklist before "producer migrated":
+- `grep -n 'return' <file>` — count ALL returns in function
+- `grep -n 'return _groupby\|return _local\|return groupby_' ops/*.py`
+- `grep 'if output == "memory"' <file>` — ensure that branch wraps
+- `grep 'self.<method>(' <file>` — internal callers break too
+
+Wrong:
+```python
+if output == "memory":
+    return np.concatenate(parts)   # ← bypasses tail
+buf = SpillBuffer(...)
+for b in ...: buf.write_batch(b)
+return buf.finalize()              # ← tail patched only here
+```
+
+Right:
+```python
+if output == "memory":
+    raw = np.concatenate(parts)    # → raw
+else:
+    buf = SpillBuffer(...)
+    for b in ...: buf.write_batch(b)
+    raw = buf.finalize()
+return CadwDataFrame.from_producer_result(raw, ...)  # one return
+```
+
+### AP8. `str.replace` without `else: sys.exit` — silent anchor-miss
+
+Patch scripts must fail loudly when `OLD not in src`:
+
+```python
+# WRONG:
+src = src.replace(OLD, NEW, 1)  # if OLD absent → silent no-op
+
+# RIGHT:
+if OLD not in src:
+    print(f"ERR: anchor not found: {OLD[:80]!r}")
+    sys.exit(1)
+src = src.replace(OLD, NEW, 1)
+```
+
+In v0.9.95 two patches silently missed because my OLD-block
+assumed state after a prior failed attempt. Test suite caught it
+later (full fast), but cost 2 extra fix iterations.
+
+Always:
+- print `OK: <what>` after successful apply
+- `else: print("ERR <anchor>") + sys.exit`
+- verify with `grep <marker> <file>` after patch
+
+### AP9. Arrow API mismatch — pa.concat_tables vs Table.from_batches vs concat_arrays
+
+Three Arrow APIs, three different list-type contracts:
+
+| API | Input | Return |
+|---|---|---|
+| `pa.concat_tables([...])` | `list[pa.Table]` | Table |
+| `pa.Table.from_batches([...])` | `list[pa.RecordBatch]` | Table |
+| `pa.concat_arrays([...])` | `list[pa.Array]` | **Array** (not ChunkedArray) |
+
+Common errors:
+- `pa.concat_tables(list_batches)` → `TypeError: Cannot convert
+  pyarrow.lib.RecordBatch to pyarrow.lib.Table`
+- `pa.concat_arrays(list_arrays).combine_chunks()` →
+  `AttributeError: 'pyarrow.lib.Array' object has no attribute
+  'combine_chunks'` (that's a ChunkedArray method)
+
+Both hit in v0.9.95 wave 5 (value_counts, duplicated).
+Fix: use `from_batches` for RecordBatches; drop `.combine_chunks()`
+after `concat_arrays`.
+
 ## §6. Roadmap summary (3 sessions) + won't-fix
 
 **Next sessions** (see docs/ROADMAP.md for details):

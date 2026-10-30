@@ -2,9 +2,21 @@
 
 Last updated: 2026-10-29 (after v0.9.92).
 
-## Current: v0.9.92
+## Current: v0.9.95
 
-**Closed:** streaming-output migration (S0–S6, default flip).
+**Closed:** streaming-output migration (v0.9.92), wide-d quartet
+(v0.9.93), unified narrow (v0.9.94), unified broad (v0.9.95).
+
+All 13 producers return CadwDataFrame regardless of output=;
+output= selects storage strategy only. Pipeline works with all
+migrated models out-of-the-box.
+
+| Producer class | Status |
+|---|---|
+| ops (groupby/dedup/topk) | ✅ CadwDataFrame |
+| ML predict/transform (iforest, chains, ordinal, gmm, tfidf, randsvd, coxph) | ✅ CadwDataFrame |
+
+**Legacy (v0.9.92):** streaming-output migration.
 - All ops + ML predict return `CadwDataFrame` via facade
   (or `AutoResult` / `AutoArrayResult` direct, `output="auto"`).
 - No hidden OOM in migrated functions.
@@ -63,7 +75,23 @@ Half of ML models don't participate. Fix unlocks
 **Tests:** new `test_pipeline_all_models.py` — chain `iforest` /
 `chains` / `ordinal` / `gmm` into `Pipeline`.
 
-### v0.9.95 — S5b-full + K-spill
+### v0.9.96 — G11 + polish + new features
+
+**G11 (transitive-migration check)**: AST scan for
+`producer(...).column(...)` / `.to_numpy(...)` — mirrors
+pivot/duplicated/subset_accuracy bugs caught in v0.9.95 wave 5.
+Backlog.
+
+**Polish**:
+- Sparse tfidf.transform (CSR SpillBuffer)
+- CoxPH concordance_index streaming (currently O(n²) pairwise)
+- YAML: `bounded_state_dims` for 84 cards
+- `df.estimate_memory(op, params)` pre-flight
+
+**New functionality** (choose):
+- D4 ROCKET variants (MultiRocket, Hydra, BOSS, Catch22)
+- TS forecast extension (AutoARIMA, Croston)
+- K-spill for `encode_categorical` / `metrics`
 
 **S5b-full** — TS group path guards:
 - `ts/features.py::_shift_stream` group path.
