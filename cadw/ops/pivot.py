@@ -111,7 +111,7 @@ def pivot_to_disk(
         log=False,
         output="auto",
     )
-    if len(long_result) == 0:
+    if long_result.count() == 0:
         raise ValueError(
             "pivot_to_disk: no rows after filtering null columns; "
             "cannot pivot empty data"
@@ -120,7 +120,7 @@ def pivot_to_disk(
     # Find first non-empty batch as sample (AutoResult iterable is
     # re-entrant; each iter() opens fresh reader for OnDiskResult).
     sample = None
-    for b in long_result:
+    for b in long_result._iter_filtered_batches():
         if b.num_rows > 0:
             sample = b
             break
@@ -129,7 +129,7 @@ def pivot_to_disk(
             "pivot_to_disk: no non-empty batch in groupby result")
     k_columns_est = estimate_k_sample_arrow(sample, [columns_col])
     key_bytes = _column_key_size(
-        long_result.schema.field(columns_col).type
+        sample.schema.field(columns_col).type
     )
     memory_guard.check_state(
         k_columns_est * key_bytes * 2,
@@ -137,7 +137,7 @@ def pivot_to_disk(
     )
 
     sorted_path = external_sort(
-        iter(long_result),
+        iter(long_result._iter_filtered_batches()),
         key_columns=index_cols + [columns_col],
         value_columns=index_cols + [columns_col, value_col_name],
         memory_guard=memory_guard,
@@ -161,7 +161,7 @@ def pivot_to_disk(
 
     value_dtype = _column_dtype_for_agg(aggfunc, values_type)
     out_fields = [
-        long_result.schema.field(c) for c in index_cols
+        sample.schema.field(c) for c in index_cols
     ]
     out_col_names: list = []
     index_set = set(index_cols)

@@ -73,15 +73,15 @@ def test_from_table_multi_key_sort():
     assert sorted_df["b"].to_list() == [5, 10, 15, 20]
 
 
-def test_from_table_groupby_writes_to_disk():
-    """groupby on in-memory df creates a disk Dataset (acceptable;
-    group is small so I/O is fine)."""
+def test_from_table_groupby_returns_cadwdataframe():
+    """v0.9.95: groupby returns CadwDataFrame; may be in-memory
+    (from_producer_result via _InMemoryDataset) or disk-backed
+    depending on spill. Both acceptable — type is unified."""
     t = pa.table({"g": ["a", "a", "b", "b"], "v": [1.0, 2.0, 3.0, 4.0]})
     df = CadwDataFrame.from_table(t, memory_guard=MemoryGuard(max_memory_mb=10))
     result = df.groupby("g").agg("v", "mean")
-    # Result is on disk (groupby calls Dataset.from_batches)
+    assert isinstance(result, CadwDataFrame)
     assert result.count() == 2
-    assert not isinstance(result._dataset, _InMemoryDataset)
 
 
 def test_from_table_add_column_raises():

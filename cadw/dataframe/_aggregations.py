@@ -101,6 +101,14 @@ class _AggregationsMixin:
                     column, col_type, normalize=normalize,
                 )
             raise
+        # v0.9.95: groupby_aggregate returns CadwDataFrame; convert
+        # back to pa.Table for value_counts' pa.Table-based tail.
+        _batches = list(result._iter_filtered_batches())
+        if not _batches:
+            return _empty_value_counts_table(
+                column, col_type, normalize=normalize,
+            )
+        result = pa.Table.from_batches(_batches)
         result = result.rename_columns([column, "count"])
         if sort:
             order = _pc.sort_indices(
@@ -277,7 +285,7 @@ class _AggregationsMixin:
                 if is_empty_input_error(e):
                     return 0
                 raise
-            return result.num_rows
+            return result.count()  # v0.9.95: CadwDataFrame
 
         if column is not None:
             if column not in self._columns:
@@ -519,13 +527,19 @@ class _AggregationsMixin:
     def to_pylist(self) -> list:
         """Materialize all rows as list of dicts (pa.Table-compatible).
 
-        v0.9.95: matches pa.Table.to_pylist() API. Unifies the
-        CadwDataFrame return type so existing test/script code that
-        did `result.to_pylist()` on a pa.Table continues to work.
+        v0.9.95: matches pa.Table.to_pylist() API.
+
+        Guarded per batch (check_batch extra_factor=3.0) — v0.9.25d
+        scan requires every to_pylist site to be guarded.
 
         WARNING: O(n) RAM. For inspection only — use
         `_iter_filtered_batches()` for streaming consumers.
         """
-        return [r for b in self._iter_filtered_batches()
-                for r in b.to_pylist()]
+        mg = self._memory_guard
+        out = []
+        for b in self._iter_filtered_batches():
+            if mg is not None:
+                mg.check_batch(b, name="to_pylist", extra_factor=3.0)
+            out.extend(b.to_pylist())
+        return out
 

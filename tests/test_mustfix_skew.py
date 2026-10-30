@@ -69,7 +69,7 @@ def test_groupby_one_hot_skew(tmp_path):
         make_iter(table, 100), ["cat"], ["val"], ["mean"],
         guard, tmp_path, num_partitions=4, log=False,
     )
-    assert result.num_rows == 1
+    assert result.count() == 1  # v0.9.95: CadwDataFrame
     assert result.to_pylist()[0]["val_mean"] == pytest.approx(499.5)
 
 
@@ -158,7 +158,7 @@ def test_no_sample_duplication_light(tmp_path):
         make_iter(table, 20), ["cat"], ["val"], ["count"],
         guard, tmp_path, num_partitions=None, log=False,
     )
-    assert result.num_rows == n
+    assert result.count() == n  # v0.9.95: CadwDataFrame
     for r in result.to_pylist():
         assert r["val_count"] == 1, f"key {r['cat']} count={r['val_count']}"
 

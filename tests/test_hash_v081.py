@@ -290,7 +290,7 @@ def test_groupby_recursion_end_to_end_v081(tmp_path):
         bi(), ["cat"], ["val"], ["mean"],
         guard, tmp_path, num_partitions=4, log=False, output="memory",
     )
-    assert result.num_rows == n
+    assert result.count() == n  # v0.9.95: CadwDataFrame
     rows = sorted(result.to_pylist(), key=lambda r: r["cat"])
     for i in [0, 1, n // 2, n - 1]:
         assert rows[i]["val_mean"] == float(i)

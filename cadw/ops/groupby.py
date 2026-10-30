@@ -933,10 +933,15 @@ def groupby_aggregate(
                 "groupby_aggregate: skew detected, %d heavy key(s) -> streaming",
                 len(heavy_keys),
             )
-        return _groupby_with_skew(
+        # v0.9.95-fix2: skew path returns pa.Table; wrap to CadwDataFrame
+        # (unified output contract; output= selects storage only).
+        _skew_table = _groupby_with_skew(
             batch_iter, by_columns, agg_columns, agg_funcs, heavy_keys,
             num_partitions, memory_guard, spill_dir, log,
         )
+        from cadw.dataframe import CadwDataFrame
+        return CadwDataFrame.from_table(
+            _skew_table, memory_guard=memory_guard)
 
     if combiner_active:
         # Wrap in partial-agg generator (state O(batch_size)).

@@ -280,13 +280,23 @@ class _TransformersReshapeMixin:
             total_rows=self._dataset.total_rows,
             log=False,
         )
-        kept_rids = kept_table.column("__rid").combine_chunks()
+        # v0.9.95: _ops_dedup returns CadwDataFrame; extract "__rid"
+        # as a single pa.Array (concat across batches if multi).
+        _rid_parts = [b.column("__rid") for b in
+                      kept_table._iter_filtered_batches()]
+        if _rid_parts:
+            # pa.concat_arrays returns Array (not ChunkedArray);
+            # .combine_chunks() is ChunkedArray method — not needed.
+            kept_rids = pa.concat_arrays(_rid_parts)
+        else:
+            kept_rids = pa.array([], type=pa.uint64())
+        _kept_count = kept_table.count()
 
         # Guard: kept_rids hash set must fit budget (~2x raw bytes)
         kept_est = max(1, kept_rids.nbytes) * 2
         self._memory_guard.check_state(
             kept_est,
-            name=f"duplicated.kept_set(K_kept={kept_table.num_rows})",
+            name=f"duplicated.kept_set(K_kept={_kept_count})",
         )
 
         # Pass 2: mask = NOT is_in(rid, kept_rids) per batch
