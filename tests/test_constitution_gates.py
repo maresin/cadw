@@ -588,6 +588,27 @@ def test_g9_self_verification_present():
 
 G10_WHITELIST: set[tuple[str, str]] = set()
 
+# v0.9.94: explicit allowlist of functions requiring dual-branch tests.
+# G10 no longer AST-scans "any solver=/method= kwarg" — too broad
+# (fit_calibration uses method="isotonic"|"sigmoid" for algorithm
+# variant, not wide-d OOC; fit_drift uses method="ks"|"chi2"; same
+# for feature_select). Only functions with **wide-d OOC alternative**
+# are registered here. Adding a new model with solver="auto"|"closed"|
+# "sgd" (or method="exact"|"randomized") MUST append its entry, then
+# G10 fails until dual-branch test ships.
+#
+# Format: (relative_path, function_name)
+G10_TRACKED_FUNCTIONS: dict[tuple[str, str], str] = {
+    ("cadw/ml/linear.py", "fit_linear"):
+        "solver=closed|sgd (ridge quadratic loss); bit-identical coef",
+    ("cadw/ml/logistic.py", "fit_logistic"):
+        "solver=closed|sgd (logistic); predictions+LL per §4.2",
+    ("cadw/ml/coxph.py", "fit_coxph"):
+        "solver=closed|sgd (Cox Breslow); c-index+LL per §4.2",
+    ("cadw/ml/pca.py", "fit_pca"):
+        "method=exact|randomized (PCA); reconstruction error",
+}
+
 
 def _find_solver_producers():
     """Yield (file, [fn_names_with_solver]) for cadw/ml/."""
@@ -597,14 +618,19 @@ def _find_solver_producers():
     for p in sorted(d.rglob("*.py")):
         if "__pycache__" in p.parts:
             continue
-        fns = _functions_with_kwarg(p, "solver")
+        # v0.9.94: check both solver= and method= (PCA uses method=).
+        fns = _functions_with_kwarg(p, "solver") + _functions_with_kwarg(
+            p, "method")
         if fns:
             yield p, fns
 
 
-def test_g10_solver_equivalence_present():
-    """G10: every fit_* with solver= param must have a test comparing
-    solver="closed" vs solver="sgd".
+def test_g10_dual_branch_test_present():
+    """G10: every fit_* with solver= OR method= param must have a test
+    comparing the explicit values.
+
+    solver= (v0.9.93): "closed" vs "sgd" (linear/logistic/coxph).
+    method= (v0.9.94): "exact" vs "randomized" (pca).
 
     Contract (v0.9.93+):
       - quadratic loss (linear, ridge): bit-identical at d=50
@@ -619,8 +645,9 @@ def test_g10_solver_equivalence_present():
 
     See AI_CONSTITUTION.md §4.1 + ROADMAP v0.9.93.
     """
-    # Scan test files for calls with kwarg solver="closed"/"sgd"
-    solver_calls: dict[str, set[str]] = {}
+    # Scan test files for calls with kwarg solver= OR method=
+    # (v0.9.94: PCA uses method="exact"|"randomized"; G10 covers both).
+    branch_calls: dict[str, set[str]] = {}
     if TESTS_DIR.exists():
         for tp in TESTS_DIR.rglob("test_*.py"):
             if "__pycache__" in tp.parts:
@@ -636,37 +663,40 @@ def test_g10_solver_equivalence_present():
                 if not callee:
                     continue
                 for kw in node.keywords:
-                    if kw.arg == "solver":
+                    if kw.arg in ("solver", "method"):
                         v = getattr(kw.value, "value", None)
                         if isinstance(v, str):
-                            solver_calls.setdefault(
+                            branch_calls.setdefault(
                                 callee, set()).add(v)
 
     missing: list[tuple[str, str, list[str]]] = []
-    for path, fns in _find_solver_producers():
-        rel = str(path.relative_to(ROOT))
-        for fn_name in fns:
-            if (rel, fn_name) in G10_WHITELIST:
-                continue
-            solvers = solver_calls.get(fn_name, set())
-            has_closed = "closed" in solvers
-            has_sgd = "sgd" in solvers
-            gaps: list[str] = []
-            if not has_closed:
-                gaps.append("no solver='closed' test")
-            if not has_sgd:
-                gaps.append("no solver='sgd' test")
-            if gaps:
-                missing.append((rel, fn_name, gaps))
+    # v0.9.94: iterate explicit allowlist, not AST scan (see
+    # G10_TRACKED_FUNCTIONS docstring).
+    for (rel, fn_name) in G10_TRACKED_FUNCTIONS:
+        if (rel, fn_name) in G10_WHITELIST:
+            continue
+        branches = branch_calls.get(fn_name, set())
+        has_closed = "closed" in branches or "exact" in branches
+        has_sgd = "sgd" in branches or "randomized" in branches
+        gaps: list[str] = []
+        if not has_closed:
+            gaps.append("no solver='closed' (or method='exact') test")
+        if not has_sgd:
+            gaps.append("no solver='sgd' (or method='randomized') test")
+        if gaps:
+            missing.append((rel, fn_name, gaps))
 
     assert not missing, (
         f"fit_* with solver= lacking dual-branch tests: "
         f"{missing[:5]}. "
-        f"Add test comparing solver='closed' vs solver='sgd': "
-        f"- quadratic loss (linear/ridge): bit-identical (atol=1e-6, "
-        f"d=50, same regularization λ)"
-        f"- non-quadratic (logistic/coxph): documented convergence "
-        f"(relative coef error < 5% vs reference). "
-        f"See AI_CONSTITUTION.md §4.1 + ROADMAP v0.9.93. "
+        f"Tracked dual-branch functions lacking tests: "
+        f"add test comparing closed vs sgd (or exact vs randomized "
+        f"for PCA). Add test then run: "
+        f"- quadratic loss (linear): bit-identical (atol=1e-6)"
+        f"- non-quadratic (logistic/coxph): c-index / predictions + "
+        f"LL per §4.2"
+        f"- PCA: reconstruction error (components are sign/rotation "
+        f"ambiguous). "
+        f"See AI_CONSTITUTION.md §4.2. "
         f"If not yet implemented, add to G10_WHITELIST with roadmap "
         f"reference.")
