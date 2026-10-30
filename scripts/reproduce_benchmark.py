@@ -238,7 +238,7 @@ def repro_coxph(seed: int = 0) -> ReproResult:
         memory_guard=mg, **_seed_kwargs(fit_coxph, seed),
     )
     cadw_time = time.time() - t0
-    risk_table = cadw_model.predict_risk(df)
+    risk_table = cadw_model.predict_risk(df, output="memory")
     risk = np.asarray(risk_table.column("risk").to_numpy(zero_copy_only=False))
     # c-index expects higher risk = shorter survival
     from lifelines.utils import concordance_index as ci_ref
