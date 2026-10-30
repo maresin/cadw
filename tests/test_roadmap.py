@@ -1,4 +1,9 @@
-"""Structural tests for docs/roadmap.json and docs/ROADMAP.md (v0.9.25b)."""
+"""Structural tests for docs/roadmap.json and docs/ROADMAP.md.
+
+v0.9.93: ROADMAP.md is now actionable (Current / Next 3 / Do-not-
+re-solve / Backlog); phase list A-H lives only in roadmap.json.
+Test was rewritten to match — see test_roadmap_md_structure.
+"""
 import json
 from pathlib import Path
 
@@ -48,21 +53,37 @@ def test_roadmap_json_items_have_required_fields():
             )
 
 
-def test_roadmap_md_phase_headers():
+def test_roadmap_md_structure():
+    """v0.9.93: ROADMAP.md rewritten from 348-line phase-list stub
+    (phases A-H matching roadmap.json) to 115-line actionable
+    document (Current / Next 3 sessions / Do-not-re-solve / Backlog
+    / Session discipline).
+
+    Phase-level data lives in docs/roadmap.json (still validated by
+    test_roadmap_json_*). ROADMAP.md is now the human-facing
+    actionable roadmap for the next 3 sessions; the historical
+    phase list remains authoritative only in json.
+
+    Test verifies section structure, not phase headers.
+    """
     text = ROADMAP_MD.read_text()
-    for pid in "ABCDEFGH":
-        assert f"## §" in text  # sanity: section markers present
-    for name in (
-        "Phase A — Stabilization",
-        "Phase B — Infrastructure",
-        "Phase C — Pandas P0",
-        "Phase D — Algorithm coverage",
-        "Phase E — Recipes",
-        "Phase F — Light NNs",
-        "Phase G — Tech debt close",
-        "Phase H — P2",
+    for header in (
+        "## Current:",
+        "## Next 3 sessions",
+        "## Do not re-solve",
+        "## Backlog",
+        "## Session discipline",
     ):
-        assert name in text, f"ROADMAP.md missing section: {name!r}"
+        assert header in text, (
+            f"ROADMAP.md missing section header: {header!r} "
+            f"(see AI_CONSTITUTION.md §6 — roadmap summary is the "
+            f"visible contract for the AI session)"
+        )
+    # Version reference must be present (current CADW version)
+    assert "v0.9." in text, "ROADMAP.md missing version reference"
+    # Every "Next 3 sessions" subsection names a version
+    for v in ("v0.9.93", "v0.9.94", "v0.9.95"):
+        assert f"### {v}" in text, f"ROADMAP.md missing {v} section"
 
 
 def test_docs_index_links_to_roadmap_and_recipes():
