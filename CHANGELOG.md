@@ -1,5 +1,52 @@
 ## [Unreleased]
 
+### v0.9.93-logistic (2026-10-30) - wide-feature OOC + closed-path bug fix
+
+**BREAKING (production bug fix):** `fit_logistic(alpha>0)` closed
+path was NOT minimizing the penalized objective since v0.7.0b.
+Newton IRLS used the unpenalized gradient in `solve(H_L + α·mask,
+grad_L)`, whose fixed point is grad_L = 0 → unregularized MLE.
+Fix: `solve(H_L + α·mask, grad_L + α·β·mask)` — standard IRLS
+with ridge in weighted LS.
+
+  Evidence (alpha=1000, n=1000, d=10, near-separable):
+  | |coef| | LL  | penalized obj |
+  |-------|-----|---------------|
+  | closed pre-fix | 1.33 | -383 | 502 |
+  | closed post-fix | 0.35 | -510 | 44 |
+  | sgd (correct) | 0.35 | -510 | 44 |
+
+  Users with `alpha` comparable to `n` (alpha>10 at n=1000) will
+  see different coef magnitudes — CORRECT behavior. Existing tests
+  (alpha=1, lam=0.001) unchanged.
+
+Wide-feature OOC for binary logistic regression:
+
+- `fit_logistic(solver="auto"|"closed"|"sgd")`.
+  - closed: Newton IRLS, O(d²), default d≤1000.
+  - sgd: `sgd_streaming(loss="logistic")`, O(d), any d.
+  - auto: closed if `3·(d+1)²·8 ≤ 0.5·available_bytes`.
+- `sgd_streaming` extended:
+  - `loss="ridge"|"logistic"` (default ridge, back-compat).
+  - `penalty_mask` (None default): grad += lam*W*mask. Exempt intercept.
+  - `use_rmsprop=True` default; False for logistic (RMSprop oscillates
+    at strong reg, plain GD contracts at 1-lr*lam).
+
+Tests (+6 in test_logistic.py). G10 criteria in AI_CONSTITUTION §4.2.
+
+Test iteration history (5 attempts):
+1. coef rel_err <0.25 @ alpha=1 → 0.70 (near-degenerate manifold)
+2. alpha=0 hard predict ≥95% → 87.4% (MLE at infinity)
+3. alpha=0.5 → 85.1% (still unreg: lam=0.0005)
+4. alpha=500, RMSprop → strong_reg RMSE 0.42 (RMSprop oscillation)
+5. use_rmsprop=False + closed fix → ALL PASS, revealed real bug
+
+Process note: commit 5b5c1db claimed §4.1 but file was 325 lines
+without §4.1 (`cat >>` heredoc silently skipped). Fixed in
+v0.9.93-docs; §4.1 + §4.2 now present (411 lines).
+
+Next: fit_coxph (Breslow, separate primitive), fit_pca (randsvd).
+
 ### v0.9.91-S6e (2026-10-29) - binseg + stray: refuse_at_guard (documented)
 
 Both modules honestly raise `MemoryLimitExceeded` when the algorithmic

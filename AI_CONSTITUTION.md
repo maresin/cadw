@@ -195,6 +195,92 @@ After:
 
 ---
 
+## §4.1. Self-verification protocol (MANDATORY — enforced by G8–G10)
+
+Human review is not available. Every new function that allocates
+O(n)/O(K)/O(d²) or has `output=`/`solver=` param MUST self-verify:
+
+- [ ] **Shape match**: memory-branch shape == auto-branch shape
+      == documented shape. (Test both branches.)
+- [ ] **Bit-identical** (fit with quadratic loss) or **documented
+      convergence** (logistic/coxph): closed vs sgd. Enforced by G10.
+- [ ] **Spill semantics**: guard budget = small, n = large →
+      `MemoryLimitExceeded` (not OOM), actionable message.
+- [ ] **Determinism**: same seed → same result across 2 runs.
+- [ ] **Parameter bounds**: `spill_ratio ∈ {0.0, 0.5}` (G8).
+      `chunk < n_w` when n_w > target. Threshold derived from
+      `guard.available_bytes()`, NOT a literal int.
+- [ ] **Both branches tested**: `output="memory"` AND `output="auto"`
+      (or default). G9 enforces for all `output=` producers.
+
+**Green test suite is NOT sufficient.** Gates G8–G10 are the
+contract. New producer without self-test = merge fails. If you
+believe a whitelist entry is justified, document the rationale
+with a roadmap reference — never ship silent O(n) RAM.
+
+**Not enforced automatically** (acknowledged limits):
+- "Right pattern, wrong algorithm" (e.g., SGD for Laplace, not MLE)
+- "Right pattern, wrong hyperparameter scale" (learning rate)
+- "Right test, wrong assertion" (e.g., `assert result is not None`)
+
+These require careful reasoning; when uncertain, prefer refuse-
+at-guard over silent approximation (§2 p.6).
+
+## §4.2. G10 dual-branch test criteria by loss type (v0.9.93)
+
+G10 requires closed vs sgd comparison for any `solver=` param.
+The comparison metric differs by loss type and conditioning:
+
+| Case | Compare | Threshold |
+|------|---------|-----------|
+| Quadratic loss (linear/ridge) | coef + intercept | bit-identical, atol=1e-6 |
+| Non-quadratic at real reg (logistic α~n·lam) | hard predict + soft RMSE + LL + coef-norm ratio | ≥98%, <0.10, <2%, [0.5,2] |
+| Non-quadratic at strong reg (logistic α≫n) | RMSE | <0.10 |
+| **Unregularized ill-posed (α=0, separable)** | **do not test** — both MLEs at/near infinity, closed lstsq escapes, SGD stops at finite W | — |
+
+**Anti-pattern #1: comparing coefficients for non-quadratic loss.**
+MLE unique but manifold near-degenerate at weak signal + reg.
+Coefficients can differ 2-3× while predictions match to RMSE < 0.01.
+
+**Anti-pattern #2: α ≪ n in logistic SGD test.**
+`lam = alpha/n` is the correct SGD-to-closed scaling. At n=1000,
+alpha=1 → lam=0.001 (illusory regularization). Test appears to
+exercise reg but doesn't. Use alpha ≈ n × desired_lam
+(e.g., alpha=500 → lam=0.5, alpha=1000 → lam=1.0).
+
+**Anti-pattern #3: RMSprop at strong reg.**
+When penalty dominates gradient (lam·|W| ≳ ||data_grad||),
+RMSprop step → lr·sign(W), oscillates ±lr. Use plain GD
+(`use_rmsprop=False`) when lam*||W|| is not much smaller than
+||data_grad||. Plain GD contracts geometrically at 1 - lr*lam.
+
+**Diagnostic signature of implementation bug (vs test artifact):**
+- If test fails on predictions but closed/sgd coefs differ by >2×
+  AND ||closed|| > ||sgd|| at high alpha → **closed path likely
+  doesn't minimize penalized objective** (fixed-point bug). Check
+  gradient: is penalty term in the Newton step? This pattern found
+  the v0.7.0b closed-path logistic bug (fixed v0.9.93): closed
+  ignored penalty, fix point was unregularized MLE.
+- Print the penalized objective `LL - alpha/2·||β||²` for both
+  branches. Whichever is LOWER (more negative) is closer to the
+  true optimum. In v0.9.93: closed obj=502, sgd obj=44 →
+  sgd was correct, closed was buggy.
+- Only after confirming both branches minimize the SAME objective
+  should you tighten test thresholds. Do not relax thresholds to
+  pass a buggy-branch test.
+
+**Signature of ill-posedness (test is invalid):**
+- Hard predict agreement < 0.90 at α=0 on near-separable data
+  → switch to α=500..1000 (real reg) or document α=0 as known
+  limitation. MLE at infinity cannot be tested.
+
+This rule came from 5 test iterations in v0.9.93-logistic. See
+CHANGELOG v0.9.93-logistic for full attempt log. Future AI
+sessions: before writing G10 test, check (a) loss type,
+(b) α vs n (need lam≈desired), (c) lam*||W|| vs data_grad
+(choose use_rmsprop accordingly), (d) if failing, is it the
+test or the implementation (compare objectives, not coefs).
+
 ## §5. Anti-patterns (5 most common)
 
 ### AP1. `np.zeros((n_total, ...))` or `np.zeros((hyperparam, ...))`
