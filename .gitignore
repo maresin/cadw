@@ -60,3 +60,4 @@ _verify_*.py
 # Pingis temp diagnostic scripts
 .pingis/_*.py
 audit_bundles/
+docs/SESSION_BRIEF_v*.md
