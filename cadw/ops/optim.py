@@ -21,11 +21,26 @@ import numpy as np
 from cadw.core.memory_guard import MemoryGuard
 
 
+def _sigmoid(x):
+    """Numerically stable sigmoid: 1 / (1 + exp(-x)).
+
+    Avoids overflow for large |x| by handling positive / negative
+    branches separately. Returns same dtype/shape as input.
+    """
+    out = np.empty_like(x, dtype=np.float64)
+    pos = x >= 0
+    out[pos] = 1.0 / (1.0 + np.exp(-x[pos]))
+    ex = np.exp(x[~pos])
+    out[~pos] = ex / (1.0 + ex)
+    return out
+
+
 def sgd_streaming(
     batch_stream,
     n_features: int,
     n_outputs: int,
     *,
+    loss: str = "ridge",
     lam: float = 1.0,
     lr: float = 0.01,
     epochs: int = 30,
@@ -50,14 +65,38 @@ def sgd_streaming(
 
     Loss
     ----
-    0.5 * mean((X W^T - Y)^2) + 0.5 * lam * ||W||^2
+    loss="ridge" (default):
+        0.5 * mean((X W^T - Y)^2) + 0.5 * lam * ||W||^2
+    loss="logistic":
+        mean(-[Y * log(sigmoid(X W^T))
+              + (1-Y) * log(1 - sigmoid(X W^T))])
+        + 0.5 * lam * ||W||^2
+        (Y_b expected in {0, 1}; for ±1 targets, caller transforms
+        to 0/1 before passing to batch_stream.)
 
-    Update
+    Update (gradient-only difference; optimizer identical)
     ------
-    pred = X_b @ W^T                           (b, K)
+    z    = X_b @ W^T                           (b, K)
+    pred = z (ridge) | sigmoid(z) (logistic)
     grad = (pred - Y_b).T @ X_b / b + lam * W  (K, d)
     h    = beta * h + (1-beta) * grad**2       (K, d)  [RMSprop]
     W   -= lr * grad / (sqrt(h) + eps)
+
+    Warm start
+    ----------
+    ridge: W_0 = mean(Y^T X) over stream (one gradient step at W=0).
+    logistic: W_0 = 0 (standard; mean(Y^T X) would saturate sigmoid
+      for ±1 targets and 0/1 targets where class imbalance is high).
+
+    Caller responsibility for lam
+    -----------------------------
+    To match a closed-form objective `sum_loss + α·||W||²`:
+      ridge:    lam = α / n
+      logistic: lam = 2·α / n
+    (different because ridge closed objective uses mean-of-squared
+    which scales as 1/n, logistic closed uses sum-of-negative-log-
+    likelihood — penalty coefficient is α in both, loss scaling
+    differs by factor of 2.)
 
     State
     -----
@@ -69,6 +108,10 @@ def sgd_streaming(
     Batch order in batch_stream determines SGD order. Same batch_stream
     → bit-identical result across runs (no random seed involved).
     """
+    if loss not in ("ridge", "logistic"):
+        raise ValueError(
+            f"{name}: loss must be 'ridge' or 'logistic'; got {loss!r}")
+
     d = n_features
     W = np.zeros((n_outputs, d), dtype=np.float64)
     h = np.zeros((n_outputs, d), dtype=np.float64)
@@ -77,31 +120,39 @@ def sgd_streaming(
         mg.check_state(2 * d * n_outputs * 8 + d * 8,
                        name=name + ".classifier.state")
 
-    # Warm start: W_0 ≈ (1/n) X^T Y (one gradient step at W=0, lr=1).
-    n_seen = 0
-    for X_b, Y_b in batch_stream():
-        if mg is not None:
-            # Intermediate: Y_b.T @ X_b → (K, d) temp; account for that
-            # plus X_b read view. check_state (raw byte count), not
-            # check_batch (which expects a pa.RecordBatch).
-            mg.check_state(len(X_b) * d * 8 + n_outputs * d * 8,
-                           name=name + ".warm")
-        # X_b: (b, d), Y_b: (b, K). Y_b.T @ X_b = (K, d). Matches W shape.
-        W += Y_b.T @ X_b
-        n_seen += X_b.shape[0]
-    if n_seen == 0:
-        raise ValueError(f"{name}: empty feature stream")
-    W /= float(n_seen)
+    if loss == "ridge":
+        # Warm start: W_0 ≈ (1/n) X^T Y (one gradient step at W=0).
+        n_seen = 0
+        for X_b, Y_b in batch_stream():
+            if mg is not None:
+                mg.check_state(len(X_b) * d * 8 + n_outputs * d * 8,
+                               name=name + ".warm")
+            W += Y_b.T @ X_b
+            n_seen += X_b.shape[0]
+        if n_seen == 0:
+            raise ValueError(f"{name}: empty feature stream")
+        W /= float(n_seen)
+    else:  # logistic — no warm start (Y^T X would saturate sigmoid
+           # for ±1 targets or imbalanced 0/1 targets)
+        n_seen = 0
+        for X_b, _ in batch_stream():
+            n_seen += X_b.shape[0]
+        if n_seen == 0:
+            raise ValueError(f"{name}: empty feature stream")
 
     for _epoch in range(epochs):
         for X_b, Y_b in batch_stream():
             if mg is not None:
-                # Transients: pred (b,K), grad (K,d), h update (K,d),
-                # masked (K,d). Estimate 3 * (K*d + b*K) * 8 bytes.
+                # Transients: pred (b,K), grad (K,d), h update (K,d).
+                # Estimate 3 * (K*d + b*K) * 8 bytes.
                 mg.check_state(3 * (n_outputs * d + len(X_b) * n_outputs) * 8,
                                name=name + ".batch")
-            pred = X_b @ W.T                           # (b, K)
-            grad = ((pred - Y_b).T @ X_b) / max(len(X_b), 1) + lam * W
+            z = X_b @ W.T                              # (b, K)
+            if loss == "ridge":
+                pred = z
+            else:  # logistic
+                pred = _sigmoid(z)
+            grad = (pred - Y_b).T @ X_b / max(len(X_b), 1) + lam * W
             h = beta * h + (1.0 - beta) * grad * grad
             W -= lr * grad / (np.sqrt(h) + eps)
     return W
