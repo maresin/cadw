@@ -416,6 +416,171 @@ class CadwDataFrame(_ExportsMixin, _IteratorsMixin, _MiscMixin, _IndexingMixin, 
 
     # ---------------- helpers ----------------
 
+    # ─────────────────────────────────────────────────────────────
+    # v0.9.94-unified-narrow: adapters from Auto*Result to CadwDataFrame.
+    # Non-breaking — producers keep returning AutoResult by default.
+    # Use these to wrap any producer's output into a CadwDataFrame for
+    # further chaining (groupby, sort, Pipeline.transform, ...).
+    # ─────────────────────────────────────────────────────────────
+
+    @classmethod
+    def from_auto_result(
+        cls,
+        result,
+        *,
+        memory_guard=None,
+        spill_dir=None,
+    ) -> "CadwDataFrame":
+        """Wrap AutoResult (InMemoryResult | OnDiskResult) as
+        CadwDataFrame.
+
+        The iterable is consumed eagerly by Dataset.from_batches
+        (v0.9.92 — verified: from_batches fully iterates before
+        returning). OnDiskResult's owned_tmpdir cannot be GC'd
+        mid-consumption — safe.
+
+        Parameters
+        ----------
+        result : AutoResult
+            Output of `groupby_aggregate(..., output="auto")`,
+            `drop_duplicates(...)`, `topk_to_disk(...)`,
+            `gmm.score_samples(...)`, `chains.predict_proba(...)`,
+            etc.
+        memory_guard : MemoryGuard, optional
+            Guard for the resulting CadwDataFrame's downstream
+            operations. None → default guard.
+        spill_dir : str | Path, optional
+            Root directory for the new Dataset. None → tempfile
+            mkdtemp under /tmp/cadw_unified_*.
+
+        Raises
+        ------
+        TypeError : result is not AutoResult.
+        """
+        from cadw.core.spill import AutoResult
+        if not isinstance(result, AutoResult):
+            raise TypeError(
+                f"from_auto_result: expected AutoResult (e.g. "
+                f"InMemoryResult | OnDiskResult); got "
+                f"{type(result).__name__}. If you have pa.Table, use "
+                f"the existing CadwDataFrame(Dataset.from_batches(...)) "
+                f"pattern.")
+        if spill_dir is None:
+            spill_dir = Path(tempfile.mkdtemp(prefix="cadw_unified_"))
+        else:
+            spill_dir = Path(spill_dir)
+        p = spill_dir / "datasets" / f"ds_{uuid.uuid4().hex[:8]}"
+        p.mkdir(parents=True, exist_ok=True)
+        new_ds = Dataset.from_batches(result.schema, iter(result), p)
+        return cls(new_ds, memory_guard=memory_guard, spill_dir=spill_dir)
+
+    @classmethod
+    def from_autoarray_result(
+        cls,
+        result,
+        *,
+        col_names=None,
+        memory_guard=None,
+        spill_dir=None,
+        width=None,
+        dtype=None,
+    ) -> "CadwDataFrame":
+        """Wrap AutoArrayResult (InMemoryArrayResult |
+        OnDiskArrayResult) as CadwDataFrame.
+
+        AutoArrayResult from ML producers (iforest.score_samples,
+        tfidf.transform_dense, randsvd.transform, ordinal.predict,
+        coxph.predict_risk, ...).
+
+        Peek first batch to determine (width, dtype). Re-entrant
+        iteration — InMemoryArrayResult and OnDiskArrayResult both
+        open fresh readers on `iter()`. Safe.
+
+        Parameters
+        ----------
+        result : AutoArrayResult
+            (n,) or (n, K) numpy-like; spill-on-demand already
+            handled by the producer's SpillArray.
+        col_names : Sequence[str], optional
+            Column names. Length must equal width. Default: c0..cK-1
+            (or c0 for width=1).
+        width, dtype :
+            Required for empty result (n=0) — cannot peek shape.
+
+        Raises
+        ------
+        TypeError : result is not AutoArrayResult.
+        ValueError : empty result without width; col_names length
+            mismatch.
+        """
+        from cadw.core.spill import (
+            AutoArrayResult, array_schema, array_to_record_batch,
+        )
+        if not isinstance(result, AutoArrayResult):
+            raise TypeError(
+                f"from_autoarray_result: expected AutoArrayResult "
+                f"(e.g. InMemoryArrayResult | OnDiskArrayResult); got "
+                f"{type(result).__name__}")
+        # Peek first batch — re-entrant iteration; no state consumed.
+        first = None
+        for arr in result:
+            arr = np.asarray(arr)
+            if arr.size > 0:
+                first = arr
+                break
+        if first is None:
+            if width is None:
+                raise ValueError(
+                    "from_autoarray_result: result is empty; "
+                    "pass width= (and optionally dtype=) to construct "
+                    "schema without peeking")
+            actual_width = int(width)
+            actual_dtype = np.dtype(dtype) if dtype is not None else (
+                np.float64)
+        else:
+            if first.ndim == 1:
+                actual_width = 1
+            else:
+                actual_width = int(first.shape[1])
+            actual_dtype = first.dtype
+
+        if col_names is None:
+            names = [f"c{i}" for i in range(actual_width)]
+        else:
+            names = list(col_names)
+            if len(names) != actual_width:
+                raise ValueError(
+                    f"from_autoarray_result: col_names length "
+                    f"{len(names)} != width {actual_width}")
+        # Build schema from array_schema (handles dtype mapping); then
+        # replace names.
+        base = array_schema(actual_width, actual_dtype)
+        schema = pa.schema(
+            [(names[i], base.field(i).type) for i in range(actual_width)])
+
+        if spill_dir is None:
+            spill_dir = Path(tempfile.mkdtemp(prefix="cadw_unified_"))
+        else:
+            spill_dir = Path(spill_dir)
+        p = spill_dir / "datasets" / f"ds_{uuid.uuid4().hex[:8]}"
+        p.mkdir(parents=True, exist_ok=True)
+
+        def _iter():
+            for arr in result:
+                arr = np.asarray(arr)
+                if arr.ndim == 1:
+                    arr = arr.reshape(-1, 1)
+                rb = array_to_record_batch(arr)
+                # Rename columns if custom names given.
+                if col_names is not None:
+                    rb = pa.RecordBatch.from_arrays(
+                        [rb.column(i) for i in range(rb.num_columns)],
+                        names=names)
+                yield rb
+
+        new_ds = Dataset.from_batches(schema, _iter(), p)
+        return cls(new_ds, memory_guard=memory_guard, spill_dir=spill_dir)
+
     def _wrap_result_table(self, table) -> "CadwDataFrame":
         # v0.9.92: accept AutoResult (default output="auto") in addition
         # to pa.Table (explicit output="memory"). Facade API always
