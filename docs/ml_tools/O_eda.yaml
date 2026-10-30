@@ -419,6 +419,34 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: polynomial expansion is a preprocessing transform; no standalone leaderboard.'
+  - name: EncodeCategorical
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+    roles:
+    - representation
+    purpose: 'Map each unique category to a dense int32 id, sorted for determinism. Pass 1: pc.value_counts per batch, union in a Python set (O(K) RAM). Pass 2: pc.index_in streaming over batches (O(batch) per batch). Inductive bias: none — pure representation; reverse_maps is O(K) by contract.'
+    real_life_examples:
+    - Categorical to tree/linear feature
+    - Deterministic id assignment across runs
+    - Pre-fit encoding for downstream models
+    config:
+      columns: "str or Sequence[str]"
+    cadw_module: cadw.dataframe
+    cadw_function: encode_categorical
+    state_class: O(K)
+    state_type: aggregation
+    bounded_state: false
+    tier1_core_exception: "reverse_maps is list[unique_values] (public API contract, O(K) by design); Pass 2 encoding is O(batch). K <= state_limit works (default ~70 MB). v0.9.102 targets lazy reverse_maps (SpillMap on disk)."
+    n_scalability: refuse_at_guard
+    streaming_strategy:
+      fit: 'Pass 1 uniques in a Python set (O(K)); Pass 2 pc.index_in streaming (O(batch)).'
+      predict: 'N/A (pure transform).'
+    primitive_reuse: []
+    bounded_state_dims: {K: 1}
+    transient_factor: 22.5
   metrics:
   - name: accuracy
     combination: anchor

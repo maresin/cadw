@@ -31,6 +31,7 @@ ROOT = Path(__file__).parent.parent
 YAML_DIR = ROOT / "docs" / "ml_tools"
 
 VALID_STATE_CLASS = {
+    "O(K)",  # v0.9.99: K-axis only (reverse_maps, tp/fp/fn)
     "O(1)", "O(d)", "O(d²)", "O(d^2)", "O(batch)", "O(model)",
     "O(n)", "O(n·w)", "O(n*w)", "O(n·K)", "O(n*K)", "O(N·d)", "O(N*d)",
 }

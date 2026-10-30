@@ -1,5 +1,79 @@
 ## [Unreleased]
 
+### v0.9.99 (2026-10-30) — metrics guards verification + encode_categorical actionable error
+
+**Task 1 — YAML card for `encode_categorical`.**
+
+Added `O(K)` to `VALID_STATE_CLASS` in `docs/ml_tools/schema.py`
+(previously only O(n·K) variants were accepted; K-only state was
+unrepresentable).
+
+New card `EncodeCategorical` in `docs/ml_tools/O_eda.yaml` (subtype
+O3, Feature engineering / encoding):
+  `state_class: O(K)`, `bounded_state: false`,
+  `n_scalability: refuse_at_guard`, `bounded_state_dims: {K: 1}`,
+  `transient_factor: 22.5` (180 B/unique ÷ 8, matching current
+  per-entry cost).
+
+After v0.9.99: `df.estimate_memory("encode_categorical",
+K=10**7)` returns `fits: False` with alternatives.
+
+**Task 2 — actionable error in `encode_categorical`.**
+
+The internal `check_state((len(uniques) + b.num_rows) * 180)`
+already fired `MemoryLimitExceeded`, but with the generic
+"state limit exceeded" message. Now wrapped to include:
+  - **why** it fires: reverse_maps is `list[unique_values]` — O(K)
+    by API contract, independent of N;
+  - estimated K and MB;
+  - two concrete alternatives: top-K via `pc.value_counts().top_k`,
+    or wait for v0.9.102 lazy reverse_maps (SpillMap on disk);
+  - original message preserved via `from e`.
+
+This unblocks users hitting a K-overflow: the previous generic
+message looked like a bug (state should be O(K) but couldn't say
+why the K matters or how to fix).
+
+**Task 3 — metrics.classification large-K guard tests.**
+
+`MetricsOp.estimate_state_nbytes()` returns `64 + 24*K`
+(tp[K] + fp[K] + fn[K] × int64). `reduce()` calls
+`memory_guard.check_state(estimate_state_nbytes(), name="MetricsOp.
+estimated")` **before** `op.init()` (v0.5.1 P8).
+So guards already work — probe #5 in v0.9.98 (`grep check_state
+cadw/ops/metrics.py` = 0 matches) was a **false negative**: it
+grep'd the metrics module, but the guard lives in `cadw/ops/
+reduce.py` where `MetricsOp` runs.
+
+New tests confirm this:
+  - `test_metrics_classification_large_k_fits`: K=10^5 (2.4 MB)
+    fits under 100 MB guard, accuracy returned.
+  - `test_metrics_classification_huge_k_guard`: K=10^7 (240 MB)
+    → `MemoryLimitExceeded` with "estimated" in message (from
+    `reduce` pre-flight).
+
+No prod code changed for metrics; the tests lock the existing
+contract.
+
+**Anti-pattern surfaced this session:**
+
+- **AP16** — `grep check_state <module>.py = 0` ≠ "no guards".
+  `ReduceOp` subclasses route their guard through
+  `cadw/ops/reduce.py::reduce`, which calls
+  `op.estimate_state_nbytes()` + `check_state(...)` **before**
+  `op.init()`. For any `ReduceOp` subclass, the guard is in
+  reduce.py, not in the op's own module. Probe: `grep
+  estimate_state_nbytes <module>.py` → if non-zero, guards exist
+  via reduce. (v0.9.98 probe #5 made this mistake for
+  `metrics.classification`; v0.9.99 fixes the diagnosis.)
+
+**Known issue (still tracked, pre-existing):** `__version__` and
+`pyproject.toml::version` say 0.9.88 while tags exist through
+v0.9.99. Target v0.9.100 (version bump + audit pass 3).
+
+**Test count:** ~4331 passed, 8 skipped (fast; +3 new tests: 2
+metrics, 1 encode; no prod-code changes except error wrapper).
+
 ### v0.9.98 (2026-10-30) — tfidf.transform_sparse(output=)
 
 **New API: `TfidfModel.transform_sparse(df, *, text_col, norm="l2",

@@ -136,6 +136,7 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | O | O3 Feature engineering / encoding | OneHotEncoder | baseline | tier1_core | representation | — | accuracy |
 | O | O3 Feature engineering / encoding | KBinsDiscretizer | baseline | tier1_core | representation | desc | accuracy |
 | O | O3 Feature engineering / encoding | PolynomialFeatures | sota | tier1_core | nonlinear_interactions, representation | desc | accuracy |
+| O | O3 Feature engineering / encoding | EncodeCategorical | baseline | tier1_core | representation | ✓ cadw, ✓ agent | accuracy |
 | O | O4 Feature selection | MutualInfoSelect | baseline | tier1_core | linear_signal, probabilistic | ✓ cadw, ✓ agent | accuracy |
 | O | O4 Feature selection | VarianceThreshold | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | accuracy |
 | O | O4 Feature selection | BorutaSelect | sota | tier2_wrapper | nonlinear_interactions | ✓ cadw, ✓ agent | accuracy |

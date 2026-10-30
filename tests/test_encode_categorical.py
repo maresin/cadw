@@ -136,3 +136,25 @@ def test_encode_then_roundtrip(tmp_path):
     got = read_cols(reloaded, tmp_path, ["cat"])
     reverse = [maps["cat"][i] for i in got["cat"]]
     assert reverse == ["a", "b", "c", "a", "b"]
+
+# ── v0.9.99: actionable error on K-axis overflow ────────────────────
+
+
+def test_encode_categorical_k_limit_actionable():
+    """K > state_limit → MemoryLimitExceeded with actionable hint."""
+    import pyarrow as pa
+    from cadw import CadwDataFrame, MemoryGuard
+    from cadw.core.memory_guard import MemoryLimitExceeded
+    # 1 MB guard, K~10^5 unique strings ~18 MB state → triggers.
+    K = 100_000
+    df = CadwDataFrame.from_table(
+        pa.table({"cat": [f"v{i}" for i in range(K)]}),
+        memory_guard=MemoryGuard(max_memory_mb=1),
+    )
+    with pytest.raises(MemoryLimitExceeded) as ei:
+        df.encode_categorical("cat")
+    msg = str(ei.value)
+    assert "O(K) by API contract" in msg
+    assert "reverse_maps" in msg
+    assert "top-K" in msg or "v0.9.102" in msg
+

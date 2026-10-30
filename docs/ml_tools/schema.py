@@ -483,6 +483,9 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
         "O(1)", "O(d)", "O(d²)", "O(d^2)", "O(batch)", "O(model)",
         "O(n)", "O(n·w)", "O(n*w)", "O(n·K)", "O(n*K)",
         "O(N·d)", "O(N*d)",
+        # v0.9.99: K-axis only (cardinality). encode_categorical
+        # reverse_maps and metrics tp/fp/fn are O(K), not O(n·K).
+        "O(K)",
     }
     VALID_STATE_TYPE = {
         "aggregation", "iterative", "partitioned", "cross_row",

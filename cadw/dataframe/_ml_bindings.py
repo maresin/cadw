@@ -32,6 +32,7 @@ class _MLBindingsMixin:
         Raises TypeError for non-string columns.
         """
         from ._core import CadwDataFrame
+        from cadw.core.memory_guard import MemoryLimitExceeded
         import pyarrow.compute as pc
 
         if isinstance(columns, str):
@@ -66,10 +67,25 @@ class _MLBindingsMixin:
                 # case this batch adds b.num_rows unique values.
                 # 180 B/entry = 50 (str) + ~40 (set slot)
                 # + ~90 (list copy margin for sorted()).
-                self._memory_guard.check_state(
-                    (len(uniques) + b.num_rows) * 180,
-                    name=f"encode_categorical({col})",
-                )
+                est_bytes = (len(uniques) + b.num_rows) * 180
+                try:
+                    self._memory_guard.check_state(
+                        est_bytes,
+                        name=f"encode_categorical({col})",
+                    )
+                except MemoryLimitExceeded as e:
+                    k_est = len(uniques) + b.num_rows
+                    raise MemoryLimitExceeded(
+                        f"encode_categorical({col!r}): reverse_maps "
+                        f"is O(K) by API contract (list of unique "
+                        f"values), independent of N. K~{k_est:,} "
+                        f"values, ~{est_bytes / 1e6:.1f} MB. "
+                        f"Options: (a) top-K via "
+                        f"pc.value_counts(...).top_k with K << 10^6; "
+                        f"(b) wait for v0.9.102 lazy reverse_maps "
+                        f"(SpillMap on disk). "
+                        f"Original: {e}"
+                    ) from e
                 vc = pc.value_counts(arr)  # struct<values, counts>
                 if isinstance(vc, pa.ChunkedArray):
                     vc = vc.combine_chunks()

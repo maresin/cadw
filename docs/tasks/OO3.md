@@ -77,6 +77,24 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PolynomialFeatures.html
   - note: no_public_benchmark: polynomial expansion is a preprocessing transform; no standalone leaderboard.
 
+### EncodeCategorical — baseline / tier1_core
+
+**Roles:** representation
+**Status:** ✓ cadw, ✓ agent
+
+**Purpose:** Map each unique category to a dense int32 id, sorted for determinism. Pass 1: pc.value_counts per batch, union in a Python set (O(K) RAM). Pass 2: pc.index_in streaming over batches (O(batch) per batch). Inductive bias: none — pure representation; reverse_maps is O(K) by contract.
+
+**Use cases:**
+- Categorical to tree/linear feature
+- Deterministic id assignment across runs
+- Pre-fit encoding for downstream models
+
+**Config:** `{'columns': 'str or Sequence[str]'}`
+
+**CADW:** `cadw.dataframe.encode_categorical`
+
+**Benchmarks:** —
+
 ## Metrics
 - **accuracy** (anchor, higher)
   - Downstream accuracy of the model trained on the transformed features.

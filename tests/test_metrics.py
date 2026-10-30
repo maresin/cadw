@@ -831,3 +831,39 @@ def test_metrics_batch_memory_factor_multiclass():
         metrics=["log_loss"], classes=[0, 1, 2],
     )
     assert op.batch_memory_factor() == 8.0
+
+# ── v0.9.99: K-axis guard tests ─────────────────────────────────────
+
+
+def test_metrics_classification_large_k_fits(tmp_path):
+    """K=10^5: tp/fp/fn = 24*K = 2.4 MB, well under 20 MB guard."""
+    import pyarrow as pa
+    from cadw import CadwDataFrame, MemoryGuard
+    K = 100_000
+    df = CadwDataFrame.from_table(
+        pa.table({"y": [0, 1], "yp": [0, 1]}),
+        memory_guard=MemoryGuard(max_memory_mb=100),
+    )
+    r = df.metrics(
+        y_true="y", y_pred="yp", metrics=["accuracy"],
+        classes=list(range(K)),
+    )
+    assert "accuracy" in r
+
+
+def test_metrics_classification_huge_k_guard():
+    """K=10^8: 24*K = 2.4 GB > guard → MemoryLimitExceeded via reduce."""
+    import pyarrow as pa
+    import pytest
+    from cadw import CadwDataFrame, MemoryGuard
+    from cadw.core.memory_guard import MemoryLimitExceeded
+    df = CadwDataFrame.from_table(
+        pa.table({"y": [0, 1], "yp": [0, 1]}),
+        memory_guard=MemoryGuard(max_memory_mb=100),
+    )
+    with pytest.raises(MemoryLimitExceeded, match="state_limit"):
+        df.metrics(
+            y_true="y", y_pred="yp", metrics=["accuracy"],
+            classes=list(range(10_000_000)),
+        )
+
