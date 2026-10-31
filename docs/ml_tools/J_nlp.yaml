@@ -27,6 +27,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
       verified_by_agent: true
     roles:
     - linear_signal

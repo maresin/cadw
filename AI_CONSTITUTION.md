@@ -1,8 +1,12 @@
 # AI Constitution — read first, always
 
 **Audience:** AI assistant in a new session.
-**Order:** this file → ROADMAP.md → EXAMPLES_INDEX.md → PRIMITIVES → code.
-**Companion:** METHODOLOGY §1.1/§3/§5/§7/§8, STREAMING §1/§2/§5/§6.1.
+**Order (T1 first, see §4.5):** this file → ROADMAP.md →
+STABILITY_PROTOCOL.md → ALGORITHM_TEMPLATE.md → GLOSSARY.md →
+DECISION_LOG.md → CHAT_PROTOCOL.md → EXAMPLES_INDEX.md →
+PRIMITIVES_AND_PRINCIPLES.md → code.
+**Companion:** METHODOLOGY §1.1/§3/§5/§7/§8, STREAMING §1/§2/§5/§6.1,
+GLOSSARY (canonical terms).
 
 ---
 
@@ -285,7 +289,37 @@ sessions: before writing G10 test, check (a) loss type,
 (choose use_rmsprop accordingly), (d) if failing, is it the
 test or the implementation (compare objectives, not coefs).
 
-## §5. Anti-patterns (5 most common)
+### §4.5. Document hierarchy (T1-T5)
+
+Five tiers. On conflict, higher tier wins. Every doc carries a
+`**Hierarchy:** Tier N` header after `**Version:**`.
+
+| Tier | Documents | Overrides |
+|---|---|---|
+| **T1** Constitutional | `AI_CONSTITUTION.md` | all |
+| **T2** Methodological | `STABILITY_PROTOCOL.md`, `METHODOLOGY_ALGORITHM_SELECTION.md`, `STREAMING_OUTPUT_ARCHITECTURE.md` | T3-T5 |
+| **T3** Template | `ALGORITHM_TEMPLATE.md`, `EXAMPLE_VERIFIED_CARD.md` | T4-T5 |
+| **T4** Reference | `GLOSSARY.md`, `DECISION_LOG.md`, `PRIMITIVES_AND_PRINCIPLES.md`, `EXAMPLES_INDEX.md` | T5 |
+| **T5** Operational | `CHAT_PROTOCOL.md` | (none) |
+
+**Conflict resolution:**
+
+- T2 vs T1: T1 wins. Update T2 or escalate to user.
+- Session brief vs T1: T1 wins. Ask user (CHAT_PROTOCOL §7).
+- T4 vs T2: T2 wins (T2 is process; T4 is reference).
+
+**Rule:** if session brief contradicts T1, do NOT proceed silently. State
+the conflict, ask user to either update T1 or issue explicit override.
+
+---
+
+## §5. Anti-patterns (running log; AP1-AP14, AP21-AP23)
+
+> AP numbers are stable IDs, not sequential. AP11 and AP15-AP20 are
+> reserved for historical reasons; new APs continue from AP21.
+> Rationale: numbers persist across CHANGELOG versions and other docs
+> reference APs by ID (e.g. "see AP21"). Renumbering would break
+> those references.
 
 ### AP1. `np.zeros((n_total, ...))` or `np.zeros((hyperparam, ...))`
 
@@ -544,7 +578,175 @@ next_m = re.search(rf"^{re.escape(indent)}- name:", src[m.end():], re.M)
 block = src[m.start():m.end() + next_m.start()]
 ```
 
-## §6. Roadmap summary (3 sessions) + won't-fix
+### AP21. Atomic closure — no "verified with backlog"
+
+A `status: verified` card means ALL of:
+
+- §2 stability checks pass (STABILITY_PROTOCOL): OOC via n-sweep,
+  spill raises `MemoryLimitExceeded`, no `# BACKLOG:` marker anywhere
+- Formula derived from code with evidence per term (§3)
+- Matrix measurement 9/9 cells within ±30% (§4)
+- Last git commit touching function body was the closure commit
+
+If any fail -> `status: draft`, with `# draft_reason:` OR entry in
+`ROADMAP` with target version. No intermediate status.
+
+**Symptom:** `fit_lda` was touched 5 times (v0.9.42 -> v0.9.87 ->
+v0.9.90 -> v0.9.101 -> v0.9.102) while its YAML card read
+`verified_in_cadw: true` from v0.9.42 onward. The field conflated
+algorithmic fidelity (verified) with completion (verified). Every
+session re-read docstring + CHANGELOG + plan + git log to reconstruct
+true state — 20-40 min lost per session.
+
+**Root cause:** `verified_in_cadw: true` was treated as "done". It only
+means "algorithm faithful to source". Formula could be missing, stability
+could be broken, backlog could be open.
+
+**Correct pattern:**
+
+- Two orthogonal fields:
+  - `verified_in_cadw: true|false` — fidelity to source/paper
+  - `status: draft|verified|tier1_core_exception` — completion
+- `# BACKLOG: <func>` in docstring OR in `plan_v0.9.87` -> status=draft
+- Schema test R3-R5 enforces: `verified + # BACKLOG:` -> FAIL
+
+**Reference:** STABILITY_PROTOCOL §2.3, DECISION_LOG DEC-001, DEC-002.
+
+---
+
+### AP22. Slow operations warn, they do not OOM silently (CPU instead of RAM)
+
+OOC fix can trade RAM for CPU. `fit_stray` at n=10^6 runs batched
+distances in O(n^2) compute — peak RAM OK (O(n*k) top-k merge), but
+runtime ~1 hour. Silent 1-hour compute = same user pain as OOM.
+
+**Correct pattern:**
+
+- Every `fit_*` supports `estimate_cost(op, **params)`:
+  - `fits_ram: bool`, `est_ram_mb`, `est_ops`, `est_time_seconds`
+  - `time_class: fast | medium | slow | very_slow`
+- Time = `ops_per_batch * n_batches / rate` (from `benchmarks.yaml`)
+- At runtime: `est_time > 60s` -> `warnings.warn(SlowOperationWarning)`
+- Caller may pass `confirm_slow=True` (suppress) or `strict_slow=True`
+  (raise `SlowOperationRequiresConfirm`)
+
+**Anti-pattern:** silent slow compute. User runs `fit_stray(n=10^6)`,
+expects seconds, gets hour. Same UX failure as silent OOM.
+
+**Reference:** STABILITY_PROTOCOL §4 (ops_per_batch), CHAT_PROTOCOL §4.
+
+---
+
+### AP23. Formula from code, verified by measurement
+
+Formula is a hypothesis derived from reading code. Measurement verifies
+it. NOT the other way around.
+
+**Order (mandatory):**
+
+1. Read `cadw/ml/X.py`, extract terms from `mg.check_state`,
+   `mg.check_batch`, `np.empty`, `dict[key] += 1`
+2. Formula = sum of terms. Each term has evidence pointer (file:line).
+3. Fixed `batch=1000`. Vary n, d, k. Matrix 9/9 cells.
+4. Assert `0.7 <= predicted/measured <= 1.4` for each cell.
+5. If any cell fails: **find missing alloc in code.** Do NOT bump
+   coefficients.
+
+**Anti-pattern #1:** ratio 0.5 -> "let's make tf=2.0". This hides the
+bug. Real bug: missing `dict_entry_bytes` term. Find the dict line in
+code.
+
+**Anti-pattern #2:** derive formula from measurements ("vary d, fit
+polynomial, get coefficients"). This masks the same bug: formula
+"happens to match" without code derivation is fragile — next refactor
+breaks it silently.
+
+**Root symptom:** `transient_factor=12.0` (LDA) was a "measured
+coefficient" that turned out 20% wrong because Python dict overhead
+changed with Python version. Explicit formula `d * dict_entry_bytes
++ d * py_str_overhead_bytes` + `_load_constants()` reads measured
+constants at runtime, adapts to Python version automatically.
+
+**Reference:** STABILITY_PROTOCOL §3-4, EXAMPLE_VERIFIED_CARD.md.
+
+---
+
+### §5.1. Single source of truth (one fact, one place)
+
+Every concept has exactly one canonical location:
+
+| Concept | Only in | Others reference by |
+|---|---|---|
+| Status enum | §4.5 | "see §4.5" |
+| Anti-patterns (AP1-AP23) | §5 | "see AP21" |
+| Formula grammar | STABILITY_PROTOCOL §3 | code refs docstring |
+| Typed constants | memory_constants.yaml | formula names |
+| Stability criteria | STABILITY_PROTOCOL §2 | "see STABILITY §2" |
+| Decision rationale | DECISION_LOG | "see DEC-XXX" |
+| Document hierarchy | §4.5 | "see §4.5" |
+
+**Rule:** if you find yourself duplicating a definition — stop.
+Reference by ID instead. If the fact needs update, there is one file to
+change.
+
+**Anti-pattern:** GLOSSARY says "verified means matrix passed",
+STABILITY_PROTOCOL §6 lists "verified means (criteria)", §4.5 says
+"verified means ...". Three slightly different definitions -> drift.
+Correct: one canonical (§4.5 status enum), others say "see §4.5".
+
+---
+
+### §5.2. Tier vs status are orthogonal (temporary wart in `tier1_core_exception`)
+
+**Tier** (from `METHODOLOGY_ALGORITHM_SELECTION` §10) describes *how* the model
+is built:
+- `tier1_core` — CADW-native on primitives (Reduce / HashShuffle / Sort / Spill)
+- `tier2_wrapper` — wrapper over external library (sklearn, statsmodels, ...)
+- `tier3_export` — export only, not implementable in CADW constraints
+
+**Status** describes *whether the card is done*: `draft` or `verified`.
+
+**The two are independent.** A `tier1_core` model can be `draft` (unstable,
+no formula) or `verified`. A `tier2_wrapper` model can be `verified`.
+
+**Temporary wart (v0.9.102):** the status value `tier1_core_exception`
+mixes tier and status. It exists for cards where:
+- `tier_level: tier1_core`
+- `bounded_state: false` (e.g. PELT DP array O(n), single-series TS)
+- n is bounded by problem domain (n<=10^6 typical), tested
+
+Meaning: "OOC-ready at all declared axes except n; n-domain bounded,
+documented, tested."
+
+**Planned replacement (v0.9.103, DEC-011):**
+
+```yaml
+tier_level: tier1_core
+bounded_by_domain:
+  axis: n
+  bound: 10^6
+  reason: "single-series DP; n<=10^6 typical"
+implementation_status:
+  verified_in_cadw: true
+  status: verified
+```
+
+Rationale: `status` stays binary (`draft` / `verified`); the "exception" is
+a **property** of the algorithm (`bounded_by_domain`), not a status.
+Three fields (tier_level, bounded_by_domain, status) express three
+independent facts. One compound status expressed them poorly.
+
+**Until v0.9.103:** `tier1_core_exception` is the current status value.
+Schema test R7 enforces `tier1_core_exception:` field presence when
+`status: tier1_core_exception`. Do not add new cards with this status
+unless domain bound is real and tested.
+
+**Do NOT invent `tier2_core_exception`** or any other `tier*_exception`
+status. Only one temporary wart exists, fixed in v0.9.103.
+
+---
+
+## §6. Roadmap summary (3 sessions)
 
 **Next sessions** (see docs/ROADMAP.md for details):
 

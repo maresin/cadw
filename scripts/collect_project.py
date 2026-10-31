@@ -5,7 +5,15 @@ SMART MODE (default, ~500 KB vs 2 MB full):
   Full content: cadw/**/*.py, tests/**/*.py, README.md, pyproject.toml,
     scripts/collect_project.py, .pingis/*.md, latest 3 patch_*.py,
     last-5 CHANGELOG entries, DECISIONS.md (§13.4 truncated to last 10
-    episodes).
+    episodes), and ALL 11 AI-first methodology files (T1-T4).
+
+TINY MODE (v0.9.102, recommended for session bootstrap):
+  11 AI-first docs in full (AI_CONSTITUTION, ROADMAP, STABILITY_PROTOCOL,
+    ALGORITHM_TEMPLATE, GLOSSARY, DECISION_LOG, CHAT_PROTOCOL,
+    EXAMPLES_INDEX, PRIMITIVES_AND_PRINCIPLES, EXAMPLE_VERIFIED_CARD,
+    METHODOLOGY_ALGORITHM_SELECTION) in reading order, then CHANGELOG
+    index, then skeletonized cadw/**/*.py.
+  Missing AI-first file -> exit 3 (broken tree, do not silently skip).
   Stub: older scripts/patch_*, scripts/archive/*, scripts/*.sh,
     .backups/*, uv.lock, older CHANGELOG entries, older §13.4 episodes.
 
@@ -42,12 +50,21 @@ ROOT_FILES_FULL = ["README.md", "pyproject.toml", "METHODOLOGY.md"]
 # Purpose: new AI session sees these before any code stub.
 # If file is absent on disk, snapshot silently skips it and prints
 # a WARNING to stderr (see main()).
-AI_FIRST_FILES = {
-    "AI_CONSTITUTION.md",
+# v0.9.102: 11 AI-first files in T1-T4 reading order (AI_CONSTITUTION §4.5).
+# Tuple, not set: order = reading order in snapshot.
+AI_FIRST_FILES = (
+    "AI_CONSTITUTION.md",                                   # T1
     "docs/ROADMAP.md",
-    "docs/ml_tools/EXAMPLES_INDEX.md",
-    "docs/ml_tools/PRIMITIVES_AND_PRINCIPLES.md",
-}
+    "docs/ml_tools/STABILITY_PROTOCOL.md",                  # T2
+    "docs/ml_tools/ALGORITHM_TEMPLATE.md",                  # T3
+    "docs/ml_tools/GLOSSARY.md",                            # T4
+    "docs/ml_tools/DECISION_LOG.md",                        # T4
+    "docs/ml_tools/CHAT_PROTOCOL.md",                       # T5
+    "docs/ml_tools/EXAMPLES_INDEX.md",                      # T4
+    "docs/ml_tools/PRIMITIVES_AND_PRINCIPLES.md",           # T4
+    "docs/ml_tools/EXAMPLE_VERIFIED_CARD.md",               # T3
+    "docs/ml_tools/METHODOLOGY_ALGORITHM_SELECTION.md",     # T2
+)
 SEP = "# " + "=" * 76
 
 # v0.9.87-phase0a-fix1: tiny-mode context upgrade.
@@ -311,25 +328,37 @@ def main() -> int:
         print("WARNING: no files collected", file=sys.stderr)
         return 2
 
-    # v0.9.93-prep: AI-first files go first in snapshot.
-    _ai_first = [
-        pm for pm in classified
-        if pm[0].relative_to(root).as_posix() in AI_FIRST_FILES]
+    # v0.9.102: AI-first files in TUPLE ORDER (reading order).
+    _ai_order = {name: i for i, name in enumerate(AI_FIRST_FILES)}
+    _ai_first = []
+    _others = []
+    for pm in classified:
+        rel = pm[0].relative_to(root).as_posix()
+        if rel in _ai_order:
+            _ai_first.append(pm)
+        else:
+            _others.append(pm)
+    _ai_first.sort(key=lambda pm: _ai_order[pm[0].relative_to(root).as_posix()])
     if _ai_first:
-        classified = _ai_first + [
-            pm for pm in classified
-            if pm[0].relative_to(root).as_posix() not in AI_FIRST_FILES]
+        classified = _ai_first + _others
 
     # Warn if expected AI-first files are missing on disk (snapshot
     # would silently omit them — check that they were actually created).
     _present = {
         pm[0].relative_to(root).as_posix() for pm in classified}
-    _missing = AI_FIRST_FILES - _present
+    _missing = set(AI_FIRST_FILES) - _present
     if _missing:
         print(
-            f"WARNING: AI-first files not found on disk "
-            f"(snapshot will skip): {sorted(_missing)}",
+            f"ERROR: {len(_missing)} AI-first files missing on disk:\n"
+            f"  {sorted(_missing)}\n"
+            f"Snapshot will skip them; AI next session cannot follow "
+            f"the methodology. Fix file presence before regenerating.",
             file=sys.stderr)
+        # Non-zero exit: broken snapshot must not look successful.
+        # Override with env CADW_SNAPSHOT_ALLOW_MISSING=1 if you know
+        # what you're doing (e.g. half-built tree during development).
+        if os.environ.get("CADW_SNAPSHOT_ALLOW_MISSING") != "1":
+            return 3
 
     n_changelog_omitted = 0
     n_eps_omitted = 0
@@ -382,8 +411,28 @@ def main() -> int:
         out.write(f"# Root: {root}\n")
         out.write(f"# Mode: {args.mode}\n")
         out.write(f"# Files: {len(classified)}\n#\n")
-        out.write("# ВНИМАНИЕ: для чтения, НЕ для исполнения.\n"
-                  + SEP + "\n\n")
+        out.write("# ВНИМАНИЕ: для чтения, НЕ для исполнения.\n")
+        out.write("#\n")
+        out.write("# READ IN THIS ORDER (T1 first; see AI_CONSTITUTION §4.5):\n")
+        out.write("#  1. AI_CONSTITUTION.md          -- rules (AP1-AP23, gates G1-G11)\n")
+        out.write("#  2. docs/ROADMAP.md             -- current state\n")
+        out.write("#  3. STABILITY_PROTOCOL.md       -- formula method (code->formula->measure)\n")
+        out.write("#  4. ALGORITHM_TEMPLATE.md       -- 8-step checklist\n")
+        out.write("#  5. GLOSSARY.md                 -- canonical terms\n")
+        out.write("#  6. DECISION_LOG.md             -- why X not Y\n")
+        out.write("#  7. CHAT_PROTOCOL.md            -- session rhythm\n")
+        out.write("#  8. EXAMPLES_INDEX.md           -- pattern -> reference\n")
+        out.write("#  9. PRIMITIVES_AND_PRINCIPLES.md -- primitives cheat sheet\n")
+        out.write("# 10. EXAMPLE_VERIFIED_CARD.md    -- what 'verified' looks like\n")
+        out.write("# 11. METHODOLOGY_ALGORITHM_SELECTION.md -- deep method\n")
+        out.write("#\n")
+        out.write("# SESSION START CHECKLIST:\n")
+        out.write("#  [ ] Read in order above (do not skip)\n")
+        out.write("#  [ ] If session brief contradicts AI_CONSTITUTION -> ask, do not proceed\n")
+        out.write("#  [ ] First action: probe (read-only), not patch\n")
+        out.write("#  [ ] Check DECISION_LOG.md for prior decisions on your topic\n")
+        out.write("#  [ ] Know current status of your algorithm (grep YAML card)\n")
+        out.write(SEP + "\n\n")
 
         out.write(SEP + "\n# ОГЛАВЛЕНИЕ\n" + SEP + "\n")
         for i, (p, mode) in enumerate(classified, 1):

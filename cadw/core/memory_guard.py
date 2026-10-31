@@ -40,6 +40,75 @@ def _fallback_unique_count(col) -> int:
     return len(set(col.to_pylist())) * _UNIQUE_FALLBACK_FACTOR
 
 
+def measure_peak(func, *args, **kwargs):
+    """Dev calibration tool: run func, measure peak RAM by 3 sources.
+
+    Combines three independent measurements:
+      - tracemalloc: Python + numpy allocs (excluding mmap)
+      - pyarrow default memory pool: Arrow internal buffers
+      - resource.getrusage: OS-level RSS peak (includes mmap, page cache)
+
+    NOT for runtime use (1-10s overhead, page-cache effects). Use for:
+      - verification tests: test_*_formula_accuracy
+      - calibration scripts: scripts/calibrate_memory.py (planned v0.9.103)
+      - ad-hoc debugging: `measure_peak(fit_lda, df=df, ...)`
+
+    Linux/macOS only (uses `resource`; not available on Windows).
+    RSS is peak-only (not current); for isolated measurements run in a
+    subprocess. See docs/ml_tools/MEMORY_AND_TIME_ESTIMATION.md §3.
+
+    Returns
+    -------
+    dict with keys:
+        py_bytes:    tracemalloc peak (Python + numpy non-mmap)
+        arrow_bytes: Arrow pool delta during run
+        rss_bytes:   OS RSS peak delta (KB on Linux → bytes here)
+        total_bytes: max(rss_bytes, py_bytes + arrow_bytes) — recommended
+        result:      passthrough return of func(*args, **kwargs)
+    """
+    import tracemalloc
+    import pyarrow as pa
+
+    pool0 = pa.default_memory_pool().bytes_allocated()
+
+    rss0 = 0
+    try:
+        import resource
+        rss0 = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except (ImportError, AttributeError):
+        pass
+
+    tracemalloc.start()
+    try:
+        result = func(*args, **kwargs)
+        py_peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    arrow_delta = max(0, pa.default_memory_pool().bytes_allocated() - pool0)
+
+    rss_delta_bytes = 0
+    try:
+        import resource
+        rss_end = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        delta_raw = rss_end - rss0
+        # Linux ru_maxrss is KB; macOS is bytes.
+        if delta_raw > 1_000_000_000:
+            rss_delta_bytes = int(delta_raw)
+        else:
+            rss_delta_bytes = int(max(0, delta_raw) * 1024)
+    except (ImportError, AttributeError):
+        pass
+
+    return {
+        "py_bytes": int(py_peak),
+        "arrow_bytes": int(arrow_delta),
+        "rss_bytes": int(rss_delta_bytes),
+        "total_bytes": max(rss_delta_bytes, int(py_peak) + int(arrow_delta)),
+        "result": result,
+    }
+
+
 class MemoryLimitExceeded(RuntimeError):
     """Превышен лимит памяти."""
 

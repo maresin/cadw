@@ -1,5 +1,76 @@
 ## [Unreleased]
 
+### v0.9.102 (2026-10-31) — methodology docs + status system baseline (0 verified)
+
+Baseline honesty: **0 verified**. First verified appears in v0.9.103 when
+formula mechanism + matrix measurement land.
+
+**Methodology documents (T1–T5, AI_CONSTITUTION §4.5):**
+
+- T2 `docs/ml_tools/STABILITY_PROTOCOL.md`: calibration vs runtime;
+  code -> formula -> measurement; 9-cell matrix (±30%); stability =
+  OOC + spill + no open backlog
+- T3 `docs/ml_tools/ALGORITHM_TEMPLATE.md`: 8-step checklist; anti-patterns
+- T3 `docs/ml_tools/EXAMPLE_VERIFIED_CARD.md`: full fit_linear example + counter-example
+- T4 `docs/ml_tools/GLOSSARY.md`: 44 canonical terms
+- T4 `docs/ml_tools/DECISION_LOG.md`: DEC-001..DEC-011
+- T5 `docs/ml_tools/CHAT_PROTOCOL.md`: 4 phases (probe/patch/review/commit);
+  /tmp patch scripts; redirect heavy tests (AP13); paste only tail;
+  QUESTION/OPTIONS/RECOMMENDATION; delimiter discipline
+
+**AI_CONSTITUTION.md updates:**
+
+- §1 reading order: T1 first, 11 docs
+- §4.5 new: document hierarchy T1–T5 + conflict resolution
+- §5 header: "running log; AP1-AP14, AP21-AP23"
+- AP21: atomic closure; no "verified with backlog"
+- AP22: slow operations warn (CPU instead of silent RAM OOM)
+- AP23: formula from code, verified by measurement
+- §5.1: single source of truth (one fact, one place)
+- §5.2 new: tier vs status orthogonal; `tier1_core_exception` is
+  temporary wart, replaced by `bounded_by_domain` field in v0.9.103
+- §6 header: removed "+ won't fix" (DEC-004)
+
+**Infrastructure:**
+
+- `cadw/core/warnings.py`: LegacyFormulaWarning, SlowOperationWarning,
+  ActualDataModeFallbackWarning, CalibrationMissingWarning,
+  SlowOperationRequiresConfirm
+- `cadw/core/memory_guard.py::measure_peak()`: 3-source peak
+  (tracemalloc + arrow pool + RSS)
+
+**Status migration (batch 0 = 23 of 87 cards):**
+
+- 21 `draft` (matrix measurement requires evaluate_formula mechanism,
+  deferred v0.9.103)
+- 2 `tier1_core_exception` (pelt x2, temporary wart per DEC-011)
+- 64 cards without `status` (pending v0.9.103+)
+- **0 verified** (honest — no measurement done yet)
+- `transient_factor_measured` rolled back (fragmentation)
+
+**scripts/collect_project.py rework:**
+
+- `AI_FIRST_FILES`: set -> ordered 11-tuple (reading order)
+- Header: READ IN THIS ORDER + SESSION START CHECKLIST
+- Missing AI-first file -> exit 3 (CADW_SNAPSHOT_ALLOW_MISSING=1 override)
+- Tiny mode: 520 KB (98% reduction from 28 MB)
+
+**Not in scope (v0.9.103+):**
+
+- `ram_formula` + `_safe_eval` + `evaluate_formula` mechanism
+- `memory_constants.yaml` (typed constants)
+- `test_X_formula_accuracy` matrix tests per algorithm
+- Remaining 64 status migrations (batches of ~15/session)
+- `solve_batch(op, budget, **params)` inverse solver
+- Schema enforcement R1-R4 (`test_ml_tools_schema.py`)
+- Replace `tier1_core_exception` with `bounded_by_domain` (DEC-011)
+
+**Tests:** 4336 passed, 9 skipped, 25 deselected (fast). No test count
+changes (docs + infra only).
+
+CHANGELOG/ROADMAP updated: v0.9.102 current (baseline, 0 verified);
+v0.9.103 = formula mechanism + first verified + bounded_by_domain.
+
 ### v0.9.101 (2026-10-30) — coxph reference-only + LDA dims fix
 
 **Task 1 — coxph `_breslow` reclassified as REFERENCE ONLY.**

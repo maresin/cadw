@@ -979,6 +979,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
+      # draft_reason: formula: matrix measurement requires evaluate_formula (v0.9.103)
       verified_by_agent: true
     roles:
     - temporal_dynamics
@@ -1009,6 +1011,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
+      # draft_reason: formula: matrix measurement requires evaluate_formula (v0.9.103)
       verified_by_agent: true
     roles:
     - temporal_dynamics
@@ -1184,6 +1188,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
+      # draft_reason: formula: matrix measurement requires evaluate_formula (v0.9.103)
       verified_by_agent: true
     roles:
     - local_structure
@@ -1551,6 +1557,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
       verified_by_agent: false
     roles:
     - local_structure
@@ -1860,6 +1867,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
       verified_by_agent: false
       described_only: false
     roles:
@@ -1976,6 +1984,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: tier1_core_exception
       verified_by_agent: true
     roles:
     - temporal_dynamics
@@ -2016,6 +2025,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
       verified_by_agent: false
     roles:
     - representation
@@ -2255,6 +2265,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
+      # draft_reason: formula: matrix measurement requires evaluate_formula (v0.9.103)
       verified_by_agent: true
     roles:
     - local_structure
@@ -2869,6 +2881,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
       verified_by_agent: false
       described_only: false
     roles:
@@ -2928,6 +2941,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: tier1_core_exception
       verified_by_agent: true
     roles:
     - temporal_dynamics

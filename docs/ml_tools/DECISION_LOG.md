@@ -1,0 +1,270 @@
+# Decision Log
+
+**Append-only** record of methodological choices. Purpose: next AI
+session sees "why X, not Y" without re-litigating from scratch.
+
+**Rule:** when a choice affects multiple sessions (architecture, status
+semantics, formula method), append here. Do not edit history. If a
+decision is superseded, add a new entry referring to the old id.
+
+**Hierarchy:** Tier 4 (reference). Complements
+`AI_CONSTITUTION.md` (Tier 1), `STABILITY_PROTOCOL.md` (Tier 2),
+`ALGORITHM_TEMPLATE.md` (Tier 3). Does NOT override any rule.
+On conflict — higher tier wins.
+
+---
+
+## DEC-001 (2026-10-31, v0.9.102) — per-card `ram_formula`, not universal `transient_factor`
+
+**Q:** Should RAM estimate use a single `transient_factor` coefficient
+per card?
+
+**A:** No. Each algorithm's state has different structure (polynomial,
+product of axes, dict). A single number cannot express `k * d` (NB) and
+`2 * d * d` (Linear) simultaneously. `transient_factor` hid formula
+structure inside a scalar (e.g. `tf=2.0` for Newton — but 2 what? d²? d?
+different unit for LDA dict at 14.5?).
+
+**Consequence:** per-card `ram_formula` string. `transient_factor`
+remains as **legacy fallback** only. Migrated cards have
+`ram_formula` + `formula_evidence`; measurement stored under
+`measurement`.
+
+**Alternative rejected:** "tf=2 for Newton, tf=14 for dict" — hides the
+bug (which code line produced 2×), makes verification impossible
+(what does 2 mean?), prevents automatic re-derivation when code changes.
+
+---
+
+## DEC-002 (2026-10-31, v0.9.102) — formula derived from code, verified by measurement
+
+**Q:** Should we derive formula by fitting to measurements (vary d, fit
+polynomial, get coefficients)?
+
+**A:** No. Formula comes from reading code. Every term is a line:
+`mg.check_state`, `mg.check_batch`, `np.empty`, `dict[key] +=`. Sum
+of terms = formula. Measurement is **verification**, not derivation.
+
+**Rationale:** measurement-derivation masks which code line is missing
+(if ratio < 0.7, no way to know if it's a hidden alloc or rounding).
+Code-derivation forces reading code (find the `np.zeros((n,))` you
+missed). Discovery of LDA dict issue (v0.9.102) came from code-reading,
+not from fitting.
+
+**Anti-pattern:** ratio 0.5 → "multiply by 2". This hides the missing
+`dict_entry_bytes` term. Correct action: find the dict line in code.
+
+---
+
+## DEC-003 (2026-10-31, v0.9.102) — no `verified_typical` status
+
+**Q:** Should there be a status meaning "works in CI-tested range
+(n≤10⁴, d≤100), may fail outside"?
+
+**A:** No. Either `verified` (matrix passed at all cells) or `draft`
+(with documented reason). No intermediate.
+
+**Rationale:** `verified_typical` would silently permit OOM outside the
+CI range — exactly the "silent OOM" the framework exists to prevent.
+Tests passing at typical n does **not** prove production safety at n=10⁷.
+
+**Alternative rejected:** 4-status enum (`draft`, `verified_typical`,
+`verified`, `tier1_core_exception`) — increases cognitive load; two
+clear statuses (`verified`, `draft`) + one exception is enough.
+
+---
+
+## DEC-004 (2026-10-31, v0.9.102) — "won't fix" is not a category
+
+**Q:** What about algorithms where OOC is impractical (binseg, stray,
+TS single-series)?
+
+**A:** Every CADW algorithm has a feasible OOC path via primitives
+(Reduce, HashShuffle, Sort, SpillBuffer, SpillArray, strided+chunked).
+"Impossible" is not a valid claim. Categories:
+
+- `verified` — OOC proven, matrix passed
+- `draft` — OOC feasible, fix planned for version X (documented in
+  ROADMAP)
+- `tier1_core_exception` — n bounded by problem domain (single-series
+  TS, n≤10⁶ typical), with tested bound
+
+"Won't fix" was a grab-bag that let `draft` items hide as if they were
+final decisions. Removed.
+
+---
+
+## DEC-005 (2026-10-31, v0.9.102) — calibration isolated from runtime
+
+**Q:** Should formula verification use `MemoryGuard` while measuring?
+
+**A:** No. Calibration uses fixed `batch=1000` (experimental control);
+no guard, no budget. Runtime uses guard to pick batch from formula
+(inverse). Two orthogonal activities.
+
+**Rationale:** calibration answers "does formula match reality at
+known batch?" (one question). Runtime answers "what batch fits in
+budget?" (inverse). Mixing makes both untestable. Also: guard
+introduces auto-injected params (`batch`, `row_size` from budget) that
+make calibration params non-explicit.
+
+**Consequence:** `evaluate_formula(op, **params)` — no guard in
+signature. `estimate_from_yaml(op, guard, **params)` — with guard,
+calls `evaluate_formula` internally after auto-inject. v0.9.103+ adds
+`solve_batch(op, budget, **params)` for runtime.
+
+---
+
+## DEC-006 (2026-10-31, v0.9.102) — fixed batch at calibration
+
+**Q:** Should calibration vary batch size too?
+
+**A:** No. Fixed `batch=1000`. Vary n, d (and k, w, n_groups where
+applicable).
+
+**Rationale:** batch is an experimental control, not an axis. If batch
+varies, formula gets extra term `X * batch * row_size` which is trivially
+present in every formula; testing it 9 times per algorithm wastes time
+without information. Fixed batch → 9 cells × (n, d) matrix. If batch term
+suspected wrong, add a single 3-point sweep `batch ∈ {100, 1000, 10000}`
+at fixed n, d (3 extra cells).
+
+**Alternative rejected:** "compute batch from formula to target 50 MB
+peak". Circular — formula used to pick batch, then formula verified
+against its own prediction.
+
+---
+
+## DEC-007 (2026-10-31, v0.9.102) — private test helpers not in status scope
+
+**Q:** How to classify private functions used only in tests (e.g.
+`coxph._breslow`, `dwt_mlead._mahalanobis_distances`)?
+
+**A:** Not in scope. No YAML card, no `status` field. Docstring marker
+`REFERENCE ONLY — production uses <_other_function>` is sufficient.
+
+**Rationale:** status system applies to **public producers** (`fit_*`,
+`predict_*`, `transform_*` without `_` prefix) that users call. Private
+helpers are implementation detail; their RAM is bounded by the caller's
+(guarded) usage. Adding them to status enum ("`reference_only`") creates
+the illusion they're public and makes the enum mean two different things.
+
+**Consequence:** audit pass flags private helper → verdict "checked:
+no production caller" → close without YAML change. `coxph._breslow`
+moved from `status: reference_only` candidate to "not in scope" in v0.9.101.
+
+---
+
+## DEC-008 (2026-10-31, v0.9.102) — no `verified_cost_bounded`
+
+**Q:** If OOC fix is known but expensive (CPU-bound, not RAM-bound),
+should status reflect "OOC possible but slow"?
+
+**A:** No. OOC is the target. If fix is known → `draft` (target version).
+If cost makes it non-viable → still `draft`, but add `SlowOperationWarning`
+at runtime (AP22, v0.9.103+) and estimate_cost skeleton. "cost-bounded"
+hides "we decided not to do it" behind a status that sounds final.
+
+**Rationale:** user has a right to know: (a) will it run OOC? (b) will
+it take 1 hour? Both are answers, separately. Combining into "cost-bounded"
+answers neither. `draft` + warning answers both: "OOC coming in
+v0.9.10X; current version will warn at runtime about 1h compute".
+
+**Anti-pattern:** status enum grows every time a hard case appears.
+Each addition makes the enum less interpretable. Stick to three:
+`draft`, `verified`, `tier1_core_exception`.
+
+---
+
+## DEC-009 (2026-10-31, v0.9.102) — document hierarchy T1–T5
+
+**Q:** Multiple methodology docs (AI_CONSTITUTION, STABILITY_PROTOCOL,
+ALGORITHM_TEMPLATE, GLOSSARY, DECISION_LOG, CHAT_PROTOCOL, CHANGELOG,
+ROADMAP, EXAMPLES_INDEX, METHODOLOGY_ALGORITHM_SELECTION,
+PRIMITIVES_AND_PRINCIPLES). Which wins on conflict?
+
+**A:** Five tiers:
+
+- **T1. Constitutional:** `AI_CONSTITUTION.md`. Principles, patterns,
+  gates G1–G11, anti-patterns AP1–AP23. Overrides all below.
+- **T2. Methodological:** `STABILITY_PROTOCOL.md`,
+  `METHODOLOGY_ALGORITHM_SELECTION.md`. Process docs. Apply T1 to
+  specific tasks. Cannot override T1.
+- **T3. Template:** `ALGORITHM_TEMPLATE.md`,
+  `EXAMPLE_VERIFIED_CARD.md`. Concrete checklists/examples. Cannot
+  override T1 or T2.
+- **T4. Reference:** `GLOSSARY.md`, `DECISION_LOG.md`,
+  `PRIMITIVES_AND_PRINCIPLES.md`, `EXAMPLES_INDEX.md`. Canonical
+  terms and historical rationale.
+- **T5. Operational:** `CHAT_PROTOCOL.md`. Session rhythm and format.
+  No content rules, only process.
+
+**Every doc carries a `**Hierarchy:** Tier N` header** at top,
+immediately after **Version**. Enables AI to detect conflicts fast.
+
+---
+
+## DEC-010 (2026-10-31, v0.9.102) — chat protocol 4 phases
+
+**Q:** How should AI <-> developer chat flow structure?
+
+**A:** Four phases, never mixed:
+
+1. **Probe** — read-only commands; output pasted back
+2. **Patch** — write to `/tmp/patch_NNN.py`, run; verify in same block
+3. **Review** — human reads `git diff --stat` + sample; approves/corrects
+4. **Commit** — `git add` + `commit` + `tag`; only after explicit "go"
+
+**Rationale:** mixing causes wasted context (patch code pasted back
+inflates tokens), terminal crashes (piping `pytest` output), and
+silent errors (patching without seeing failure first). See
+`CHAT_PROTOCOL.md` for details.
+
+---
+
+## New entries (append below, do not edit)
+
+---
+
+## DEC-011 (2026-10-31, v0.9.102) — `tier1_core_exception` status is temporary wart; replaced by `bounded_by_domain` field in v0.9.103
+
+**Q:** Should "n bounded by problem domain" be a status value, or a
+separate property field?
+
+**A:** Separate property field (`bounded_by_domain`). Status stays
+binary (`draft` / `verified`).
+
+**Rationale:** `tier1_core_exception` mixes two orthogonal concepts:
+
+1. **Tier** — how the model is built (`tier1_core` / `tier2_wrapper` /
+   `tier3_export`). From METHODOLOGY §10.
+2. **Status** — whether the card is done (`draft` / `verified`).
+
+Also confusable with a potential `tier2_wrapper_exception` (none exist
+today; none planned — the `_core` suffix makes the "tier2_core" version
+nonsensical).
+
+**Temporary wart (v0.9.102):** status enum includes
+`tier1_core_exception` for `tier_level: tier1_core` + n-domain-bounded
+cards (pelt x2). Schema R7 enforces `tier1_core_exception:` field
+presence.
+
+**Planned replacement (v0.9.103):**
+
+```yaml
+tier_level: tier1_core
+bounded_by_domain: {axis: n, bound: 10^6, reason: "..."}
+implementation_status:
+  verified_in_cadw: true
+  status: verified
+```
+
+Three fields express three facts. One compound status expressed them
+poorly.
+
+**Do NOT invent** `tier2_core_exception` or similar. Fix is one wart
+removed, not one addition.
+
+**Reference:** AI_CONSTITUTION §5.2, STABILITY_PROTOCOL §6.
+
+<!-- future entries appended here -->
