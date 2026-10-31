@@ -28,6 +28,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
+      draft_reason: "vocab dict O(K) no spill; K-spill v0.9.104"
       verified_by_agent: true
     roles:
     - linear_signal

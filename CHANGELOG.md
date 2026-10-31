@@ -1,5 +1,97 @@
 ## [Unreleased]
 
+### v0.9.103 (2026-11-01) — ram_formula mechanism + first 2 verified
+
+First honest verified cards via STABILITY_PROTOCOL end-to-end (code ->
+formula -> measurement). Matrix_profile ×2 verified: 9/9 cells ±30%,
+OOC check passes.
+
+**Mechanism (P1):**
+
+- `cadw/ml/_memory_estimate.py`:
+  - `_safe_eval(formula, env)` — AST walker. Only `+ - * / **` and
+    identifiers. Rejects Call/Attr/Subscript/comparison/boolean
+    (security: formulas from YAML, must not execute arbitrary code).
+  - `evaluate_formula(op, **params)` — calibration path. No guard,
+    no budget. Used by matrix tests. Returns `{bytes, formula,
+    unknown_names}`.
+  - `estimate_from_yaml` — runtime path. Prefers `ram_formula`;
+    auto-injects `batch` / `row_size` from guard. Legacy `dims+tf`
+    fallback with `LegacyFormulaWarning`.
+
+- `docs/ml_tools/memory_constants.yaml` (new): 14 typed constants
+  (`f64=8`, `f32=4`, `i32=4`, `i64=8`, `i8=1`, `bool=1`,
+  `dict_entry_bytes=116`, `py_str_overhead_bytes=49`, ...).
+  Version-stamped for drift detection.
+
+**Verified (2):**
+
+- `MatrixProfile` (D_time_series): `S * f64 * (771 + 5 * w)`.
+  9/9 cells (S ∈ {1024, 2048, 4096}, w ∈ {16, 32, 64}, n=10^5),
+  max deviation <30%. OOC: peak(n=10^6)/peak(n=10^4) < 2.0.
+  `bounded_state: true`, dims `{S: 1, w: 1}`.
+- `MatrixProfile_discord` (D_time_series): same formula (alias).
+
+**Structural migration (DEC-011 closed):**
+
+- `bounded_by_domain` field added to schema.py: `{axis, bound,
+  reason}`. Validation: `tier1_core + bounded_state:false` accepted
+  with EITHER `tier1_core_exception` (legacy) OR `bounded_by_domain`.
+  `status: tier1_core_exception` no longer used (0 cards).
+- `fit_pelt` ×2: `bounded_by_domain: {axis: n, bound: 10^6}`.
+  Reverted `verified` → `draft` (DEC-014): `fit` is container (256B);
+  formula requires `_collect_series` refactor v0.9.104.
+
+**Schema enforcement (R1-R4, tests/test_ml_tools_schema.py):**
+
+- R1: status ∈ {draft, verified, tier1_core_exception} or None
+- R2: status=verified ⟹ ram_formula present
+- R3: status=verified ⟹ no `# BACKLOG:` in module code
+- R4: status=draft ⟹ draft_reason present
+
+**Draft_reason migration (all 21 draft cards):**
+
+- 14 existing reasons preserved (`# draft_reason:` → YAML field).
+- 7 new reasons added:
+  - `fit_classifier_chains` ×2, `fit_tfidf` (vocab K-spill v0.9.104)
+  - `fit_binseg` ×2 (external cumsum v0.9.105)
+  - `fit_stray` (batched kNN v0.9.106)
+  - `fit_t2q` (strided+chunked v0.9.104)
+  - `fit_pelt` ×2 (container, `_collect_series` refactor v0.9.104)
+
+**Discoveries (DEC-012, DEC-013, DEC-014):**
+
+- DEC-012: `_stack_numeric` (AP2) blocks verified for linear,
+  logistic ×4, lasso, gaussian_nb, bernoulli_nb, multinomial_nb.
+  Refactor v0.9.104 (pre-allocated, guard extra_factor=3.0).
+- DEC-013: `fit_zms` ×3 O(n) output (decision_scores, labels).
+  SpillArray v0.9.105.
+- DEC-014: `bounded_by_domain` is modifier, not verified-enabler.
+  Formula + matrix still required.
+
+**Status baseline (after v0.9.103):**
+
+| Status | Count |
+|---|---|
+| verified | 2 |
+| draft | 21 |
+| tier1_core_exception | 0 (replaced by `bounded_by_domain`) |
+| pending (no status) | 64 |
+
+**Tests:** ~4345 passed, 9 skipped, 25 deselected (fast;
++10 formula_accuracy, +4 R1-R4, +2 estimate_memory regression,
+0 regressions).
+
+**Not in scope (v0.9.104+):**
+
+- `_stack_numeric` refactor → +9 verified (linear, logistic ×4,
+  lasso, NB ×3) [DEC-012]
+- `_collect_series` pelt refactor → +2 verified [DEC-014]
+- `SpillArray` for `fit_zms` ×3 [DEC-013]
+- Remaining 62 pending card migrations (batches of ~15/session)
+- `solve_batch(op, budget, **params)` inverse solver
+- `bounded_by_domain` applied to future exception cases only
+
 ### v0.9.102 (2026-10-31) — methodology docs + status system baseline (0 verified)
 
 Baseline honesty: **0 verified**. First verified appears in v0.9.103 when

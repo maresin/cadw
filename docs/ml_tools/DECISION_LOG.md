@@ -267,4 +267,54 @@ removed, not one addition.
 
 **Reference:** AI_CONSTITUTION §5.2, STABILITY_PROTOCOL §6.
 
+---
+
+## DEC-012 (2026-11-01, v0.9.103) — AP2 in `_stack_numeric` blocks `fit_linear` verified
+
+**Q:** `fit_linear` has formula `2*d*d*f64 + 3*batch*row_size + batch*d*f64`. But `measure_peak` shows 2× formula due to `_stack_numeric` (`np.column_stack` in batch loop). What status?
+
+**A:** `draft`. Formula would need `+ 2*batch*d*f64` transient term to match measurement. But that transient is AP2 (`list.append` + `column_stack` = classic anti-pattern). Refactor (`_stack_numeric` → pre-allocated array, guard-correct) removes the term. Formula for pre-refactor code = temporary correct, wrong target.
+
+**Rationale:** STABILITY_PROTOCOL §2.2 (spill check) is also blocked: `reduce()` `check_batch(extra_factor=1.0)` doesn't include `_stack_numeric` transient. Guard under-counts ~2× at d=100, ~100× at d=1000. Same issue in `logistic.py`, `lasso.py` (same helper), `naive_bayes.py` (all ReduceOps use `_stack_numeric`).
+
+**Affected (v0.9.104 refactor + reverify):** `fit_linear`, `fit_logistic` ×4, `fit_lasso`, `fit_gaussian_nb`, `fit_bernoulli_nb`, `fit_multinomial_nb`.
+
+**Fix plan (v0.9.104):** replace `_stack_numeric` with `np.empty((batch, d))` + per-column slice assignment. Update `extra_factor` in `reduce()` to `3.0`. Then formula + matrix + verified for all 8+ cards.
+
+**Reference:** STABILITY_PROTOCOL §3 (formula from code, not reverse-engineer from AP2), §2.2 (spill check requires guard covers all transients).
+
+---
+
+## DEC-013 (2026-11-01, v0.9.103) — `fit_zms` O(n) output blocks verified
+
+**Q:** `fit_zms` state O(chunk) — seems OOC. But `ZMSResult` includes `decision_scores` (n,) and `labels` (n,). Verified?
+
+**A:** `draft`. STABILITY_PROTOCOL §2.1 OOC check fails: peak(n=10^5) / peak(n=10^3) ≈ 100× (not < 2.0). Reason: O(n) output.
+
+**Rationale:** OOC promise means RAM independent of n. `decision_scores` is 1 score per timestep — intrinsic to algorithm (anomaly score per point), not a bug. Fix: `SpillArray` (AI_CONSTITUTION §3.3). Deferred v0.9.105.
+
+**Affected:** `fit_zms` ×3 (D_time_series: point, shape, ZMS alias). Same pattern likely for `fit_hampel`, `fit_cusum` — check in v0.9.105.
+
+**Reference:** STABILITY_PROTOCOL §2.1, AI_CONSTITUTION §3.3 (SpillArray for O(n) output).
+
+---
+
+## DEC-014 (2026-11-01, v0.9.103) — `bounded_by_domain` is modifier, not verified-enabler
+
+**Q:** Pelt has `bounded_by_domain: {n: 10^6}`. Structural migration done (DEC-011). Does this make it `verified`?
+
+**A:** No. `bounded_by_domain` describes **where the algorithm is safe** (n <= 1e6). It does NOT mean "formula verified, matrix measured, status done". Pelt `fit_pelt` is a **container** — 256B model + loop over `_collect_series` (per-id series buffering). Real memory is in `_collect_series` (per-batch) + `pelt()` DP (in `.detect()`). Formula requires `_collect_series` refactor + measurement.
+
+**Rationale:** Two orthogonal facts:
+- `bounded_by_domain`: where algorithm is applicable
+- `status: verified`: fit path is OOC + formula + matrix-measured
+
+`bounded_by_domain` is a **modifier** to `status: verified` (like `measurement`). Cannot substitute for the 4 criteria (STABILITY_PROTOCOL §6).
+
+**Correction:** pelt ×2 reverted from `verified` → `draft`. `bounded_by_domain` retained (applies to `.detect()`, honest metadata). v0.9.104 formula + matrix will promote to `verified`.
+
+**Same class as** `fit_ab_test` (DriftABModel, 256B, tiny O(1) state — STABILITY_PROTOCOL §4 ratio may fail if measurement ~2-5KB vs formula 800B).
+
+**Reference:** STABILITY_PROTOCOL §6 (status criteria), DEC-011 (bounded_by_domain introduction).
+
 <!-- future entries appended here -->

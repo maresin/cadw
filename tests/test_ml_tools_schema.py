@@ -443,3 +443,96 @@ def test_v03_cadw_reproduced_both_scope_passes():
     errors = _errors_of(_validate_card(card))
     assert not any("evaluation_scope" in e for e in errors), errors
 
+# ─── R1-R4: status system enforcement (v0.9.103) ────────────────
+# See AI_CONSTITUTION §5 (AP21), STABILITY_PROTOCOL §6.
+# R1: status enum valid
+# R2: verified requires ram_formula
+# R3: verified + # BACKLOG: in module code → fail
+# R4: draft requires draft_reason
+
+_ALLOWED_STATUSES = {"draft", "verified", "tier1_core_exception"}
+
+
+def _iter_verified_in_cadw_cards():
+    """Yield (file_path, card, model_label) for each verified card."""
+    load_benchmarks, load_section, validate_matrix = _load_all()
+    for path in _section_files():
+        sec = load_section(path)
+        for subtype in sec.subtypes:
+            for m in subtype.models:
+                if not m.implementation_status.verified_in_cadw:
+                    continue
+                yield path, m, f"{subtype.id}.{m.name}"
+
+
+def test_R1_status_enum():
+    """R1: status, when present, in {draft, verified, tier1_core_exception}."""
+    bad = []
+    for path, m, label in _iter_verified_in_cadw_cards():
+        s = m.implementation_status.status
+        if s is None:
+            continue  # pending, not yet assigned
+        if s not in _ALLOWED_STATUSES:
+            bad.append(f"{label}: status={s!r} (allowed: {sorted(_ALLOWED_STATUSES)})")
+    assert not bad, "\n".join(bad)
+
+
+def test_R2_verified_requires_ram_formula():
+    """R2: status=verified ⟹ ram_formula present (STABILITY_PROTOCOL §6)."""
+    bad = []
+    for path, m, label in _iter_verified_in_cadw_cards():
+        if m.implementation_status.status != "verified":
+            continue
+        # Access raw card via m; ram_formula is card-level (not in impl_status)
+        # Load via yaml
+        import yaml
+        d = yaml.safe_load(path.read_text())
+        found = None
+        for st in d.get("subtypes", []):
+            for c in st.get("models", []):
+                if c.get("name") == m.name:
+                    found = c
+                    break
+        if not found or not found.get("ram_formula"):
+            bad.append(f"{label}: status=verified but no ram_formula")
+    assert not bad, "\n".join(bad)
+
+
+def test_R3_verified_no_backlog_in_code():
+    """R3: status=verified ⟹ no # BACKLOG: in cadw module source."""
+    import re
+    bad = []
+    root = Path(__file__).parent.parent
+    for path, m, label in _iter_verified_in_cadw_cards():
+        if m.implementation_status.status != "verified":
+            continue
+        mod = m.cadw_module or ""
+        fn = m.cadw_function or ""
+        if not mod.startswith("cadw."):
+            continue
+        parts = mod.split(".")
+        fpath = root / "/".join(parts[:-1]) / f"{parts[-1]}.py"
+        if not fpath.exists():
+            continue
+        src = fpath.read_text()
+        # Find function body
+        mm = re.search(rf"^def\s+{re.escape(fn)}\b", src, re.M)
+        if not mm:
+            continue
+        tail = src[mm.start():]
+        nxt = re.search(r"^(def |class )", tail[1:], re.M)
+        body = tail[: nxt.start() + 1] if nxt else tail
+        if "# BACKLOG:" in body:
+            bad.append(f"{label}: verified but '# BACKLOG:' in {mod}::{fn}")
+    assert not bad, "\n".join(bad)
+
+
+def test_R4_draft_requires_draft_reason():
+    """R4: status=draft ⟹ draft_reason present."""
+    bad = []
+    for path, m, label in _iter_verified_in_cadw_cards():
+        if m.implementation_status.status != "draft":
+            continue
+        if not (m.implementation_status.draft_reason or "").strip():
+            bad.append(f"{label}: status=draft but no draft_reason")
+    assert not bad, "\n".join(bad)

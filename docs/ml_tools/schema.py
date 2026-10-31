@@ -73,6 +73,10 @@ class ImplStatus:
     # cadw/. Pretrained inference is O(model) + bounded_state=true.
     # NOT described_only — model exists, just in another package.
     requires_torch: bool = False
+    # v0.9.103: status system (AI_CONSTITUTION §5 AP21, STABILITY_PROTOCOL §6)
+    # status ∈ {draft, verified, tier1_core_exception, None}
+    status: str | None = None
+    draft_reason: str | None = None
 
 
 # v0.9.51.1: leakage info (optional, backward compatible).
@@ -125,6 +129,10 @@ class ModelCard:
     # v0.9.97: RAM formula components. {axis: power}; missing axis = 0.
     # est_bytes = sum(val**pow for axis,pow in dims.items()) * 8 * transient_factor
     bounded_state_dims: dict[str, int] | None = None
+    # v0.9.103 (DEC-011): structured replacement for tier1_core_exception
+    # text field. {axis: str, bound: int, reason: str}. When present,
+    # tier1_core + bounded_state:false is accepted.
+    bounded_by_domain: dict | None = None
     transient_factor: float = 1.0
     # tier1_core + bounded_state=false exception (METHODOLOGY §7, §10)
     tier1_core_exception: str | None = None
@@ -272,6 +280,8 @@ def _parse_model(m: dict) -> ModelCard:
             not_implemented_in_cadw=bool(status.get("not_implemented_in_cadw", False)),
             reference_impl_ready=bool(status.get("reference_impl_ready", False)),
             requires_torch=bool(status.get("requires_torch", False)),
+            status=status.get("status"),
+            draft_reason=status.get("draft_reason"),
         ),
         roles=list(m["roles"]),
         purpose=m["purpose"],
@@ -303,6 +313,7 @@ def _parse_model(m: dict) -> ModelCard:
         streaming_strategy=m.get("streaming_strategy"),
         primitive_reuse=m.get("primitive_reuse"),
         bounded_state_dims=m.get("bounded_state_dims"),
+        bounded_by_domain=m.get("bounded_by_domain"),
         transient_factor=(
             float(m["transient_factor"])
             if m.get("transient_factor") is not None else 1.0
@@ -515,6 +526,18 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
             or m.transient_factor < 1.0):
         err(f"{m_label}: transient_factor must be >= 1.0, "
             f"got {m.transient_factor!r}")
+    if m.bounded_by_domain is not None:
+        if not isinstance(m.bounded_by_domain, dict):
+            err(f"{m_label}: bounded_by_domain must be dict, got "
+                f"{type(m.bounded_by_domain).__name__}")
+        else:
+            bdd = m.bounded_by_domain
+            if not isinstance(bdd.get("axis"), str) or not bdd.get("axis"):
+                err(f"{m_label}: bounded_by_domain.axis must be non-empty str")
+            if not isinstance(bdd.get("bound"), int) or bdd.get("bound", 0) <= 0:
+                err(f"{m_label}: bounded_by_domain.bound must be positive int")
+            if not isinstance(bdd.get("reason"), str) or not bdd.get("reason"):
+                err(f"{m_label}: bounded_by_domain.reason must be non-empty str")
     if m.bounded_state is not None and not isinstance(m.bounded_state, bool):
         err(f"{m_label}: bounded_state must be bool, "
             f"got {type(m.bounded_state).__name__}")
@@ -552,12 +575,19 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
         if m.implementation_status.verified_in_cadw:
             err(f"{m_label}: reference_impl_ready and verified_in_cadw "
                 f"are mutually exclusive")
-    # METHODOLOGY §10: tier1_core + bounded_state:false requires exception
+    # METHODOLOGY §10 / DEC-011: tier1_core + bounded_state:false
+    # requires EITHER tier1_core_exception (legacy text) OR
+    # bounded_by_domain (structured, preferred).
+    has_exception = bool((m.tier1_core_exception or "").strip())
+    has_bdd = isinstance(m.bounded_by_domain, dict) and bool(
+        m.bounded_by_domain.get("reason"))
     if (m.tier_level == "tier1_core"
             and m.bounded_state is False
-            and not (m.tier1_core_exception or "").strip()):
+            and not has_exception
+            and not has_bdd):
         err(f"{m_label}: tier_level='tier1_core' + bounded_state=False "
-            f"requires non-empty tier1_core_exception (METHODOLOGY §10)")
+            f"requires tier1_core_exception (legacy) or "
+            f"bounded_by_domain (DEC-011, METHODOLOGY §10)")
 
 
 def validate_matrix(

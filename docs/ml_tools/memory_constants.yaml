@@ -1,0 +1,27 @@
+# v0.9.103: named constants for ram_formula expressions.
+# Referenced from YAML cards' `ram_formula` via _load_constants().
+# Calibrated values measured on py3.12/np2.4/pa26; version-stamped
+# so drift test (test_constants_match_env) catches upgrades.
+
+profiles:
+  default:
+    calibrated: "2026-10-31"
+    env: {python: "3.12", numpy: "2.4", pyarrow: "26"}
+    constants:
+      # Typed element sizes (bytes)
+      f64: 8
+      f32: 4
+      i64: 8
+      i32: 4
+      i16: 2
+      i8: 1
+      bool: 1
+      # Python object overhead (measured sys.getsizeof)
+      py_object_base_bytes: 56
+      py_float_bytes: 24
+      py_int_bytes: 28
+      py_str_overhead_bytes: 49
+      # Container entries (measured sys.getsizeof on full dict)
+      dict_entry_bytes: 116
+      list_ptr_bytes: 8
+      set_entry_bytes: 32

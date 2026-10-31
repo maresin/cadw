@@ -980,7 +980,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
-      # draft_reason: formula: matrix measurement requires evaluate_formula (v0.9.103)
+      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
       verified_by_agent: true
     roles:
     - temporal_dynamics
@@ -1012,7 +1012,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
-      # draft_reason: formula: matrix measurement requires evaluate_formula (v0.9.103)
+      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
       verified_by_agent: true
     roles:
     - temporal_dynamics
@@ -1188,9 +1188,15 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      # draft_reason: formula: matrix measurement requires evaluate_formula (v0.9.103)
+      status: verified
       verified_by_agent: true
+    bounded_state: true
+    measurement:
+      matrix: {S: [1024, 2048, 4096], w: [16, 32, 64], n: 10^5}
+      cells_passed: "9/9"
+      ooc_check: "peak(n=10^6)/peak(n=10^4) < 2.0"
+      date: "2026-11-01"
+      env: "py3.12/np2.4/pa26"
     roles:
     - local_structure
     - temporal_dynamics
@@ -1227,12 +1233,16 @@ subtypes:
       std: null
       note: 'CADW-native: fit_time_s=0.6 @n=100k and 3.174 @n=1M (matrix_profile.json); NOT comparable to external LB. No std across runs.'
     state_class: O(n·w)
-    bounded_state_dims: {n: 1, w: 1}
+    bounded_state_dims: {S: 1, w: 1}
     transient_factor: 2.0
     state_type: windowed
-    bounded_state: false
-    n_scalability: quadratic
-    tier1_core_exception: 'Matrix profile STAMP: distance-profile per query is O(n); full self-join O(n*w). n<=1e6 typical with reduced w; recommend STOMP streaming for larger n.'
+    n_scalability: constant
+    ram_formula: "S * f64 * (771 + 5 * w)"
+    formula_evidence:
+      stomp_transients: "matrix_profile.py:146-153 -- d2 (3 x 256-block transients)"
+      znorm_and_ref: "matrix_profile.py:28-33,140 -- out + X-mu + abs + ref"
+      meta_arrays: "matrix_profile.py:142-144 -- prof, idx, sq"
+      assumes: "S <= 15625 (block=256) and n >= S + w - 1"
     streaming_strategy:
       fit: 'windows + distance profile per query, reduce min.'
       predict: 'per-batch distance to nearest neighbor.'
@@ -1558,6 +1568,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
+      draft_reason: "batched kNN not done; CPU-bound at n>1e5; v0.9.106"
       verified_by_agent: false
     roles:
     - local_structure
@@ -1868,6 +1879,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
+      draft_reason: "external cumsum not done; intrinsic O(n); v0.9.105"
       verified_by_agent: false
       described_only: false
     roles:
@@ -1984,8 +1996,13 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: tier1_core_exception
+      status: draft
+      draft_reason: "fit is container (256B); _collect_series buffers per-id series; DP in detect(); formula needs _collect_series refactor v0.9.104"
       verified_by_agent: true
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-series DP; n <= 1e6 typical (DEC-011); applies to detect() not fit()"
     roles:
     - temporal_dynamics
     purpose: Pruned exact linear time; exact O(n) with early pruning.
@@ -2015,7 +2032,6 @@ subtypes:
     state_type: iterative
     bounded_state: false
     n_scalability: linear
-    tier1_core_exception: 'PELT DP array is O(n); n<=1e6 typical.'
     streaming_strategy:
       fit: 'DP array + pruning over n positions.'
       predict: 'report positions.'
@@ -2026,6 +2042,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
+      draft_reason: "_make_windows materializes O(n_w*w) at fit; strided+chunked v0.9.104"
       verified_by_agent: false
     roles:
     - representation
@@ -2265,9 +2282,15 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      # draft_reason: formula: matrix measurement requires evaluate_formula (v0.9.103)
+      status: verified
       verified_by_agent: true
+    bounded_state: true
+    measurement:
+      matrix: {S: [1024, 2048, 4096], w: [16, 32, 64], n: 10^5}
+      cells_passed: "9/9"
+      ooc_check: "peak(n=10^6)/peak(n=10^4) < 2.0"
+      date: "2026-11-01"
+      env: "py3.12/np2.4/pa26"
     roles:
     - local_structure
     purpose: 'MP discords: subsequences whose nearest-neighbour distance is largest.'
@@ -2292,12 +2315,16 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n·w)
-    bounded_state_dims: {n: 1, w: 1}
+    bounded_state_dims: {S: 1, w: 1}
     transient_factor: 2.0
     state_type: windowed
-    bounded_state: false
-    n_scalability: quadratic
-    tier1_core_exception: 'Matrix profile discord: distance profile per window is O(n); n<=1e6 typical with reduced w; recommend STOMP streaming.'
+    n_scalability: constant
+    ram_formula: "S * f64 * (771 + 5 * w)"
+    formula_evidence:
+      stomp_transients: "matrix_profile.py:146-153 -- d2 (3 x 256-block transients)"
+      znorm_and_ref: "matrix_profile.py:28-33,140 -- out + X-mu + abs + ref"
+      meta_arrays: "matrix_profile.py:142-144 -- prof, idx, sq"
+      assumes: "S <= 15625 (block=256) and n >= S + w - 1"
     streaming_strategy:
       fit: 'windows + distance profile per query.'
       predict: 'top-k discord scores per batch.'
@@ -2882,6 +2909,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
+      draft_reason: "external cumsum not done; intrinsic O(n); v0.9.105"
       verified_by_agent: false
       described_only: false
     roles:
@@ -2941,8 +2969,13 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: tier1_core_exception
+      status: draft
+      draft_reason: "fit is container (256B); _collect_series buffers per-id series; DP in detect(); formula needs _collect_series refactor v0.9.104"
       verified_by_agent: true
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-series DP; n <= 1e6 typical (DEC-011); applies to detect() not fit()"
     roles:
     - temporal_dynamics
     purpose: See D3.2.
@@ -2971,7 +3004,6 @@ subtypes:
     state_type: iterative
     bounded_state: false
     n_scalability: linear
-    tier1_core_exception: 'PELT DP array is O(n); n<=1e6 typical.'
     streaming_strategy:
       fit: 'DP + pruning.'
       predict: 'report positions.'

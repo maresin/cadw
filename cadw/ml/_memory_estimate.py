@@ -1,18 +1,30 @@
-"""v0.9.97: pre-flight RAM estimate for named ops/models.
+"""RAM estimate for named ops/models.
 
-Loads YAML cards from ``docs/ml_tools/*.yaml``, reads
-``bounded_state_dims`` + ``transient_factor``, evaluates the formula
-against ``MemoryGuard.available_bytes()``.
+v0.9.103: primary path is ``ram_formula`` string in YAML card,
+evaluated by ``evaluate_formula`` (calibration, no guard) or
+``estimate_from_yaml`` (runtime, auto-inject batch/row_size).
 
-See docs/SESSION_BRIEF_v0.9.97.md §3 and
-docs/ml_tools/METHODOLOGY_ALGORITHM_SELECTION.md §5-§6 for context.
+``ram_formula`` grammar: ``+ - * / **`` with names. Names resolved
+from ``memory_constants.yaml`` + caller params. No ``Call`` /
+``Attribute`` / ``Subscript`` — only arithmetic on identifiers.
+
+Legacy fallback: ``bounded_state_dims`` + ``transient_factor`` (v0.9.97),
+deprecated, emits LegacyFormulaWarning.
+
+See docs/ml_tools/STABILITY_PROTOCOL.md (protocol: code -> formula
+-> measurement), AI_CONSTITUTION §5 (AP21-AP23).
 """
+
 from __future__ import annotations
 
+import ast
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
+
+from cadw.core.warnings import LegacyFormulaWarning
 
 
 YAML_DIR = Path(__file__).resolve().parent.parent.parent / "docs" / "ml_tools"
@@ -57,6 +69,105 @@ def _load_cards() -> dict[str, dict]:
                 if name:
                     index.setdefault(name, card)
     return index
+
+
+@lru_cache(maxsize=1)
+def _load_constants() -> dict:
+    """Load named constants from docs/ml_tools/memory_constants.yaml."""
+    cp = YAML_DIR / "memory_constants.yaml"
+    if not cp.exists():
+        return {}
+    try:
+        data = yaml.safe_load(cp.read_text())
+    except yaml.YAMLError:
+        return {}
+    profiles = (data or {}).get("profiles") or {}
+    default = profiles.get("default") or {}
+    return dict(default.get("constants") or {})
+
+
+def _formula_names(formula: str) -> set[str]:
+    """Extract Name identifiers from formula string. Empty on syntax error."""
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError:
+        return set()
+    return {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+
+
+def _safe_eval(formula: str, env: dict) -> float:
+    """Evaluate ram_formula. Only +/-/*//**/() and identifiers."""
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError as e:
+        raise ValueError(f"invalid ram_formula: {e}") from e
+
+    def _eval(n):
+        if isinstance(n, ast.Constant):
+            if not isinstance(n.value, (int, float)) or isinstance(n.value, bool):
+                raise ValueError(
+                    f"ram_formula: only numeric literals, got "
+                    f"{type(n.value).__name__}")
+            return float(n.value)
+        if isinstance(n, ast.Name):
+            if n.id not in env:
+                raise KeyError(f"ram_formula: unknown name {n.id!r}")
+            v = env[n.id]
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                raise ValueError(
+                    f"ram_formula: {n.id!r} not numeric "
+                    f"({type(v).__name__})")
+            return float(v)
+        if isinstance(n, ast.BinOp):
+            l = _eval(n.left)
+            r = _eval(n.right)
+            if isinstance(n.op, ast.Add): return l + r
+            if isinstance(n.op, ast.Sub): return l - r
+            if isinstance(n.op, ast.Mult): return l * r
+            if isinstance(n.op, ast.Div):
+                if r == 0:
+                    raise ZeroDivisionError("ram_formula: div by zero")
+                return l / r
+            if isinstance(n.op, ast.Pow): return l ** r
+            raise ValueError(
+                f"ram_formula: unsupported op {type(n.op).__name__}")
+        if isinstance(n, ast.UnaryOp):
+            v = _eval(n.operand)
+            if isinstance(n.op, ast.USub): return -v
+            if isinstance(n.op, ast.UAdd): return v
+            raise ValueError(
+                f"ram_formula: unsupported unary {type(n.op).__name__}")
+        raise ValueError(
+            f"ram_formula: unsupported node {type(n).__name__}")
+
+    return float(_eval(tree.body))
+
+
+def evaluate_formula(op: str, **params) -> dict:
+    """Calibration path: pure formula evaluation, no guard, no budget."""
+    card = _lookup_card(op)
+    if card is None:
+        raise KeyError(f"evaluate_formula: {op!r} not in YAML cards")
+    formula = card.get("ram_formula")
+    if not formula:
+        raise ValueError(
+            f"evaluate_formula: {op!r} has no ram_formula "
+            f"(status=draft or legacy dims-only card)")
+
+    constants = _load_constants()
+    env = {**constants, **params}
+    required = _formula_names(formula)
+    unresolved = sorted(required - set(env.keys()))
+    if unresolved:
+        raise ValueError(
+            f"evaluate_formula: {op!r} formula requires unresolved "
+            f"names {unresolved}. Pass as **params.")
+    est = _safe_eval(formula, env)
+    return {
+        "bytes": float(est),
+        "formula": formula,
+        "unknown_names": [],
+    }
 
 
 def _lookup_card(op: str) -> dict | None:
@@ -105,13 +216,52 @@ def estimate_from_yaml(op: str, guard, **params) -> dict:
             "alternatives": _alternatives(card),
         }
 
+    formula = card.get("ram_formula")
+    if formula:
+        env = dict(params)
+        if "batch" not in env and hasattr(guard, "get_batch_rows"):
+            try:
+                env["batch"] = guard.get_batch_rows(op)
+            except Exception:
+                pass
+        if "row_size" not in env:
+            rs = getattr(guard, "row_size_bytes", None)
+            if rs:
+                env["row_size"] = rs
+        constants = _load_constants()
+        merged = {**constants, **env}
+        required = _formula_names(formula) - set(constants.keys())
+        missing_names = sorted(required - set(env.keys()))
+        if missing_names:
+            raise ValueError(
+                f"{op}: missing axis params {missing_names} for "
+                f"ram_formula. Required: {sorted(required)}")
+        try:
+            est_bytes = _safe_eval(formula, merged)
+        except (ValueError, KeyError, ZeroDivisionError) as e:
+            raise ValueError(
+                f"{op}: ram_formula eval failed: {e}") from e
+        return {
+            "fits": est_bytes <= avail_bytes,
+            "est_ram_mb": est_bytes / 1e6,
+            "bottleneck": f"ram_formula: {formula.strip()[:80]}",
+            "available_mb": avail_mb,
+            "alternatives": _alternatives(card),
+        }
+
     dims = card.get("bounded_state_dims")
     if dims is None:
         raise ValueError(
-            f"{op}: bounded_state_dims missing "
-            f"(v0.9.97 registration debt; run "
-            f"scripts/patch_v0997_yaml_dims.py --apply)"
+            f"{op}: neither ram_formula nor bounded_state_dims present "
+            f"(card incomplete; formula migration pending)"
         )
+
+    warnings.warn(
+        f"{op}: no ram_formula; using legacy dims+transient_factor "
+        f"(deprecated; migration v0.9.104+)",
+        LegacyFormulaWarning,
+        stacklevel=2,
+    )
 
     tf = float(card.get("transient_factor", 1.0))
 
