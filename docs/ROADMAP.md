@@ -2,95 +2,59 @@
 
 Last updated: 2026-10-30 (after v0.9.101).
 
-## Current: v0.9.101
+## Current: v0.9.104
 
-**Closed:** streaming-output migration (v0.9.92), wide-d quartet
-(v0.9.93), unified narrow (v0.9.94), unified broad (v0.9.95),
-G11 transitive-migration gate (v0.9.96),
-YAML bounded_state_dims + df.estimate_memory (v0.9.97),
-tfidf.transform_sparse(output=) (v0.9.98),
-metrics guards verification + encode_categorical error (v0.9.99),
-version bump + audit pass 3 (v0.9.100),
-coxph reference-only reclassification + LDA dims fix (v0.9.101).
+Last updated: 2026-11-01 (after v0.9.104-fixes).
 
-All 13 producers return CadwDataFrame regardless of output=;
-output= selects storage strategy only. Pipeline works with all
-migrated models out-of-the-box.
+**Closed:** methodology docs (v0.9.102), ram_formula mechanism (v0.9.103),
+R1-R4 enforcement, MatrixProfile x2 verified, bounded_by_domain field,
+21 draft reasons. v0.9.104-fixes: R2 syntax check, evaluate_formula
+exception wrap, MatrixProfile stale field.
 
-| Producer class | Status |
+**Status baseline:**
+
+| Status | Count |
 |---|---|
-| ops (groupby/dedup/topk) | ✅ CadwDataFrame |
-| ML predict/transform (iforest, chains, ordinal, gmm, tfidf, randsvd, coxph) | ✅ CadwDataFrame |
+| verified | 2 (MatrixProfile x2) |
+| draft | 21 |
+| tier1_core_exception | 0 (replaced by bounded_by_domain) |
+| pending (no status) | 64 |
 
-**Legacy (v0.9.92):** streaming-output migration.
-- All ops + ML predict return `CadwDataFrame` via facade
-  (or `AutoResult` / `AutoArrayResult` direct, `output="auto"`).
-- No hidden OOM in migrated functions.
-- Test count: 4308 passed, 8 skipped (fast; includes G1-G11;
-  G11 adds 142 transitive-migration parameters).
+**Known gaps** (DEC-012..DEC-014):
 
-**Known non-OOC** (per STREAMING §6.1) — documented, not regressions:
-- `binseg`, `stray`: intrinsic O(n)/O(n²), refuse-at-guard.
-- `linear`/`logistic`/`coxph`/`pca`: O(d²) state, wide-d not handled.
-- `encode_categorical`, `metrics`-classification: K guard, no spill.
-- TS single-series fits: `tier1_core_exception`.
-- sparse `tfidf.transform`: needs CSR SpillBuffer.
+- `_stack_numeric` AP2 - blocks 9 verified (linear, logistic x4, lasso,
+  NB x3) [DEC-012]
+- `fit_zms` x3 - O(n) output needs SpillArray [DEC-013]
+- `fit_pelt` x2 - `_collect_series` container [DEC-014]
+- `fit_ab_test` - tiny O(1) state, STABILITY §4 special case
 
 ## Next 3 sessions
 
-### v0.9.102 — lda vocab K-spill + lazy reverse_maps (breaking, opt-in)
+### v0.9.105 - `_stack_numeric` refactor (DEC-012)
 
-**Goal:** both remaining K-axis gaps, in one session.
+Unblock 9 verified. Pre-allocated `np.empty((batch, d))` + per-column
+slice assign in `cadw/ml/linear.py`, `cadw/ml/naive_bayes.py`.
+`extra_factor=3.0` default in `reduce.check_batch`. Formula + 9-cell
+matrix per card -> 9 verified. DEC-012 closed.
 
-**Deliverables:**
-- `lda::_build_vocab` — 2-pass HashShuffle:
-  1. Tokenize docs → emit `(token,)` rows → `hash_shuffle` by
-     `[token]` → P partitions.
-  2. Per partition: `Counter({token: count})` (bounded by K/P);
-     heapify top-`vocab_size` per partition → write to disk.
-  3. K-way merge top-`vocab_size` global by `(-count, token)`.
-  Bit-identical to current in-memory when K ≤ state_limit / 96.
-- `encode_categorical(columns, *, reverse_maps="memory"|"disk")` —
-  lazy `SpillMap` (SpillBuffer-backed, `.get(k)`, `.index(v)` disk
-  scan, `.len()`, `.iter()`). NOT a `list`; breaking only when
-  `"disk"` is opted in.
-- CHANGELOG banner: BREAKING for `reverse_maps="disk"` only.
+### v0.9.106 - `SpillArray` for `fit_zms` (DEC-013)
 
-**Tests:**
-- `lda`: K_raw=10⁶ on 10⁵ docs without OOM; bit-identical at
-  K ≤ 10⁵; determinism; tie-break `(-count, token)`.
-- `encode`: memory==disk at K=10⁵ (bit-identical); K=10⁷ OOC fit;
-  `.index` semantics; SpillMap cleanup on GC.
+Unblock 3 verified. Probe `cadw/core/spill.py` for SpillArray. Wrap
+`decision_scores` (n,) + `labels` (n,) in SpillArray. Formula
+(chunk x w x 8) + matrix + OOC check. DEC-013 closed.
 
-**Breaking:** `reverse_maps="disk"` only (opt-in).
+### v0.9.107 - `fit_pelt` `_collect_series` refactor (DEC-014)
 
-### v0.9.103 — MultiRocket (D4 starts)
+Unblock 2 verified. Bounded per-batch buffering. Formula from code.
+pelt x2 -> verified. DEC-014 closed.
 
-**Goal:** first D4 (time-series classification) model.
+## Backlog (not scheduled)
 
-**Deliverables:**
-- `cadw/ml/multirocket.py::fit_multirocket` / `transform`.
-- MiniRocket + multi-pooling (PPV/MPV/MIPV) + 2nd-order diffs.
-- YAML card + `state_class`, `primitive_reuse` (kernels O(k·d),
-  transform streaming per batch).
-
-**Tests:** numeric parity vs `sktime` reference; streaming OOC at
-n=10⁷ (kernels bounded); determinism (same seed → same kernels).
-
-**Breaking:** none.
-
-### v0.9.104 — Hydra + BOSS (D4 continues)
-
-**Goal:** two more D4 models.
-
-**Deliverables:**
-- Hydra: random convolution kernels (competes with MultiRocket).
-- BOSS: bag-of-SFA-symbols (symbolic Fourier + edit distance).
-- YAML card each; benchmark vs sklearn/sktime on UCR.
-
-**Tests:** parity; OOC; determinism.
-
-**Breaking:** none.
+- 53+ pending cards: batches ~15/session v0.9.108-v0.9.111
+- `solve_batch(op, budget, **params)` inverse solver
+- `fit_ab_test` §4 special case (tiny O(1) state)
+- AP2 sweep: grep `column_stack|vstack|concatenate` in cadw/ml/
+- MatrixProfile default S=4096, w=32 auto-inject
 
 ## Do not re-solve
 
@@ -118,15 +82,6 @@ Per STREAMING §6.1 — won't-fix with rationale:
 
 If a future session considers one of these, **read STREAMING §6.1
 first** — cost calculations and rationale are there.
-
-## Backlog (not scheduled)
-
-- `df.estimate_memory(op, params)` — pre-flight RAM estimate
-  (per-axis). Would let users see `fits: false, reason, alternatives`
-  before calling.
-- YAML `bounded_state_dims` for all 84 verified cards.
-- Audit pass 3 (after v0.9.95).
-- `sgd_streaming` mini-batch optimization (currently single-sample).
 
 ## Session discipline
 

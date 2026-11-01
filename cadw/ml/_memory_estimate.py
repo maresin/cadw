@@ -162,7 +162,11 @@ def evaluate_formula(op: str, **params) -> dict:
         raise ValueError(
             f"evaluate_formula: {op!r} formula requires unresolved "
             f"names {unresolved}. Pass as **params.")
-    est = _safe_eval(formula, env)
+    try:
+        est = _safe_eval(formula, env)
+    except (ValueError, KeyError, ZeroDivisionError) as e:
+        raise ValueError(
+            f"evaluate_formula: {op!r} formula eval failed: {e}") from e
     return {
         "bytes": float(est),
         "formula": formula,

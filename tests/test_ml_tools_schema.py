@@ -478,14 +478,16 @@ def test_R1_status_enum():
 
 
 def test_R2_verified_requires_ram_formula():
-    """R2: status=verified ⟹ ram_formula present (STABILITY_PROTOCOL §6)."""
+    """R2: status=verified implies ram_formula present, parseable,
+    with all names resolvable from constants or bounded_state_dims."""
+    import ast
+    import yaml
+    from cadw.ml._memory_estimate import _load_constants
+    constants = set(_load_constants().keys())
     bad = []
     for path, m, label in _iter_verified_in_cadw_cards():
         if m.implementation_status.status != "verified":
             continue
-        # Access raw card via m; ram_formula is card-level (not in impl_status)
-        # Load via yaml
-        import yaml
         d = yaml.safe_load(path.read_text())
         found = None
         for st in d.get("subtypes", []):
@@ -493,9 +495,24 @@ def test_R2_verified_requires_ram_formula():
                 if c.get("name") == m.name:
                     found = c
                     break
-        if not found or not found.get("ram_formula"):
-            bad.append(f"{label}: status=verified but no ram_formula")
+        formula = (found or {}).get("ram_formula")
+        if not formula:
+            bad.append(f"{label}: verified but no ram_formula")
+            continue
+        try:
+            tree = ast.parse(formula, mode="eval")
+        except SyntaxError as e:
+            bad.append(f"{label}: ram_formula syntax error: {e}")
+            continue
+        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        dims = (found or {}).get("bounded_state_dims") or {}
+        allowed = constants | set(dims.keys())
+        extra = names - allowed
+        if extra:
+            bad.append(f"{label}: ram_formula names {sorted(extra)} "
+                       f"not in constants/dims")
     assert not bad, "\n".join(bad)
+
 
 
 def test_R3_verified_no_backlog_in_code():

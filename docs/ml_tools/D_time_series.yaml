@@ -1234,7 +1234,6 @@ subtypes:
       note: 'CADW-native: fit_time_s=0.6 @n=100k and 3.174 @n=1M (matrix_profile.json); NOT comparable to external LB. No std across runs.'
     state_class: O(n·w)
     bounded_state_dims: {S: 1, w: 1}
-    transient_factor: 2.0
     state_type: windowed
     n_scalability: constant
     ram_formula: "S * f64 * (771 + 5 * w)"
@@ -2316,7 +2315,6 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n·w)
     bounded_state_dims: {S: 1, w: 1}
-    transient_factor: 2.0
     state_type: windowed
     n_scalability: constant
     ram_formula: "S * f64 * (771 + 5 * w)"
