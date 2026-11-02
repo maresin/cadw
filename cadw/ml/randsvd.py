@@ -98,7 +98,8 @@ class RandomizedSVDModel:
 
 def fit_randomized_svd(df, X_cols, *, n_components=8, n_oversamples=10,
                        n_power_iter=1, seed=0,
-                       memory_guard: Optional[MemoryGuard] = None):
+                       memory_guard: Optional[MemoryGuard] = None,
+                       batch_size: "int | None" = None):
     """Fit a randomized SVD on the column block X_cols."""
     cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
     if not cols:
@@ -112,11 +113,26 @@ def fit_randomized_svd(df, X_cols, *, n_components=8, n_oversamples=10,
     d = len(cols)
     p = int(n_oversamples)
     L = min(d, n_components + p)
+    # v0.9.109c: derive batch_size from state-aware guard.
+    # State = mean(d) + omega(d,L) + Y(d,L) + Q(d,L) + B(L,L)
+    #       = 5*d*L*8 + L^2*8. Peak = 3*batch*row_size (column_stack 2x
+    # + X-mean subtraction 1x; measured coef=3.0 in sweep) + state.
+    # See EXPERIMENT_PROCEDURE.md §3.
+    if batch_size is None:
+        state_est = 5 * d * L * 8 + L * L * 8 + 256
+        row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        batch_size = mg.get_batch_rows(
+            row_size_bytes=row_size,
+            expansion_factor=3.0,   # matches measured coef=3.0
+            state_bytes=state_est,
+        )
+    else:
+        batch_size = int(batch_size)
     rng = np.random.RandomState(seed)
     # streaming mean
     n = 0
     s = np.zeros(d, dtype=np.float64)
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="randsvd.mean", extra_factor=3.0)
         X = _stack_numeric_safe(b, cols)
         if np.isnan(X).any():
@@ -128,21 +144,21 @@ def fit_randomized_svd(df, X_cols, *, n_components=8, n_oversamples=10,
     mean = s / n
     omega = rng.normal(size=(d, L))
     Y = np.zeros((d, L), dtype=np.float64)
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="randsvd.pass1", extra_factor=3.0)
         X = _stack_numeric_safe(b, cols) - mean
         Y += X.T @ (X @ omega)
     # Y = X^T X Omega; one power iteration already folded into Y.
     for _ in range(max(0, int(n_power_iter) - 1)):
         Yp = np.zeros((d, L), dtype=np.float64)
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(b, name="randsvd.power", extra_factor=3.0)
             X = _stack_numeric_safe(b, cols) - mean
             Yp += X.T @ (X @ Y)
         Y = Yp
     Q, _ = np.linalg.qr(Y)
     B = np.zeros((L, L), dtype=np.float64)
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="randsvd.pass2", extra_factor=3.0)
         X = _stack_numeric_safe(b, cols) - mean
         XQ = X @ Q

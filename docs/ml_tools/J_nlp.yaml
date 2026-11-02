@@ -233,6 +233,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: verified
       verified_by_agent: true
     roles:
     - representation
@@ -259,8 +260,15 @@ subtypes:
     cadw_module: cadw.ml.randsvd
     cadw_function: fit_randomized_svd
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims: {d: 1, n_components: 1, n_oversamples: 1}
     transient_factor: 1.0
+    ram_formula: "3 * batch * row_size + 5 * d * (n_components + n_oversamples) * f64"
+    formula_evidence:
+      batch_term: "randsvd.py -- 4 loops, _stack_numeric (2x) + X-mean subtraction (1x) = 3x batch"
+      state_terms: "randsvd.py -- mean(d) + omega(d,L) + Y(d,L) + Q(d,L) + B(L,L) = 5*d*L*8 + L^2*8"
+      L_def: "L = min(d, n_components + n_oversamples); formula assumes d >= k+p"
+      derive_batch: "randsvd.py -- get_batch_rows(ef=3.0, state_est=5*d*L*8 + L^2*8)"
+      measurement: "v0.9.109c sweep: coef=3.000, d-sweep ratios 0.97-1.12, OOC ratio 1.00"
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
