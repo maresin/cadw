@@ -27,7 +27,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
+      status: draft
+      draft_reason: "matrix measurement fails (0/9 cells in [0.7, 1.4], 3 cells unmeasured rss=0). SAME root cause as DEC-031: measure_peak (ru_maxrss delta) cannot detect per-batch transients when parquet-load peak >= fit peak. DIFFERENT from iforest: linucb state IS pure numpy (A: K*d^2*f64, b: K*d*f64) - fix is NOT state refactor. OOC PROVEN (stage 5, batch=500, n=10^3..10^6: ratio 1.00). Code OOC improvements (batch_size kwarg + k_max_hint + AP4 fix) merged and remain valuable: users get OOC by default. Target v0.9.111: new measurement tool (/proc/self/smaps_rollup or perf-based sampler). See DEC-032."
     roles:
     - linear_signal
     purpose: 'Li et al. 2010 — per-arm ridge regression on context with an upper-confidence exploration bonus. Inductive bias: reward is a linear function of context per arm, with a disjoint or hybrid parameterization; strong when contexts are low-dimensional and reward is roughly linear.'

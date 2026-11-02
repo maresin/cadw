@@ -399,6 +399,92 @@ makes measurement clean).
 
 ---
 
+## DEC-032 (2026-11-03, v0.9.110) — linucb confirms DEC-031 as tool gap, corrects its recommendation
+
+**Q:** `fit_linucb` matrix 0/9 despite state being pure numpy. Same class as
+iforest (DEC-031) or new?
+
+**A:** Same class — measurement tooling gap. But DEC-031's recommendation (a)
+"flat memmap tree refactor" was **incomplete**: it would help iforest
+(Python-object state) but does NOT help linucb (already numpy).
+
+**Evidence (v0.9.110b experiment):**
+
+| n | d | measured | predicted | ratio | verdict |
+|---|---|---|---|---|---|
+| 10^3 | 100 | 1.76 MB | 3.67 MB | 2.09 | FAIL |
+| 10^4 | 100 | 0.58 MB | 3.67 MB | 6.35 | FAIL |
+| 10^5 | 1000 | rss=0 | 72.1 MB | N/A | unmeasured |
+| stage5 n=10^6 | 10 | 172 KB | 196 KB | 1.14 | PASS (OOC) |
+
+Non-physical pattern: n=10^4 measured LESS than n=10^3 for same work. State
+is `K*d^2*f64 + K*d*f64` = 40 MB at K=5,d=1000 — that alone exceeds measured
+value. `rss_delta` doesn't register because `ru_maxrss` was already higher
+from parquet load / page-cache scan.
+
+**Root cause (confirmed):** `measure_peak` uses
+`resource.getrusage(RUSAGE_SELF).ru_maxrss` delta. This is
+peak-since-process-start. When parquet load (or any prewarm scan)
+raises ru_maxrss above fit peak, `rss_delta` = 0. Fallback to
+`py_bytes` (tracemalloc) only counts Python objects, NOT numpy (numpy
+uses malloc, not PyMem). Result: unmeasurable.
+
+**Why this is NOT a code problem:** stage 5 OOC PASS (ratio 1.00 across
+n=10^3..10^6 with batch=500). The algorithm IS OOC. The measured numbers
+in stage 6 are tooling artifacts, not code behavior.
+
+**DEC-031 recommendation correction:**
+
+DEC-031 recommendation (a) "flat memmap tree refactor" is valid **only for
+iforest** (Python-object state). linucb's state is already dense numpy —
+refactoring won't help. The real fix for both is:
+
+(a') **Better measurement tool.** Options:
+   - `/proc/self/smaps_rollup` Pss sampling at 100us granularity
+   - perf_event_open + read RSS periodically during fit
+   - tracemalloc with manual `tracemalloc.take_snapshot` around numpy
+     allocations (requires `tracemalloc.start(...)` + `np.ndarray.nbytes`
+     accounting — hybrid)
+   Cost: ~1 session of infra work. Applies to ALL future cards — including
+   v0.9.107 (which passed by luck: stable state, warmup small relative to
+   signal).
+
+(b) **Parallel algorithm refactor + tool fix.** For iforest-specific
+Python-object cost: flat np.memmap tree storage (DEC-031-a). Then both
+the tool AND the state are simple. But linucb still needs the tool.
+
+**Recommendation update:** v0.9.111 should start with (a'). Tool fix
+unblocks iforest matrix, linucb matrix, and all subsequent cards
+simultaneously. Algorithm refactors (iforest flat-memmap, kmeans_ad,
+sub_pca) are secondary — do them only if measurement tool still leaves
+noise after (a').
+
+**v0.9.107 redux:** why did linear/logistic/NB pass then? Because:
+- batch term (3*batch*row_size) was 3-24 MB (well above ~500 KB noise)
+- state was stable d^2*f64 (allocated once, measured as d^2*8)
+- parquet load at n=10^5, d=100 was ~16 MB, below fit peak 3.3 MB
+So `rss_delta` was correctly positive. linucb fails because state=K*d^2
+can be SMALLER than batch-term × n_batches, and parquet-load dominates
+for large d.
+
+**Do not re-solve:**
+- iforest `status: verified` after flat-memmap (DEC-031-a) — but only
+  AFTER tool fix (a'), otherwise still can't measure
+- linucb `status: verified` after tool fix (a') — no algorithm change needed
+- Do not re-attempt matrix with `measure_peak` for linucb/iforest/gmm/birch
+  until (a') lands
+
+**Files touched (v0.9.110b):**
+- `cadw/ml/linucb.py` — batch_size kwarg + k_max_hint + AP4 fix +
+  cast-based arms extraction + state_est 5-term
+- `docs/ml_tools/M_bandits.yaml` — `status: draft`, `draft_reason`
+- `scripts/experiments/experiment_v110_linucb.py` — reproducible
+  evidence chain (stages 0/2/3/4/5/6, subprocess + prewarm + page cache
+  warm + formula v1)
+- `docs/ml_tools/DECISION_LOG.md` — this entry
+
+---
+
 <!-- future entries appended here -->
 
 

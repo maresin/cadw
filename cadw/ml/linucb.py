@@ -67,25 +67,46 @@ class LinUCBModel:
             out[:, a] = mean[:, a] + alpha * np.sqrt(np.maximum(var, 0.0))
         return out
 
-    def predict(self, df, *, alpha=None, memory_guard=None):
+    def predict(self, df, *, alpha=None, memory_guard=None,
+                batch_size: "int | None" = None):
         """Per-row UCB scores, shape (n, n_arms)."""
         mg = memory_guard or df._memory_guard
         al = float(self.params_["alpha"] if alpha is None else alpha)
+        # v0.9.110b: derive batch_size (OOC; model state loaded once, not
+        # per batch -> state_bytes=0). expansion_factor=3.0 matches
+        # _stack_numeric (1x) + _ucb transients (mean + out, up to 2x batch*K).
+        if batch_size is None:
+            row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+            batch_size = mg.get_batch_rows(
+                row_size_bytes=row_size,
+                expansion_factor=3.0,
+                state_bytes=0,
+            )
+        else:
+            batch_size = int(batch_size)
         out = []
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(b, name="linucb.predict", extra_factor=3.0)
             out.append(self._ucb(_stack_numeric_safe(b, self.feature_cols_), al))
         return np.vstack(out) if out else np.zeros((0, self.n_arms_))
 
-    def choose(self, df, *, alpha=None, memory_guard=None):
+    def choose(self, df, *, alpha=None, memory_guard=None,
+               batch_size: "int | None" = None):
         """Greedy UCB arm per row."""
-        s = self.predict(df, alpha=alpha, memory_guard=memory_guard)
+        s = self.predict(df, alpha=alpha, memory_guard=memory_guard,
+                         batch_size=batch_size)
         return np.argmax(s, axis=1).astype(np.int64) if s.size else np.zeros(0, np.int64)
 
 
 def fit_linucb(df, X_cols, *, arm_col, reward_col, alpha=1.0, l2=1.0,
-               memory_guard: Optional[MemoryGuard] = None):
-    """Fit disjoint LinUCB sufficient statistics by streaming the log."""
+               memory_guard: Optional[MemoryGuard] = None,
+               batch_size: "int | None" = None,
+               k_max_hint: "int | None" = None):
+    """Fit disjoint LinUCB sufficient statistics by streaming the log.
+
+    OOC: batch_size=None -> derived via MemoryGuard.get_batch_rows.
+    K is estimated from the first 1000-row sample (or k_max_hint if given).
+    """
     cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
     if not cols:
         raise ValueError("fit_linucb: X_cols must be non-empty")
@@ -93,21 +114,74 @@ def fit_linucb(df, X_cols, *, arm_col, reward_col, alpha=1.0, l2=1.0,
         raise ValueError("fit_linucb: alpha must be > 0")
     if l2 <= 0:
         raise ValueError("fit_linucb: l2 must be > 0")
+    if k_max_hint is not None and int(k_max_hint) < 1:
+        raise ValueError("fit_linucb: k_max_hint must be >= 1")
     for c in cols + [arm_col, reward_col]:
         if c not in df._columns:
             raise KeyError(f"fit_linucb: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
     d = len(cols)
+
+    # v0.9.110b: estimate K for state_est (K * d^2 + K * d).
+    # K is a DATA property, not a parameter (unlike iforest S/n_trees).
+    # Strategy (chosen v0.9.110b, see DEC-032):
+    #   1. k_max_hint provided -> use directly.
+    #   2. else sample first 1000 rows, K_est = (max_arm+1) * 2 (2x safety).
+    #   3. empty df -> K_est = 2.
+    # SAFETY: batch_size=1000 sample is a probe only (one pass, cheap).
+    #   Under-estimate of K is safe: growth check_state (below) fires
+    #   before newA alloc. Over-estimate -> smaller batch, slower but safe.
+    if k_max_hint is not None:
+        k_est = int(k_max_hint)
+    else:
+        try:
+            first = next(df._iter_filtered_batches(batch_size=1000))
+        except StopIteration:
+            first = None
+        if first is None or first.num_rows == 0:
+            k_est = 2
+        else:
+            import pyarrow.compute as pc
+            m = pc.max(first.column(arm_col))
+            m_val = int(m.as_py()) if m.is_valid and m.as_py() is not None else 0
+            k_est = max(2, (m_val + 1) * 2)
+
+    if batch_size is None:
+        # state_est = persistent (A, b) + per-arm transients.
+        # Formula v1 (predicted, verify by experiment):
+        #   2 * batch * row_size              (X stack 1x + X[mask] 1x)
+        #   K * d * d * f64                    (A state)
+        #   K * d * f64                        (b state)
+        #   d * d * f64                        (Xa.T @ Xa temp, one arm)
+        #   d * f64                            (Xa.T @ r[mask] temp)
+        state_est = (
+            k_est * d * d * 8
+            + k_est * d * 8
+            + d * d * 8
+            + d * 8
+            + 512
+        )
+        row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        batch_size = mg.get_batch_rows(
+            row_size_bytes=row_size,
+            expansion_factor=3.0,   # covers 2x formula + safety
+            state_bytes=state_est,
+        )
+    else:
+        batch_size = int(batch_size)
+
     A = None
     b = None
     K = 0
     n = 0
-    for batch in df._iter_filtered_batches():
+    for batch in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(batch, name="linucb.fit", extra_factor=3.0)
         X = _stack_numeric_safe(batch, cols)
         if np.isnan(X).any():
             raise ValueError("fit_linucb: nulls in features")
-        arms = np.asarray(batch.column(arm_col).to_pylist(), dtype=np.int64)
+        # v0.9.110b: cast+to_numpy avoids to_pylist Python-object overhead.
+        arms = batch.column(arm_col).cast(pa.int64(), safe=False).to_numpy(
+            zero_copy_only=False)
         r = _stack_numeric_safe(batch, [reward_col]).ravel()
         if np.isnan(r).any():
             raise ValueError("fit_linucb: nulls in reward")
@@ -115,6 +189,11 @@ def fit_linucb(df, X_cols, *, arm_col, reward_col, alpha=1.0, l2=1.0,
             raise ValueError("fit_linucb: arm ids must be >= 0")
         k_here = int(arms.max()) + 1 if arms.size else 0
         if k_here > K:
+            # AP4 fix: check_state BEFORE newA alloc (was after).
+            mg.check_state(
+                k_here * d * d * 8 + k_here * d * 8 + 512,
+                name="linucb.state_grow",
+            )
             newA = np.zeros((k_here, d, d), dtype=np.float64)
             newb = np.zeros((k_here, d), dtype=np.float64)
             if K:
@@ -129,12 +208,10 @@ def fit_linucb(df, X_cols, *, arm_col, reward_col, alpha=1.0, l2=1.0,
             A[a] += Xa.T @ Xa
             b[a] += Xa.T @ r[mask]
         n += X.shape[0]
-        mg.check_state(K * d * d * 8 + K * d * 8 + 512, name="linucb.state")
     if A is None or K == 0:
         raise ValueError("fit_linucb: no observations")
     A = A + float(l2) * np.eye(d)[None, :, :]
     model = LinUCBModel(A, b, cols, {"alpha": alpha, "l2": l2,
                                      "n_arms": K, "n_obs": n})
     log_fit("linucb", state_bytes=model.state_nbytes())
-    mg.check_state(model.state_nbytes(), name="linucb.model")
     return model
