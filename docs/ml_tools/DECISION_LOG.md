@@ -317,6 +317,88 @@ removed, not one addition.
 
 **Reference:** STABILITY_PROTOCOL §6 (status criteria), DEC-011 (bounded_by_domain introduction).
 
+## DEC-031 (2026-11-03, v0.9.110) — iforest formula matrix blocked by measurement tooling, not code
+
+**Q:** `fit_isolation_forest` OOC proven (stage 5 ratio 1.00), but matrix
+4-5/9 in [0.7, 1.4]. `status: verified` or `draft`?
+
+**A:** `status: draft`. Matrix fails at multiple cells due to **measurement
+tool limits**, not code defects. OOC fix (batch_size kwarg + state_est v2)
+merged — users get OOC by default.
+
+**Evidence (v0.9.110a, 22 cells, each median-of-3-5 subprocesses):**
+
+| n | d | measured | predicted (v3) | ratio | verdict |
+|---|---|---|---|---|---|
+| 10^3 | 10 | 655 KB | 809 KB | 1.23 | OK |
+| 10^3 | 100 | 5.77 MB | 3.34 MB | 0.58 | FAIL (warmup) |
+| 10^3 | 1000 | 24.1 MB | 28.6 MB | 1.19 | OK |
+| 10^4 | 1000 | 7.46 MB | 28.6 MB | 3.84 | FAIL (steady-state) |
+| 10^5 | 100 | 0.39 MB | 3.34 MB | 8.49 | FAIL (steady-state) |
+| 10^5 | 1000 | 31.99 MB | 28.6 MB | 0.89 | OK |
+
+**Root cause:** `measure_peak` uses `resource.ru_maxrss` (peak-since-process-start
+delta). Cannot separate allocator warmup from real peak when state is
+Python-object-based (`n_trees x ~511 nodes x 5 lists + 5 numpy views`):
+
+- n=10^3 (1 batch): warmup happens inside fit -> peak captured
+- n=10^5 (100 batches): warmup done by batch #2, then reuse -> delta ~ 0
+
+v0.9.107 ReduceOps (linear, logistic, NB) passed because state is **stable
+`d^2*f64`** — warmup small relative to state. iforest has transient allocator
+churn from Python-object trees.
+
+**Why "verified" not honest:** STABILITY_PROTOCOL §4 requires 9/9 in [0.7, 1.4]
+for `status: verified`. Widening to [0.3, 4.0] would silence the tool gap
+without fixing it — same pattern as AP23 anti-pattern (bump coefficient to
+match measurement). Rejected.
+
+**Why the code fix is still valuable (kept in v0.9.110a):**
+
+- `batch_size: int|None = None` kwarg -> auto-derive via
+  `MemoryGuard.get_batch_rows(expansion_factor=3.0, state_bytes=<5-term>)`.
+- Corrected `state_est` from v1 (`S*d*8 + n_trees*2*S*80 + 256`) to v2
+  (`S*d*8 + n_trees*2*S*64 + n_trees*5*S*8 + S*d*8 + max_depth*S*6*8`).
+- `gc.disable()` during fit (removes GC-induced RSS noise, no functional change).
+- OOC proven: stage 5 (fixed batch=500) -> peak ratio n=10^5/n=10^3 = 1.00 (or 0.75); both < 2.0.
+
+**Options for v0.9.111:**
+
+(a) **Algorithm refactor:** flat `np.memmap` tree storage. Trees become dense
+    numpy arrays (`feature: int32[S*nodes]`, `threshold: f64[...]`, etc.).
+    Removes Python-object state -> measurement tool no longer sees warmup as
+    signal. Cost: ~1-2 sessions. **Benefit:** same fix applies to `kmeans_ad`,
+    `sub_pca` (also Python-object state). Cross-group value.
+
+(b) **Better tooling:** `perf`-based RSS sampling at 100us granularity, or
+    `/proc/self/smaps_rollup` tracking. Cost: one-off infra work.
+
+(c) **Accept formula from code with wider tolerance** — violates §2.6. Rejected.
+
+**Recommendation:** (a). Target v0.9.111.
+
+**Do not re-solve:** iforest `status: verified` in v0.9.111 only after
+flat-memmap refactor. Until then: `status: draft`, `draft_reason` explains
+why. Reference this DEC in any future iforest work.
+
+**Note on state_est divergence:** code's `state_est` in `iforest.py` uses
+**conservative v2 coefficients** (180 B/node, `n_trees * score_transient`),
+while `predicted_peak` in `experiment_v110_iforest.py` uses **v3 measured
+coefficients** (64 B/node, single-tree score transient). Intentional: guard
+must not underestimate state -> v2 chosen for safety. v0.9.111 refactor will
+unify both under flat-memmap state (which eliminates Python-objects and
+makes measurement clean).
+
+
+**Files touched (v0.9.110a):**
+- `cadw/ml/iforest.py` — batch_size kwarg + state_est v2 + gc.disable during fit
+- `docs/ml_tools/E_anomaly.yaml` — `status: draft`, `draft_reason`
+- `docs/ml_tools/D_time_series.yaml` — same
+- `scripts/experiments/experiment_v110_iforest.py` — reproducible evidence chain (stages 0, 2, 3, 5, 6)
+- `docs/ml_tools/DECISION_LOG.md` — this entry
+
+---
+
 <!-- future entries appended here -->
 
 

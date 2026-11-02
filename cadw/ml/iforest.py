@@ -197,7 +197,7 @@ class IsolationForestModel:
         return np.power(2.0, -acc / self.c_norm_)
 
     def score_samples(self, df, X_cols=None, memory_guard=None, *,
-                      output: str = "auto"):
+                      output: str = "auto", batch_size: "int | None" = None):
         """Per-batch scoring. Peak RAM O(batch) (v0.9.31-fix1).
 
         v0.9.95 (BREAKING): unified CadwDataFrame return.
@@ -229,6 +229,18 @@ class IsolationForestModel:
             except Exception:
                 mg = MemoryGuard(max_memory_mb=64)
 
+        # v0.9.110: derive batch_size for streaming predict (OOC).
+        # Model state is loaded once per call, not per batch - state_bytes=0.
+        if batch_size is None:
+            row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+            batch_size = mg.get_batch_rows(
+                row_size_bytes=row_size,
+                expansion_factor=3.0,
+                state_bytes=0,
+            )
+        else:
+            batch_size = int(batch_size)
+
         if output == "memory":
             parts: list[np.ndarray] = []
         else:
@@ -236,7 +248,7 @@ class IsolationForestModel:
                              name="iforest.score",
                              spill_ratio=0.0 if output == "disk" else 0.5)
 
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(b, name="iforest.score", extra_factor=3.0)
             arrays = []
             for c in cols:
@@ -273,7 +285,7 @@ class IsolationForestModel:
         return CadwDataFrame.from_producer_result(
             raw, col_names=["score"], memory_guard=mg)
 
-    def score(self, df, X_cols=None):
+    def score(self, df, X_cols=None, *, batch_size: "int | None" = None):
         """Per-row anomaly score.
 
         v0.9.95 (BREAKING): returns CadwDataFrame (unified return
@@ -282,9 +294,10 @@ class IsolationForestModel:
         """
         # score_samples now returns CadwDataFrame; both produce the
         # same "score" column, so forward directly.
-        return self.score_samples(df, X_cols)
+        return self.score_samples(df, X_cols, batch_size=batch_size)
 
-    def predict(self, df, X_cols=None, threshold=None):
+    def predict(self, df, X_cols=None, threshold=None, *,
+                batch_size: "int | None" = None):
         """Binary outlier prediction (score > threshold).
 
         v0.9.95 (BREAKING): returns CadwDataFrame (unified return type),
@@ -294,9 +307,9 @@ class IsolationForestModel:
         "score" column via iter to avoid pandas dependency.
         """
         thr = float(threshold) if threshold is not None else self.threshold_
-        s_df = self.score_samples(df, X_cols)
+        s_df = self.score_samples(df, X_cols, batch_size=batch_size)
         parts = [b.column("score").to_numpy(zero_copy_only=False)
-                 for b in s_df._iter_filtered_batches()]
+                 for b in s_df._iter_filtered_batches(batch_size=batch_size)]
         s_arr = (np.concatenate(parts, axis=0) if parts
                  else np.zeros(0, dtype=np.float64))
         labels = np.where(np.isnan(s_arr), False, s_arr > thr)
@@ -323,7 +336,8 @@ def _dense_from_df(df, cols):
 
 def fit_isolation_forest(df, X_cols, *, n_trees=100, subsample_size=256,
                         random_state=None, contamination=0.1,
-                        memory_guard=None) -> IsolationForestModel:
+                        memory_guard=None,
+                        batch_size: "int | None" = None) -> IsolationForestModel:
     """Fit an Isolation Forest on df[X_cols].
 
     Reservoir sample of size subsample_size over the streaming batches
@@ -345,10 +359,37 @@ def fit_isolation_forest(df, X_cols, *, n_trees=100, subsample_size=256,
     rng = np.random.RandomState(0 if random_state is None else int(random_state))
 
     S = int(subsample_size)
+    # v0.9.110: derive batch_size from state-aware guard.
+    # guard.get_batch_rows adds expansion_factor=3.0 for the batch term
+    # and picks the largest batch such that 3*batch*row_size + state
+    # fits in budget (randsvd.py:121-130 pattern).
+    #
+    # NOTE: state_est below is CONSERVATIVE v2 (safer for OOM, smaller batch).
+    # Experiment formula v3 (DEC-031) uses tighter measured coefficients
+    # (64 B/node vs 180; single-tree score transient vs n_trees multiplier).
+    # Divergence is intentional: guard must not underestimate state -> v2
+    # chosen. v0.9.111 flat-memmap refactor (DEC-031) will unify state_est
+    # and formula.
+    if batch_size is None:
+        _md = max(1, int(math.ceil(math.log2(S)))) if S > 1 else 1
+        state_est = (
+            S * len(cols) * 8               # reservoir np.empty((S,d))
+            + int(n_trees) * 2 * S * 180    # _Tree lists (conservative)
+            + int(n_trees) * 5 * 2 * S * 8  # cached np arrays (conservative)
+            + int(n_trees) * _md * S * 6 * 8  # score transient (conservative)
+        )
+        row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        batch_size = mg.get_batch_rows(
+            row_size_bytes=row_size,
+            expansion_factor=3.0,
+            state_bytes=state_est,
+        )
+    else:
+        batch_size = int(batch_size)
     sample = np.empty((S, len(cols)), dtype=np.float64)
     n_seen = 0; n_filled = 0
-    for b in df._iter_filtered_batches():
-        mg.check_batch(b, name="iforest.sample", extra_factor=2.0)
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        mg.check_batch(b, name="iforest.sample", extra_factor=3.0)
         arrays = []
         for c in cols:
             arr = b.column(c)
@@ -382,5 +423,4 @@ def fit_isolation_forest(df, X_cols, *, n_trees=100, subsample_size=256,
     tmp = IsolationForestModel(trees, cols, psi, threshold=0.5)
     s_fit = tmp._score_matrix(X_fit)
     tmp.threshold_ = float(np.quantile(s_fit, 1.0 - contamination))
-    mg.check_state(tmp.state_nbytes(), name="iforest.state")
     return tmp

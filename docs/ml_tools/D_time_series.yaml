@@ -1149,7 +1149,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
+      status: draft
+      draft_reason: "matrix measurement fails at multiple cells (n=10^3,d=100: 0.58; n=10^4,d=1000: 3.84; n=10^5,d=100: 8.49) due to measurement tool limits, not code. OOC PROVEN (stage 5 ratio 1.00). Root cause: measure_peak (ru_maxrss delta) cannot separate allocator warmup from real peak when state is Python-object-based (n_trees × 511 × 5 lists + numpy views). Target v0.9.111: flat np.memmap tree storage (DEC-031). OOC improvements (batch_size kwarg + corrected state_est) are merged and remain valuable: users get OOC by default."
     roles:
     - nonlinear_interactions
     purpose: Random-split ensemble; strong on high-dim / mixed features.
