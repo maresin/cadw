@@ -2094,6 +2094,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
+      status: draft
+      draft_reason: "O(n) state (6x8n); SpillArray rewrite (DEC-030) pending v0.9.110"
       verified_by_agent: false
     roles:
     - temporal_dynamics
@@ -2143,6 +2145,7 @@ subtypes:
     state_type: iterative
     bounded_state: false
     n_scalability: refuse_at_guard
+    bounded_by_domain: {axis: n, bound: 1000000, reason: "single-series CUSUM, n <= 10^6 typical"}
     streaming_strategy:
       fit: 'warmup mean/std.'
       predict: 'one CUSUM accumulator per stream.'

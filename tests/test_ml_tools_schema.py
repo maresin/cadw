@@ -558,3 +558,58 @@ def test_R4_draft_requires_draft_reason():
         if not (m.implementation_status.draft_reason or "").strip():
             bad.append(f"{label}: status=draft but no draft_reason")
     assert not bad, "\n".join(bad)
+
+
+def test_R5_aliases_consistent_status():
+    """R5: aliases of the same cadw_function must agree on status.
+
+    YAML can have multiple cards for one fn (different ML-taxonomy slots:
+    classification, imbalanced, cost-sensitive...). If one alias is
+    `verified` and another is `pending`, the aggregate claim is
+    inconsistent — users reading the other alias may think the fn is
+    not verified.
+
+    Rule: for each fn, all its cards must share the same
+    implementation_status.status. (`draft` vs `draft` OK, `draft` vs
+    `verified` NOT OK — split verification is not allowed.)
+
+    Exception: `described_only: true` cards are reference-only and
+    excluded (no `cadw_function`).
+    """
+    import yaml
+    from collections import defaultdict
+    from pathlib import Path as _P
+
+    YAML_DIR = _P(__file__).parent.parent / "docs" / "ml_tools"
+    SKIP = {"benchmarks.yaml", "memory_constants.yaml"}
+
+    by_fn = defaultdict(list)  # fn -> [(file, name, status)]
+    for yp in sorted(YAML_DIR.glob("*.yaml")):
+        if yp.name in SKIP:
+            continue
+        try:
+            data = yaml.safe_load(yp.read_text())
+        except yaml.YAMLError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        for st in data.get("subtypes", []):
+            for card in st.get("models", []):
+                fn = card.get("cadw_function")
+                if not fn:
+                    continue
+                impl = card.get("implementation_status") or {}
+                status = impl.get("status", "(pending)")
+                by_fn[fn].append((yp.name, card.get("name") or "?", status))
+
+    bad = []
+    for fn, rows in by_fn.items():
+        if len(rows) < 2:
+            continue
+        statuses = {r[2] for r in rows}
+        if len(statuses) > 1:
+            bad.append(f"{fn}: aliases have inconsistent status {statuses}")
+            for r in rows:
+                bad.append(f"  {r[0]:<28} {r[1]:<32} {r[2]}")
+
+    assert not bad, "\n".join(bad)
