@@ -17,6 +17,8 @@ stream the two columns into bounded arrays first).
 """
 from __future__ import annotations
 
+from cadw.ml._common import _stack_numeric as _sn
+
 from typing import Optional
 
 import numpy as np
@@ -145,7 +147,6 @@ class DriftABModel:
 def fit_drift(df, col, reference_col, *, method="ks", n_bins=10,
               memory_guard: Optional[MemoryGuard] = None):
     """Fit a drift estimator over two columns (current vs reference)."""
-    from cadw.ml.gbdt import _stack_numeric as _sn
     if col not in df._columns:
         raise KeyError(f"fit_drift: column {col!r} not in {df._columns}")
     if reference_col not in df._columns:

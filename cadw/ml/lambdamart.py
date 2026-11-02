@@ -40,10 +40,9 @@ from cadw.ops.reduce import reduce, ReduceOp
 from cadw.ops.sort import external_sort
 from cadw.ml.gbdt import (
     _binning_pass,
-    _stack_numeric,
-    _column_to_f64,
     _find_best_split,
 )
+from cadw.ml._common import _column_to_f64, _stack_numeric
 
 
 def _dcg(gains, k):
@@ -612,7 +611,6 @@ class LambdaMARTModel:
         return s
 
     def predict(self, df, X_cols=None):
-        from cadw.ml.gbdt import _stack_numeric
         cols = list(X_cols) if X_cols is not None else list(self.feature_names_)
         parts = []
         for b in df._iter_filtered_batches():

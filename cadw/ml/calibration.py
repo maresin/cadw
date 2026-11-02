@@ -15,6 +15,8 @@ RAM: O(n) score vector + O(1) isotonic breakpoints.
 """
 from __future__ import annotations
 
+from cadw.ml._common import _stack_numeric as _stack_numeric_safe
+
 from typing import Optional, Sequence
 
 import numpy as np
@@ -24,9 +26,6 @@ from cadw.core.memory_guard import MemoryGuard
 from cadw.ml._logging import log_fit
 
 
-def _stack_numeric_safe(b, cols):
-    from cadw.ml.gbdt import _stack_numeric
-    return _stack_numeric(b, cols)
 
 
 def _collect(df, cols, y_col, mg, name):

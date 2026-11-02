@@ -15,6 +15,8 @@ leaves estimate CATE on the honest half-sample. The two-model T-learner
 """
 from __future__ import annotations
 
+from cadw.ml._common import _stack_numeric as _stack_numeric_safe
+
 from typing import Optional
 
 import numpy as np
@@ -28,9 +30,6 @@ from cadw.ml._logging import log_fit
 _MAX_SAMPLE_ROWS = 20_000
 
 
-def _stack_numeric_safe(b, cols):
-    from cadw.ml.gbdt import _stack_numeric
-    return _stack_numeric(b, cols)
 
 
 def qini_curve(y, t, score, n_bins=50):

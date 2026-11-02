@@ -18,6 +18,8 @@ and the share of rows outside [0.05, 0.95].
 """
 from __future__ import annotations
 
+from cadw.ml._common import _stack_numeric
+
 from typing import Optional, Sequence
 
 import numpy as np
@@ -31,7 +33,6 @@ from cadw.ml._logging import log_fit
 
 def _predict_np(model, df, cols, mg, name):
     """Per-batch numpy prediction through a fitted GBDT regressor."""
-    from cadw.ml.gbdt import _stack_numeric
     out = []
     for b in df._iter_filtered_batches():
         mg.check_batch(b, name=name, extra_factor=2.0)
@@ -41,7 +42,6 @@ def _predict_np(model, df, cols, mg, name):
 
 def _predict_np_with_t(model, df, cols, tval, mg):
     """Same, but with a constant treatment column appended (S-learner)."""
-    from cadw.ml.gbdt import _stack_numeric
     out = []
     for b in df._iter_filtered_batches():
         mg.check_batch(b, name="meta_learner.s_predict", extra_factor=2.0)
@@ -127,7 +127,6 @@ class MetaLearnerModel:
 
 
 def _collect(df, cols, t_col, y_col, mg):
-    from cadw.ml.gbdt import _stack_numeric
     Xs, ts, ys = [], [], []
     n = 0
     for b in df._iter_filtered_batches():
@@ -192,7 +191,7 @@ def fit_meta_learner(df, X_cols, treatment_col, y_col, *, kind="t",
     eta = np.column_stack([np.ones(X.shape[0]), X]) @ np.concatenate([[pm.intercept_], pm.coef_])
     propensity = 1.0 / (1.0 + np.exp(-np.clip(eta, -50, 50)))
 
-    from cadw.ml.gbdt import fit_gbdt_regressor, _stack_numeric
+    from cadw.ml.gbdt import fit_gbdt_regressor
     mu1 = mu0 = s_model = None
     if kind == "t":
         for arm, store in ((1.0, "1"), (0.0, "0")):

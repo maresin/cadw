@@ -15,6 +15,8 @@ against statsmodels OrderedModel (distr="logit"). RAM: O(n*d + d*K).
 """
 from __future__ import annotations
 
+from cadw.ml._common import _stack_numeric
+
 from typing import Optional
 
 import numpy as np
@@ -76,7 +78,6 @@ def _predict_proba_np(X, beta, theta):
 
 
 def _collect(df, cols, y_col, mg):
-    from cadw.ml.gbdt import _stack_numeric
     Xs, ys = [], []
     n = 0
     for b in df._iter_filtered_batches():
@@ -118,7 +119,6 @@ class OrdinalLogitModel:
                 f"ordinal.predict_proba: output must be 'memory', "
                 f"'auto' or 'disk'; got {output!r}")
         mg = memory_guard or df._memory_guard
-        from cadw.ml.gbdt import _stack_numeric
         K = int(self.classes_.size)
         if output == "memory":
             chunks = []
@@ -159,7 +159,6 @@ class OrdinalLogitModel:
                 f"ordinal.predict: output must be 'memory', 'auto' or "
                 f"'disk'; got {output!r}")
         mg = memory_guard or df._memory_guard
-        from cadw.ml.gbdt import _stack_numeric
         # Determine pa type once from class labels (works for int, str,
         # any numpy dtype supported by pa.array).
         pred_pa_type = pa.array(self.classes_).type

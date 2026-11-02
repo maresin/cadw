@@ -13,6 +13,8 @@ pentagon-free hexagonal binning on a local equirectangular projection
 """
 from __future__ import annotations
 
+from cadw.ml._common import _stack_numeric as _stack_numeric_safe
+
 from typing import Optional
 
 import numpy as np
@@ -63,9 +65,6 @@ def hex_cell(lat, lon, cell_size_m=1000.0, origin_lat=0.0, origin_lon=0.0):
     return q, r
 
 
-def _stack_numeric_safe(b, cols):
-    from cadw.ml.gbdt import _stack_numeric
-    return _stack_numeric(b, cols)
 
 
 class GeoAggModel:

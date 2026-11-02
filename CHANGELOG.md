@@ -1,5 +1,26 @@
 ## [Unreleased]
 
+### v0.9.108 (2026-11-02) — refactor: _stack_numeric → _common.py
+
+Single source of truth (AI_CONSTITUTION §5.1). Eliminates 23 duplicate
+code paths across cadw/ml/.
+
+**New module `cadw/ml/_common.py` (~56 lines):**
+- `_column_to_f64(arr)` — canonical
+- `_numeric_to_f64 = _column_to_f64` (alias for linear.py)
+- `_stack_numeric(batch, cols)` — canonical
+
+**Removed:**
+- 5 def copies (gbdt, linear, naive_bayes, pca, kmeans)
+- 9 `_stack_numeric_safe` wrappers (linucb, randsvd, calibration,
+  birch, feature_select, chains, geo, uplift, minibatch)
+- 9 inline `from cadw.ml.gbdt import _stack_numeric` sites
+  (ordinal ×3, meta_learners ×3 + mixed, lambdamart ×1, drift ×1)
+
+**Bit-identical.** 464 ML tests green. No formula/verified changes.
+No public API changes (`_stack_numeric` remains internal).
+
+
 ### v0.9.107 (2026-11-02) — optimizations + 9 cards verified
 
 **Code optimizations:**

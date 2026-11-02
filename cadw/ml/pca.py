@@ -1,3 +1,4 @@
+
 """Principal Component Analysis (v0.7.2).
 
 Composition: Reduce (CovarianceOp) → eigh. Peak RAM = batch + O(d²).
@@ -16,6 +17,8 @@ Model:
 """
 from __future__ import annotations
 
+from cadw.ml._common import _column_to_f64, _stack_numeric
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, Sequence
 
@@ -30,21 +33,8 @@ if TYPE_CHECKING:  # v0.9.9 (B2): forward-annotation only
     from cadw.dataframe import CadwDataFrame
 
 
-def _stack_numeric(
-    batch: pa.RecordBatch, cols: Sequence[str],
-) -> np.ndarray:
-    parts = [_column_to_f64(batch.column(c)) for c in cols]
-    return np.column_stack(parts)
 
 
-def _column_to_f64(arr: pa.Array) -> np.ndarray:
-    np_arr = arr.to_numpy(zero_copy_only=False)
-    if np_arr.dtype == object:
-        out = np.empty(len(np_arr), dtype=np.float64)
-        for i, v in enumerate(np_arr):
-            out[i] = np.nan if v is None else float(v)
-        return out
-    return np_arr.astype(np.float64, copy=False)
 
 
 @dataclass

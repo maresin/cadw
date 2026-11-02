@@ -1,3 +1,4 @@
+
 """Logistic regression (v0.7.0b).
 
 Composition: iter-Reduce Newton IRLS + solve. Peak RAM = batch + O(d²).
@@ -16,6 +17,8 @@ Optimization (Newton-Raphson on log-likelihood):
 Stopping: ||step||_inf < tol, or max_iter.
 """
 from __future__ import annotations
+
+from cadw.ml._common import _column_to_f64
 
 from dataclasses import dataclass
 from typing import Optional, Sequence
@@ -135,14 +138,6 @@ def _stack_and_validate(
     return X[mask], y[mask]
 
 
-def _column_to_f64(arr: pa.Array) -> np.ndarray:
-    np_arr = arr.to_numpy(zero_copy_only=False)
-    if np_arr.dtype == object:
-        out = np.empty(len(np_arr), dtype=np.float64)
-        for i, v in enumerate(np_arr):
-            out[i] = np.nan if v is None else float(v)
-        return out
-    return np_arr.astype(np.float64, copy=False)
 
 
 def _validate_binary_y(df, y_col: str) -> set:

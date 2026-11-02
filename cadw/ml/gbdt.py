@@ -1,3 +1,4 @@
+
 """Gradient Boosting Decision Trees — regression + classification (v0.7.5).
 
 Composition: Reduce (histograms) + Reduce (assign leaves) + Reduce
@@ -15,6 +16,8 @@ For multiclass (softmax) — v0.7.6.
 """
 from __future__ import annotations
 
+from cadw.ml._common import _column_to_f64, _stack_numeric
+
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
@@ -27,20 +30,8 @@ from cadw.ops.reduce import ReduceOp, reduce
 
 # ============ helpers: type conversion, gradient ============
 
-def _column_to_f64(arr: pa.Array) -> np.ndarray:
-    np_arr = arr.to_numpy(zero_copy_only=False)
-    if np_arr.dtype == object:
-        out = np.empty(len(np_arr), dtype=np.float64)
-        for i, v in enumerate(np_arr):
-            out[i] = np.nan if v is None else float(v)
-        return out
-    return np_arr.astype(np.float64, copy=False)
 
 
-def _stack_numeric(
-    batch: pa.RecordBatch, cols: Sequence[str],
-) -> np.ndarray:
-    return np.column_stack([_column_to_f64(batch.column(c)) for c in cols])
 
 
 

@@ -1,3 +1,4 @@
+
 """Linear/Ridge regression (v0.7.0a).
 
 Composition: Reduce (XTXOp) → solve. Peak RAM = batch + O(d²).
@@ -14,6 +15,8 @@ Augmented system for intercept:
     + α · diag(0, 1, ..., 1) on non-intercept.
 """
 from __future__ import annotations
+
+from cadw.ml._common import _numeric_to_f64, _stack_numeric
 
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
@@ -132,19 +135,8 @@ def _probe_memory_limit_mb(guard) -> float | None:
     return None
 
 
-def _numeric_to_f64(arr: pa.Array) -> np.ndarray:
-    """Convert Arrow numeric Array (possibly with nulls) to float64 with NaN."""
-    np_arr = arr.to_numpy(zero_copy_only=False)
-    if np_arr.dtype == object:
-        out = np.empty(len(np_arr), dtype=np.float64)
-        for i, v in enumerate(np_arr):
-            out[i] = np.nan if v is None else float(v)
-        return out
-    return np_arr.astype(np.float64, copy=False)
 
 
-def _stack_numeric(batch: pa.RecordBatch, cols: Sequence[str]) -> np.ndarray:
-    return np.column_stack([_numeric_to_f64(batch.column(c)) for c in cols])
 
 
 @dataclass
