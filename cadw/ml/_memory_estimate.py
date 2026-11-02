@@ -174,6 +174,29 @@ def evaluate_formula(op: str, **params) -> dict:
     }
 
 
+def derive_batch_size(op, df, guard, batch_size=None):
+    """v0.9.106 (DEC-022/023): derive batch size from state-aware guard.
+
+    If `batch_size` is provided, return as-is (user override).
+    Otherwise: query op's estimated state, deduct from guard's usable
+    budget, size remaining for batch. Ensures check_batch (in reduce)
+    and check_state do not overcommit at large d.
+
+    `op` must be a ReduceOp-like with `estimate_state_nbytes()` and
+    `batch_memory_factor()`. `df` must have `._dataset.schema`.
+    """
+    if batch_size is not None:
+        return int(batch_size)
+    state_est = op.estimate_state_nbytes() or 0
+    schema = df._dataset.schema
+    row_size = guard.estimate_row_size_from_schema(schema)
+    return int(guard.get_batch_rows(
+        row_size_bytes=row_size,
+        expansion_factor=op.batch_memory_factor(),
+        state_bytes=state_est,
+    ))
+
+
 def _lookup_card(op: str) -> dict | None:
     return _load_cards().get(op)
 
@@ -223,11 +246,22 @@ def estimate_from_yaml(op: str, guard, **params) -> dict:
     formula = card.get("ram_formula")
     if formula:
         env = dict(params)
-        if "batch" not in env and hasattr(guard, "get_batch_rows"):
+        if "batch" not in env:
+            # v0.9.106 (DEC-022 follow-up): pre-flight uses MINIMUM
+            # viable batch, not get_batch_rows — the question is
+            # "will model fit at all?" not "what is peak at production
+            # batch?". Production sizing = get_batch_rows(state_bytes=...)
+            # called directly by fit_* (v0.9.106.3).
+            # Also fixes latent bug: prior call passed `op` (str) as
+            # row_size_bytes; TypeError was swallowed by except: pass.
             try:
-                env["batch"] = guard.get_batch_rows(op)
-            except Exception:
-                pass
+                env["batch"] = guard.min_batch_rows()
+            except Exception as e:
+                warnings.warn(
+                    f"estimate_from_yaml({op!r}): min_batch_rows "
+                    f"failed ({e}); falling back to batch=1000",
+                    stacklevel=2)
+                env["batch"] = 1000
         if "row_size" not in env:
             rs = getattr(guard, "row_size_bytes", None)
             if rs:

@@ -316,12 +316,24 @@ class MemoryGuard:
         expansion_factor: Optional[float] = None,
         *,
         sample_batch: Optional[pa.RecordBatch] = None,
+        state_bytes: int = 0,
     ) -> int:
         """How many rows fit in one batch under current budget.
 
         v0.9.8b (R2): `sample_batch` kwarg — if provided, uses exact
         estimate_row_size_from_batch (fixes string underestimate).
         Otherwise uses `row_size_bytes` argument or cached value.
+
+        v0.9.106 (DEC-022): `state_bytes` — deduct algorithm's persistent
+        state (O(d²) for linear/logistic, O(C·d) for NB, etc.) before
+        sizing batch. Without this, at large d state dominates and
+        check_batch / check_state overcommit (silent OOM).
+
+        Backward compat: state_bytes=0 → identical to previous behavior.
+
+        Raises MemoryLimitExceeded if state_bytes >= usable_bytes
+        (state alone exceeds the batch budget — reduce d or increase
+        budget; no batch size can fix this).
         """
         if sample_batch is not None:
             row_bytes = self.estimate_row_size_from_batch(sample_batch)
@@ -333,8 +345,21 @@ class MemoryGuard:
         ef = expansion_factor if expansion_factor is not None else self._default_ef
         if row_bytes <= 0 or ef <= 0:
             raise ValueError("row_size_bytes и expansion_factor должны быть > 0")
+        if state_bytes < 0:
+            raise ValueError("state_bytes must be >= 0")
 
-        usable = self._usable_bytes()
+        usable = self._usable_bytes() - int(state_bytes)
+        if usable <= 0:
+            logger.error(
+                "get_batch_rows FAIL: state_bytes=%d >= usable_bytes=%d "
+                "(state alone exceeds budget)",
+                state_bytes, self._usable_bytes(),
+            )
+            raise MemoryLimitExceeded(
+                f"state_bytes {state_bytes} B >= usable_bytes "
+                f"{self._usable_bytes()} B. No batch size fits. "
+                f"Reduce d / C, or increase budget."
+            )
         raw = int(usable / (row_bytes * ef))
 
         if raw >= self._min_batch_rows:

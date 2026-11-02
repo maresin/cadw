@@ -294,7 +294,8 @@ class LogisticModel:
         )
 
 
-def _fit_sgd_logistic(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
+def _fit_sgd_logistic(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg,
+                      *, batch_size=None):
     """Binary logistic via streaming SGD (O(d) state, ANY d).
 
     Augments X with intercept column (ones), W shape (1, d+1). Penalty
@@ -312,9 +313,25 @@ def _fit_sgd_logistic(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
         and callable(mg.check_state)
     )
 
+    if batch_size is None:
+        # v0.9.106.3-fix: SGD path state is O(d) (W, A_diag, b in
+        # sgd_streaming) — NOT O(d^2) like LogisticGradOp. Using
+        # LogisticGradOp probe gives 32 MB at d=2000, exceeds small
+        # budgets and raises before SGD runs. Honest bound: 8*d+256.
+        # expansion_factor=3.0 covers _stack_and_validate (2x) +
+        # sgd_streaming transients.
+        _d_ = len(X_cols)
+        _row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        _bs = mg.get_batch_rows(
+            row_size_bytes=_row_size,
+            expansion_factor=3.0,
+            state_bytes=8 * _d_ + 256,
+        )
+    else:
+        _bs = int(batch_size)
     # Count valid (non-null) rows — single pass for lam = alpha/n.
     n = 0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=_bs):
         X, y = _stack_and_validate(b, X_cols, y_col)
         n += X.shape[0]
     if n == 0:
@@ -325,7 +342,7 @@ def _fit_sgd_logistic(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
                        name="logistic.sgd.state")
 
     def batch_stream():
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=_bs):
             X, y = _stack_and_validate(b, X_cols, y_col)
             if X.shape[0] == 0:
                 continue
@@ -348,7 +365,7 @@ def _fit_sgd_logistic(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
 
     # Final log-likelihood (one extra pass; matches closed-path metric).
     ll = 0.0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=_bs):
         X, y = _stack_and_validate(b, X_cols, y_col)
         if X.shape[0] == 0:
             continue
@@ -384,6 +401,7 @@ def fit_logistic(
     max_iter: int = 100,
     tol: float = 1e-6,
     memory_guard: Optional[MemoryGuard] = None,
+    batch_size: "int | None" = None,
 ) -> LogisticModel:
     """Fit binary logistic regression via Newton-Raphson IRLS.
 
@@ -455,7 +473,8 @@ def fit_logistic(
             raise ValueError(
                 f"fit_logistic: sgd_epochs must be >= 1; got {sgd_epochs}")
         return _fit_sgd_logistic(
-            df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg)
+            df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg,
+            batch_size=batch_size)
 
     d = len(X_cols) + 1  # + intercept
     beta = np.zeros(d, dtype=np.float64)
@@ -465,10 +484,17 @@ def fit_logistic(
     n_valid = 0
     ll = 0.0
 
+    if batch_size is None:
+        _probe_op = LogisticGradOp(X_cols, y_col, np.zeros(d))
+        from cadw.ml._memory_estimate import derive_batch_size as _dbs
+        _bs = _dbs(_probe_op, df, mg, None)
+    else:
+        _bs = int(batch_size)
+
     for it in range(max_iter):
         n_iter = it + 1
         op = LogisticGradOp(X_cols, y_col, beta)
-        res = reduce(df._iter_filtered_batches(), op, mg, log=False)
+        res = reduce(df._iter_filtered_batches(batch_size=_bs), op, mg, log=False)
         n_valid = res["n"]
         if n_valid == 0:
             raise ValueError("fit_logistic: no valid (non-null, binary) rows")

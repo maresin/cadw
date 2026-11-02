@@ -612,6 +612,7 @@ def fit_gaussian_nb(
     df, X_cols, y_col: str, *,
     var_smoothing: float = 1e-9,
     memory_guard: Optional[MemoryGuard] = None,
+    batch_size: "int | None" = None,
 ) -> GaussianNB:
     """Gaussian Naive Bayes (continuous X)."""
     X_cols = _validate_common(df, X_cols, y_col)
@@ -621,7 +622,9 @@ def fit_gaussian_nb(
         )
     mg = memory_guard or df._memory_guard
     op = _GaussianStatsOp(X_cols, y_col)
-    res = reduce(df._iter_filtered_batches(), op, mg, log=False)
+    from cadw.ml._memory_estimate import derive_batch_size
+    bs = derive_batch_size(op, df, mg, batch_size)
+    res = reduce(df._iter_filtered_batches(batch_size=bs), op, mg, log=False)
     classes = res["classes"]
     n_c = res["n_c"]
     mean = res["mean"]
@@ -649,6 +652,7 @@ def fit_multinomial_nb(
     df, X_cols, y_col: str, *,
     alpha: float = 1.0,
     memory_guard: Optional[MemoryGuard] = None,
+    batch_size: "int | None" = None,
 ) -> MultinomialNB:
     """Multinomial Naive Bayes (X >= 0 counts)."""
     X_cols = _validate_common(df, X_cols, y_col)
@@ -657,7 +661,9 @@ def fit_multinomial_nb(
     mg = memory_guard or df._memory_guard
     _check_X_non_negative(df, X_cols)
     op = _MultinomialStatsOp(X_cols, y_col)
-    res = reduce(df._iter_filtered_batches(), op, mg, log=False)
+    from cadw.ml._memory_estimate import derive_batch_size
+    bs = derive_batch_size(op, df, mg, batch_size)
+    res = reduce(df._iter_filtered_batches(batch_size=bs), op, mg, log=False)
     classes = res["classes"]
     n_c = res["n_c"]
     feature_sum = res["feature_sum"]
@@ -686,6 +692,7 @@ def fit_bernoulli_nb(
     df, X_cols, y_col: str, *,
     alpha: float = 1.0,
     memory_guard: Optional[MemoryGuard] = None,
+    batch_size: "int | None" = None,
 ) -> BernoulliNB:
     """Bernoulli Naive Bayes (X in {0,1}; X > 0.5 → 1)."""
     X_cols = _validate_common(df, X_cols, y_col)
@@ -693,7 +700,9 @@ def fit_bernoulli_nb(
         raise ValueError(f"alpha must be >= 0; got {alpha}")
     mg = memory_guard or df._memory_guard
     op = _BernoulliStatsOp(X_cols, y_col)
-    res = reduce(df._iter_filtered_batches(), op, mg, log=False)
+    from cadw.ml._memory_estimate import derive_batch_size
+    bs = derive_batch_size(op, df, mg, batch_size)
+    res = reduce(df._iter_filtered_batches(batch_size=bs), op, mg, log=False)
     classes = res["classes"]
     n_c = res["n_c"]
     count_ones = res["count_ones"]

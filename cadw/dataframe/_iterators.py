@@ -63,10 +63,21 @@ class _IteratorsMixin:
 
 
 
-    def _iter_filtered_batches(self) -> Iterator[pa.RecordBatch]:
-        """Поток с учётом всех фильтров; на выходе — только self._columns."""
+    def _iter_filtered_batches(
+        self, *, batch_size: int | None = None,
+    ) -> Iterator[pa.RecordBatch]:
+        """Поток с учётом всех фильтров; на выходе — только self._columns.
+
+        v0.9.106 (DEC-023): `batch_size` — propagate to Dataset.iter_batches.
+        None (default) = old behavior (stored batches as-is). Int = re-chunk
+        (n > batch_size → multiple batches; last batch may be < batch_size).
+
+        Used by fit_* (v0.9.106.3) to auto-derive batch from MemoryGuard.
+        Direct callers (other than fit_*) pass None → bit-identical.
+        """
         if not self._row_filters:
-            yield from self._dataset.iter_batches(columns=self._columns)
+            yield from self._dataset.iter_batches(
+                batch_size=batch_size, columns=self._columns)
             return
 
         needed = list(self._columns)
@@ -77,7 +88,8 @@ class _IteratorsMixin:
             if c not in needed:
                 needed.append(c)
 
-        it = self._dataset.iter_batches(columns=needed)
+        it = self._dataset.iter_batches(
+            batch_size=batch_size, columns=needed)
         for f in self._row_filters:
             it = f.iter_filtered(it, self._dataset.schema)
         for b in it:

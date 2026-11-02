@@ -295,7 +295,8 @@ def _resolve_solver(d: int, alpha: float, mg) -> str:
     return "sgd" if est_closed > int(avail_bytes * 0.5) else "closed"
 
 
-def _fit_sgd_l2(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
+def _fit_sgd_l2(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg,
+                *, batch_size=None):
     """Ridge via streaming SGD on centered data (O(d) state).
 
     Objective match (lam = alpha/n):
@@ -313,7 +314,9 @@ def _fit_sgd_l2(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
     )
 
     center_op = _CenterReduceOp(X_cols, y_col)
-    cs = reduce(df._iter_filtered_batches(), center_op, mg, log=False)
+    from cadw.ml._memory_estimate import derive_batch_size as _dbs
+    _bs = _dbs(center_op, df, mg, batch_size)
+    cs = reduce(df._iter_filtered_batches(batch_size=_bs), center_op, mg, log=False)
     n = cs["n"]
     if n == 0:
         raise ValueError("fit_linear: no valid (non-null) rows")
@@ -326,7 +329,7 @@ def _fit_sgd_l2(df, X_cols, y_col, alpha, sgd_lr, sgd_epochs, mg):
         mg.check_state(3 * d * 8 + 64, name="linear.sgd.state")
 
     def batch_stream():
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=_bs):
             X = _stack_numeric(b, X_cols)
             y = _numeric_to_f64(b.column(y_col))
             mask = ~np.isnan(X).any(axis=1) & ~np.isnan(y)
@@ -428,6 +431,7 @@ def fit_linear(
     max_iter: int = 1000,
     tol: float = 1e-6,
     memory_guard: Optional[MemoryGuard] = None,
+    batch_size: "int | None" = None,
 ) -> LinearModel:
     """Fit Linear / Ridge / Lasso / ElasticNet via one Reduce + solve/CD.
 
@@ -522,10 +526,12 @@ def fit_linear(
             raise ValueError(
                 f"fit_linear: sgd_epochs must be >= 1; got {sgd_epochs}")
         return _fit_sgd_l2(df, X_cols, y_col, alpha,
-                           sgd_lr, sgd_epochs, mg)
+                           sgd_lr, sgd_epochs, mg, batch_size=batch_size)
 
     op = XTXOp(X_cols, y_col)
-    res = reduce(df._iter_filtered_batches(), op, mg, log=False)
+    from cadw.ml._memory_estimate import derive_batch_size
+    bs = derive_batch_size(op, df, mg, batch_size)
+    res = reduce(df._iter_filtered_batches(batch_size=bs), op, mg, log=False)
 
     if res["n"] == 0:
         raise ValueError("fit_linear: no valid (non-null) rows")
@@ -626,6 +632,7 @@ def fit_lasso(
     max_iter: int = 1000,
     tol: float = 1e-6,
     memory_guard: Optional[MemoryGuard] = None,
+    batch_size: "int | None" = None,
 ) -> LinearModel:
     """Lasso regression (L1 penalty) — convenience wrapper.
 
@@ -637,6 +644,7 @@ def fit_lasso(
         alpha=alpha, penalty="l1",
         max_iter=max_iter, tol=tol,
         memory_guard=memory_guard,
+        batch_size=batch_size,
     )
 
 
@@ -650,6 +658,7 @@ def fit_elasticnet(
     max_iter: int = 1000,
     tol: float = 1e-6,
     memory_guard: Optional[MemoryGuard] = None,
+    batch_size: "int | None" = None,
 ) -> LinearModel:
     """ElasticNet regression (L1 + L2) — convenience wrapper.
 
@@ -664,4 +673,5 @@ def fit_elasticnet(
         alpha=alpha, penalty="elasticnet", l1_ratio=l1_ratio,
         max_iter=max_iter, tol=tol,
         memory_guard=memory_guard,
+        batch_size=batch_size,
     )
