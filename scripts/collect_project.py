@@ -56,6 +56,7 @@ AI_FIRST_FILES = (
     "AI_CONSTITUTION.md",                                   # T1
     "docs/ROADMAP.md",
     "docs/ml_tools/STABILITY_PROTOCOL.md",                  # T2
+    "docs/ml_tools/EXPERIMENT_PROCEDURE.md",                # T2 (v0.9.109d)
     "docs/ml_tools/ALGORITHM_TEMPLATE.md",                  # T3
     "docs/ml_tools/GLOSSARY.md",                            # T4
     "docs/ml_tools/DECISION_LOG.md",                        # T4
@@ -417,16 +418,18 @@ def main() -> int:
         out.write("#  1. AI_CONSTITUTION.md          -- rules (AP1-AP23, gates G1-G11)\n")
         out.write("#  2. docs/ROADMAP.md             -- current state\n")
         out.write("#  3. STABILITY_PROTOCOL.md       -- formula method (code->formula->measure)\n")
-        out.write("#  4. ALGORITHM_TEMPLATE.md       -- 8-step checklist\n")
-        out.write("#  5. GLOSSARY.md                 -- canonical terms\n")
-        out.write("#  6. DECISION_LOG.md             -- why X not Y\n")
-        out.write("#  7. CHAT_PROTOCOL.md            -- session rhythm\n")
-        out.write("#  8. EXAMPLES_INDEX.md           -- pattern -> reference\n")
-        out.write("#  9. PRIMITIVES_AND_PRINCIPLES.md -- primitives cheat sheet\n")
-        out.write("# 10. EXAMPLE_VERIFIED_CARD.md    -- what 'verified' looks like\n")
-        out.write("# 11. METHODOLOGY_ALGORITHM_SELECTION.md -- deep method\n")
+        out.write("#  4. EXPERIMENT_PROCEDURE.md     -- 6-step DOE + rules R1-R4 + exit criterion\n")
+        out.write("#  5. ALGORITHM_TEMPLATE.md       -- 8-step checklist\n")
+        out.write("#  6. GLOSSARY.md                 -- canonical terms\n")
+        out.write("#  7. DECISION_LOG.md             -- why X not Y\n")
+        out.write("#  8. CHAT_PROTOCOL.md            -- session rhythm\n")
+        out.write("#  9. EXAMPLES_INDEX.md           -- pattern -> reference\n")
+        out.write("# 10. PRIMITIVES_AND_PRINCIPLES.md -- primitives cheat sheet\n")
+        out.write("# 11. EXAMPLE_VERIFIED_CARD.md    -- what 'verified' looks like\n")
+        out.write("# 12. METHODOLOGY_ALGORITHM_SELECTION.md -- deep method\n")
         out.write("#\n")
         out.write("# SESSION START CHECKLIST:\n")
+        out.write("#  [ ] Read EXPERIMENT_PROCEDURE before any card verification\n")
         out.write("#  [ ] Read in order above (do not skip)\n")
         out.write("#  [ ] If session brief contradicts AI_CONSTITUTION -> ask, do not proceed\n")
         out.write("#  [ ] First action: probe (read-only), not patch\n")
