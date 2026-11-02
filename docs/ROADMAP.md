@@ -1,10 +1,11 @@
 # CADW Roadmap
 
-Last updated: 2026-11-02 (after v0.9.105).
+Last updated: 2026-11-02 (after v0.9.108).
 
-## Current: v0.9.105
+## Current: v0.9.109
 
-Last updated: 2026-11-02. Framework chunking gap exposed (DEC-023).
+Last updated: 2026-11-02. Framework + refactor milestones done (v0.9.105-108).
+Next: fill pending cards via EXPERIMENT_PROCEDURE (probe: 124 entries, ~37 unique fns in A/B; alias-heavy).
 
 **Closed:** methodology docs (v0.9.102), ram_formula mechanism (v0.9.103),
 R1-R4 enforcement, MatrixProfile x2 verified, bounded_by_domain field,
@@ -34,54 +35,39 @@ exception wrap, MatrixProfile stale field.
 - DEC-014: `fit_pelt` ×2 - `_collect_series` container. Deferred.
 - `fit_ab_test` - tiny O(1) state, STABILITY §4 special case.
 
+## Closed milestones (v0.9.105-v0.9.108)
+
+- **v0.9.105** — 9 cards formula-calibrated (draft). EXPERIMENT_PROCEDURE.md.
+- **v0.9.106** — framework chunking + state-aware guard (DEC-022/023 closed).
+- **v0.9.107** — 9 cards `verified` (tag). 11 verified total (2+9).
+- **v0.9.108** — refactor `_stack_numeric` → `_common.py` (23 dedup sites).
+
 ## Next 3 sessions
 
-### v0.9.106 — Framework: chunking + state-aware guard
+### v0.9.109 — Batch 1: fill 5 pending cards (per EXPERIMENT_PROCEDURE)
 
-Closes DEC-022 + DEC-023. Required before ANY card can be `verified`.
+**Candidates (simple group A/B, batch + state, no second knob):**
+- `fit_coxph` — ReduceOp, state O(d²), like linear/logistic
+- `fit_pca` — ReduceOp + CovarianceOp, state O(d²)
+- `fit_iforest` — sample-based, bounded n_estimators × subsample
+- `fit_lda` — dict state, has `test_lda_bounded_memory` (existing)
+- `fit_kmeans` — ReduceOp + k·d state, k user knob (already tested)
 
-**Part 1 — Chunking wiring (DEC-023):**
-- Propagate `batch_size` through `CadwDataFrame._iter_filtered_batches`
-  → `Dataset.iter_batches` (currently kwarg exists in `Dataset.iter_batches`
-  but not propagated)
-- `MemoryGuard.get_batch_rows` integration as default batch_size
-- User override: `fit_*(df, ..., batch_size=N)` (public API)
+Per card: probe → formula from code → matrix 3×3 → `status: draft`
+(not verified yet — framework gaps check per card). If OOC blocked
+by known gap (SpillArray for zms, _collect_series for pelt,
+GAP for lda if dict O(n)), card stays draft with DEC-030+ reason.
 
-**Part 2 — State-aware guard (DEC-022):**
-- `get_batch_rows(state_bytes=...)` — subtract state from usable budget
-- `check_batch` + `check_state` coordination (reserved counter)
-- `reduce()` uses `plan(op, op_context={"state_bytes": ...})`
+**Exit criterion (PROCEDURE §5):** all 5 cards closed (draft with
+reason OR verified). Not "one more iteration" loop.
 
-**Verify:** OOC check passes (peak flat with n). Formulas stay
-`status: draft` — no optimizations applied yet, coef unchanged.
-Tests green.
+### v0.9.110 — Batch 2: 5-7 more pending cards
 
-### v0.9.107 — Optimizations + flip 9 → verified
+Similar. Prefer group B (batch + state) before group C (needs P/k/w).
 
-After v0.9.106 framework fix (chunking + guard works, but coef still
-3×/4× without optimization), apply deferred optimizations, then flip
-all 9 cards to `verified` in one cycle.
+### v0.9.111 — Batch 3: remaining pending + milestone tag
 
-**Part 3 — Optimizations (deferred from v0.9.105):**
-- O2b: `del X` in `LogisticGradOp.update` (peak 3× → 2× batch; logistic
-  coef should drop from a=3.05 to a≈2.0)
-- O4: `np.einsum('ij,ij->j', Xc, Xc)` in Gaussian update
-- Refactor `_stack_numeric` (5 copies) → `cadw/ml/_common.py`
-  (single source of truth per AI_CONSTITUTION §5.1)
-
-**Then flip 9 → verified:**
-- Re-measure `test_*_formula_accuracy` for all 6 ops (production-path,
-  no patch) with post-optimization coefs
-- Update `ram_formula` in 9 cards (measured coefs, not pre-opt)
-- All 9 cards `draft` → `verified` (STABILITY §6 criteria met)
-- DEC-012, DEC-022, DEC-023 formally closed
-- Tag `v0.9.107`
-
-### v0.9.108 — Back to `SpillArray` for `fit_zms` (DEC-013)
-
-Unblock 3 cards. Probe `cadw/core/spill.py` for SpillArray. Wrap
-`decision_scores` (n,) + `labels` (n,) in SpillArray. Formula + matrix
-+ OOC. DEC-013 closed.
+Tag `v0.9.111` if 15+ verified total (currently 11).
 
 ## Backlog (not scheduled)
 
