@@ -55,7 +55,12 @@ def _softmax(log_joint: np.ndarray) -> np.ndarray:
 # ============ ReduceOps ============
 
 class _GaussianStatsOp(ReduceOp):
-    """Per-class: (n_c, sum_x[d], sum_xx[d]). Dynamic class discovery."""
+
+    def batch_memory_factor(self) -> float:
+        # 2*batch (X_parts + X_masked) + 1*batch allocator;
+        # state += in-place, no double
+        return 3.0
+
 
     def __init__(self, feature_cols: Sequence[str], target_col: str):
         self.feature_cols = list(feature_cols)
@@ -129,7 +134,11 @@ class _GaussianStatsOp(ReduceOp):
 
 
 class _MultinomialStatsOp(ReduceOp):
-    """Per-class: (n_c, sum_x[d]). X assumed >= 0 (counts)."""
+
+    def batch_memory_factor(self) -> float:
+        # same pattern as Gaussian; state += in-place, no double
+        return 3.0
+
 
     def __init__(self, feature_cols: Sequence[str], target_col: str):
         self.feature_cols = list(feature_cols)
@@ -190,7 +199,12 @@ class _MultinomialStatsOp(ReduceOp):
 
 
 class _BernoulliStatsOp(ReduceOp):
-    """Per-class: (n_c, count_ones[d]). X assumed in {0, 1}."""
+
+    def batch_memory_factor(self) -> float:
+        # Post-O3: Xb is bool (1/8 memory), Xc small. Peak = X + Xc + Xb_bool
+        # + allocator. Coef measured = 2.006 (iter-5). Guard = ceil to 3.0.
+        return 3.0
+
 
     def __init__(self, feature_cols: Sequence[str], target_col: str):
         self.feature_cols = list(feature_cols)
@@ -213,7 +227,9 @@ class _BernoulliStatsOp(ReduceOp):
         y = y[valid]
         if X.shape[0] == 0:
             return state
-        Xb = (X > 0.5).astype(np.float64)
+        # O3 (DEC-020): keep bool, .sum(axis=0) returns float64 anyway.
+        # Saves one full (B, d) f64 copy per update (coef 2.94 -> ~2.0).
+        Xb = (X > 0.5)
         for cls in np.unique(y):
             m = y == cls
             Xc = Xb[m]

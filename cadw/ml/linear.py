@@ -26,11 +26,12 @@ from cadw.ops.reduce import ReduceOp, reduce
 
 
 class XTXOp(ReduceOp):
-    """Accumulate (n, X^T X, X^T y, sum_X, sum_y) over batches.
 
-    State size: O(d²) + O(d). One pass.
-    Only numeric columns. Nulls in X or y → row skipped (both X and y).
-    """
+    def batch_memory_factor(self) -> float:
+        # upper bound: 2*batch (list+col_stack / X+X[mask])
+        # + 1*batch (allocator worst-case); see DEC-018 planned
+        return 3.0
+
 
     def __init__(
         self,
@@ -231,7 +232,11 @@ class LinearModel:
 
 
 class _CenterReduceOp(ReduceOp):
-    """Accumulate (n, sum_x, sum_y) for SGD centering. State O(d)."""
+
+    def batch_memory_factor(self) -> float:
+        # same pattern as XTXOp: 2*batch + 1*batch allocator
+        return 3.0
+
 
     def __init__(self, feature_cols, target_col):
         if not feature_cols:

@@ -32,8 +32,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
-      verified_by_agent: true
+      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
     roles:
     - linear_signal
     purpose: Additive log-odds; fast on high-d, low-n; interpretable coefficients.
@@ -61,6 +60,11 @@ subtypes:
       note: median across AMLB binary tasks; ranking only [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
     bounded_state_dims: {d: 2}
+    ram_formula: "3 * batch * row_size + 4 * d * d * f64"
+    formula_evidence:
+      batch_term: "logistic.py:update -- X + X_aug + T1(X_aug*w); a=3.05 (iter-3 C)"
+      state_term: "logistic.py:update -- hess + hess_new + temp; b=3.97 (iter-3 C)"
+      guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -118,7 +122,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
+      status: draft
+      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
     roles:
     - probabilistic
     purpose: Naive Bayes for binary features; fast baseline.
@@ -144,6 +149,11 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
     bounded_state_dims: {d: 1}
+    ram_formula: "2 * batch * row_size + 2 * C * d * f64"
+    formula_evidence:
+      batch_term: "naive_bayes.py:update -- O3 fix keeps Xb bool; a=2.0 (iter-5)"
+      state_term: "state 8+8d per class; finalize 2*C*d*f64 (n_c, count_ones)"
+      guard: "naive_bayes.py:_BernoulliStatsOp.batch_memory_factor = 3.0 (post-O3)"
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
@@ -151,6 +161,50 @@ subtypes:
     streaming_strategy:
       fit: 'batch-wise feature count + log-prior Reduce.'
       predict: 'per-row log-score sum.'
+    primitive_reuse: [reduce]
+  - name: NaiveBayes_multinomial
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: draft
+      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+    roles:
+    - linear_signal
+    purpose: Multinomial NB for count features (text, events); standard NLP baseline.
+    real_life_examples:
+    - Text classification
+    - Spam detection
+    config:
+      alpha: float
+    cadw_module: cadw.ml.naive_bayes
+    cadw_function: fit_multinomial_nb
+    benchmark_results:
+    - benchmark: AMLB
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.naive_bayes.MultinomialNB
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.MultinomialNB.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: multiclass classification
+      n_datasets: null
+      metric: accuracy
+      value: 0.72
+      std: null
+      note: '[v0.9.105 DEC-012: card created to unblock fit_multinomial_nb]'
+    state_class: O(d)
+    bounded_state_dims: {d: 1}
+    ram_formula: "2 * batch * row_size + 2 * C * d * f64"
+    formula_evidence:
+      batch_term: "naive_bayes.py:_MultinomialStatsOp.update -- X + X[valid]; a=2.0 (iter-3 A2)"
+      state_term: "state 8+8d per class; finalize 2*C*d*f64 (n_c, feature_sum)"
+      guard: "naive_bayes.py:_MultinomialStatsOp.batch_memory_factor = 3.0"
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'batch-wise per-class token count + log-prior Reduce.'
+      predict: 'per-row multinomial log-score sum.'
     primitive_reuse: [reduce]
   - name: TabPFN
     tier: sota
@@ -240,8 +294,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
-      verified_by_agent: true
+      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
     roles:
     - linear_signal
     purpose: Multinomial log-odds; strong when classes are roughly linearly separable.
@@ -267,6 +320,11 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
     bounded_state_dims: {d: 2}
+    ram_formula: "3 * batch * row_size + 4 * d * d * f64"
+    formula_evidence:
+      batch_term: "same (multiclass, d=C*(len+1)); a=3.05"
+      state_term: "b=3.97 (state per class multiplied by C)"
+      guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -323,7 +381,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
+      status: draft
+      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
     roles:
     - probabilistic
     purpose: Gaussian class-conditionals; extremely fast.
@@ -348,6 +407,11 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
     bounded_state_dims: {d: 1}
+    ram_formula: "2 * batch * row_size + 3 * C * d * f64"
+    formula_evidence:
+      batch_term: "naive_bayes.py:update -- _stack_numeric + X[valid]; a=2.0 (iter-3 A2)"
+      state_term: "state dict: 8+16d per class (loop); finalize allocates n_c/mean/var (3*C*d*f64) -- iter-4"
+      guard: "naive_bayes.py:_GaussianStatsOp.batch_memory_factor = 3.0"
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
@@ -400,8 +464,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
-      verified_by_agent: true
+      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
     roles:
     - linear_signal
     purpose: L2-regularised linear regression; closed-form solution, O(d^2) state.
@@ -426,6 +489,11 @@ subtypes:
       note: normalised RMSE median across AMLB regression tasks [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
     bounded_state_dims: {d: 2}
+    ram_formula: "2 * batch * row_size + 2 * d * d * f64"
+    formula_evidence:
+      batch_term: "linear.py:245-246 -- X from _stack_numeric; X[mask] copy; a=1.92 (iter-1)"
+      state_term: "linear.py:88 -- xtx + X.T@X creates 2*d^2 (old + new); b=1.0"
+      guard: "linear.py:XTXOp.batch_memory_factor = 3.0 (2*batch + allocator)"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -440,8 +508,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
-      verified_by_agent: true
+      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
     roles:
     - linear_signal
     purpose: L1-regularised linear regression; produces sparse coefficients.
@@ -467,6 +534,11 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
     bounded_state_dims: {d: 2}
+    ram_formula: "2 * batch * row_size + 2 * d * d * f64"
+    formula_evidence:
+      batch_term: "same as fit_linear (routes to XTXOp); a=1.92"
+      state_term: "same XTXOp; iter-2 D confirms l1==closed"
+      guard: "linear.py:XTXOp.batch_memory_factor = 3.0"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -788,8 +860,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
-      verified_by_agent: true
+      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
     roles:
     - linear_signal
     purpose: LogReg with class_weight='balanced'; simplest cost-sensitive baseline.
@@ -815,6 +886,11 @@ subtypes:
       note: AMLB imbalance subset [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
     bounded_state_dims: {d: 2}
+    ram_formula: "3 * batch * row_size + 4 * d * d * f64"
+    formula_evidence:
+      batch_term: "same (class_weight); a=3.05"
+      state_term: "b=3.97"
+      guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true

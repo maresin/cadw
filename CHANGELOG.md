@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+### v0.9.105 (2026-11-02) — 9 cards formula-calibrated; framework gap DEC-023
+
+Formula calibration for 6 ReduceOps / 9 cards (linear, lasso, logistic x4,
+NB x3). All 9: `verified_in_cadw=true`, `status=draft`,
+`draft_reason: OOC blocked by framework gap (DEC-023)`.
+
+Code fixes:
+- O2: `del X_parts` in `logistic._stack_and_validate` (partial; peak in update)
+- O3: Bernoulli keep bool, no f64 copy (coef 2.94 -> 2.0)
+
+Framework gap (DEC-023): `_iter_filtered_batches` does not honor
+`batch_size`; production uses batch=n. Peak grows linearly with n
+without patch; flat with patch. v0.9.106 fix.
+
+New: `docs/ml_tools/EXPERIMENT_PROCEDURE.md` (6-step DOE, rules R1-R4,
+exit criterion, anti-patterns A1-A5),
+`scripts/experiments/experiment_v105_rep.py` (reproducible stages 0-6),
+DEC-018..025.
+
+
 ### v0.9.103 (2026-11-01) — ram_formula mechanism + first 2 verified
 
 First honest verified cards via STABILITY_PROTOCOL end-to-end (code ->

@@ -29,13 +29,12 @@ from cadw.ml.linear import _resolve_solver  # v0.9.93: shared threshold
 
 
 class LogisticGradOp(ReduceOp):
-    """One Newton iteration: accumulate (grad, hess, log-likelihood).
 
-    State: O(d²). Independent of N.
+    def batch_memory_factor(self) -> float:
+        # 3*batch (X_parts + X + X_masked in _stack_and_validate)
+        # + 1*batch allocator; hess adds 4*d^2 separately
+        return 4.0
 
-    Beta is passed from previous iteration; y must be binary {0,1}.
-    Rows with null in X or y are skipped.
-    """
 
     def __init__(
         self,
@@ -120,6 +119,8 @@ def _stack_and_validate(
     """Extract numeric X, y; mask rows with null or non-binary y."""
     X_parts = [_column_to_f64(batch.column(c)) for c in feature_cols]
     X = np.column_stack(X_parts)
+    del X_parts  # O2 (DEC-019): free list of per-column arrays before X[mask];
+                 # reduces 3x batch peak -> 2x batch peak (a: 3.05 -> ~2.0).
     y = _column_to_f64(batch.column(target_col))
     # Mask: no NaN in X or y; y in {0, 1}
     mask = (

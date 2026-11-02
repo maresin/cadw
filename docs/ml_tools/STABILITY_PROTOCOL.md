@@ -5,7 +5,9 @@
 `cadw/ml/`, `cadw/ts/` MUST follow this protocol before
 `status: verified`.
 **Companions:** `AI_CONSTITUTION.md` §5 (AP21, AP22, AP23),
-`GLOSSARY.md`, `ALGORITHM_TEMPLATE.md`, `EXAMPLE_VERIFIED_CARD.md`.
+`GLOSSARY.md`, `ALGORITHM_TEMPLATE.md`, `EXAMPLE_VERIFIED_CARD.md`,
+`EXPERIMENT_PROCEDURE.md` (detailed DOE, rules R1-R4, exit criterion,
+framework-gap handling — see §8 checklist).
 
 **Hierarchy:** Tier 2 (methodological). Complements
 `AI_CONSTITUTION.md` (Tier 1). Does NOT override §1 principles,
@@ -271,3 +273,5 @@ Before marking `status: verified`:
 - [ ] `AI_CONSTITUTION` gates G1-G11 green
 - [ ] No `# BACKLOG:` mentioning this function
 - [ ] `DECISION_LOG` updated
+- [ ] Followed `EXPERIMENT_PROCEDURE.md` §3 (six steps) and §4 (R1-R4)
+- [ ] Exit criterion (PROCEDURE §5) satisfied for this algorithm

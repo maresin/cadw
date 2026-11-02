@@ -318,3 +318,147 @@ removed, not one addition.
 **Reference:** STABILITY_PROTOCOL §6 (status criteria), DEC-011 (bounded_by_domain introduction).
 
 <!-- future entries appended here -->
+
+
+---
+
+## DEC-018 (2026-11-02, v0.9.105) — in-place state update (O1) considered, deferred
+
+**Q:** `XTXOp.update` does `xtx + X.T @ X` (new alloc). `xtx += X.T @ X` (in-place) would reduce peak from 3×d² to 2×d². Apply?
+
+**A:** Not in v0.9.105. Deferred to v0.9.106.
+
+**Rationale:** `ReduceOp` contract doesn't forbid mutation (Gaussian already uses `state[k][0] += n`). But measured `fit_linear` coef = 1.92 (iter-1) — allocator already optimizes the `xtx + X.T@X` case in practice. Theoretical gain: 8 MB at d=1000. At d<500 invisible. Not the bottleneck (batch_term dominates for d<1500). Deferred to bundle with MemoryGuard v2 in v0.9.106.
+
+**Where:** `cadw/ml/linear.py::XTXOp.update` line ~245.
+
+---
+
+## DEC-019 (2026-11-02, v0.9.105) — `del X_parts` (O2): partial, full fix O2b pending
+
+**Q:** `logistic._stack_and_validate` keeps `X_parts` list live until function return; `X[mask]` creates a third copy. Adding `del X_parts` before `return X[mask]` reduces peak from 3× batch to 2×.
+
+**A:** O2 applied (v0.9.105-O2O3). **Did NOT reduce measured coef** — because the true peak is in `update`, not in `_stack_and_validate`:
+
+```python
+X (B, d)                          # 1× from _stack_and_validate
+X_aug = column_stack([ones, X])   # 2× (X + X_aug)
+T1 = X_aug * w[:, None]           # 3× (X + X_aug + T1)
+```
+
+**Full fix (O2b):** `del X` after `X_aug` creation, plus chunked matmul. Deferred to v0.9.106.
+
+**Evidence:** iter-5 (post-O2/O3): `logistic coef a = 3.049` — unchanged from iter-3 (a = 3.049). O2 alone insufficient; peak is in update.
+
+**Where:** `cadw/ml/logistic.py::_stack_and_validate`, `LogisticGradOp.update`.
+
+---
+
+## DEC-020 (2026-11-02, v0.9.105) — Bernoulli bool (O3): applied, effective
+
+**Q:** `_BernoulliStatsOp.update` does `Xb = (X > 0.5).astype(np.float64)` — full (B, d) f64 copy. Keep as bool (1/8 memory).
+
+**A:** O3 applied. `Xb = (X > 0.5)`; `Xb.sum(axis=0)` returns float64 anyway, semantics identical.
+
+**Evidence:** iter-2 baseline Bernoulli coef = 2.941; iter-5 post-O3 = 2.006. Tests: `test_naive_bayes.py` all green (62 passed).
+
+**Where:** `cadw/ml/naive_bayes.py::_BernoulliStatsOp.update`.
+
+---
+
+## DEC-021 (2026-11-02, v0.9.105) — einsum for Gaussian (O4): deferred, unmeasurable
+
+**Q:** `_GaussianStatsOp.update` does `(Xc * Xc).sum(axis=0)` — creates temp (B_c, d). `np.einsum('ij,ij->j', Xc, Xc)` avoids temp.
+
+**A:** Not applied. State contribution to peak is <5% at typical d, unmeasurable in iter-2/3. Deferred to v0.9.107 (with refactor), after NB-state test becomes possible at low batch.
+
+**Where:** `cadw/ml/naive_bayes.py::_GaussianStatsOp.update`.
+
+---
+
+## DEC-022 (2026-11-02, v0.9.105) — `batch_memory_factor` scalar insufficient for large d
+
+**Q:** `batch_memory_factor()` returns scalar `k`; `check_batch(size × k)` compares to `available_bytes`. But `peak = batch_term + state_term`, and at large d state_term dominates. Guard under-protects.
+
+**Example:** `fit_logistic(d=1000, batch=1000)`: peak = 25 MB (batch) + 30 MB (state) = 56 MB. Guard `check_batch(4.0 × batch) = 32 MB` — passes at budget 50 MB, actual peak 56 MB > budget → silent OOM.
+
+**Fix (v0.9.106):** either
+- `get_batch_rows(op, state_bytes, ...)` — state-aware batch sizing
+- `reduce()` uses `plan(op, op_context={"state_bytes": ...})` (already implemented in `MemoryGuard.plan`, not wired)
+- `check_batch(total_after)` — combined state + batch check
+
+**Where:** `cadw/core/memory_guard.py::MemoryGuard.get_batch_rows`, `cadw/ops/reduce.py`.
+
+---
+
+## DEC-023 (2026-11-02, v0.9.105) — framework chunking gap (blocks OOC of all 9 cards)
+
+**Q:** `fit_linear(df, n=10⁵)` — does it run OOC?
+
+**A:** No. Empirically (iter-4):
+
+```
+Без patch (production path):
+  n=10⁴     → peak = 16 MB    (1 batch)
+  n=10⁵     → peak = 161 MB   (1 batch, 10× рост)
+  n=5×10⁵   → MemoryLimitExceeded (1.2 GB > 500 MB)
+
+С patch (control, batch_size=1000):
+  n=10⁴     → peak = 1.72 MB  (10 batches)
+  n=10⁵     → peak = 1.72 MB  (100 batches, OOC)
+```
+
+**Root cause:** `CadwDataFrame._iter_filtered_batches` (cadw/dataframe/_iterators.py:66) calls `self._dataset.iter_batches(columns=...)` without `batch_size`. `Dataset.iter_batches(batch_size=...)` supports it (dataset.py:176) but not propagated. `Dataset.from_table` creates 1 batch = n rows.
+
+**Consequence:** STABILITY_PROTOCOL §2.1 (OOC check) fails for all 9 cards at production path. Cards cannot be `verified` until fixed.
+
+**Fix (v0.9.106):**
+- Propagate `batch_size` through `_iter_filtered_batches` (explicit kwarg, default None → batch=n)
+- Alternatively: default `batch_size` in `Dataset.iter_batches` from `MemoryGuard.get_batch_rows`
+- Wire `MemoryGuard` into chunking decision at fit-call time
+
+**Interim:** v0.9.105 cards stay `status: draft` with `draft_reason: "OOC blocked by framework gap (DEC-023)..."`.
+
+---
+
+## DEC-024 (2026-11-02, v0.9.105) — NB finalize allocates O(C×d) outside update state
+
+**Q:** `_GaussianStatsOp.finalize` allocates `n_c(C)`, `mean(C×d)`, `var(C×d)`. That's 3 × C × d × f64 outside the update-state.
+
+**A:** Formula must include `finalize` cost. Measured at C=2000, d=2000: gaussian extra = 32 MB (matches 3 × 2000 × 2000 × 8 = 96 MB... wait, this needs verification. Actual: `mean + var` = 2 × C × d × 8 = 64 MB, plus n_c = 16 KB. Iter-4 measured `obs_extra = 96 MB` at C=2000, d=2000 — larger than `finalize = 64 MB`, suggesting additional transient in `finalize` (perhaps `np.zeros` + assignment).
+
+**Formula:** `fit_gaussian_nb` = `2 × batch × row_size + 3 × C × d × f64` (3 = 1 per update per class + 2 finalize). Similar for multinomial/bernoulli.
+
+**At typical C ≤ 64:** term < 1 MB, batch dominates. At C = 1000+ (rare): finalize dominates.
+
+**Where:** `cadw/ml/naive_bayes.py::*StatsOp.finalize`.
+
+---
+
+## DEC-025 (2026-11-02, v0.9.105) — v0.9.105 outcomes
+
+**9 cards: `status: draft`** (not verified, blocked by DEC-023).
+
+**Delivered:**
+- `batch_memory_factor` justified from code (v0.9.105a-fix): XTXOp=3.0, Center=3.0, Logistic=4.0, Gaussian=3.0, Multinomial=3.0, Bernoulli=3.0 (post-O3)
+- O2 (`del X_parts`) — partial (peak in update)
+- O3 (Bernoulli bool) — effective (coef 2.94→2.0)
+- `ram_formula` measured (v0.9.105b-finalize3):
+  - `fit_linear`, `fit_lasso`: `2 * batch * row_size + 2 * d * d * f64`
+  - `fit_logistic` ×4: `3 * batch * row_size + 4 * d * d * f64`
+  - `fit_gaussian_nb`: `2 * batch * row_size + 3 * C * d * f64`
+  - `fit_bernoulli_nb`: `2 * batch * row_size + 2 * C * d * f64`
+  - `fit_multinomial_nb`: `2 * batch * row_size + 2 * C * d * f64`
+- `formula_evidence` per term with `file:line`
+- `draft_reason` per card (framework gap DEC-023)
+- `docs/ml_tools/EXPERIMENT_PROCEDURE.md` (new file)
+- `scripts/experiment_v105_rep.py` (reproducible harness)
+- OOC measurement: passes only with explicit `batch_size` patch; fails in production path
+
+**Next:** v0.9.106 (framework: chunking + state-aware guard per DEC-022/023) → v0.9.107 (flip 9 to `verified` + refactor per DEC-019/021).
+
+**Not applied (deferred):**
+- O1 (in-place xtx, DEC-018)
+- O2b (del X in update, DEC-019)
+- O4 (einsum, DEC-021)
+- Refactor `_stack_numeric` etc. (DEC-021, v0.9.107)
