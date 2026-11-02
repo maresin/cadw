@@ -2132,12 +2132,17 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
-    state_class: O(1)
-    bounded_state_dims: {}
+    state_class: O(n)
+    bounded_state_dims: {n: 1}
     transient_factor: 1.0
+    ram_formula: "6 * n * f64"
+    formula_evidence:
+      state_arrays: "cusum.py:107-118 -- z, s_pos, s_neg, scores, labels = 5 x 8n"
+      temp_bool: "cusum.py:120 -- (scores > threshold) temp bool ~n"
+      guard_check: "cusum.py:81-99 -- est_bytes=8*n*6, check_state or _probe_memory_limit_mb"
     state_type: iterative
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    n_scalability: refuse_at_guard
     streaming_strategy:
       fit: 'warmup mean/std.'
       predict: 'one CUSUM accumulator per stream.'

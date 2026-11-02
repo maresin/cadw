@@ -96,14 +96,25 @@ def fit_cusum(
         raise ValueError(f"series too short for CUSUM (min 3), got {n}")
 
     if guard is not None:
-        est_bytes = 8 * n * 3
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            if est_bytes > limit_mb * 1024 * 1024:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"CUSUM estimated {est_bytes} bytes > "
-                    f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+        # v0.9.109a: honest O(n) state estimate. Fit allocates 5-6 O(n)
+        # arrays: z (8n), s_pos (8n), s_neg (8n), scores (8n),
+        # labels (8n), plus temp bool for `scores > threshold` (~n).
+        # Peak ~ 48n = 6 * 8n bytes. Prior 8*n*3 = 24n underestimated
+        # by 2x (silent OOM at tight budgets). O(n) state means OOC
+        # impossible -> YAML draft + DEC-030 (SpillArray rewrite, like
+        # fit_zms).
+        est_bytes = 8 * n * 6
+        if hasattr(guard, "check_state") and callable(guard.check_state):
+            guard.check_state(est_bytes, name="cusum.state")
+        else:
+            # Duck-typed guard (max_memory_mb only) — legacy fallback.
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                if est_bytes > limit_mb * 1024 * 1024:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"CUSUM estimated {est_bytes} bytes > "
+                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
 
     target = float(np.mean(x))
     sigma = float(np.std(x))
