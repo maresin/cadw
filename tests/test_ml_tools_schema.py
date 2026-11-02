@@ -506,7 +506,12 @@ def test_R2_verified_requires_ram_formula():
             continue
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         dims = (found or {}).get("bounded_state_dims") or {}
-        allowed = constants | set(dims.keys())
+        # v0.9.107: `batch` and `row_size` are auto-injected by
+        # `estimate_from_yaml` at runtime (guard.min_batch_rows()
+        # and guard.row_size_bytes). Not constants (vary per call),
+        # not axes in bounded_state_dims (describe peak, not state).
+        # Formula system gained these 2 implicit names in v0.9.105.
+        allowed = constants | set(dims.keys()) | {"batch", "row_size"}
         extra = names - allowed
         if extra:
             bad.append(f"{label}: ram_formula names {sorted(extra)} "

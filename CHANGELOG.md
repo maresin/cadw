@@ -1,5 +1,52 @@
 ## [Unreleased]
 
+### v0.9.107 (2026-11-02) — optimizations + 9 cards verified
+
+**Code optimizations:**
+- O2b (`logistic.py:LogisticGradOp.update`): `del X` after
+  `X_aug = column_stack([ones, X])`. Peak in update drops from
+  3× batch (X + X_aug + T1) to 2× (X_aug + T1). Measured coef
+  a: 3.05 → 2.0.
+- O4 (`naive_bayes.py:_GaussianStatsOp.update`): `np.einsum('ij,ij->j',
+  Xc, Xc)` instead of `(Xc * Xc).sum(axis=0)`. Removes (B_c, d) temp.
+
+**9 cards: `draft` → `verified`:**
+- fit_linear, fit_lasso, fit_elasticnet
+- fit_logistic (×4)
+- fit_gaussian_nb, fit_multinomial_nb, fit_bernoulli_nb
+
+All via STABILITY_PROTOCOL §6 (stability + formula + matrix + OOC).
+Production path (no monkey-patch) after v0.9.106 framework fix.
+
+**DECs closed:** DEC-019 (O2 partial → complete via O2b),
+DEC-021 (O4 applied), DEC-022, DEC-023 (closed in v0.9.106).
+
+**Deferred to v0.9.108:** refactor `_stack_numeric` (5 copies) →
+`cadw/ml/_common.py` (single source of truth, AI_CONSTITUTION §5.1).
+Bit-identical, no verified impact. Roadmap updated.
+
+### v0.9.106 (2026-11-02) — framework: chunking + state-aware guard
+
+Closes DEC-022 + DEC-023. OOC works on production path (no patch).
+
+Core:
+- `MemoryGuard.get_batch_rows(state_bytes=0)` — deduct op state from
+  usable; raise if state >= usable. Backward compat.
+- `CadwDataFrame._iter_filtered_batches(batch_size=None)` — propagate
+  to `Dataset.iter_batches`.
+- `derive_batch_size(op, df, guard, batch_size=None)` helper.
+
+fit_* API (`batch_size="int | None" = None`):
+- fit_linear, fit_lasso, fit_elasticnet
+- fit_logistic (+ SGD path with O(d) state bound)
+- fit_gaussian_nb, fit_multinomial_nb, fit_bernoulli_nb
+
+Fixed latent v0.9.97 → v0.9.105 bug in `estimate_from_yaml` batch-fallback
+(passed `op` (str) as `row_size_bytes`; TypeError swallowed).
+
+Evidence: OOC plateau 0.98-1.00 all 7 fit_*, 219 tests green.
+
+
 ### v0.9.105 (2026-11-02) — 9 cards formula-calibrated; framework gap DEC-023
 
 Formula calibration for 6 ReduceOps / 9 cards (linear, lasso, logistic x4,

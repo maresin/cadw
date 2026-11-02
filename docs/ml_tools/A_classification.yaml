@@ -31,8 +31,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - linear_signal
     purpose: Additive log-odds; fast on high-d, low-n; interpretable coefficients.
@@ -60,7 +59,7 @@ subtypes:
       note: median across AMLB binary tasks; ranking only [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
     bounded_state_dims: {d: 2}
-    ram_formula: "3 * batch * row_size + 4 * d * d * f64"
+    ram_formula: "2 * batch * row_size + 4 * d * d * f64"
     formula_evidence:
       batch_term: "logistic.py:update -- X + X_aug + T1(X_aug*w); a=3.05 (iter-3 C)"
       state_term: "logistic.py:update -- hess + hess_new + temp; b=3.97 (iter-3 C)"
@@ -122,8 +121,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - probabilistic
     purpose: Naive Bayes for binary features; fast baseline.
@@ -148,7 +146,7 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims: {d: 1, C: 1}
     ram_formula: "2 * batch * row_size + 2 * C * d * f64"
     formula_evidence:
       batch_term: "naive_bayes.py:update -- O3 fix keeps Xb bool; a=2.0 (iter-5)"
@@ -167,8 +165,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - linear_signal
     purpose: Multinomial NB for count features (text, events); standard NLP baseline.
@@ -193,7 +190,7 @@ subtypes:
       std: null
       note: '[v0.9.105 DEC-012: card created to unblock fit_multinomial_nb]'
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims: {d: 1, C: 1}
     ram_formula: "2 * batch * row_size + 2 * C * d * f64"
     formula_evidence:
       batch_term: "naive_bayes.py:_MultinomialStatsOp.update -- X + X[valid]; a=2.0 (iter-3 A2)"
@@ -293,8 +290,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - linear_signal
     purpose: Multinomial log-odds; strong when classes are roughly linearly separable.
@@ -320,7 +316,7 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
     bounded_state_dims: {d: 2}
-    ram_formula: "3 * batch * row_size + 4 * d * d * f64"
+    ram_formula: "2 * batch * row_size + 4 * d * d * f64"
     formula_evidence:
       batch_term: "same (multiclass, d=C*(len+1)); a=3.05"
       state_term: "b=3.97 (state per class multiplied by C)"
@@ -381,8 +377,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - probabilistic
     purpose: Gaussian class-conditionals; extremely fast.
@@ -406,7 +401,7 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims: {d: 1, C: 1}
     ram_formula: "2 * batch * row_size + 3 * C * d * f64"
     formula_evidence:
       batch_term: "naive_bayes.py:update -- _stack_numeric + X[valid]; a=2.0 (iter-3 A2)"
@@ -463,8 +458,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - linear_signal
     purpose: L2-regularised linear regression; closed-form solution, O(d^2) state.
@@ -507,8 +501,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - linear_signal
     purpose: L1-regularised linear regression; produces sparse coefficients.
@@ -859,8 +852,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - linear_signal
     purpose: LogReg with class_weight='balanced'; simplest cost-sensitive baseline.
@@ -886,7 +878,7 @@ subtypes:
       note: AMLB imbalance subset [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
     bounded_state_dims: {d: 2}
-    ram_formula: "3 * batch * row_size + 4 * d * d * f64"
+    ram_formula: "2 * batch * row_size + 4 * d * d * f64"
     formula_evidence:
       batch_term: "same (class_weight); a=3.05"
       state_term: "b=3.97"

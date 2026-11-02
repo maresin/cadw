@@ -99,7 +99,10 @@ class _GaussianStatsOp(ReduceOp):
                 state[key] = [0, np.zeros(self.d), np.zeros(self.d)]
             state[key][0] += int(Xc.shape[0])
             state[key][1] += Xc.sum(axis=0)
-            state[key][2] += (Xc * Xc).sum(axis=0)
+            # O4 (v0.9.107, DEC-021): einsum avoids (B_c, d) temp from
+            # (Xc * Xc). Bit-identical; measured negligible for typical
+            # d, but no downside.
+            state[key][2] += np.einsum('ij,ij->j', Xc, Xc)
         return state
 
     def merge(self, a, b):

@@ -168,8 +168,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "OOC blocked by framework gap (DEC-023): _iter_filtered_batches does not honor batch_size; production path uses batch=n. Formula verified for given batch; framework fix v0.9.106."
+      status: verified
     roles:
     - linear_signal
     purpose: LogReg with class_weight='balanced'; simplest cost-sensitive baseline.
@@ -195,7 +194,7 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
     bounded_state_dims: {d: 2}
-    ram_formula: "3 * batch * row_size + 4 * d * d * f64"
+    ram_formula: "2 * batch * row_size + 4 * d * d * f64"
     formula_evidence:
       batch_term: "same (anomaly class-weighted); a=3.05"
       state_term: "b=3.97"
