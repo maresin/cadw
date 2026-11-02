@@ -1,5 +1,35 @@
 ## [Unreleased]
 
+### v0.9.109 (2026-11-02) — fit_cusum honesty, R5 aliases, randsvd verified
+
+**v0.9.109a — fit_cusum honesty (DEC-030):**
+YAML claimed `state_class: O(1)`, `bounded_state: true`, but code
+allocates 6 O(n) arrays (z, s_pos, s_neg, scores, labels, temp bool
+= ~48n). Prior guard est 24n underestimated 2x. Fix: est_bytes 24n
+-> 48n, use guard.check_state when available. YAML: O(1) -> O(n),
+bounded_state: false, ram_formula "6 * n * f64", status: draft,
+bounded_by_domain {axis: n, bound: 1000000}. Same class as DEC-013.
+Test: 10/10 test_cusum.py.
+
+**v0.9.109b — test_R5 aliases consistency:**
+18 fns / 43 cards; 0 inconsistent. All aliases of one fn must share
+status. Protects future verified flips from missing one alias.
+
+**v0.9.109c — fit_randomized_svd verified:**
+batch_size kwarg + auto-derive (ef=3.0). Formula:
+  3*batch*row_size + 5*d*(n_components+n_oversamples)*f64
+Measurement: coef=3.000, d-sweep ratios [0.97, 1.00, 1.00, 1.12],
+OOC ratio=1.00 (38.6 MB at 50 MB budget). Tests: 8/8 randsvd +
+78 schema.
+
+**v0.9.109d — snapshot bootstrap includes EXPERIMENT_PROCEDURE.md:**
+AI_FIRST_FILES position 4 (T2). Snapshot header renumbered 1-12.
+Tiny mode (developer flow) now bootstraps next session with the
+6-step DOE.
+
+**Total: 12 verified cards.**
+
+
 ### v0.9.108 (2026-11-02) — refactor: _stack_numeric → _common.py
 
 Single source of truth (AI_CONSTITUTION §5.1). Eliminates 23 duplicate
