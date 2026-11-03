@@ -25,7 +25,9 @@ subtypes:
       - name: GaussianMixture
         tier: baseline
         tier_level: tier1_core
-        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        implementation_status:
+          verified_in_cadw: true
+          status: verified
         roles: [probabilistic]
         purpose: "EM-fitted mixture of Gaussians. Inductive bias: data are drawn from a fixed number of Gaussian components — strong when clusters are approximately ellipsoidal and K is known; the canonical parametric density baseline."
         real_life_examples: ["Gaussian-cluster customer segmentation", "Anomaly detection via low likelihood", "Synthetic sampling for simulation"]
@@ -37,13 +39,32 @@ subtypes:
         cadw_function: fit_gmm
 
         state_class: O(model)
-        bounded_state_dims: {k: 1, d: 1}
+        bounded_state_dims: {k: 1, d: 1, max_samples: 1}
         transient_factor: 1.0
         state_type: iterative
         bounded_state: true
+        ram_formula: "k * (1 + 2 * d) * f64 + 5 * max_samples * d * f64 + 2.0 * batch * row_size + 256"
+        formula_evidence:
+          state_weights: "gmm.py -- GMMModel.weights_ = np.asarray(weights); shape (k,); k*f64"
+          state_means_covars: "gmm.py -- means_ (k,d) + covariances_ (k,d); 2*k*d*f64"
+          state_header: "gmm.py -- GMMModel.state_nbytes() = (weights.size+means.size+covariances.size)*8; +256 header in state_est"
+          em_sample: "gmm.py -- sample = np.empty((S, d)) reservoir; S*d*f64 held during EM"
+          em_mstep_temp: "gmm.py -- M-step: diff = X - means[j]; r[:,j:j+1]*diff*diff -> 4*S*d*f64 (diff + 3 intermediates)"
+          coef_batch: "gmm.py -- fit loop: arrays list + np.column_stack; 2 physical copies of row_size. Measured 1.73-2.0 (first-batch allocator reuse biases slope low)."
+          ef_guard: "expansion_factor=3.0 = ceil(2.0*1.15) per AP23 round-up"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          state_check: "test_state_nbytes_exact: k*(1+2d)*8, (K,d) in {(2,10),(3,50),(5,100),(3,200)}"
+          state_indep_n: "test_state_independent_of_n: state(n=500) == state(n=5000) when max_samples < n"
+          coef_batch: "test_batch_coef_isolated: slope/row_size in [1.5, 3.0] (measured 1.73-2.0)"
+          formula_sanity: "test_formula_small_scale: predicted/measured in [0.7, 1.4] (d=200,S=1000,batch=1000)"
+          ooc: "test_ooc_batch_fixed: peak(n=5000)/peak(n=1000) < 2.0"
+          cells_passed: "8/8"
+          runtime_sec: "~5"
+          note: "Combined RSS matrix unmeasurable at large d (baseline >> peak). Component-wise per DEC-033."
         n_scalability: constant
         streaming_strategy:
-        fit: 'bounded reservoir sample (max_samples=10k, v0.9.31); standard EM on sample; k·d params.'
+        fit: 'bounded reservoir sample (max_samples=10k, v0.9.31); standard EM on sample; k*d params.'
         predict: 'per-batch responsibility (no n-sized state).'
         primitive_reuse: [reduce]
       - name: KernelDensity

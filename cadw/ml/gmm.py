@@ -75,7 +75,8 @@ class GMMModel:
         return np.column_stack(arrays)
 
     def score_samples(self, df, X_cols=None, memory_guard=None, *,
-                      output: str = "auto"):
+                      output: str = "auto",
+                      batch_size: "int | None" = None):
         """v0.9.95 (BREAKING): unified CadwDataFrame return. output=
         selects storage strategy only.
         Column: ["log_likelihood"].
@@ -88,13 +89,24 @@ class GMMModel:
         mg = memory_guard or MemoryGuard(max_memory_mb=64)
         schema = pa.schema([("log_likelihood", pa.float64())])
 
+        # v0.9.110g: derive batch_size for streaming predict (OOC).
+        if batch_size is None:
+            row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+            batch_size = mg.get_batch_rows(
+                row_size_bytes=row_size,
+                expansion_factor=3.0,
+                state_bytes=0,
+            )
+        else:
+            batch_size = int(batch_size)
+
         if output == "memory":
             ll_parts: list[np.ndarray] = []
         else:
             buf = SpillBuffer(guard=mg, schema=schema, name="gmm.score",
                               spill_ratio=0.0 if output == "disk" else 0.5)
 
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             X = self._dense_batch(b, cols, mg)
             mask = ~np.isnan(X).any(axis=1)
             out = np.full(X.shape[0], np.nan, dtype=np.float64)
@@ -118,13 +130,11 @@ class GMMModel:
         return CadwDataFrame.from_producer_result(
             raw, col_names=["log_likelihood"], memory_guard=mg)
 
-    def score(self, df, X_cols=None, memory_guard=None) -> float:
-        """Mean log-likelihood (scalar).
-
-        v0.9.95: score_samples returns CadwDataFrame; extract
-        "log_likelihood" column via iter (was: pa.Table.column()).
-        """
-        t = self.score_samples(df, X_cols, memory_guard)
+    def score(self, df, X_cols=None, memory_guard=None, *,
+              batch_size: "int | None" = None) -> float:
+        """Mean log-likelihood (scalar)."""
+        t = self.score_samples(df, X_cols, memory_guard,
+                               batch_size=batch_size)
         parts = [b.column("log_likelihood").to_numpy(zero_copy_only=False)
                  for b in t._iter_filtered_batches()]
         if not parts:
@@ -132,7 +142,8 @@ class GMMModel:
         return float(np.concatenate(parts).mean())
 
     def predict(self, df, X_cols=None, memory_guard=None, *,
-                output: str = "auto"):
+                output: str = "auto",
+                batch_size: "int | None" = None):
         """v0.9.95 (BREAKING): unified CadwDataFrame return. output=
         selects storage strategy only.
         Column: ["cluster"] (int64; -1 for null rows).
@@ -145,13 +156,24 @@ class GMMModel:
         mg = memory_guard or MemoryGuard(max_memory_mb=64)
         schema = pa.schema([("cluster", pa.int64())])
 
+        # v0.9.110g: derive batch_size for streaming predict (OOC).
+        if batch_size is None:
+            row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+            batch_size = mg.get_batch_rows(
+                row_size_bytes=row_size,
+                expansion_factor=3.0,
+                state_bytes=0,
+            )
+        else:
+            batch_size = int(batch_size)
+
         if output == "memory":
             lab_parts: list[np.ndarray] = []
         else:
             buf = SpillBuffer(guard=mg, schema=schema, name="gmm.predict",
                               spill_ratio=0.0 if output == "disk" else 0.5)
 
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             X = self._dense_batch(b, cols, mg)
             mask = ~np.isnan(X).any(axis=1)
             out = np.full(X.shape[0], -1, dtype=np.int64)
@@ -191,12 +213,17 @@ def _kmeanspp_init(X, k, rng):
 
 def fit_gmm(df, X_cols, *, n_components=3, max_iter=100, tol=1e-4,
             reg_covar=1e-6, max_samples=10_000,
-            random_state=None, memory_guard=None) -> GMMModel:
+            random_state=None, memory_guard=None,
+            batch_size: "int | None" = None) -> GMMModel:
     """Fit a diagonal-covariance GMM via out-of-core EM.
 
     EM uses a bounded reservoir sample of `max_samples` rows (default
     10k) to run M-steps; per-iteration E-step would need O(N) counts
     otherwise. State = O(k*d) weights+means+variances — independent of N.
+
+    OOC: batch_size=None -> auto-derived. Peak = kmeans++ temp
+    (2*S*d*f64) + M-step temp (2*S*d*f64) + reservoir (S*d*f64)
+    = 3*S*d*f64, where S=min(n, max_samples). Plus batch term.
     """
     if not X_cols:
         raise ValueError("fit_gmm: X_cols must be non-empty")
@@ -209,11 +236,33 @@ def fit_gmm(df, X_cols, *, n_components=3, max_iter=100, tol=1e-4,
     cols = list(X_cols)
     rng = np.random.RandomState(0 if random_state is None else int(random_state))
 
-    # ---- Bounded reservoir sample of max_samples rows ----
+    # v0.9.110g: derive batch_size (OOC). state_est:
+    #   sample buffer (S*d*f64)              held during EM
+    #   + EM M-step temp (4*S*d*f64)         diff + 3 intermediates in cov update
+    #   = 5*S*d*f64
+    #   + state_nbytes (k*(1+2d)*f64) + 256
+    # get_batch_rows adds expansion_factor=3.0 for batch term (coef 2.0
+    # physical: arrays list + column_stack; ceil(2.0*1.15)=3.0).
     S = int(max_samples)
+    if batch_size is None:
+        state_est = (
+            5 * S * len(cols) * 8
+            + n_components * (1 + 2 * len(cols)) * 8
+            + 256
+        )
+        row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        batch_size = mg.get_batch_rows(
+            row_size_bytes=row_size,
+            expansion_factor=3.0,
+            state_bytes=state_est,
+        )
+    else:
+        batch_size = int(batch_size)
+
+    # ---- Bounded reservoir sample of max_samples rows ----
     sample = np.empty((S, len(cols)), dtype=np.float64)
     n_seen = 0; n_filled = 0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="gmm.sample", extra_factor=3.0)
         arrays = []
         for c in cols:
