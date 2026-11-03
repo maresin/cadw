@@ -1,13 +1,13 @@
 # CADW Roadmap
 
-Last updated: 2026-11-03 (after v0.9.110e).
+Last updated: 2026-11-03 (after v0.9.110g).
 
-## Current: v0.9.110e
+## Current: v0.9.110g
 
 Framework + refactor milestones done (v0.9.105-108). Batch 1 progress
 in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
 
-## Progress (v0.9.105 - v0.9.109d)
+## Progress (v0.9.105 - v0.9.110g)
 
 - **v0.9.105** — 9 cards formula-calibrated (draft). EXPERIMENT_PROCEDURE.md (274 lines). DEC-018..025.
 - **v0.9.106** — framework chunking + state-aware guard (DEC-022/023 closed).
@@ -21,14 +21,16 @@ in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
 - **v0.9.110c** — component-wise verification (DEC-033) + `measure_peak_traced` (VmRSS sampler via /proc/self/statm, 2us). linucb verified.
 - **v0.9.110d** — iforest verified × 2 cards (E_anomaly + D_time_series).
 - **v0.9.110e** — methodology update: STABILITY §4.1.1 (component-wise), EXPERIMENT_PROCEDURE §3.7, ALGORITHM_TEMPLATE Step 5-alt, EXAMPLE_VERIFIED_CARD Example 2, AI_CONSTITUTION AP21/AP23.
+- **v0.9.110f** -- snapshot tooling: TINY_FULL += test_*_verification.py, TINY_SKELETON += experiment scripts, EXAMPLES_INDEX rows.
+- **v0.9.110g** -- `fit_gmm` verified (component-wise). batch_size kwarg + state_est = 5*max_samples*d*f64. 15 verified total.
 
 
 ## Status baseline
 
 | Status | Count | Note |
 |---|---|---|
-| verified | **14** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + **linucb (v0.9.110c)** + **iforest ×2 (v0.9.110d)** |
-| draft | 14 | 21 legacy - 9 flipped + 0 new + 0 - linucb/iforest promoted to verified |
+| verified | **15** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + linucb + iforest x2 + **gmm (v0.9.110g)** |
+| draft | 14 | 21 legacy - 9 flipped - linucb/iforest/gmm promoted to verified |
 | pending (no status) | 55 fns (124 entries) | 88 with fn + 62 no-fn (described_only candidates) |
 
 ## Known gaps (remaining)
@@ -48,16 +50,18 @@ in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
 - **`implementation_status` block may be entirely absent** in older cards (e.g. `fit_randomized_svd` had only `verified_in_cadw` originally). `test_R7` (backlog) catches this. For now: when patching YAML, check for block presence, create if missing.
 - **YAML write scripts must use `encoding="utf-8"` explicitly** on `read_text` / `write_text`. Locale-agnostic, avoids mojibake on files with non-ASCII characters.
 - **Never mix `git checkout <file>` and `python patch_<file>.py` in one block.** Order: checkout first (clean HEAD), then patch. `checkout` after patch silently reverts the patch.
+- **RSS-based measurement (v0.9.110):** `measure_peak` (ru_maxrss delta) fails when baseline >> fit peak. 5 tool attempts confirmed fundamental. Solution: component-wise verification (DEC-033) -- state exact via `state_nbytes()`, coef isolated, OOC proven. NOT a relaxation; state is bit-exact.
+- **Component-wise pitfalls:** (a) `d=10` noise 1MB > signal 0.3MB -> use d>=200. (b) `intercept` from slope-fit amplifies noise 8x -> only assert `coef` (slope). (c) `state(n1)==state(n2)` for n>=S fails (reservoir order) -> use bounded <=1.5x. See CW-AP1..4 in EXPERIMENT_PROCEDURE 3.7.
+- **YAML card-scoped patch:** `str.replace` may hit 2+ cards (`bounded_state_dims` everywhere). Use regex anchors `- name: <Card>` + next card, patch only inside [start, end).
 
 ## Next 3 sessions
 
-### v0.9.110 — Batch 2: 3-4 verified cards + described_only schema
+### v0.9.111 — Batch 2 continuation + Part 2
 
-**Part 1 — verified cards** (per EXPERIMENT_PROCEDURE):
-- `fit_isolation_forest` (O(model), n_estimators × ψ)
-- `fit_linucb` (O(model), K × d²)
-- `fit_gmm` (sample-based EM, ~10k sample)
-- `fit_birch` (CF-tree, bounded n_entries)
+**Part 1 — remaining verified cards from v0.9.110 plan:**
+- `fit_birch` (CF-tree, Python-object state like iforest; DEC-033 template applies)
+
+DONE in v0.9.110: `fit_linucb`, `fit_isolation_forest` x2, `fit_gmm`.
 
 **Part 2 — `described_only` for 62 no-fn cards:**
 - Cards: TabPFN, Chronos-*, BERT, ResNet50, GCN, etc. — reference-only, not implementable
@@ -67,7 +71,6 @@ in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
 **Part 3 — Aliases consistency safeguard:**
 - `test_R5` already enforces consistency for existing aliases
 - Add helper `scripts/bulk_flip_status.py --fn NAME --from draft --to verified` for batched flips
-
 ### v0.9.111 — Batch 3: group C (needs P/k/w second knob)
 
 **Group C pending** (from probe-109):

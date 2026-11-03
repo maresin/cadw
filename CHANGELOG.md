@@ -1,5 +1,86 @@
 ## [Unreleased]
 
+### v0.9.110 (2026-11-03) — component-wise verification (DEC-033), 15 verified
+
+**v0.9.110a — fit_isolation_forest OOC (DEC-031):**
+batch_size kwarg + auto-derive (state_est conservative v2: reservoir
+S*d*8 + trees n_trees*2*S*180 + cached numpy + score transient).
+Removed end-of-fit check_state (was AP4: guard after alloc, only
+covered lists not cached numpy). fit loop now propagates batch_size.
+OOC proven (batch=500 fixed, n in [1e3, 1e5]): peak ratio 1.00.
+Both YAML aliases (E_anomaly + D_time_series) -> status=draft with
+draft_reason: matrix measurement fails at multiple cells due to
+measure_peak tool limit, not code. Tests: 12/12 iforest.
+
+**v0.9.110b — fit_linucb OOC (DEC-032):**
+batch_size kwarg + k_max_hint param (K is data property: first-batch
+max(arm)+1 x 2 safety). AP4 fix: check_state before
+newA = np.zeros(...) in state_grow branch. arms extraction:
+cast(int64)+to_numpy (removes to_pylist Python-object overhead).
+state_est = K*d^2*8 + K*d*8 + d^2*8 + d*8 + 512. OOC: 1.00.
+Same draft status (DEC-032 corrected DEC-031: fix is NOT state
+refactor since linucb is pure numpy; real fix is tooling).
+Tests: 10/10 linucb.
+
+**v0.9.110c — component-wise verification (DEC-033) + tooling:**
+New `measure_peak_traced` in memory_guard (fast VmRSS sampler via
+/proc/self/statm, 2us/sample, 200us interval) + `mg.mark(name)`
+phase markers. Plus `measure_peak_pss` (smaps_rollup, 3ms/sample)
+and `_read_vmrss_fast`.
+
+Why: 16-iteration investigation (linucb) + 8 (iforest) confirmed
+`measure_peak` (ru_maxrss delta) returns 0 when baseline >> fit
+peak (allocator reuse, not new mmap). 5 tool attempts (fadvise,
+malloc_trim, smaps_rollup, phase-trace, statm sampler) confirmed
+fundamental. Component-wise is the honest answer:
+- state exact via model.state_nbytes()
+- coef isolated at d=200, batch 1000-4000
+- formula small-scale median-of-3
+- OOC independent
+
+fit_linucb verified. expansion_factor 3.0 -> 4.0 (= ceil(3.18*1.15)
+per AP23). Formula: k*d^2*f64 + k*d*f64 + d^2*f64 + 256 +
+3.5*batch*row_size. Test: 8/8 test_linucb_verification.py (~3s,
+stable x8 runs).
+
+**v0.9.110d — fit_isolation_forest verified x2 (DEC-033):**
+state bounded (not identical) for n>=S; state monotone for n<S
+(psi=min(n,S)). Formula: n_trees*2*subsample_size*40 +
+3.5*batch*row_size + subsample_size*d*f64. dims: {k, d} ->
+{n_trees, subsample_size, d} (R2 requires formula names in dims).
+Test: 8/8 iforest_verification (~3s, stable x5).
+
+**v0.9.110e — methodology update (T1/T2/T3/T5):**
+- STABILITY_PROTOCOL v1.0->v1.1: §4.1.1 Component-wise mode
+- EXPERIMENT_PROCEDURE v1.0->v1.1: §3.7 Step 6-alt (CW-1..6 +
+  CW-AP1..4 anti-patterns)
+- ALGORITHM_TEMPLATE v1.0->v1.1: Step 5-alt
+- EXAMPLE_VERIFIED_CARD: Example 2 (linucb component-wise)
+- AI_CONSTITUTION: AP21/AP23 with component-wise alternative
+
+**v0.9.110f — snapshot tooling:**
+TINY_FULL += test_linucb_verification.py, test_iforest_verification.py
+(canonical templates for gmm/birch/etc, +20 KB). TINY_SKELETON +=
+experiment_v110_*.py (skeleton reveals predicted_peak + subprocess/
+prewarm/malloc_trim/fadvise pattern). EXAMPLES_INDEX: 2 rows for
+component-wise + phase-traced.
+
+**v0.9.110g — fit_gmm verified (DEC-033):**
+batch_size kwarg + state_est = 5*max_samples*d*f64 + k*(1+2d)*f64 +
+256 (sample S*d*8 + M-step temp 4*S*d*8). Formula: k*(1+2d)*f64 +
+5*max_samples*d*f64 + 2.0*batch*row_size + 256. dims: {k, d} ->
+{k, d, max_samples}. coef 2.0 physical (arrays list + column_stack;
+measured 1.73-2.0). Test: 8/8 gmm_verification (~5s, stable x3).
+
+**Total: 15 verified cards.** (2 MatrixProfile + 9 v0.9.107 + 1
+randsvd + linucb + iforest x2 + gmm). Verification suite runtime
+~20s (vs 30+ min per attempt with RSS matrix).
+
+**Do not re-solve** (DEC-033): combined RSS matrix at large d is
+physically unmeasurable (baseline >> peak). Component-wise is not a
+relaxation — state is bit-exact, coef is physical (code-derived
+copies of row_size), OOC is proven independently.
+
 ### v0.9.109 (2026-11-02) — fit_cusum honesty, R5 aliases, randsvd verified
 
 **v0.9.109a — fit_cusum honesty (DEC-030):**
