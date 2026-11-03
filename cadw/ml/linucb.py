@@ -162,9 +162,13 @@ def fit_linucb(df, X_cols, *, arm_col, reward_col, alpha=1.0, l2=1.0,
             + 512
         )
         row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        # v0.9.110c: expansion_factor=4.0 (coef_batch=3.18 measured;
+        # ceil(3.18*1.15)=4 per AI_CONSTITUTION AP23 §5.1 "round up to
+        # nearest int"). Guard over-estimates peak by ~25% (safe side:
+        # refuse-at-guard rather than silent OOM, §2 p.6).
         batch_size = mg.get_batch_rows(
             row_size_bytes=row_size,
-            expansion_factor=3.0,   # covers 2x formula + safety
+            expansion_factor=4.0,
             state_bytes=state_est,
         )
     else:
@@ -174,15 +178,19 @@ def fit_linucb(df, X_cols, *, arm_col, reward_col, alpha=1.0, l2=1.0,
     b = None
     K = 0
     n = 0
-    for batch in df._iter_filtered_batches(batch_size=batch_size):
+    for batch_idx, batch in enumerate(df._iter_filtered_batches(batch_size=batch_size)):
+        mg.mark(f"b{batch_idx}.start")
         mg.check_batch(batch, name="linucb.fit", extra_factor=3.0)
         X = _stack_numeric_safe(batch, cols)
+        mg.mark(f"b{batch_idx}.after_X")
         if np.isnan(X).any():
             raise ValueError("fit_linucb: nulls in features")
         # v0.9.110b: cast+to_numpy avoids to_pylist Python-object overhead.
         arms = batch.column(arm_col).cast(pa.int64(), safe=False).to_numpy(
             zero_copy_only=False)
+        mg.mark(f"b{batch_idx}.after_arms")
         r = _stack_numeric_safe(batch, [reward_col]).ravel()
+        mg.mark(f"b{batch_idx}.after_r")
         if np.isnan(r).any():
             raise ValueError("fit_linucb: nulls in reward")
         if arms.size and arms.min() < 0:
@@ -200,6 +208,7 @@ def fit_linucb(df, X_cols, *, arm_col, reward_col, alpha=1.0, l2=1.0,
                 newA[:K] = A
                 newb[:K] = b
             A, b, K = newA, newb, k_here
+            mg.mark(f"b{batch_idx}.after_grow")
         for a in range(K):
             mask = arms == a
             if not mask.any():
@@ -207,6 +216,7 @@ def fit_linucb(df, X_cols, *, arm_col, reward_col, alpha=1.0, l2=1.0,
             Xa = X[mask]
             A[a] += Xa.T @ Xa
             b[a] += Xa.T @ r[mask]
+        mg.mark(f"b{batch_idx}.end")
         n += X.shape[0]
     if A is None or K == 0:
         raise ValueError("fit_linucb: no observations")

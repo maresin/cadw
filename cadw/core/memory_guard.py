@@ -109,6 +109,272 @@ def measure_peak(func, *args, **kwargs):
     }
 
 
+def _read_vmrss() -> int:
+    """Current VmRSS in bytes from /proc/self/status. 0 if unavailable."""
+    try:
+        with open('/proc/self/status') as f:
+            for line in f:
+                if line.startswith('VmRSS:'):
+                    return int(line.split()[1]) * 1024
+    except (FileNotFoundError, PermissionError, ValueError):
+        pass
+    return 0
+
+
+def _read_pss() -> int:
+    """Current Pss in bytes from /proc/self/smaps_rollup. 0 if unavailable.
+
+    Pss (proportional set size) accounts for shared pages proportionally:
+    if a page is shared by N processes, each contributes 1/N. For a single
+    process this is RSS minus shared .so pages (libc, python), so Pss delta
+    is the *unique* memory cost of an operation. This is what matters for
+    "does this fit in budget" question.
+    """
+    try:
+        with open('/proc/self/smaps_rollup') as f:
+            for line in f:
+                if line.startswith('Pss:'):
+                    return int(line.split()[1]) * 1024
+    except (FileNotFoundError, PermissionError, ValueError):
+        pass
+    return 0
+
+
+def measure_peak_pss(
+    func,
+    *args,
+    interval_s: float = 0.0001,
+    **kwargs,
+):
+    """Measure incremental Pss peak during func() via background sampler.
+
+    Unlike `measure_peak` (which uses ru_maxrss delta = peak-since-process-
+    start and fails silently when preloaded peak >= fit peak — see DEC-031,
+    DEC-032), this samples CURRENT Pss every interval_s and reports peak-base.
+
+    Why this matters:
+      - ru_maxrss delta = 0 whenever baseline (parquet load, prewarm scan,
+        df materialization) raises ru_maxrss above fit peak. That is the
+        common case for ML fits where state is small relative to data.
+      - Pss sampler detects small deltas (>= ~50 KB) regardless of baseline
+        because it compares peak vs current at start, not peak-since-start.
+
+    Parameters
+    ----------
+    func : callable
+        The function to measure.
+    *args
+        Positional arguments to func.
+    interval_s : float, default 1e-4
+        Sampling interval in seconds (100us default). Lower = higher
+        detection floor but more CPU overhead.
+    **kwargs
+        Keyword arguments to func.
+
+    Returns
+    -------
+    dict with keys:
+        pss_bytes:    peak Pss delta in bytes (recommended for verification)
+        vm_bytes:     peak VmRSS delta in bytes (for cross-check)
+        samples:      number of samples taken
+        result:       passthrough return of func(*args, **kwargs)
+
+    Notes
+    -----
+    Linux-only (`/proc/self/smaps_rollup`, `/proc/self/status`). On other
+    platforms returns pss_bytes=0, vm_bytes=0.
+
+    Detection floor: ~50-100 KB (from .so page-fault noise). For sub-100KB
+    signals this tool is not reliable; fall back to py_bytes from
+    measure_peak (tracemalloc) if signal is Python-only.
+
+    Sampling misses short spikes if func has a transient that lasts <
+    interval_s. For typical ML fits (batch loops, per-arm sweeps) each
+    phase lasts ms, so 100us sampling catches it. For one-shot numpy ops
+    that may last <1ms, increase interval or use larger magnitudes.
+
+    Uses sys.setswitchinterval to ensure the sampler thread gets CPU time
+    between numpy allocations (numpy releases GIL for big ops).
+    """
+    import sys as _sys
+    import threading
+    import time
+    import gc
+
+    pss0 = _read_pss()
+    vm0 = _read_vmrss()
+    if pss0 == 0 and vm0 == 0:
+        # /proc unavailable: fall through, return 0 measurement.
+        return {"pss_bytes": 0, "vm_bytes": 0, "samples": 0,
+                "result": func(*args, **kwargs)}
+
+    gc.collect()
+    pss_base = _read_pss()
+    vm_base = _read_vmrss()
+
+    pss_peak = [pss_base]
+    vm_peak = [vm_base]
+    stop = threading.Event()
+    samples = [0]
+
+    def _sampler():
+        while not stop.is_set():
+            p = _read_pss()
+            v = _read_vmrss()
+            if p > pss_peak[0]:
+                pss_peak[0] = p
+            if v > vm_peak[0]:
+                vm_peak[0] = v
+            samples[0] += 1
+            time.sleep(interval_s)
+
+    old_iv = _sys.getswitchinterval()
+    _sys.setswitchinterval(max(interval_s / 2.0, 1e-5))
+    t = threading.Thread(target=_sampler, daemon=True)
+    t.start()
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        stop.set()
+        t.join(timeout=2.0)
+        _sys.setswitchinterval(old_iv)
+
+    return {
+        "pss_bytes": max(0, pss_peak[0] - pss_base),
+        "vm_bytes": max(0, vm_peak[0] - vm_base),
+        "samples": samples[0],
+        "result": result,
+    }
+
+
+_PAGE_SIZE = 4096
+
+
+def _init_page_size() -> int:
+    global _PAGE_SIZE
+    try:
+        import os as _os
+        _PAGE_SIZE = int(_os.sysconf('SC_PAGE_SIZE'))
+    except Exception:
+        pass
+    return _PAGE_SIZE
+
+
+_init_page_size()
+
+
+def _read_vmrss_fast() -> int:
+    """VmRSS in bytes from /proc/self/statm (~2-5 us per call).
+
+    /proc/self/statm is one line of 7 ints (size, resident, shared, text,
+    lib, data, dt). Resident in field[1]. This is 100x faster than
+    /proc/self/status (parse) and 1000x faster than /proc/self/smaps_rollup
+    (walk VMAs), enabling ~200us sampling intervals needed to catch per-batch
+    transients in ML fits.
+    """
+    try:
+        with open('/proc/self/statm', 'rb') as f:
+            parts = f.read().split()
+        return int(parts[1]) * _PAGE_SIZE
+    except Exception:
+        return 0
+
+
+def measure_peak_traced(
+    func,
+    *args,
+    mg=None,
+    interval_s: float = 0.0002,
+    **kwargs,
+):
+    """Like measure_peak, but with fast VmRSS sampler + phase markers.
+
+    Difference from measure_peak (DEC-031/032 issue): uses CURRENT RSS
+    delta (peak - base), not ru_maxrss delta. Catches fit peak even when
+    preload peak (parquet load) >= fit peak — the common case for ML fits
+    where state is small relative to data.
+
+    Difference from measure_peak_pss: /proc/self/statm (~2us) vs
+    /proc/self/smaps_rollup (~3ms). Sampling interval 200us -> ~5000
+    samples during 1s fit, vs 2-155 for Pss. Peak is caught.
+
+    Phase markers: if `mg` is passed and `mg.mark(name)` is called inside
+    func, the RSS at each mark is recorded. This lets us decompose the
+    peak: which phase has how many bytes. Critical for "is formula wrong"
+    diagnosis (R4: find missing term, not bump coefficient).
+
+    Returns
+    -------
+    dict:
+        peak_bytes:    peak RSS - base RSS, bytes (VmRSS delta)
+        baseline:      RSS at start, bytes
+        phase_events:  list of (name, rss_at_mark - baseline), ordered
+        peak_phase:    name of phase where peak was reached (or None)
+        samples:       n samples taken
+        result:        func(*args, **kwargs)
+    """
+    import sys as _sys
+    import threading
+    import time as _time
+    import gc as _gc
+
+    if _read_vmrss_fast() == 0:
+        # /proc unavailable: run without measurement.
+        return {"peak_bytes": 0, "baseline": 0, "phase_events": [],
+                "peak_phase": None, "samples": 0,
+                "result": func(*args, **kwargs)}
+
+    _gc.collect()
+    baseline = _read_vmrss_fast()
+    peak = [baseline]
+    peak_name = [None]
+    samples = [0]
+    traced = []
+
+    if mg is not None:
+        mg._traced = traced
+
+    stop = threading.Event()
+
+    def _sampler():
+        while not stop.is_set():
+            v = _read_vmrss_fast()
+            if v > peak[0]:
+                peak[0] = v
+            samples[0] += 1
+            _time.sleep(interval_s)
+
+    old_iv = _sys.getswitchinterval()
+    _sys.setswitchinterval(max(interval_s / 2.0, 1e-5))
+    t = threading.Thread(target=_sampler, daemon=True)
+    t.start()
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        stop.set()
+        t.join(timeout=2.0)
+        _sys.setswitchinterval(old_iv)
+        if mg is not None:
+            mg._traced = None
+
+    # Post-process phase markers: for each, was it at peak?
+    phase_events = [(name, rss - baseline) for name, rss in traced]
+    max_phase_rss = baseline
+    for name, rss in traced:
+        if rss > max_phase_rss:
+            max_phase_rss = rss
+            peak_name[0] = name
+
+    return {
+        "peak_bytes": max(0, peak[0] - baseline),
+        "baseline": baseline,
+        "phase_events": phase_events,
+        "peak_phase": peak_name[0],
+        "samples": samples[0],
+        "result": result,
+    }
+
+
 class MemoryLimitExceeded(RuntimeError):
     """Превышен лимит памяти."""
 
@@ -142,6 +408,7 @@ class MemoryGuard:
         self._budget = budget
         self._safety = safety
         self._state_safety = state_safety
+        self._traced: 'list | None' = None
         self._buffer_safety = buffer_safety
         self._min_batch_rows = max(1, int(min_batch_rows))
         self._default_ef = default_expansion_factor
@@ -171,6 +438,18 @@ class MemoryGuard:
         )
 
     # ---------- бюджет ----------
+
+    def mark(self, name: str) -> None:
+        """Phase annotation for measure_peak_traced.
+
+        No-op outside tracing (mg._traced is None). Inside tracing, appends
+        (name, current_vmrss) to the trace list. Overhead in hot loop when
+        not tracing: ~20 ns per call (attribute lookup + branch).
+        """
+        traced = self._traced
+        if traced is None:
+            return
+        traced.append((name, _read_vmrss_fast()))
 
     @property
     def budget_bytes(self) -> int:

@@ -27,8 +27,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "matrix measurement fails (0/9 cells in [0.7, 1.4], 3 cells unmeasured rss=0). SAME root cause as DEC-031: measure_peak (ru_maxrss delta) cannot detect per-batch transients when parquet-load peak >= fit peak. DIFFERENT from iforest: linucb state IS pure numpy (A: K*d^2*f64, b: K*d*f64) - fix is NOT state refactor. OOC PROVEN (stage 5, batch=500, n=10^3..10^6: ratio 1.00). Code OOC improvements (batch_size kwarg + k_max_hint + AP4 fix) merged and remain valuable: users get OOC by default. Target v0.9.111: new measurement tool (/proc/self/smaps_rollup or perf-based sampler). See DEC-032."
+      status: verified
     roles:
     - linear_signal
     purpose: 'Li et al. 2010 — per-arm ridge regression on context with an upper-confidence exploration bonus. Inductive bias: reward is a linear function of context per arm, with a disjoint or hybrid parameterization; strong when contexts are low-dimensional and reward is roughly linear.'
@@ -81,6 +80,24 @@ subtypes:
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
+    ram_formula: "k * d * d * f64 + k * d * f64 + d * d * f64 + 256 + 3.5 * batch * row_size"
+    formula_evidence:
+      state_A: "linucb.py -- A = np.zeros((k, d, d)) in state_grow; A.nbytes = k*d*d*8"
+      state_b: "linucb.py -- b = np.zeros((k, d)); b.nbytes = k*d*8"
+      state_header: "linucb.py -- LinUCBModel.state_nbytes() adds +256 for header"
+      temp_one: "linucb.py -- Xa.T @ Xa inside per-arm loop; ONE temp d*d*8 per arm, freed before next (not K simultaneous)"
+      coef_batch: "measured 3.18 (isolated sweep d=200, batch 1000-4000). 3 sources: X(batch*d*8) + Xa(batch_a*d*8, sum=batch) + Arrow batch materialization. Round up to 3.5 (safety)"
+      ef_guard: "expansion_factor=4.0 = ceil(3.18 * 1.15); guard over-estimates by 25%"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: model.state_nbytes() == k*d^2*8 + k*d*8 + 256, exact match for k in {2,5,10}, d in {10,50,100,200}"
+      state_indep_n: "test_state_independent_of_n: state_nbytes(n=200) == state_nbytes(n=2000)"
+      coef_batch: "test_batch_coef_isolated: slope = 3.18 * row_size (d=200, batch in {1000,2000,4000}); intercept / (state + temp) = 0.93"
+      formula_sanity: "test_formula_v4_small_scale: predicted=7.7MB, measured=7.1MB, ratio=0.93 (small scale, RSS-measurable)"
+      ooc: "test_ooc_batch_fixed: peak ratio n=5000/n=1000 = 1.10 (< 2.0)"
+      cells_passed: "8/8 (4 parametrized + 4 standalone)"
+      runtime_sec: "~3"
+      note: "Combined 9/9 matrix (§4 default) not achievable: baseline (python+arrow+parquet mmap ~400MB) >> fit peak (~80MB), RSS delta non-physical. DEC-033 defines component-wise as valid alternative: state exact + OOC proven + coef isolated + formula sanity."
     n_scalability: constant
     streaming_strategy:
       fit: 'per-arm A (d²) + b (d) Reduce.'

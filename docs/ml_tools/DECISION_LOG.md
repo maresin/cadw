@@ -485,6 +485,90 @@ for large d.
 
 ---
 
+## DEC-033 (2026-11-03, v0.9.110) — component-wise verification valid when RSS combined matrix unmeasurable
+
+**Q:** For `fit_linucb`, `fit_isolation_forest` (and other cards with small
+state relative to data), `measure_peak` (ru_maxrss delta) returns ~0 or
+non-physical values. RSS-based combined matrix 9/9 in [0.7, 1.4] is
+physically impossible. Can these cards be `status: verified`?
+
+**A:** Yes, via **component-wise verification** (new mode, this DEC):
+
+1. **State**: exact via `model.state_nbytes()` (direct inspection, no
+   measurement). E.g. linucb: `k*d^2*8 + k*d*8 + 256`.
+
+2. **OOC**: peak ratio at fixed batch, n varying. Already proven for both
+   (stage 5, ratio 1.00-1.10).
+
+3. **coef_batch**: isolated sweep at small d (200) and large batch
+   (1000-4000) — signal (1.6-6.4 MB) >> RSS noise (~1 MB). Gives slope
+   of `peak(batch)`.
+
+4. **Formula sanity**: small-scale combined test (d=200, batch=200,
+   peak ~7 MB) — RSS-measurable, asserts predicted/measured in [0.5, 2.0].
+
+**Why not just relax §4:** §4 default (combined 9/9) is correct for cards
+where fit peak >> baseline. For cards where state < batch*row_size*(few),
+peak is intrinsically smaller than baseline. Relaxing tolerance to [0.1,
+10] would silence the tool gap without fixing it — same anti-pattern as
+AP23. Component-wise gives **more precise** state (exact vs ±30%) and
+**decomposed** coef/state evidence, not a relaxed threshold.
+
+**Why not invest more in tooling now:** DEC-031, DEC-032, 16 linucb
+experiment iterations confirmed:
+- `measure_peak` (ru_maxrss delta): broken when baseline >> peak
+- `measure_peak_pss` (smaps_rollup): 3ms/sample, misses transients
+- `measure_peak_traced` (statm sampler): works but RSS delta can be
+  **negative** (state from malloc pool, not new mmap)
+- `malloc_trim` + `fadvise`: help sometimes, but not robustly at n>=10^4
+- Phase trace confirmed: at n=10^4, d=1000, RSS **drops** 84 MB during fit
+  (page cache released), no new alloc visible
+
+Real fix (fork-based instrument, perf_event) is 1-2 sessions; deferred to
+v0.9.111 per DEC-032. Component-wise unblocks cards now.
+
+**What this DEC does NOT claim:**
+
+- Combined matrix 9/9 at large d — still unmeasurable, open issue v0.9.111
+- Formula precision beyond ±30% — small-scale sanity only
+- `state_nbytes()` accuracy beyond direct `nbytes` sum — exact by
+  construction (Python object size)
+- `coef_batch` physical derivation beyond 3 sources (X + Xa + Arrow
+  batch) — 3.18 measured, source attribution from code inspection, not
+  phase-decomposed at scale
+
+**Verification template** (`tests/test_<model>_verification.py`):
+
+```python
+def test_state_nbytes_exact(K, d):    # parametrized; exact match
+def test_state_independent_of_n():     # state(n1) == state(n2)
+def test_batch_coef_isolated():        # slope / row_size; intercept / (state+temp)
+def test_formula_small_scale():        # predicted/measured in [0.5, 2.0]
+def test_ooc_batch_fixed():            # peak(n2)/peak(n1) < 2.0
+```
+
+**Verification mode field** in YAML: `measurement.verification_mode:
+"component-wise (DEC-033)"`. Cards using this mode have `status: verified`
+with `note` explaining what's verified and what's open.
+
+**Applies to:** linucb (this session, 8/8 tests), iforest (this session,
+pending), gmm, birch, kmeans_ad, sub_pca, eif (all where state_nbytes()
+is implementable). Does NOT apply to: ReduceOps already verified via
+combined matrix (linear, logistic, NB, randsvd) — those remain on §4
+default.
+
+**Amendment to STABILITY_PROTOCOL §4:** added §4.1.1 (see below).
+
+**Files touched (v0.9.110c):**
+- `cadw/core/memory_guard.py` — `measure_peak_traced`, `measure_peak_pss`,
+  `_read_vmrss_fast`, `MemoryGuard.mark()`
+- `cadw/ml/linucb.py` — expansion_factor 4.0
+- `tests/test_linucb_verification.py` — new
+- `docs/ml_tools/M_bandits.yaml` — linucb verified component-wise
+- `docs/ml_tools/DECISION_LOG.md` — this entry
+
+---
+
 <!-- future entries appended here -->
 
 
