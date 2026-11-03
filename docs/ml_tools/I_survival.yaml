@@ -24,6 +24,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: draft
+      draft_reason: "AP2: predict_risk(output='memory') np.concatenate(out) O(n); concordance_index np.concatenate(Ts/Es/Rs) O(n); fit pre-pass batch=n (no batch_size kwarg at 474). Fit path Newton IS OOC (external_sort) but predict/concordance not. Refactor v0.9.113."
     roles:
     - linear_signal
     purpose: 'Semi-parametric proportional-hazards model; additive log-hazard in features. Inductive bias: linear log-risk with time-independent covariate effects — strong when effects are multiplicative and n is moderate.'

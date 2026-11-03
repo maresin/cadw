@@ -25,6 +25,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: draft
+      draft_reason: "AP2: _collect Xs.append + np.vstack (2x n*d*8 peak); full X materialization for GBDT arm-fits + propensity. Refactor: streaming validations + GBDT on df.filter(t==arm). v0.9.113."
     roles:
     - nonlinear_interactions
     purpose: Two outcome models, one per arm; CATE = mu1 - mu0 (Kunzel et al. 2019).
@@ -48,12 +50,16 @@ subtypes:
       value: 0.1
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    state_class: O(batch)
+    state_class: O(n)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
     state_type: iterative
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-dataset causal ATE; n<=1e6 typical for RCT/observational tabular. O(n) X materialization from _collect (AP2 refactor v0.9.113)."
+    n_scalability: linear
     streaming_strategy:
       fit: 'two arm-separated GBDT fits, each P1a codes path.'
       predict: 'per-batch (mu1 - mu0).'
@@ -67,6 +73,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: draft
+      draft_reason: "AP2 (same fit_meta_learner code path as T_learner): _collect + np.vstack. Refactor v0.9.113 (R5: aliases same status)."
     roles:
     - nonlinear_interactions
     purpose: Single model with treatment as a feature; CATE = f(x,1) - f(x,0).
@@ -90,12 +98,16 @@ subtypes:
       value: 0.12
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    state_class: O(batch)
+    state_class: O(n)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
     state_type: iterative
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-dataset causal ATE; n<=1e6 typical for RCT/observational tabular. O(n) X materialization from _collect (AP2 refactor v0.9.113)."
+    n_scalability: linear
     streaming_strategy:
       fit: 'single GBDT with treatment as feature (P1a codes path).'
       predict: 'per-batch (mu(x,1) - mu(x,0)).'

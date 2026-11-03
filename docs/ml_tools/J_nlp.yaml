@@ -404,6 +404,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: draft
+      draft_reason: "AP5: _build_vocab df_counts unbounded K_raw (raw unique tokens *96B). Guard refuses at state_limit; not OOC on d-axis. K-spill needed (v0.9.113, same class as tfidf/cusum)."
     roles:
     - probabilistic
     - representation

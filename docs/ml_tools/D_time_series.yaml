@@ -1434,6 +1434,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: draft
+      draft_reason: "DEC-013: per-point decision scores + labels (O(n)) in RAM, not spilled. SpillArray pending v0.9.113 (same class as zms/cusum/kshape)."
     roles:
     - nonlinear_interactions
     purpose: 'Extended Isolation Forest with random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed multivariate series.'
@@ -1470,12 +1472,16 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
-    state_class: O(batch)
+    state_class: O(n)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) per-point scores (DEC-013 SpillArray v0.9.113)."
+    n_scalability: linear
     streaming_strategy:
       fit: 'per-batch extended iforest on strided windows (fix1b).'
       predict: 'per-batch path-length scoring.'
@@ -1697,6 +1703,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: draft
+      draft_reason: "DEC-013: per-point anomaly scores O(n) in RAM, not spilled. SpillArray pending v0.9.113."
     roles:
     - local_structure
     purpose: 'k-means++ on windowed subsequences; distance to nearest centroid as anomaly score.'
@@ -1733,12 +1741,16 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
-    state_class: O(batch)
+    state_class: O(n)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) per-point anomaly scores (DEC-013 SpillArray v0.9.113)."
+    n_scalability: linear
     streaming_strategy:
       fit: 'per-batch centroid update (fix1b2).'
       predict: 'per-batch distance to centroid.'
@@ -1962,6 +1974,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: draft
+      draft_reason: "DEC-013: per-timestep changepoint probability O(n) in RAM, not spilled. SpillArray pending v0.9.113."
     roles:
     - probabilistic
     purpose: 'Bayesian online change-point detection with Student-t predictive likelihood (Adams & MacKay 2007). Run-length posterior plus NIG conjugate prior; score = P(change at t) = R[0], threshold 0.5. Student-t critical for heavy-tailed industrial data (SKAB: 32 percent DR at 13 percent FAR vs BOCPD-Gaussian ~0 percent DR).'
@@ -2003,12 +2017,16 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
-    state_class: O(model)
+    state_class: O(n)
     bounded_state_dims: {k: 1, d: 1}
     transient_factor: 1.0
     state_type: iterative
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-series time series changepoint detection; n<=1e6 typical. O(n) per-timestep changepoint probability (DEC-013 SpillArray v0.9.113)."
+    n_scalability: linear
     streaming_strategy:
       fit: 'rolling posterior: keep recent max_run run-lengths (fix1c).'
       predict: 'one-step posterior update per new point.'
@@ -2419,6 +2437,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: draft
+      draft_reason: "DEC-013: per-point decision scores + labels (O(n)) in RAM, not spilled. SpillArray pending v0.9.113 (same class as zms/cusum/kshape)."
     roles:
     - nonlinear_interactions
     purpose: 'Extended Isolation Forest (Hariri 2019): random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed univariate shape anomalies. Same algorithm as D3.1 EIF, different role (shape vs point).'
@@ -2469,12 +2489,16 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
-    state_class: O(batch)
+    state_class: O(n)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) per-point scores (DEC-013 SpillArray v0.9.113)."
+    n_scalability: linear
     streaming_strategy:
       fit: 'per-batch extended iforest on strided windows.'
       predict: 'per-batch path-length scoring.'
@@ -2550,6 +2574,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: draft
+      draft_reason: "DEC-013: per-point anomaly scores O(n) in RAM, not spilled. SpillArray pending v0.9.113."
     roles:
     - local_structure
     purpose: 'k-means++ clustering on windowed subsequences (same fit_kmeans_ad as D3.1). v0.9.73: multi-channel support via _prepare_windows; correlation-break window far from all centroids. Multi-channel recall 0.868.'
@@ -2599,12 +2625,16 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
-    state_class: O(batch)
+    state_class: O(n)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) per-point anomaly scores (DEC-013 SpillArray v0.9.113)."
+    n_scalability: linear
     streaming_strategy:
       fit: 'per-batch centroid update.'
       predict: 'per-batch distance to centroid.'
