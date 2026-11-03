@@ -62,7 +62,7 @@ def test_bit_identical_df_vs_legacy():
 
 
 def test_ooc_df_path():
-    """df + output='auto': peak does not grow linearly with n at fixed batch."""
+    """df + output='disk': peak ~constant at fixed batch (state O(w))."""
     def _peak(n):
         x = _series(n, seed=2)
         df = _make_df(x)
@@ -74,7 +74,7 @@ def test_ooc_df_path():
             r = measure_peak_traced(
                 fit_zms, df, "v",
                 window_size=100, threshold=3.0,
-                output="auto", guard=mg, mg=mg,
+                output="disk", guard=mg, batch_size=1000, mg=mg,
             )
             peaks.append(int(r["peak_bytes"]))
             del r
@@ -85,9 +85,8 @@ def test_ooc_df_path():
     p_small = _peak(5000)
     p_large = _peak(50000)
     ratio = p_large / max(p_small, 1)
-    # output is linear (spilled to disk); peak should stay bounded at fixed batch.
-    # 10x n -> <5x peak (linear-ish, upper bound for spill overhead).
-    assert ratio < 5.0, (
+    # state O(w), output spilled to disk; 10x n -> <2x peak at fixed batch.
+    assert ratio < 2.0, (
         f"peak ratio {ratio:.2f} (small={p_small}, large={p_large})")
 
 

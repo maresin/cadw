@@ -1391,7 +1391,7 @@ subtypes:
       verified_in_cadw: true
       verified_by_agent: false
       status: draft
-      draft_reason: "O(n) output (decision_scores n, labels n) in RAM, not spilled; kshape.py:502-510. DEC-013 SpillArray pending v0.9.113."
+      draft_reason: "O(n) decision_scores via _map_scores_to_timestamps (kshape.py:502; expand from n_w window_scores to n timestamps, needs full array). Streaming rolling-max not implemented. SpillArray rewrite v0.9.114."
     roles:
     - local_structure
     purpose: 'k-Shape clustering with SBD (FFT-based cross-correlation, z-norm, shift alignment); shape-based distance to nearest centroid.'
@@ -2169,8 +2169,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "O(n) state (6x8n); SpillArray rewrite (DEC-030) pending v0.9.110"
+      status: verified
+      # (was draft):  "O(n) state (6x8n); SpillArray rewrite (DEC-030) pending v0.9.110"
       verified_by_agent: false
     roles:
     - temporal_dynamics
@@ -2180,6 +2180,21 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.cusum
     cadw_function: fit_cusum
+    ram_formula: "3 * batch * row_size + 2 * batch * f64 + 256"
+    formula_evidence:
+      batch_input: "cusum.py -- _fit_cusum_df: mg.check_batch(extra_factor=3.0)"
+      batch_scores: "cusum.py -- scores_b (nb,) + z_b (nb,) per batch (transient)"
+      state_constant: "cusum.py -- s_pos_cur, s_neg_cur, Welford (n, mean, M2), total 64B"
+      header: "cusum.py -- +256 constant"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      bit_identical: "test_bit_identical_df_vs_legacy"
+      ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n (output linear)"
+      spill: "test_spill_auto_small_guard + test_disk_forces_spill"
+      contamination: "test_contamination_refuses_auto"
+      legacy: "test_legacy_np_path_unchanged"
+      cells_passed: "6/6"
+      runtime_sec: "~8"
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/cusum.json
@@ -2209,17 +2224,16 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
-    state_class: O(n)
-    bounded_state_dims: {n: 1}
+    state_class: O(1)  # s_pos/s_neg scalars + Welford
+    bounded_state_dims: {batch: 1}
     transient_factor: 1.0
-    ram_formula: "6 * n * f64"
     formula_evidence:
       state_arrays: "cusum.py:107-118 -- z, s_pos, s_neg, scores, labels = 5 x 8n"
       temp_bool: "cusum.py:120 -- (scores > threshold) temp bool ~n"
       guard_check: "cusum.py:81-99 -- est_bytes=8*n*6, check_state or _probe_memory_limit_mb"
     state_type: iterative
-    bounded_state: false
-    n_scalability: refuse_at_guard
+    bounded_state: true
+    n_scalability: linear  # output O(n) -> disk; state O(1)
     bounded_by_domain: {axis: n, bound: 1000000, reason: "single-series CUSUM, n <= 10^6 typical"}
     streaming_strategy:
       fit: 'warmup mean/std.'

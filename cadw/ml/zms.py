@@ -95,6 +95,7 @@ def fit_zms(
     contamination: Optional[float] = None,
     guard=None,
     output: str = "auto",
+    batch_size: "int | None" = None,
 ) -> ZMSResult:
     """Rolling z-score anomaly detection (v0.9.113 dual dispatch).
 
@@ -121,6 +122,7 @@ def fit_zms(
             df_or_series, value_col,
             window_size=window_size, threshold=threshold,
             contamination=contamination, guard=guard, output=output,
+            batch_size=batch_size,
         )
     if value_col is not None:
         raise ValueError(
@@ -133,7 +135,7 @@ def fit_zms(
 
 
 def _fit_zms_df(df, value_col, *, window_size, threshold, contamination,
-                guard, output):
+                guard, output, batch_size=None):
     """df streaming ZMS; SpillArray output (unless output='memory')."""
     w = int(window_size)
     if w < 1:
@@ -149,17 +151,18 @@ def _fit_zms_df(df, value_col, *, window_size, threshold, contamination,
 
     mg = guard if guard is not None else getattr(df, "_memory_guard", None)
 
-    try:
-        schema = df._dataset.schema
-        row_size = mg.estimate_row_size_from_schema(schema)
-        state_bytes = (w - 1) * 8 * 2
-        batch_size = mg.get_batch_rows(
-            row_size_bytes=row_size,
-            expansion_factor=3.0,
-            state_bytes=state_bytes,
-        )
-    except Exception:
-        batch_size = max(w * 20, 10_000)
+    if batch_size is None:
+        try:
+            schema = df._dataset.schema
+            row_size = mg.estimate_row_size_from_schema(schema)
+            state_bytes = (w - 1) * 8 * 2
+            batch_size = mg.get_batch_rows(
+                row_size_bytes=row_size,
+                expansion_factor=3.0,
+                state_bytes=state_bytes,
+            )
+        except Exception:
+            batch_size = max(w * 20, 10_000)
 
     if output == "memory":
         all_scores = []
