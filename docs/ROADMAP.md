@@ -79,35 +79,54 @@ EIF/KMeansAD/BOCPD DEC-013). Next: v0.9.113 SpillArray unblocks 6 drafts.
 
 ## Next 3 sessions
 
-### v0.9.113 — SpillArray (DEC-013): 6 drafts -> verified
+### v0.9.113 — STREAMING §1.5 + fit_zms verified (pilot)
 
-`SpillArray` primitive for O(n) output. Unblocks: zms, cusum, kshape,
-eif, kmeans_ad, bocpd (all DEC-013 draft from v0.9.111-112). Each:
-verification test + YAML flip. Target 24 verified fns.
+**Phase A — input convention documented:**
+- STREAMING_OUTPUT_ARCHITECTURE §1.5: producer API = `fit_*(df, col, ...)`,
+  private helpers may take np.ndarray. Legacy list below.
+- ROADMAP §Legacy producer inventory.
 
-**Group C pending** (from probe-109):
-- `fit_zms` ×3, `fit_hampel`, `fit_sub_pca`, `fit_kshape`, `fit_eif`, `fit_autoencoder`, `fit_kmeans_ad`, `fit_patch_memory_ad`, `fit_s2g`, `fit_minirocket`, `fit_dwt_mlead`, `fit_bocpd` — O(batch) anomaly detectors
-- `fit_pca` (CovarianceOp), `fit_kmeans` (k knob), `fit_lda` (vocab), `fit_coxph` (rank-based, n·d matrix)
-- Per card: probe → derive formula → matrix → verified or draft-with-reason
+**Phase B — pilot fit_zms (dual dispatch):**
+- `fit_zms(df, value_col, ..., output="auto")` — df path, SpillArray, OOC
+- `fit_zms(series: np.ndarray, ...)` — legacy back-compat, in-memory
+- `contamination` + `output != "memory"` -> NotImplementedError
+- 3 YAML aliases (zscore ×2, ZMS ×1) -> verified (component-wise)
 
-**SpillArray for O(n) drafts** (DEC-013 + DEC-030):
-- `fit_zms` ×3, `fit_cusum` — need SpillArray write before verified
-- After SpillArray: cusum draft → verified
+### Legacy producer inventory (v0.9.113+)
 
-### v0.9.114 — AP2 refactors + DEC-034/035 backlog
+| Module | Legacy API | Migration target |
+|---|---|---|
+| `fit_cusum` | `(series, *, k, h, contamination)` | v0.9.114 |
+| `fit_kshape` | `(series, *, n_clusters, window_size, ...)` | v0.9.114 |
+| `fit_eif` | `(series, *, n_estimators, max_samples, ...)` | v0.9.114 |
+| `fit_kmeans_ad` | `(series, *, window_size, n_clusters, ...)` | v0.9.114 |
+| `fit_bocpd` | `(series, *, hazard_rate, mu0, kappa0, ...)` | v0.9.114 |
+| `AnomalyPipeline.fit_predict` | `(series: np.ndarray, *, ...)` | v0.9.114 |
+| `fit_hampel` | (check) | v0.9.115 |
+| `fit_sub_pca` | (check) | v0.9.115 |
+| `fit_s2g` | (check) | v0.9.115 |
+| `fit_dwt_mlead` | (check) | v0.9.115 |
+| `fit_patch_memory_ad` | (check, has SpillDir) | v0.9.115 |
+| `fit_autoencoder` | (check, has batch_size) | v0.9.115 |
 
-- CoxPH: `predict_risk(output='memory')` + `concordance_index` — SpillArray/pre-alloc
-- T/S_learner: `_collect` Xs.append+vstack → pre-allocated, GBDT on df.filter(t==arm)
+Note: `fit_minirocket`, `fit_als`, `fit_birch`, `fit_isolation_forest`,
+`fit_linucb`, `fit_gmm`, `fit_linear`, `fit_logistic`, ... — already df.
+
+### v0.9.114 — Legacy detectors migration + AP2 refactors + DEC-034/035
+
+- Migrate cusum, kshape, eif, kmeans_ad, bocpd -> df input + SpillArray output
+- AnomalyPipeline.fit_predict -> df input
+- AP2 refactors: CoxPH predict/concordance, T/S_learner `_collect`
 - DEC-034: subprocess-isolation for `measure_peak_traced`-based tests
 - DEC-035: BIRCH `_insert` batching
 
-### v0.9.115 — K-spill (LDA/tfidf) + remaining pending
+### v0.9.115 — Remaining legacy detectors + K-spill (LDA/tfidf)
 
-K-spill (HashShuffle) for LDA `_build_vocab` + tfidf. Probe fresh
-pending: zms, hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad,
-autoencoder. Tag v0.9.115 at end.
+- Migrate hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad, autoencoder -> df
+- K-spill (HashShuffle) for LDA `_build_vocab` + tfidf
+- Tag v0.9.115 when legacy inventory empty
 
-## Backlog (not scheduled)
+## ## Backlog (not scheduled)
 
 - 55 pending fns: batches ~4/session v0.9.110-v0.9.120
 - `solve_batch(op, budget, **params)` inverse solver

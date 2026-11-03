@@ -25,6 +25,36 @@ spill_ratio` (default `spill_ratio = 0.5`, совпадает с `state_safety`)
 
 ---
 
+### §1.5. Producer API — input side (v0.9.113)
+
+**Rule:** every public `fit_*` / `predict_*` / `transform_*` in
+`cadw/ml/`, `cadw/ts/` takes a **`CadwDataFrame` first positional arg**
+and iterates via `df._iter_filtered_batches(batch_size=...)`.
+
+**Private helpers** (`_foo_batch(arr, ...)`, `_fit_X_series(arr, ...)`) may
+take `np.ndarray` — that's the internal building block. Public producer
+is the df-based wrapper.
+
+**Legacy producers** (`fit_zms`, `fit_cusum`, `fit_kshape`, `fit_eif`,
+`fit_kmeans_ad`, `fit_bocpd`, plus `fit_hampel`, `fit_sub_pca`, `fit_s2g`,
+`fit_dwt_mlead`, `fit_patch_memory_ad`, `fit_autoencoder`) currently take
+`series: np.ndarray` — a v0.9.40 artefact that undermines OOC (input already
+O(n) in RAM). Migration tracked in ROADMAP §Legacy producer inventory.
+
+**Signal rules (machine-checkable):**
+
+| Signature | Verdict |
+|---|---|
+| `fit_*(df, col, ...)` | canonical |
+| `fit_*(series: np.ndarray, ...)` | legacy (migration pending) |
+| `predict_*(model, df, *, output="auto")` | canonical |
+| `predict_*(model, arr: np.ndarray)` | legacy |
+
+Dual dispatch (`df_or_series` with type sniff) is **transitional**: it
+preserves backward compatibility while the caller migrates to df path.
+v0.9.113 `fit_zms` is the pilot.
+
+
 ## §2. API контракт
 
 ### §2.1. SpillBuffer + AutoResult (для `pa.RecordBatch` / `pa.Table`)

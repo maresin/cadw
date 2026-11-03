@@ -1088,6 +1088,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: verified
       described_only: false
     roles:
     - local_structure
@@ -1099,6 +1100,22 @@ subtypes:
       threshold: float
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
+    ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
+    formula_evidence:
+      batch_input: "zms.py -- _fit_zms_df: mg.check_batch(extra_factor=3.0)"
+      state_tail: "zms.py -- tail buffer (w-1)*f64, fixed O(w)"
+      batch_chunk: "zms.py -- _resolve_chunk_nw_zms chunk*w*f64*2"
+      batch_scores: "zms.py -- scores = |x-mu|/sigma, 3*chunk*f64"
+      header: "zms.py -- +256 constant"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      bit_identical: "test_bit_identical_df_vs_legacy"
+      ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n"
+      spill: "test_spill_auto_small_guard + test_disk_forces_spill"
+      contamination: "test_contamination_refuses_auto"
+      legacy: "test_legacy_np_path_unchanged"
+      cells_passed: "6/6"
+      runtime_sec: "~10"
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -1131,12 +1148,12 @@ subtypes:
     source_library: native
     evaluation_scope: synthetic
     dgp_source: gen_ts_point_anomaly
-    state_class: O(d)
-    bounded_state_dims: {d: 1}
+    state_class: O(batch)
+    bounded_state_dims: {w: 1, batch: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: true
-    n_scalability: constant
+    n_scalability: linear  # output O(n)->disk; state O(w)
     streaming_strategy:
       fit: 'rolling mean/std.'
       predict: 'per-row z vs window.'
@@ -1544,6 +1561,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: verified
     roles:
     - local_structure
     purpose: 'Trailing rolling z-score based on abs(x minus mu) over sigma; threshold or contamination.'
@@ -1552,6 +1570,22 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
+    ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
+    formula_evidence:
+      batch_input: "zms.py -- _fit_zms_df: mg.check_batch(extra_factor=3.0)"
+      state_tail: "zms.py -- tail buffer (w-1)*f64, fixed O(w)"
+      batch_chunk: "zms.py -- _resolve_chunk_nw_zms chunk*w*f64*2"
+      batch_scores: "zms.py -- scores = |x-mu|/sigma, 3*chunk*f64"
+      header: "zms.py -- +256 constant"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      bit_identical: "test_bit_identical_df_vs_legacy"
+      ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n"
+      spill: "test_spill_auto_small_guard + test_disk_forces_spill"
+      contamination: "test_contamination_refuses_auto"
+      legacy: "test_legacy_np_path_unchanged"
+      cells_passed: "6/6"
+      runtime_sec: "~10"
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/zms.json
@@ -1580,12 +1614,12 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
-    state_class: O(d)
-    bounded_state_dims: {d: 1}
+    state_class: O(batch)
+    bounded_state_dims: {w: 1, batch: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: true
-    n_scalability: constant
+    n_scalability: linear  # output O(n)->disk; state O(w)
     streaming_strategy:
       fit: 'no fit; rolling z-score window.'
       predict: 'per-row z-score vs rolling stats.'
@@ -2272,6 +2306,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: verified
       described_only: false
     roles:
     - local_structure
@@ -2283,6 +2318,22 @@ subtypes:
       threshold: float
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
+    ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
+    formula_evidence:
+      batch_input: "zms.py -- _fit_zms_df: mg.check_batch(extra_factor=3.0)"
+      state_tail: "zms.py -- tail buffer (w-1)*f64, fixed O(w)"
+      batch_chunk: "zms.py -- _resolve_chunk_nw_zms chunk*w*f64*2"
+      batch_scores: "zms.py -- scores = |x-mu|/sigma, 3*chunk*f64"
+      header: "zms.py -- +256 constant"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      bit_identical: "test_bit_identical_df_vs_legacy"
+      ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n"
+      spill: "test_spill_auto_small_guard + test_disk_forces_spill"
+      contamination: "test_contamination_refuses_auto"
+      legacy: "test_legacy_np_path_unchanged"
+      cells_passed: "6/6"
+      runtime_sec: "~10"
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -2315,12 +2366,12 @@ subtypes:
     source_library: native
     evaluation_scope: synthetic
     dgp_source: gen_ts_shape_anomaly
-    state_class: O(d)
-    bounded_state_dims: {d: 1}
+    state_class: O(batch)
+    bounded_state_dims: {w: 1, batch: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: true
-    n_scalability: constant
+    n_scalability: linear  # output O(n)->disk; state O(w)
     streaming_strategy:
       fit: 'rolling mean/std.'
       predict: 'per-row z vs window.'
