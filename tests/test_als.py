@@ -25,12 +25,24 @@ def _data(U=60, I=40, k=4, seed=0):
 
 
 def test_smoke_shapes_and_state():
+    """v0.9.112: state_nbytes includes factors + index lists + pos dicts + header."""
+    from cadw.ml._memory_estimate import _load_constants
     df, _, _ = _data()
     m = fit_als(df, "u", "i", n_factors=4, n_iter=5)
     assert isinstance(m, ALSModel)
     assert m.user_factors_.shape == (60, 4)
     assert m.item_factors_.shape == (40, 4)
-    assert m.state_nbytes() == (60 + 40) * 4 * 8
+    c = _load_constants()
+    dict_b = int(c.get("dict_entry_bytes", 116))
+    str_b = int(c.get("py_str_overhead_bytes", 49))
+    expected = (
+        (60 + 40) * 4 * 8
+        + (60 + 40) * (dict_b + str_b)
+        + 256
+    )
+    assert m.state_nbytes() == expected, (
+        f"state={m.state_nbytes()} expected={expected}"
+    )
 
 
 def test_objective_decreases():
@@ -107,8 +119,15 @@ def test_ram_state_independent_of_interactions():
     df_l, _, _ = _data(U=60, I=40)
     a = fit_als(df_s, "u", "i", n_factors=4, n_iter=2)
     b = fit_als(df_l, "u", "i", n_factors=4, n_iter=2)
-    assert a.state_nbytes() == (30 + 20) * 4 * 8
-    assert b.state_nbytes() == (60 + 40) * 4 * 8
+    from cadw.ml._memory_estimate import _load_constants
+    c = _load_constants()
+    dict_b = int(c.get("dict_entry_bytes", 116))
+    str_b = int(c.get("py_str_overhead_bytes", 49))
+    # v0.9.112: state_nbytes now includes factors + index lists/dicts + header
+    expected_a = (30 + 20) * 4 * 8 + (30 + 20) * (dict_b + str_b) + 256
+    expected_b = (60 + 40) * 4 * 8 + (60 + 40) * (dict_b + str_b) + 256
+    assert a.state_nbytes() == expected_a
+    assert b.state_nbytes() == expected_b
 
 
 def test_guard_large_state():

@@ -1373,6 +1373,8 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: draft
+      draft_reason: "O(n) output (decision_scores n, labels n) in RAM, not spilled; kshape.py:502-510. DEC-013 SpillArray pending v0.9.113."
     roles:
     - local_structure
     purpose: 'k-Shape clustering with SBD (FFT-based cross-correlation, z-norm, shift alignment); shape-based distance to nearest centroid.'
@@ -1409,12 +1411,16 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
-    state_class: O(batch)
+    state_class: O(n)  # n-sized output, not spilled (DEC-013 draft)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) output (decision_scores, labels) per DEC-013 SpillArray pending v0.9.113."
+    n_scalability: linear
     streaming_strategy:
       fit: 'memmap+chunked 2-pass centroid assignment (P3).'
       predict: 'per-batch distance to centroids.'
@@ -2361,6 +2367,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: verified
     roles:
     - representation
     purpose: Random convolutional kernel projection; then outlier score in embedding space.
@@ -2370,6 +2377,19 @@ subtypes:
       num_kernels: int
     cadw_module: cadw.ml.minirocket
     cadw_function: fit_minirocket
+    ram_formula: "num_kernels * (9*f64 + f64) + 1024"
+    formula_evidence:
+      per_kernel: "minirocket.py:84-85 -- state_nbytes: len(kernels_)*(KERNEL_LEN*8+8)+1024; KERNEL_LEN=9 at line 37"
+      header: "minirocket.py:85 -- +1024 constant"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: num_kernels*(9*8+8)+1024, bit-exact"
+      state_bounded: "test_state_independent_of_n: same num_kernels -> same state (n=100..1e5)"
+      ooc: "test_fit_ooc: fit peak ratio n=1e3 vs 1e5 < 2.0 (fit has no data loop)"
+      spill: "test_tight_guard_raises: num_kernels=20000 (~1.6MB state) at guard=1MB raises MemoryLimitExceeded"
+      cells_passed: "4/4"
+      runtime_sec: "~5"
+      note: "fit_minirocket validates columns + builds kernel list; no data iteration, O(1) per n."
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -2383,15 +2403,15 @@ subtypes:
       value: 0.5
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
+    state_class: O(model)
+    bounded_state_dims: {num_kernels: 1}
     transient_factor: 1.0
-    state_type: windowed
+    state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'MiniRocket transform per window batch.'
-      predict: 'per-batch feature extraction.'
+      fit: 'instantaneous: validate columns + build num_kernels deterministic kernels, O(1) per n.'
+      predict: 'per-series PPV via _iter_series, one series at a time.'
     primitive_reuse: [strided_view]
   - name: EIF
     tier: baseline
@@ -2835,6 +2855,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: verified
     roles:
     - representation
     purpose: Random convolutional kernels; near-SOTA with 1/1000 of the compute.
@@ -2844,6 +2865,19 @@ subtypes:
       num_kernels: int
     cadw_module: cadw.ml.minirocket
     cadw_function: fit_minirocket
+    ram_formula: "num_kernels * (9*f64 + f64) + 1024"
+    formula_evidence:
+      per_kernel: "minirocket.py:84-85 -- state_nbytes: len(kernels_)*(KERNEL_LEN*8+8)+1024; KERNEL_LEN=9 at line 37"
+      header: "minirocket.py:85 -- +1024 constant"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: num_kernels*(9*8+8)+1024, bit-exact"
+      state_bounded: "test_state_independent_of_n: same num_kernels -> same state (n=100..1e5)"
+      ooc: "test_fit_ooc: fit peak ratio n=1e3 vs 1e5 < 2.0 (fit has no data loop)"
+      spill: "test_tight_guard_raises: num_kernels=20000 (~1.6MB state) at guard=1MB raises MemoryLimitExceeded"
+      cells_passed: "4/4"
+      runtime_sec: "~5"
+      note: "fit_minirocket validates columns + builds kernel list; no data iteration, O(1) per n."
     benchmark_results:
     - benchmark: UCR_Classification
       benchmark_url: https://www.timeseriesclassification.com/
@@ -2857,15 +2891,15 @@ subtypes:
       value: 0.89
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
+    state_class: O(model)
+    bounded_state_dims: {num_kernels: 1}
     transient_factor: 1.0
-    state_type: windowed
+    state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'MiniRocket transform + ridge (batch).'
-      predict: 'per-batch transform + score.'
+      fit: 'instantaneous: validate columns + build num_kernels deterministic kernels, O(1) per n.'
+      predict: 'per-series PPV via _iter_series, one series at a time.'
     primitive_reuse: [strided_view, reduce]
   - name: HIVE-COTE
     tier: sota

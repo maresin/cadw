@@ -52,6 +52,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: verified
     roles:
     - representation
     purpose: Alternating Least Squares on implicit feedback; scalable to millions.
@@ -63,6 +64,21 @@ subtypes:
       reg: float
     cadw_module: cadw.ml.als
     cadw_function: fit_als
+    ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*batch*row_size + 256"
+    formula_evidence:
+      factors: "als.py:56-57 -- state_nbytes: user_factors_.nbytes + item_factors_.nbytes = (U+I)*k*8"
+      index_lists_and_dicts: "als.py:47-50 -- user_index_ + item_index_ (lists) + _u_pos + _i_pos (dicts), v0.9.112 extension"
+      header: "als.py -- +256 constant (v0.9.112 extension)"
+      batch: "als.py:120, 174 -- check_batch(b, extra_factor=8.0); batch_size kwarg propagates at v0.9.112"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: (U+I)*k*8 + (U+I)*(dict_b+str_b) + 256"
+      state_bounded: "test_state_independent_of_n: same U/I/k -> same state, dense vs sparse"
+      formula_sanity: "test_formula_small_scale: predicted/measured in [0.5, 2.0]"
+      ooc: "test_ooc_batch_fixed: median-of-3, ratio < 2.0 (batch_size kwarg at v0.9.112)"
+      cells_passed: "4/4"
+      runtime_sec: "~30"
+      note: "batch coef isolated skipped: d=2 (only u,i cols), SNR < 1 at typical row_size. Coefficient 8.0 from code check_batch(extra_factor=8.0), conservative upper bound."
     benchmark_results:
     - benchmark: Amazon_Recsys
       benchmark_url: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
@@ -90,11 +106,11 @@ subtypes:
       std: null
       note: M2 parity on synthetic_recsys_like DGP; cadw=0.38273, ref(implicit)=0.36734, verdict=consistent; NDCG@10 on 20% holdout, user-item matrix ~10% density
     state_class: O(N·d)
-    bounded_state_dims: {N: 1, d: 1}
+    bounded_state_dims: {U: 1, I: 1, n_factors: 1}
     transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
-    n_scalability: linear
+    n_scalability: linear  # external_sort K-way merge: K = n/run_buffer, peak O(K)
     streaming_strategy:
       fit: 'HashShuffle by user/item + external_sort item-sweep; per-factor state (m+n)·k param-bounded by k.'
       predict: 'per-batch dot product on cached factors.'
@@ -140,6 +156,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
+      status: verified
     roles:
     - representation
     purpose: See F1; used as the collaborative tower of the hybrid.
@@ -151,6 +168,21 @@ subtypes:
       reg: float
     cadw_module: cadw.ml.als
     cadw_function: fit_als
+    ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*batch*row_size + 256"
+    formula_evidence:
+      factors: "als.py:56-57 -- state_nbytes: user_factors_.nbytes + item_factors_.nbytes = (U+I)*k*8"
+      index_lists_and_dicts: "als.py:47-50 -- user_index_ + item_index_ (lists) + _u_pos + _i_pos (dicts), v0.9.112 extension"
+      header: "als.py -- +256 constant (v0.9.112 extension)"
+      batch: "als.py:120, 174 -- check_batch(b, extra_factor=8.0); batch_size kwarg propagates at v0.9.112"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: (U+I)*k*8 + (U+I)*(dict_b+str_b) + 256"
+      state_bounded: "test_state_independent_of_n: same U/I/k -> same state, dense vs sparse"
+      formula_sanity: "test_formula_small_scale: predicted/measured in [0.5, 2.0]"
+      ooc: "test_ooc_batch_fixed: median-of-3, ratio < 2.0 (batch_size kwarg at v0.9.112)"
+      cells_passed: "4/4"
+      runtime_sec: "~30"
+      note: "batch coef isolated skipped: d=2 (only u,i cols), SNR < 1 at typical row_size. Coefficient 8.0 from code check_batch(extra_factor=8.0), conservative upper bound."
     benchmark_results:
     - benchmark: Amazon_Recsys
       benchmark_url: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
@@ -178,11 +210,11 @@ subtypes:
       std: null
       note: M2 parity on synthetic_recsys_like DGP; cadw=0.38273, ref(implicit)=0.36734, verdict=consistent; NDCG@10 on 20% holdout, user-item matrix ~10% density
     state_class: O(N·d)
-    bounded_state_dims: {N: 1, d: 1}
+    bounded_state_dims: {U: 1, I: 1, n_factors: 1}
     transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
-    n_scalability: linear
+    n_scalability: linear  # external_sort K-way merge: K = n/run_buffer, peak O(K)
     streaming_strategy:
       fit: 'HashShuffle + external_sort (same as F1.ALS).'
       predict: 'per-batch dot product.'

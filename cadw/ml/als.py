@@ -54,7 +54,25 @@ class ALSModel:
         self.fitted_ = True
 
     def state_nbytes(self):
-        return int(self.user_factors_.nbytes + self.item_factors_.nbytes)
+        """Full model state: factors + index lists + pos dicts + header.
+
+        v0.9.112 (Batch 1, DEC-033): pre-fix returned only factors
+        (~30% of actual state at small k), causing MemoryGuard to
+        under-estimate peak by ~6x — unsafe for batch sizing.
+        Index lists + pos dicts are O(U+I), bounded by cardinality
+        not n — still OOC.
+        """
+        from cadw.ml._memory_estimate import _load_constants
+        c = _load_constants()
+        dict_b = int(c.get("dict_entry_bytes", 116))
+        str_b = int(c.get("py_str_overhead_bytes", 49))
+        n_entries = len(self.user_index_) + len(self.item_index_)
+        return int(
+            self.user_factors_.nbytes
+            + self.item_factors_.nbytes
+            + n_entries * (dict_b + str_b)
+            + 256
+        )
 
     def to_dict(self):
         return {"params": self.params_, "n_users": len(self.user_index_),
@@ -100,7 +118,7 @@ class ALSModel:
 
 
 def _objective_streaming(df, X, Y, u_pos, i_pos, user_col, item_col,
-                         alpha, reg, mg):
+                         alpha, reg, mg, batch_size=None):
     """Implicit-feedback objective, streamed over events (v0.9.87).
 
     Same formula as pre-fix `_objective`: uniform (1 + alpha) weighting
@@ -116,7 +134,7 @@ def _objective_streaming(df, X, Y, u_pos, i_pos, user_col, item_col,
     dicts — silent OOM at n > ~1e7.
     """
     loss_events = 0.0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="als.objective", extra_factor=8.0)
         n = b.num_rows
         if n == 0:
@@ -150,8 +168,16 @@ def _solve_user(Yty, Y, items, weights, alpha, reg):
 
 def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
             n_iter=10, reg=0.1, alpha=40.0, seed=0,
-            memory_guard: Optional[MemoryGuard] = None):
-    """Fit implicit-feedback ALS out-of-core (sort by user/item per sweep)."""
+            memory_guard: Optional[MemoryGuard] = None,
+            batch_size: "int | None" = None):
+    """Fit implicit-feedback ALS out-of-core (sort by user/item per sweep).
+
+    v0.9.112 (DEC-033): `batch_size` kwarg. None (default) derives from
+    MemoryGuard (row_size from schema, expansion_factor 8.0 matches
+    check_batch(extra_factor=8.0), state_bytes 0 for discovery — U/I
+    unknown before first scan). Propagated to all _iter_filtered_batches
+    calls; enables true O(batch) on n axis.
+    """
     cols = [user_col, item_col]
     for c in cols + ([weight_col] if weight_col else []):
         if c not in df._columns:
@@ -159,6 +185,15 @@ def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
     mg = memory_guard or df._memory_guard
     if n_factors < 1 or n_iter < 1:
         raise ValueError("fit_als: n_factors and n_iter must be >= 1")
+    # v0.9.112: derive batch_size for OOC. state_bytes=0 for discovery
+    # (U/I unknown until first scan); later iterations reuse same batch.
+    if batch_size is None:
+        _row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        batch_size = mg.get_batch_rows(
+            row_size_bytes=_row_size,
+            expansion_factor=8.0,
+            state_bytes=0,
+        )
     rng = np.random.RandomState(int(seed))
     spill = tempfile.mkdtemp(prefix="cadw_als_")
 
@@ -170,7 +205,7 @@ def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
     u_set: set = set()
     i_set: set = set()
     n_seen = 0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="als.dict", extra_factor=8.0)
         u_set.update(b.column(user_col).to_pylist())
         i_set.update(b.column(item_col).to_pylist())
@@ -197,7 +232,7 @@ def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
 
     def _sorted_batches(by_user):
         """Emit u = group key, i = partner (position space)."""
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             u = b.column(user_col).to_numpy(zero_copy_only=False)
             i = b.column(item_col).to_numpy(zero_copy_only=False)
             w = (b.column(weight_col).cast(pa.float64(), safe=False)
@@ -226,7 +261,8 @@ def fit_als(df, user_col, item_col, *, weight_col=None, n_factors=16,
             Y[i] = _solve_user(Xtx, X, us, ws, alpha, reg)
         loss = _objective_streaming(
             df, X, Y, u_pos, i_pos, user_col, item_col,
-            alpha, reg, mg)
+            alpha, reg, mg,
+                                  batch_size=batch_size)
         log_fit("als", iter_i=it + 1, iter_n=int(n_iter), loss=loss,
                 state_bytes=(U + I) * n_factors * 8)
     model = ALSModel(X, Y, u_vals.tolist(), i_vals.tolist(),
