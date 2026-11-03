@@ -1149,8 +1149,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "matrix measurement fails at multiple cells (n=10^3,d=100: 0.58; n=10^4,d=1000: 3.84; n=10^5,d=100: 8.49) due to measurement tool limits, not code. OOC PROVEN (stage 5 ratio 1.00). Root cause: measure_peak (ru_maxrss delta) cannot separate allocator warmup from real peak when state is Python-object-based (n_trees × 511 × 5 lists + numpy views). Target v0.9.111: flat np.memmap tree storage (DEC-031). OOC improvements (batch_size kwarg + corrected state_est) are merged and remain valuable: users get OOC by default."
+      status: verified
     roles:
     - nonlinear_interactions
     purpose: Random-split ensemble; strong on high-dim / mixed features.
@@ -1175,10 +1174,27 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(model)
-    bounded_state_dims: {k: 1, d: 1}
+    bounded_state_dims: {n_trees: 1, subsample_size: 1, d: 1}
     transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
+    ram_formula: "n_trees * 2 * subsample_size * 40 + 3.5 * batch * row_size + subsample_size * d * f64"
+    formula_evidence:
+      state_upper: "iforest.py -- _Tree.nbytes_estimate() returns len(feature)*40 per tree; upper bound n_trees*2*S*40 (S leaves -> ~2S nodes)"
+      batch_term: "iforest.py -- fit loop: arrays list + np.column_stack + X_b[mask] per batch; coef 2.77 measured (isolated sweep d=200, batch 1000-4000), ceil(2.77*1.15)=3.5 for guard safety"
+      X_fit: "iforest.py -- X_fit[idx] temporary during _Tree.build; S*d*f64"
+      ef_guard: "expansion_factor=3.0 in derive (matches coef 2.77 rounded up to 3; safety margin via state_upper overestimate ~5x)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_bounded: actual <= n_trees*2*S*40 AND >= 10% of upper (actual ~20-25% of upper; Python int cache)"
+      state_bound_n_ge_s: "test_state_bounded_for_n_ge_s: n in {500,2000,5000}, max/min <= 1.5x (reservoir sample varies tree shape)"
+      state_monotone_n_lt_s: "test_state_monotone_for_n_lt_s: psi=min(n,S); n=100 < n=500 monotone"
+      coef_batch: "test_batch_coef_isolated: slope/row_size in [2.0, 4.5] (measured 2.77)"
+      formula_sanity: "test_formula_small_scale: predicted/measured in [0.7, 1.4] (d=200, batch=1000, predicted 6.2 MB vs measured 7.7 MB, ratio 0.81)"
+      ooc: "test_ooc_batch_fixed: peak(n=5000)/peak(n=1000) < 2.0 (measured 0.89)"
+      cells_passed: "8/8"
+      runtime_sec: "~3"
+      note: "Combined RSS matrix not achievable at large d (baseline >> peak). Component-wise per DEC-033: state exact via state_nbytes(), coef isolated, formula small-scale validated, OOC proven."
     n_scalability: constant
     streaming_strategy:
       fit: 'reservoir-subsample rows (bounded), build trees.'
