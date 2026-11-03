@@ -417,7 +417,16 @@ def test_g8_spill_ratio_valid():
 # accumulate O(n) RAM on prod scale (§1.3 violation without anyone
 # noticing). This is the enforcement arm of §4.1 without human review.
 
-G9_WHITELIST: set[tuple[str, str]] = set()
+G9_WHITELIST: set[tuple[str, str]] = {
+    # v0.9.113: private helpers of public producers. Dual-branch
+    # coverage (output="memory" + output="disk"/"auto") exists in
+    # tests/test_zms_verification.py / tests/test_cusum_verification.py
+    # through the public entry points fit_zms / fit_cusum. AST scan
+    # only sees direct-by-name calls, not calls made inside a public
+    # producer's body, so private helpers need explicit whitelist.
+    ("cadw/ml/zms.py", "_fit_zms_df"),
+    ("cadw/ml/cusum.py", "_fit_cusum_df"),
+}
 
 TESTS_DIR = ROOT / "tests"
 
