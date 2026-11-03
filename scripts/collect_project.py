@@ -81,6 +81,14 @@ TINY_FULL = {
     "cadw/io/batch_reader.py",
     "cadw/core/models.py",
     "cadw/core/models_reduce.py",
+    # v0.9.110f: component-wise verification templates (DEC-033).
+    # Canonical code/test examples for next-session copy to gmm/birch/
+    # kmeans_ad/sub_pca/eif. ~407 lines, +20 KB. Without these, AI has
+    # only YAML Example 2 (EXAMPLE_VERIFIED_CARD) but not the actual
+    # test structure (parametrized state check, median-of-3 formula,
+    # bounded-not-identical for n>=S).
+    "tests/test_linucb_verification.py",
+    "tests/test_iforest_verification.py",
 }
 TINY_SKELETON = {
     "cadw/core/memory_guard.py",
@@ -88,6 +96,12 @@ TINY_SKELETON = {
     "cadw/core/models_shuffle.py",
     "cadw/ops/shuffle.py",
     "cadw/ops/groupby.py",
+    # v0.9.110f: reproducible evidence chains (EXPERIMENT_PROCEDURE §3.7).
+    # Skeleton reveals predicted_peak() formula signatures, subprocess
+    # architecture, prewarm/malloc_trim/fadvise pattern. Bodies omitted
+    # (309 + 351 lines -> ~25 lines skeleton each).
+    "scripts/experiments/experiment_v110_linucb.py",
+    "scripts/experiments/experiment_v110_iforest.py",
 }
 
 

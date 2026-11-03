@@ -21,6 +21,8 @@ Do not invent. Copy the snippet, adapt to your function.
 | **Refuse-at-guard** (documented) | `cadw/ml/binseg.py::fit_binseg` | O(n) | `test_binseg.py` |
 | **Streaming SGD** (linear head) | `cadw/ops/optim.py::sgd_streaming` | O(d·K) | `test_rocket.py` |
 | **distinct_count via HashShuffle** | *backlog v0.9.95* | O(n/P) | — |
+| **Component-wise verification** (DEC-033) | `tests/test_linucb_verification.py` + `tests/test_iforest_verification.py` | state_nbytes + coef isolated | STABILITY_PROTOCOL §4.1.1, EXAMPLE_VERIFIED_CARD Example 2 |
+| **Phase-traced measurement** (DEC-033) | `cadw/core/memory_guard.py::measure_peak_traced` | mg.mark(name) in fit loop | `tests/test_linucb_verification.py` |
 
 ## Anti-pattern → correct-pattern
 
