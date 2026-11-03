@@ -585,7 +585,10 @@ A `status: verified` card means ALL of:
 - §2 stability checks pass (STABILITY_PROTOCOL): OOC via n-sweep,
   spill raises `MemoryLimitExceeded`, no `# BACKLOG:` marker anywhere
 - Formula derived from code with evidence per term (§3)
-- Matrix measurement 9/9 cells within ±30% (§4)
+- Matrix measurement 9/9 cells within ±30% (§4), **or**
+  component-wise verification per DEC-033 (state exact + coef
+  isolated + OOC proven) when combined RSS is unmeasurable
+  (baseline >> fit peak). See STABILITY_PROTOCOL §4.1.1.
 - Last git commit touching function body was the closure commit
 
 If any fail -> `status: draft`, with `# draft_reason:` OR entry in
@@ -647,7 +650,8 @@ it. NOT the other way around.
 1. Read `cadw/ml/X.py`, extract terms from `mg.check_state`,
    `mg.check_batch`, `np.empty`, `dict[key] += 1`
 2. Formula = sum of terms. Each term has evidence pointer (file:line).
-3. Fixed `batch=1000`. Vary n, d, k. Matrix 9/9 cells.
+3. Fixed `batch=1000`. Vary n, d, k. Matrix 9/9 cells. (Or
+   component-wise per DEC-033 if combined RSS unmeasurable.)
 4. Assert `0.7 <= predicted/measured <= 1.4` for each cell.
 5. If any cell fails: **find missing alloc in code.** Do NOT bump
    coefficients.

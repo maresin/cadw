@@ -1,8 +1,8 @@
 # CADW Roadmap
 
-Last updated: 2026-11-02 (after v0.9.109d).
+Last updated: 2026-11-03 (after v0.9.110e).
 
-## Current: v0.9.109d
+## Current: v0.9.110e
 
 Framework + refactor milestones done (v0.9.105-108). Batch 1 progress
 in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
@@ -17,13 +17,18 @@ in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
 - **v0.9.109b** — `test_R5` aliases consistency (18 fns / 43 cards, 0 inconsistent).
 - **v0.9.109c** — `fit_randomized_svd` verified (coef=3.0, OOC ratio 1.00); 12 verified total.
 - **v0.9.109d** — snapshot bootstrap includes `EXPERIMENT_PROCEDURE.md` (T2 doc, position 4).
+- **v0.9.110a/b** — iforest + linucb OOC improvements (batch_size kwarg, AP4 fix, state_est) → draft status due to measurement tool issue (DEC-031, DEC-032).
+- **v0.9.110c** — component-wise verification (DEC-033) + `measure_peak_traced` (VmRSS sampler via /proc/self/statm, 2us). linucb verified.
+- **v0.9.110d** — iforest verified × 2 cards (E_anomaly + D_time_series).
+- **v0.9.110e** — methodology update: STABILITY §4.1.1 (component-wise), EXPERIMENT_PROCEDURE §3.7, ALGORITHM_TEMPLATE Step 5-alt, EXAMPLE_VERIFIED_CARD Example 2, AI_CONSTITUTION AP21/AP23.
+
 
 ## Status baseline
 
 | Status | Count | Note |
 |---|---|---|
-| verified | **12** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd (v0.9.109c) |
-| draft | 31 | 21 legacy + 9 v0.9.105 + 1 cusum (v0.9.109a) |
+| verified | **14** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + **linucb (v0.9.110c)** + **iforest ×2 (v0.9.110d)** |
+| draft | 14 | 21 legacy - 9 flipped + 0 new + 0 - linucb/iforest promoted to verified |
 | pending (no status) | 55 fns (124 entries) | 88 with fn + 62 no-fn (described_only candidates) |
 
 ## Known gaps (remaining)

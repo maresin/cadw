@@ -1,6 +1,6 @@
 # Stability Protocol and Formula Verification
 
-**Version:** 1.0 (2026-10-31, v0.9.102)
+**Version:** 1.1 (2026-11-03, v0.9.110)
 **Status:** normative. Every `fit_*` / `predict_*` / `transform_*` in
 `cadw/ml/`, `cadw/ts/` MUST follow this protocol before
 `status: verified`.
@@ -153,6 +153,63 @@ For algorithms with secondary axis (k, w, n_groups):
 ```
 Add that axis with 2 values (small, large) -> 18 cells
 ```
+
+### §4.1.1. Component-wise mode (DEC-033, v0.9.110)
+
+When **combined RSS matrix** (§4.1) is unmeasurable because
+`baseline >> fit peak` — Python objects + Arrow buffers + parquet mmap
+already exceed the fit's peak before fit starts — §4.1 is **not
+achievable**. This is a physical limit of RSS-delta measurement, not a
+formula bug. See DEC-033 for the 16-iteration investigation across
+`measure_peak`, `measure_peak_pss`, `measure_peak_traced`, malloc_trim,
+fadvise.
+
+**Detection:** `measure_peak(fit)["rss_bytes"]` returns 0 or <5% of
+formula prediction at d>=500 while formula > baseline noise.
+
+**Component-wise verification** replaces combined matrix with four
+orthogonal checks:
+
+1. **State exact** — `model.state_nbytes()` must equal analytic formula
+   (bit-level exact, no tolerance). Parametrize over K, d.
+2. **State OOC** — `state_nbytes()` at n1, n2 (both >= subsample/estimators
+   params) differ by <= 1.5x (bounded, not n-growing). For n < S, monotone.
+3. **coef_batch isolated** — d<=200 (small baseline), sweep
+   `batch in {1000, 2000, 4000}`, fit `peak = state + coef*batch*row_size`.
+   `coef` must be physical (2-4 copies of row_size, per code inspection).
+   RSS noise <= 15% (signal >= 5 MB > noise <= 1 MB).
+4. **Formula sanity** — d<=200, batch=1000, peak 7-10 MB.
+   `predicted / measured in [0.7, 1.4]`, median-of-3.
+
+**OOC proof is unchanged:** fixed batch, vary n, peak ratio < 2.0.
+
+**YAML fields:**
+
+```yaml
+measurement:
+  verification_mode: "component-wise (DEC-033)"
+  state_check: "test_state_nbytes_exact: model.state_nbytes() == <formula>"
+  state_ooc: "test_state_bounded_for_n_ge_s: max/min <= 1.5x"
+  coef_batch: "test_batch_coef_isolated: slope/row_size in [lo, hi]"
+  formula_sanity: "test_formula_small_scale: predicted/measured in [0.7, 1.4]"
+  ooc: "test_ooc_batch_fixed: peak ratio < 2.0"
+  cells_passed: "8/8"
+  runtime_sec: "~3"
+  note: "Combined RSS matrix unmeasurable at large d. Component-wise per DEC-033."
+```
+
+`status: verified` is valid for component-wise **if all four checks pass**.
+This is **not a relaxation** of §4: state is measured exactly (better than
+±30% estimate), coef is decomposed by physical source, OOC is proven
+independently.
+
+**Applies to:** models where `state_nbytes()` is implementable and
+state < batch*row_size*(few) — linucb, iforest, gmm, birch, kmeans_ad,
+sub_pca, eif. Does NOT apply to: ReduceOps already verified via combined
+matrix (linear, logistic, NB, randsvd) — those stay on §4.1.
+
+**Runtime:** component-wise 2-3 seconds vs 15 min per attempt for RSS
+matrix (which fails anyway).
 
 ### §4.2. Per-cell assertion
 

@@ -221,6 +221,111 @@ algorithm will be wrong by next session.
 
 ---
 
+---
+
+## Example 2: Verified Card (fit_linucb, component-wise, DEC-033)
+
+**Purpose:** second reference pattern. When combined RSS matrix is
+unmeasurable (baseline >> peak), use component-wise verification.
+See STABILITY_PROTOCOL §4.1.1.
+
+**Source:** `cadw/ml/linucb.py` + `tests/test_linucb_verification.py`
+
+### Why component-wise
+
+`fit_linucb` state is `A: K*d^2*f64 + b: K*d*f64` (~40 MB at K=5,d=1000),
+fit peak ~80-100 MB. Baseline (Python + Arrow + parquet mmap) ~400-450 MB
+already exceeds fit peak before fit starts. `measure_peak` (ru_maxrss
+delta) returns 0-1.4 MB. Physically unmeasurable — not a formula or code
+bug. See DEC-033 for 16-iteration investigation.
+
+### Five checks (all in `test_linucb_verification.py`, 2.5s)
+
+**CW-1: state exact** (parametrized K, d):
+
+```python
+@pytest.mark.parametrize("K,d", [(2,10), (5,50), (5,100), (10,200)])
+def test_state_nbytes_exact(K, d):
+    m = fit_linucb(_make_df(100, d), cols, ..., k_max_hint=K)
+    assert m.state_nbytes() == K*d*d*8 + K*d*8 + 256
+```
+
+**CW-2: state bounded for n >= S** (reservoir sample varies tree shape,
+bounded not identical):
+
+```python
+def test_state_bounded_for_n_ge_s():
+    states = [fit_linucb(_make_df(n, d)).state_nbytes() for n in [500, 2000, 5000]]
+    assert max(states) / min(states) <= 1.5
+```
+
+**CW-3: coef isolated** (d=200, batch 1000-4000, signal 1.6-6.4 MB):
+
+```python
+def test_batch_coef_isolated():
+    peaks = [measure_peak_traced(fit_linucb, df_batch=b)["peak_bytes"]
+             for b in [1000, 2000, 4000]]
+    coef = np.polyfit([1000, 2000, 4000], peaks, 1)[0] / row_size
+    assert 2.5 <= coef <= 4.5   # measured 3.08-3.64; 3 physical copies
+```
+
+**CW-4: formula small-scale** (median-of-3, SNR 13%):
+
+```python
+def test_formula_small_scale():
+    peaks = [measure_peak_traced(fit_linucb, df, batch=1000)["peak_bytes"]
+             for _ in range(3)]
+    measured = statistics.median(peaks)
+    predicted = state_nbytes + 1*d^2*8 + 3.5*batch*row_size
+    assert 0.7 <= predicted / measured <= 1.4
+```
+
+**CW-5: OOC** (unchanged):
+
+```python
+def test_ooc_batch_fixed():
+    peaks = [measure_peak_traced(fit_linucb, df_n, batch=500)["peak_bytes"]
+             for n in [1000, 5000]]
+    assert peaks[1] / peaks[0] < 2.0
+```
+
+### YAML card
+
+```yaml
+- name: LinUCB
+  cadw_function: fit_linucb
+  implementation_status:
+    verified_in_cadw: true
+    status: verified
+  ram_formula: "k*d*d*f64 + k*d*f64 + d*d*f64 + 256 + 3.5*batch*row_size"
+  formula_evidence:
+    state_A: "linucb.py -- A = np.zeros((k, d, d)); A.nbytes = k*d*d*8"
+    state_b: "linucb.py -- b = np.zeros((k, d)); b.nbytes = k*d*8"
+    state_header: "linucb.py -- LinUCBModel.state_nbytes() adds +256 header"
+    temp_one: "linucb.py -- Xa.T @ Xa inside per-arm loop; ONE temp d*d*8"
+    coef_batch: "measured 3.08-3.64 (isolated sweep d=200); 3 copies: X + Xa + Arrow batch"
+  measurement:
+    verification_mode: "component-wise (DEC-033)"
+    state_check: "test_state_nbytes_exact: bit-exact, 4 (K,d) parametrized"
+    state_ooc: "test_state_bounded_for_n_ge_s: max/min <= 1.5x"
+    coef_batch: "test_batch_coef_isolated: 2.5-4.5"
+    formula_sanity: "test_formula_small_scale: 0.7-1.4"
+    ooc: "test_ooc_batch_fixed: ratio < 2.0"
+    cells_passed: "8/8"
+    runtime_sec: "~3"
+  bounded_state_dims: {k: 1, d: 1}
+```
+
+### What "verified" means here
+
+- State formula exact to the byte (better than ±30% RSS estimate)
+- OOC proven (peak does not grow with n at fixed batch)
+- coef physical (3 code allocations, not fitted coefficient)
+- formula small-scale validated (d=200, peak 7-10 MB, measurable)
+
+**Not claimed:** combined matrix 9/9 at large d — unmeasurable, open
+issue v0.9.111 (fork-based instrument). Documented in DEC-033.
+
 ## Anti-patterns (from this card's history)
 
 **AP-x1: "tf=2.0 for Newton, tf=14 for LDA"** — hiding formula in

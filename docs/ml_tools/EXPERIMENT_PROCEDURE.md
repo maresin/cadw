@@ -1,6 +1,6 @@
 # Experiment Procedure — formula calibration for CADW ops
 
-**Version:** 1.0 (2026-11-02, v0.9.105)
+**Version:** 1.1 (2026-11-03, v0.9.110)
 **Purpose:** reproducible method to derive and verify `ram_formula` for
 any `fit_*` / `predict_*` / `transform_*` before `status: verified`.
 **Hierarchy:** Tier 2 (methodological). Complements STABILITY_PROTOCOL.md.
@@ -113,6 +113,118 @@ That is not a formula problem — it's a framework gap; see §6.
 - All issues either fixed or DEC-scheduled
 
 ---
+
+### Step 6-alt — Component-wise branch (DEC-033, v0.9.110)
+
+**When:** `measure_peak` (ru_maxrss delta) returns 0 or <5% of formula
+prediction at d>=500, because baseline >> fit peak. Detected at Step 5
+(OOC) if peak drops below 5 MB while formula predicts 20+ MB. Stop
+matrix attempts and switch to this branch.
+
+**Rationale:** combined RSS matrix (§3 Steps 2-4) measures `peak - baseline`.
+When baseline (Python + Arrow + parquet mmap + allocator arena) already
+exceeds fit peak, delta is physically unmeasurable — not a formula bug,
+not a code bug, a limit of the measurement instrument. See DEC-033 for
+16-iteration investigation of `measure_peak`, `measure_peak_pss`,
+`measure_peak_traced`, `malloc_trim`, `posix_fadvise`.
+
+**Runtime:** ~2-3 seconds (all four checks) vs 15 min per matrix attempt.
+
+#### CW-1. State exact (replaces Step 3 d-sweep)
+
+```python
+def test_state_nbytes_exact(K, d):
+    m = fit_X(df_small, ...)
+    assert m.state_nbytes() == <analytic formula>  # bit-exact, no tolerance
+```
+
+**Requirement:** model must implement `state_nbytes()`. Template:
+`sum(len(arr.nbytes) for arr in persistent_state) + header_bytes`.
+Parametrize (K, d) over 3-4 values (e.g. `(2,10), (5,50), (5,100), (10,200)`).
+
+**What it proves:** state formula is correct to the byte. Better than
+±30% RSS estimate.
+
+#### CW-2. State bounded (replaces "state_independent_of_n")
+
+```python
+def test_state_bounded_for_n_ge_s():
+    # For n >= subsample_size: state varies <= 1.5x across n
+    states = [fit_X(df_n).state_nbytes() for n in [500, 2000, 5000]]
+    assert max(states) / min(states) <= 1.5
+
+def test_state_monotone_for_n_lt_s():
+    # For n < subsample_size: state is monotone in n (psi = min(n,S))
+    assert state(n=100) < state(n=500)
+```
+
+**Note:** state is **not identical** across n even at n >= S, because
+reservoir sample differs (order-dependent) → random splits produce
+different tree shapes → different node count. Bounded, not identical.
+
+#### CW-3. Batch coef isolated (same as Step 2, small d)
+
+```python
+def test_batch_coef_isolated():
+    d = 200       # small baseline
+    batches = [1000, 2000, 4000]
+    peaks = [measure_peak_traced(fit_X, df_batch=b, ...)["peak_bytes"] for b in batches]
+    slope, _ = np.polyfit(batches, peaks, 1)
+    coef = slope / row_size
+    assert <lo> <= coef <= <hi>    # typically 2.5-4.5
+```
+
+**Why d=200:** signal `coef * batch * row_size` = 1.6-6.4 MB, RSS noise
+±1 MB. SNR >= 3. Larger d makes combined peak unmeasurable (§4.1
+failure). Smaller d makes coef signal < noise.
+
+#### CW-4. Formula sanity (small scale, replaces matrix)
+
+```python
+def test_formula_small_scale():
+    # d=200, batch=1000, n=4000 -> predicted ~7-10 MB, measurable
+    peaks = [measure_peak_traced(fit_X, df, batch=1000)["peak_bytes"]
+             for _ in range(3)]
+    measured = statistics.median(peaks)
+    predicted = <formula v_final>(batch=1000, ...)
+    assert 0.7 <= predicted / measured <= 1.4
+```
+
+**Why median-of-3:** single run can hit GC pause or allocator timing
+shift. Median filters sporadic ±1 MB noise.
+
+#### CW-5. OOC (same as Step 5)
+
+Fixed batch, vary n, peak ratio < 2.0. Unchanged.
+
+#### CW-6. Output (YAML with mode marker)
+
+```yaml
+measurement:
+  verification_mode: "component-wise (DEC-033)"
+  state_check: "test_state_nbytes_exact: model.state_nbytes() == <formula>"
+  state_ooc: "test_state_bounded_for_n_ge_s: max/min <= 1.5x"
+  coef_batch: "test_batch_coef_isolated: slope/row_size in [lo, hi]"
+  formula_sanity: "test_formula_small_scale: predicted/measured in [0.7, 1.4]"
+  ooc: "test_ooc_batch_fixed: peak ratio < 2.0"
+  cells_passed: "8/8"
+  runtime_sec: "~3"
+  note: "Combined RSS matrix unmeasurable at large d. Component-wise per DEC-033."
+```
+
+**Anti-patterns specific to CW branch:**
+
+- **CW-AP1:** Trying to fix the tool. 5 attempts (fadvise,
+  malloc_trim, smaps_rollup, fork, phase-trace) all confirmed baseline >
+  peak is fundamental. If CW-1..CW-5 pass in 3 sec, do not spend 15 min
+  re-attempting matrix.
+- **CW-AP2:** Asserting `state(n1) == state(n2)` for n1, n2 >= S. Reservoir
+  is order-dependent. Use bounded (<= 1.5x), not equal.
+- **CW-AP3:** `coef` from slope-fit at d=10 (signal 0.3 MB < noise 1 MB).
+  Always d >= 200 for coef sweep.
+- **CW-AP4:** `intercept` assertion from slope-fit. Extrapolation to batch=0
+  amplifies noise 8x (measured: 5 trials gave 0.18-1.47 ratio for
+  same code). Only `coef` (slope) is stable. See DEC-033.
 
 ## §4. Rules
 

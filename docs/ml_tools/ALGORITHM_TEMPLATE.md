@@ -1,6 +1,6 @@
 # Adding a New Model to CADW — Template
 
-**Version:** 1.0 (2026-10-31, v0.9.102)
+**Version:** 1.1 (2026-11-03, v0.9.110)
 **Purpose:** one-page checklist. Follow order exactly.
 **Companions:** `AI_CONSTITUTION.md`, `STABILITY_PROTOCOL.md`,
 `GLOSSARY.md`, `DECISION_LOG.md`, `CHAT_PROTOCOL.md`.
@@ -102,6 +102,79 @@ def test_X_formula_matrix(n, d):
 All cells must pass. If any fails -> back to Step 4 (find missing alloc).
 
 ---
+
+## Step 5-alt. Component-wise verification (DEC-033)
+
+**When to use:** Step 5 (combined matrix) is unmeasurable because
+`baseline >> fit peak`. Detection: `measure_peak(fit)["rss_bytes"] <
+5% of formula prediction` while formula > baseline noise.
+
+**Do not fight the tool.** 5 attempts (fadvise, malloc_trim,
+smaps_rollup, phase-trace, fork) all confirmed baseline > peak is
+fundamental. Switch immediately (see EXPERIMENT_PROCEDURE §3.7).
+
+**Five checks (2-3 seconds total):**
+
+```python
+# 1. state exact (parametrize K, d)
+def test_state_nbytes_exact(K, d):
+    m = fit_X(df, ...)
+    assert m.state_nbytes() == <analytic>    # bit-exact, no tolerance
+
+# 2. state bounded for n >= S, monotone for n < S
+def test_state_bounded_for_n_ge_s():
+    states = [fit_X(df_n).state_nbytes() for n in [500, 2000, 5000]]
+    assert max(states) / min(states) <= 1.5
+
+def test_state_monotone_for_n_lt_s():
+    assert state(100) < state(500)
+
+# 3. coef isolated (d=200, batch 1000-4000)
+def test_batch_coef_isolated():
+    peaks = [measure_peak_traced(fit_X, df_batch=b)["peak_bytes"]
+             for b in [1000, 2000, 4000]]
+    coef = np.polyfit([1000, 2000, 4000], peaks, 1)[0] / row_size
+    assert 2.5 <= coef <= 4.5    # 3 physical copies of row_size
+
+# 4. formula small-scale (median-of-3, d=200, batch=1000)
+def test_formula_small_scale():
+    measured = statistics.median([...])
+    assert 0.7 <= predicted / measured <= 1.4
+
+# 5. OOC (same as Step 5)
+def test_ooc_batch_fixed():
+    assert peak(n=5000) / peak(n=1000) < 2.0
+```
+
+**Prerequisites:**
+- `model.state_nbytes()` must exist (5-20 lines: `sum(arr.nbytes for arr
+  in persistent_state) + header`). Add it if missing — it's 5-20 lines.
+- `measure_peak_traced` from `cadw/core/memory_guard.py` (v0.9.110c+).
+
+**Runtime:** 2-3 seconds vs 15 min per matrix attempt (which fails anyway).
+
+**YAML marker:**
+
+```yaml
+measurement:
+  verification_mode: "component-wise (DEC-033)"
+  cells_passed: "8/8"
+  runtime_sec: "~3"
+```
+
+**Anti-patterns (CW-specific):**
+
+| Anti-pattern | Why wrong |
+|---|---|
+| Retry matrix at larger d | baseline grows faster than fit peak; unmeasurable |
+| `state(n1) == state(n2)` for n>=S | reservoir order-dependent; use bounded <=1.5x |
+| `coef` at d=10 (signal 0.3 MB) | RSS noise ~1 MB swallows signal |
+| `intercept` from slope-fit | extrapolation to batch=0 amplifies noise 8x |
+| Relax matrix tolerance to [0.1, 10] | silences bug, hides physios |
+
+**Valid `status: verified` if all 5 checks pass.** This is not a
+relaxation: state is exact (better than ±30%), coef physical (3 code
+allocations), OOC independent.
 
 ## Step 6. YAML card
 
