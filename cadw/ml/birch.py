@@ -160,8 +160,15 @@ def _insert(root, x, threshold, branching_factor, d):
 
 def fit_birch(df, X_cols, *, n_clusters=8, threshold=0.5,
               branching_factor=50, max_iter=20,
-              memory_guard: Optional[MemoryGuard] = None):
-    """Fit a BIRCH CF tree streaming over the input, then agglomerate."""
+              memory_guard: Optional[MemoryGuard] = None,
+              batch_size: "int | None" = None):
+    """Fit a BIRCH CF tree streaming over the input, then agglomerate.
+
+    v0.9.111 (DEC-033 OOC): `batch_size` kwarg. None (default) derives
+    from MemoryGuard via `get_batch_rows` with `state_est` upper bound
+    (cf_count <= branching_factor by 1-level tree split policy).
+    Int = explicit override (e.g. for bit-identical multi-batch tests).
+    """
     cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
     if not cols:
         raise ValueError("fit_birch: X_cols must be non-empty")
@@ -176,9 +183,26 @@ def fit_birch(df, X_cols, *, n_clusters=8, threshold=0.5,
             raise KeyError(f"fit_birch: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
     d = len(cols)
+    # v0.9.111 (DEC-033): derive batch_size from guard if not given.
+    # state_est = upper bound on tree size (cf_count <= branching_factor
+    # by split policy) + finalize (k*d*f64, k <= min(n_clusters, bf))
+    # + header 512.
+    if batch_size is None:
+        k_bound = min(int(n_clusters), int(branching_factor))
+        state_est = int(
+            branching_factor * ((2 * d + 1) * 8 + 32)
+            + k_bound * d * 8
+            + 512
+        )
+        row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        batch_size = mg.get_batch_rows(
+            row_size_bytes=row_size,
+            expansion_factor=3.0,   # _stack_numeric: X + column_stack parts
+            state_bytes=state_est,
+        )
     root = _Node(branching_factor)
     n = 0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="birch.fit", extra_factor=3.0)
         X = _stack_numeric_safe(b, cols)
         if np.isnan(X).any():

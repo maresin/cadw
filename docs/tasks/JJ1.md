@@ -52,7 +52,7 @@
 ### ComplementNB — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ agent
+**Status:** ✓ agent, desc
 
 **Purpose:** Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter.
 

@@ -8,21 +8,22 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 
 | Section | Subtype | Model | Tier | Level | Roles | Status | Anchor |
 |---|---|---|---|---|---|---|---|
-| A | A1 Binary classification | LogisticRegression | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | roc_auc |
+| A | A1 Binary classification | LogisticRegression | baseline | tier1_core | linear_signal | ✓ cadw | roc_auc |
 | A | A1 Binary classification | GBDT | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | roc_auc |
-| A | A1 Binary classification | BernoulliNB | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | roc_auc |
+| A | A1 Binary classification | BernoulliNB | baseline | tier1_core | probabilistic | ✓ cadw | roc_auc |
+| A | A1 Binary classification | NaiveBayes_multinomial | baseline | tier1_core | linear_signal | ✓ cadw | roc_auc |
 | A | A1 Binary classification | TabPFN | sota | tier3_export | nonlinear_interactions | desc, export | roc_auc |
-| A | A2 Multiclass classification | LogisticRegression_multinomial | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | accuracy |
+| A | A2 Multiclass classification | LogisticRegression_multinomial | baseline | tier1_core | linear_signal | ✓ cadw | accuracy |
 | A | A2 Multiclass classification | GBDT_multiclass | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | accuracy |
-| A | A2 Multiclass classification | GaussianNB | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | accuracy |
-| A | A3 Regression | Ridge | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | rmse |
-| A | A3 Regression | Lasso | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | rmse |
+| A | A2 Multiclass classification | GaussianNB | baseline | tier1_core | probabilistic | ✓ cadw | accuracy |
+| A | A3 Regression | Ridge | baseline | tier1_core | linear_signal | ✓ cadw | rmse |
+| A | A3 Regression | Lasso | baseline | tier1_core | linear_signal | ✓ cadw | rmse |
 | A | A3 Regression | GBDT_L2 | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | rmse |
 | A | A4 Multilabel classification | OneVsRest_Logistic | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | subset_accuracy |
 | A | A4 Multilabel classification | ClassifierChains | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | subset_accuracy |
 | A | A5 Ordinal classification | OrdinalLogit | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | mae_ordinal |
 | A | A5 Ordinal classification | GBDT_threshold | sota | tier1_core | nonlinear_interactions | desc | mae_ordinal |
-| A | A6 Imbalanced classification | Logistic_balanced | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | pr_auc |
+| A | A6 Imbalanced classification | Logistic_balanced | baseline | tier1_core | linear_signal | ✓ cadw | pr_auc |
 | A | A6 Imbalanced classification | GBDT_scale_pos_weight | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | pr_auc |
 | A | A7 Quantile / interval regression | LinearQuantReg | baseline | tier1_core | linear_signal | desc | pinball_loss |
 | A | A7 Quantile / interval regression | GBDT_pinball | sota | tier1_core | nonlinear_interactions | desc | pinball_loss |
@@ -33,20 +34,20 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | D | D1 Univariate forecasting | AutoTheta | sota | tier1_core | temporal_dynamics, probabilistic | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | SARIMA | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | GBDTForecaster | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | mase |
-| D | D1 Univariate forecasting | Chronos-Bolt-Tiny | sota | tier3_export | temporal_dynamics, representation | — | mase |
-| D | D1 Univariate forecasting | Chronos-Bolt-Mini | sota | tier3_export | temporal_dynamics, representation | — | mase |
-| D | D1 Univariate forecasting | Chronos-Bolt-Small | sota | tier3_export | temporal_dynamics, representation | — | mase |
-| D | D1 Univariate forecasting | Chronos-Bolt-Base | sota | tier3_export | temporal_dynamics, representation | — | mase |
-| D | D1 Univariate forecasting | Chronos-2-small | sota | tier3_export | temporal_dynamics, representation, nonlinear_interactions | — | mase |
-| D | D1 Univariate forecasting | AutoGluon-TS | sota | tier3_export | nonlinear_interactions, temporal_dynamics, calibration | — | mase |
-| D | D1 Univariate forecasting | Timer-S1 | sota | tier3_export | temporal_dynamics, representation | — | mase |
-| D | D1 Univariate forecasting | t0-beta | sota | tier3_export | temporal_dynamics, representation | — | mase |
+| D | D1 Univariate forecasting | Chronos-Bolt-Tiny | sota | tier3_export | temporal_dynamics, representation | export | mase |
+| D | D1 Univariate forecasting | Chronos-Bolt-Mini | sota | tier3_export | temporal_dynamics, representation | export | mase |
+| D | D1 Univariate forecasting | Chronos-Bolt-Small | sota | tier3_export | temporal_dynamics, representation | export | mase |
+| D | D1 Univariate forecasting | Chronos-Bolt-Base | sota | tier3_export | temporal_dynamics, representation | export | mase |
+| D | D1 Univariate forecasting | Chronos-2-small | sota | tier3_export | temporal_dynamics, representation, nonlinear_interactions | export | mase |
+| D | D1 Univariate forecasting | AutoGluon-TS | sota | tier3_export | nonlinear_interactions, temporal_dynamics, calibration | export | mase |
+| D | D1 Univariate forecasting | Timer-S1 | sota | tier3_export | temporal_dynamics, representation | export | mase |
+| D | D1 Univariate forecasting | t0-beta | sota | tier3_export | temporal_dynamics, representation | export | mase |
 | D | D2 Multivariate forecasting | VAR | baseline | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D2 Multivariate forecasting | GBDT_multiseries | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D2 Multivariate forecasting | BVAR | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D2 Multivariate forecasting | VECM | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D3.1 TS anomaly — point | zscore | baseline | tier1_core | local_structure | ✓ cadw, ✓ agent | vus_pr |
-| D | D3.1 TS anomaly — point | IForest | baseline | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | vus_pr |
+| D | D3.1 TS anomaly — point | IForest | baseline | tier1_core | nonlinear_interactions | ✓ cadw | vus_pr |
 | D | D3.1 TS anomaly — point | MatrixProfile | sota | tier1_core | local_structure, temporal_dynamics | ✓ cadw, ✓ agent | vus_pr |
 | D | D3.1 TS anomaly — point | DWT-MLEAD | sota | tier1_core | temporal_dynamics | ✓ cadw | vus_pr |
 | D | D3.1 TS anomaly — point | Sub-PCA | sota | tier1_core | representation | ✓ cadw | vus_pr |
@@ -77,9 +78,9 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | D | D5 TS change-point detection (alias of D3.2) | BinarySegmentation | baseline | tier1_core | temporal_dynamics | ✓ cadw | auprc |
 | D | D5 TS change-point detection (alias of D3.2) | PELT | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | auprc |
 | E | E1 Unsupervised anomaly detection | zscore | baseline | tier1_core | local_structure | ✓ agent, desc | roc_auc |
-| E | E1 Unsupervised anomaly detection | IForest | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | roc_auc |
+| E | E1 Unsupervised anomaly detection | IForest | sota | tier1_core | nonlinear_interactions | ✓ cadw | roc_auc |
 | E | E1 Unsupervised anomaly detection | LOF | baseline | tier3_export | local_structure | desc, export | roc_auc |
-| E | E2 Supervised anomaly detection | Logistic_balanced | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | pr_auc |
+| E | E2 Supervised anomaly detection | Logistic_balanced | baseline | tier1_core | linear_signal | ✓ cadw | pr_auc |
 | E | E2 Supervised anomaly detection | GBDT_scale_pos_weight | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | pr_auc |
 | F | F1 Collaborative filtering | ItemKNN | baseline | tier3_export | local_structure | desc, export | ndcg_at_k |
 | F | F1 Collaborative filtering | ALS | sota | tier1_core | representation | ✓ cadw, ✓ agent | ndcg_at_k |
@@ -93,20 +94,20 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | H | H2 Uplift modeling (Qini) | T_learner_uplift | baseline | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | qini |
 | H | H2 Uplift modeling (Qini) | CausalTree | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | qini |
 | I | I1 Time-to-event (Cox / AFT / deep) | CoxPH | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | c_index |
-| I | I1 Time-to-event (Cox / AFT / deep) | KaplanMeier | baseline | tier1_core | probabilistic | ✓ agent | c_index |
-| I | I1 Time-to-event (Cox / AFT / deep) | WeibullAFT | baseline | tier1_core | linear_signal, probabilistic | ✓ agent | c_index |
+| I | I1 Time-to-event (Cox / AFT / deep) | KaplanMeier | baseline | tier1_core | probabilistic | ✓ agent, desc | c_index |
+| I | I1 Time-to-event (Cox / AFT / deep) | WeibullAFT | baseline | tier1_core | linear_signal, probabilistic | ✓ agent, desc | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | RandomSurvivalForest | sota | tier3_export | nonlinear_interactions | desc, export | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | DeepSurv | sota | tier3_export | nonlinear_interactions, representation | export | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | DeepHit | sota | tier3_export | nonlinear_interactions, representation | export | c_index |
 | J | J1 Text classification | TFIDF_LogReg | baseline | tier1_core | linear_signal, representation | ✓ cadw, ✓ agent | accuracy |
-| J | J1 Text classification | ComplementNB | baseline | tier1_core | probabilistic | ✓ agent | accuracy |
+| J | J1 Text classification | ComplementNB | baseline | tier1_core | probabilistic | ✓ agent, desc | accuracy |
 | J | J1 Text classification | LinearSVC | baseline | tier2_wrapper | linear_signal | ✓ agent, desc | accuracy |
 | J | J1 Text classification | BERT | sota | tier3_export | representation, nonlinear_interactions | export | accuracy |
 | J | J2 Text embeddings | LSA_TFIDF_SVD | baseline | tier1_core | representation | ✓ cadw, ✓ agent | spearman_cosine |
 | J | J2 Text embeddings | Word2Vec | baseline | tier2_wrapper | representation | desc | spearman_cosine |
 | J | J2 Text embeddings | SentenceTransformer | sota | tier3_export | representation, nonlinear_interactions | export | spearman_cosine |
 | J | J3 Topic modeling | LDA | baseline | tier1_core | probabilistic, representation | ✓ cadw, ✓ agent | perplexity |
-| J | J3 Topic modeling | NMF | baseline | tier2_wrapper | representation | — | perplexity |
+| J | J3 Topic modeling | NMF | baseline | tier2_wrapper | representation | desc | perplexity |
 | J | J3 Topic modeling | BERTopic | sota | tier3_export | representation, nonlinear_interactions | export | perplexity |
 | K | K1 Image classification | ResNet50 | baseline | tier3_export | representation, nonlinear_interactions | desc, export | accuracy |
 | K | K1 Image classification | ViT | sota | tier3_export | representation, nonlinear_interactions | desc, export | accuracy |
@@ -116,13 +117,13 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | L | L1 Node / edge / graph classification, link prediction | GraphSAGE | sota | tier3_export | local_structure, representation | desc, export | accuracy |
 | L | L1 Node / edge / graph classification, link prediction | GAT | sota | tier3_export | local_structure, representation, nonlinear_interactions | desc, export | accuracy |
 | L | L1 Node / edge / graph classification, link prediction | Node2Vec | sota | tier3_export | representation, local_structure | desc, export | accuracy |
-| M | M1 Contextual bandit (online policy selection) | LinUCB | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | ctr |
-| M | M1 Contextual bandit (online policy selection) | EpsilonGreedy | baseline | tier1_core | linear_signal | ✓ agent | ctr |
-| M | M1 Contextual bandit (online policy selection) | UCB1 | baseline | tier1_core | probabilistic | ✓ agent | ctr |
-| M | M1 Contextual bandit (online policy selection) | ThompsonSampling | sota | tier2_wrapper | probabilistic | ✓ agent | ctr |
+| M | M1 Contextual bandit (online policy selection) | LinUCB | baseline | tier1_core | linear_signal | ✓ cadw | ctr |
+| M | M1 Contextual bandit (online policy selection) | EpsilonGreedy | baseline | tier1_core | linear_signal | ✓ agent, desc | ctr |
+| M | M1 Contextual bandit (online policy selection) | UCB1 | baseline | tier1_core | probabilistic | ✓ agent, desc | ctr |
+| M | M1 Contextual bandit (online policy selection) | ThompsonSampling | sota | tier2_wrapper | probabilistic | ✓ agent, desc | ctr |
 | M | M1 Contextual bandit (online policy selection) | NeuralUCB | sota | tier3_export | nonlinear_interactions, representation | export | ctr |
-| N | N1 Unsupervised density | GaussianMixture | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | mean_log_likelihood |
-| N | N1 Unsupervised density | KernelDensity | baseline | tier2_wrapper | local_structure, probabilistic | — | mean_log_likelihood |
+| N | N1 Unsupervised density | GaussianMixture | baseline | tier1_core | probabilistic | ✓ cadw | mean_log_likelihood |
+| N | N1 Unsupervised density | KernelDensity | baseline | tier2_wrapper | local_structure, probabilistic | desc | mean_log_likelihood |
 | N | N1 Unsupervised density | BIRCH | baseline | tier1_core | local_structure, representation | ✓ cadw, ✓ agent | mean_log_likelihood |
 | N | N1 Unsupervised density | HDBSCAN | sota | tier2_wrapper | local_structure | desc | mean_log_likelihood |
 | N | N1 Unsupervised density | NormalizingFlow | sota | tier3_export | representation, probabilistic | export | mean_log_likelihood |
@@ -133,7 +134,7 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | O | O2 Data cleaning / imputation | SimpleImputer | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | rmse |
 | O | O2 Data cleaning / imputation | KNNImputer | baseline | tier1_core | local_structure | desc | rmse |
 | O | O2 Data cleaning / imputation | IterativeImputer | sota | tier2_wrapper | linear_signal, representation | desc | rmse |
-| O | O3 Feature engineering / encoding | OneHotEncoder | baseline | tier1_core | representation | — | accuracy |
+| O | O3 Feature engineering / encoding | OneHotEncoder | baseline | tier1_core | representation | desc | accuracy |
 | O | O3 Feature engineering / encoding | KBinsDiscretizer | baseline | tier1_core | representation | desc | accuracy |
 | O | O3 Feature engineering / encoding | PolynomialFeatures | sota | tier1_core | nonlinear_interactions, representation | desc | accuracy |
 | O | O3 Feature engineering / encoding | EncodeCategorical | baseline | tier1_core | representation | ✓ cadw, ✓ agent | accuracy |
@@ -142,8 +143,8 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | O | O4 Feature selection | BorutaSelect | sota | tier2_wrapper | nonlinear_interactions | ✓ cadw, ✓ agent | accuracy |
 | O | O5 Validation / data quality | PanderaSchema | baseline | tier2_wrapper | calibration | desc | validation_rate |
 | O | O5 Validation / data quality | GreatExpectationsSuite | sota | tier3_export | calibration | desc, export | validation_rate |
-| O | O6 Sampling / splitting / resampling | StratifiedSplit | baseline | tier1_core | probabilistic | ✓ agent | auc |
-| O | O6 Sampling / splitting / resampling | ReservoirSample | baseline | tier1_core | probabilistic | ✓ agent | auc |
+| O | O6 Sampling / splitting / resampling | StratifiedSplit | baseline | tier1_core | probabilistic | ✓ agent, desc | auc |
+| O | O6 Sampling / splitting / resampling | ReservoirSample | baseline | tier1_core | probabilistic | ✓ agent, desc | auc |
 | O | O6 Sampling / splitting / resampling | SMOTE | sota | tier2_wrapper | nonlinear_interactions, probabilistic | desc, export | auc |
 | O | O7 Hyperparameter tuning / AutoML | GridSearch | baseline | tier1_core | linear_signal | desc | accuracy |
 | O | O7 Hyperparameter tuning / AutoML | RandomizedSearch | baseline | tier1_core | probabilistic | desc | accuracy |

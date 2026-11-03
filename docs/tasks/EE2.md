@@ -16,7 +16,7 @@
 ### Logistic_balanced — baseline / tier1_core
 
 **Roles:** linear_signal
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** LogReg with class_weight='balanced'; simplest cost-sensitive baseline.
 

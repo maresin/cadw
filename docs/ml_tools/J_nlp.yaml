@@ -95,7 +95,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: false
+      described_only: true
       reference_impl_ready: true
     roles:
     - probabilistic
@@ -474,7 +474,7 @@ subtypes:
     tier: baseline
     tier_level: tier2_wrapper
     implementation_status:
-      described_only: false
+      described_only: true
       reference_impl_ready: true
     roles:
     - representation

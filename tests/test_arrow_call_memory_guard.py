@@ -115,6 +115,17 @@ WHITELISTED_FUNCS = {
         "threading.Thread.join(timeout=2.0) for peak sampler daemon "
         "cleanup; NOT pa.Table.join; sampler bounded 10ms interval, "
         "2s timeout, daemon thread",
+    # v0.9.111 (Phase 0): measure_peak_pss / measure_peak_traced use
+    # `t.join(timeout=2.0)` on daemon sampler thread — threading.Thread.join
+    # (stdlib, bounded 2s), NOT pa.Table.join (C++ hash join, unbounded).
+    # AST guard matches `.join(` by attribute name only; Thread.join is safe.
+    # Same precedent as MemoryGuard.calibrate above (v0.9.20-fix4).
+    "cadw/core/memory_guard.py:measure_peak_pss":
+        "threading.Thread.join(timeout=2.0) for Pss sampler daemon cleanup; "
+        "NOT pa.Table.join; sampler 200us interval, 2s timeout, daemon thread",
+    "cadw/core/memory_guard.py:measure_peak_traced":
+        "threading.Thread.join(timeout=2.0) for VmRSS sampler daemon cleanup; "
+        "NOT pa.Table.join; sampler 200us interval, 2s timeout, daemon thread",
     # --- dataframe.py: bounded accumulators / per-batch conversions ---
     "cadw/dataframe_helpers.py:_concat_batches":
         "bounded accum list (one group/window), not N",

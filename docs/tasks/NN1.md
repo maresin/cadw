@@ -17,7 +17,7 @@
 ### GaussianMixture — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** EM-fitted mixture of Gaussians. Inductive bias: data are drawn from a fixed number of Gaussian components — strong when clusters are approximately ellipsoidal and K is known; the canonical parametric density baseline.
 
@@ -45,7 +45,7 @@
 ### KernelDensity — baseline / tier2_wrapper
 
 **Roles:** local_structure, probabilistic
-**Status:** —
+**Status:** desc
 
 **Purpose:** Non-parametric kernel density estimator; the density is a sum of kernel bumps at every training point. Inductive bias: smooth local structure with bandwidth-controlled smoothing — no parametric form, but O(n) scoring and fragile in high dimensions.
 

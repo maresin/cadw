@@ -17,7 +17,7 @@
 ### StratifiedSplit — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ agent
+**Status:** ✓ agent, desc
 
 **Purpose:** Split preserving class proportions in each fold. Inductive bias: class is the stratifier; correct when the target is the source of imbalance.
 
@@ -38,7 +38,7 @@
 ### ReservoirSample — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ agent
+**Status:** ✓ agent, desc
 
 **Purpose:** Uniform sample of k items from a stream in one pass, O(k) state. Inductive bias: uniform inclusion; unbiased but ignores strata.
 

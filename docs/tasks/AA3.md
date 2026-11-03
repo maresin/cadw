@@ -17,7 +17,7 @@
 ### Ridge — baseline / tier1_core
 
 **Roles:** linear_signal
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** L2-regularised linear regression; closed-form solution, O(d^2) state.
 
@@ -38,7 +38,7 @@
 ### Lasso — baseline / tier1_core
 
 **Roles:** linear_signal
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** L1-regularised linear regression; produces sparse coefficients.
 

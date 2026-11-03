@@ -1,11 +1,12 @@
 # CADW Roadmap
 
-Last updated: 2026-11-03 (after v0.9.110g).
+Last updated: 2026-11-03 (after v0.9.111).
 
-## Current: v0.9.110g
+## Current: v0.9.111
 
-Framework + refactor milestones done (v0.9.105-108). Batch 1 progress
-in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
+Baseline stabilized (Phase 0). fit_birch verified (Phase 1, 16 total).
+Schema R6/R7 + 19 no-fn cards patched (Phase 2). Next: Group C
+(windowed anomaly + P/k/w knobs) via EXPERIMENT_PROCEDURE.
 
 ## Progress (v0.9.105 - v0.9.110g)
 
@@ -23,24 +24,26 @@ in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
 - **v0.9.110e** — methodology update: STABILITY §4.1.1 (component-wise), EXPERIMENT_PROCEDURE §3.7, ALGORITHM_TEMPLATE Step 5-alt, EXAMPLE_VERIFIED_CARD Example 2, AI_CONSTITUTION AP21/AP23.
 - **v0.9.110f** -- snapshot tooling: TINY_FULL += test_*_verification.py, TINY_SKELETON += experiment scripts, EXAMPLES_INDEX rows.
 - **v0.9.110g** -- `fit_gmm` verified (component-wise). batch_size kwarg + state_est = 5*max_samples*d*f64. 15 verified total.
+- **v0.9.111** -- Phase 0 baseline (doc-sync regen, iforest flake median-of-3, DEC-034, arrow-gate Thread.join whitelist). Phase 1 fit_birch verified (16 total, DEC-035). Phase 2 R6/R7 schema + 19 no-fn cards patched (described_only / not_implemented_in_cadw).
 
 
 ## Status baseline
 
 | Status | Count | Note |
 |---|---|---|
-| verified | **15** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + linucb + iforest x2 + **gmm (v0.9.110g)** |
-| draft | 14 | 21 legacy - 9 flipped - linucb/iforest/gmm promoted to verified |
-| pending (no status) | 55 fns (124 entries) | 88 with fn + 62 no-fn (described_only candidates) |
+| verified | **16** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + linucb + iforest x2 + gmm + **BIRCH (v0.9.111)** |
+| draft | 14 | 21 legacy - 9 flipped - linucb/iforest/gmm/birch promoted to verified |
+| pending (no status) | 56 fns (125 entries) | 88 with fn + 19 no-fn described_only/niic (v0.9.111) |
 
 ## Known gaps (remaining)
 
 - **DEC-013**: `fit_zms` x3 — O(n) output needs `SpillArray`. Deferred to v0.9.111.
 - **DEC-014**: `fit_pelt` x2 — `_collect_series` container. Deferred.
 - **DEC-030** (v0.9.109a): `fit_cusum` — O(n) state + O(n) output, SpillArray rewrite pending. Draft.
-- **R7 backlog**: `test_R7` — all non-described_only cards must have `implementation_status` block with both fields.
-- **62 no-fn cards**: `described_only: true` schema + `test_R6` — v0.9.110 Part 2.
-- `fit_ab_test` — tiny O(1) state; STABILITY §4 special case.
+- **DEC-034 backlog**: subprocess-isolation for `measure_peak_traced`-based tests (v0.9.112). Median-of-3 is honest interim; restores [0.7, 1.4] once isolated.
+- **DEC-035 backlog**: BIRCH `_insert` batching (removes ~5 MB glibc arena churn, reduces coef to true 1.0) — v0.9.112.
+- **`fit_ab_test`** — tiny O(1) state; STABILITY §4 special case.
+- **`test_R7` status backfill**: 56 has-fn cards with `status=None` (pending); R7 checks block existence only (v0.9.111). Flipping to draft/verified — separate sessions per group.
 
 ## Lessons learned (v0.9.105-109)
 
@@ -54,24 +57,19 @@ in v0.9.109 (a-d). Next: fill pending cards via EXPERIMENT_PROCEDURE.
 - **Component-wise pitfalls:** (a) `d=10` noise 1MB > signal 0.3MB -> use d>=200. (b) `intercept` from slope-fit amplifies noise 8x -> only assert `coef` (slope). (c) `state(n1)==state(n2)` for n>=S fails (reservoir order) -> use bounded <=1.5x. See CW-AP1..4 in EXPERIMENT_PROCEDURE 3.7.
 - **YAML card-scoped patch:** `str.replace` may hit 2+ cards (`bounded_state_dims` everywhere). Use regex anchors `- name: <Card>` + next card, patch only inside [start, end).
 
+## Lessons learned (v0.9.111)
+
+- **coef честность vs precedent.** BIRCH coef=1.16 (f64 zero-copy `_stack_numeric`); iforest 2.77 (reservoir + per-tree transients). Формула 3.0 — conservative per fit_linear precedent. DEC-035 фиксирует ~5 MB intercept (glibc arena fragmentation от per-row `_insert`) как known allocator-dependent limitation; formula оставляет 3.0 (safe upper), backlog v0.9.112 `_insert` batching.
+- **`test_roadmap` regex: субапдейт — часть версии.** `v0.9.110g` не парсился `\d+\.\d+\.\d+$` ни в `## Current:`, ни в `_vkey`. Fixed: `vX.Y.Z<suffix>` + `_vkey` без `$`. Урок: тест, проверяющий версию, должен быть толерантен к проектному формату версий.
+- **Doc-sync drift 12 versions.** `render_matrix.py` не запускали с v0.9.99 до v0.9.110g — 15 test_render_matrix fails накопились. Урок: re-run после каждого YAML change — pre-commit hook (`--check` flag) — backlog.
+
 ## Next 3 sessions
 
-### v0.9.111 — Batch 2 continuation + Part 2
+### v0.9.112 — Batch 3: group C (needs P/k/w second knob)
 
-**Part 1 — remaining verified cards from v0.9.110 plan:**
-- `fit_birch` (CF-tree, Python-object state like iforest; DEC-033 template applies)
-
-DONE in v0.9.110: `fit_linucb`, `fit_isolation_forest` x2, `fit_gmm`.
-
-**Part 2 — `described_only` for 62 no-fn cards:**
-- Cards: TabPFN, Chronos-*, BERT, ResNet50, GCN, etc. — reference-only, not implementable
-- Schema: add `described_only: true` + `test_R6` (no-fn must be described_only)
-- `test_R7` (all non-described_only have implementation_status block)
-
-**Part 3 — Aliases consistency safeguard:**
-- `test_R5` already enforces consistency for existing aliases
-- Add helper `scripts/bulk_flip_status.py --fn NAME --from draft --to verified` for batched flips
-### v0.9.111 — Batch 3: group C (needs P/k/w second knob)
+**Backlog closed from v0.9.111:**
+- DEC-034 subprocess-isolation for `measure_peak_traced`-based tests (restores [0.7, 1.4])
+- DEC-035 BIRCH `_insert` batching (removes glibc arena churn, coef → true 1.0)
 
 **Group C pending** (from probe-109):
 - `fit_zms` ×3, `fit_hampel`, `fit_sub_pca`, `fit_kshape`, `fit_eif`, `fit_autoencoder`, `fit_kmeans_ad`, `fit_patch_memory_ad`, `fit_s2g`, `fit_minirocket`, `fit_dwt_mlead`, `fit_bocpd` — O(batch) anomaly detectors
@@ -82,9 +80,14 @@ DONE in v0.9.110: `fit_linucb`, `fit_isolation_forest` x2, `fit_gmm`.
 - `fit_zms` ×3, `fit_cusum` — need SpillArray write before verified
 - After SpillArray: cusum draft → verified
 
-### v0.9.112+ — Group C continued + tag
+### v0.9.113 — SpillArray (DEC-013/030): zms x3 + cusum
 
-Tag `v0.9.112` when 20+ verified total.
+`fit_zms` x3 + `fit_cusum` need SpillArray (O(n) output) before verified.
+After SpillArray: cusum draft → verified; zms draft → verified.
+
+### v0.9.114 — Group C continued + tag
+
+Tag `v0.9.114` when 20+ verified total.
 
 ## Backlog (not scheduled)
 

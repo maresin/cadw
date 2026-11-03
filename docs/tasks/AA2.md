@@ -16,7 +16,7 @@
 ### LogisticRegression_multinomial — baseline / tier1_core
 
 **Roles:** linear_signal
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** Multinomial log-odds; strong when classes are roughly linearly separable.
 
@@ -58,7 +58,7 @@
 ### GaussianNB — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** Gaussian class-conditionals; extremely fast.
 

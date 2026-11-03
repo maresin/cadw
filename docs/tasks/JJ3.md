@@ -52,7 +52,7 @@
 ### NMF — baseline / tier2_wrapper
 
 **Roles:** representation
-**Status:** —
+**Status:** desc
 
 **Purpose:** Lee & Seung 1999 - non-negative matrix factorization of the doc-term matrix. Inductive bias: additive parts-based topics with sparsity enforced by non-negativity; no probabilistic likelihood, so perplexity is undefined.
 

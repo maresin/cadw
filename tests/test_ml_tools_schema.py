@@ -613,3 +613,69 @@ def test_R5_aliases_consistent_status():
                 bad.append(f"  {r[0]:<28} {r[1]:<32} {r[2]}")
 
     assert not bad, "\n".join(bad)
+
+# ============================================================
+# v0.9.111: R6 + R7 — no-fn cards must be described_only or niic;
+# has-fn cards must have impl_status block. Probe v0.9.111: 19 no-fn
+# violations, 0 has-fn without block.
+# ============================================================
+
+
+def _iter_all_yaml_cards():
+    """Yield (yaml_path, card_dict, label) for ALL ModelCards."""
+    from pathlib import Path as _P
+    import yaml as _yaml
+    YAML_DIR = _P(__file__).parent.parent / "docs" / "ml_tools"
+    SKIP = {"benchmarks.yaml", "memory_constants.yaml"}
+    for yp in sorted(YAML_DIR.glob("*.yaml")):
+        if yp.name in SKIP:
+            continue
+        try:
+            data = _yaml.safe_load(yp.read_text(encoding="utf-8"))
+        except _yaml.YAMLError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        for st in data.get("subtypes", []):
+            for card in st.get("models", []):
+                yield yp, card, f"{yp.name}:{st.get('id', '?')}.{card.get('name', '?')}"
+
+
+def test_R6_no_fn_requires_described_or_niic():
+    """R6: ModelCard without cadw_function ⟹ described_only=True OR
+    not_implemented_in_cadw=True. A card must declare *why* it has
+    no implementation."""
+    bad = []
+    for yp, card, label in _iter_all_yaml_cards():
+        if card.get("cadw_function"):
+            continue
+        impl = card.get("implementation_status") or {}
+        if not (impl.get("described_only") is True
+                or impl.get("not_implemented_in_cadw") is True):
+            bad.append(
+                f"{label}: no cadw_function but "
+                f"described_only={impl.get('described_only')!r}, "
+                f"not_implemented_in_cadw={impl.get('not_implemented_in_cadw')!r}"
+            )
+    assert not bad, (
+        "R6 (v0.9.111): no-fn ModelCards must have described_only=True "
+        "or not_implemented_in_cadw=True:\n" + "\n".join(bad)
+    )
+
+
+def test_R7_has_fn_requires_impl_block():
+    """R7: ModelCard with cadw_function ⟹ implementation_status block
+    present (block existence, not both fields — pending status is OK)."""
+    bad = []
+    for yp, card, label in _iter_all_yaml_cards():
+        if not card.get("cadw_function"):
+            continue
+        if card.get("implementation_status") is None:
+            bad.append(
+                f"{label}: cadw_function={card.get('cadw_function')} "
+                f"but no implementation_status block"
+            )
+    assert not bad, (
+        "R7 (v0.9.111): has-fn ModelCards must have implementation_status "
+        "block:\n" + "\n".join(bad)
+    )

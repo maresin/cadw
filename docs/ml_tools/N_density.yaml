@@ -71,7 +71,7 @@ subtypes:
         tier: baseline
         tier_level: tier2_wrapper
         implementation_status:
-          described_only: false
+          described_only: true
           reference_impl_ready: true
         roles: [local_structure, probabilistic]
         purpose: "Non-parametric kernel density estimator; the density is a sum of kernel bumps at every training point. Inductive bias: smooth local structure with bandwidth-controlled smoothing — no parametric form, but O(n) scoring and fragile in high dimensions."
@@ -83,7 +83,10 @@ subtypes:
       - name: BIRCH
         tier: baseline
         tier_level: tier1_core
-        implementation_status: {verified_in_cadw: true, verified_by_agent: true}
+        implementation_status:
+          verified_in_cadw: true
+          verified_by_agent: true
+          status: verified
         roles: [local_structure, representation]
         purpose: "Balanced iterative reducing and clustering using hierarchies (Zhang 1996). Inductive bias: cluster-feature tree with radius threshold; density is approximated by per-leaf counts. Not a true density model but a scalable cluster-based density proxy."
         real_life_examples: ["Streaming cluster discovery", "Large-catalog bucketing", "Approximate density for n>>memory"]
@@ -93,8 +96,24 @@ subtypes:
         cadw_module: cadw.ml.birch
         cadw_function: fit_birch
 
+        ram_formula: "branching_factor * ((2*d+1)*f64 + 32) + k*d*f64 + 512 + 3*batch*row_size"
+        formula_evidence:
+          per_cf: "birch.py:104 -- state_nbytes: cf_count * ((2d+1)*8 + 32); cf_count <= branching_factor by split policy"
+          centers: "birch.py:105 -- centers_.nbytes = k*d*8 (k=min(n_clusters, cf_count))"
+          header: "birch.py:105 -- +512 constant"
+          batch: "birch.py:220 -- check_batch(extra_factor=3.0); _stack_numeric on f64 columns = 1x column_stack (per-column zero-copy); measured coef 1.16; formula uses 3.0 conservative per fit_linear v0.9.107; see DEC-035"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          state_check: "test_state_nbytes_exact: state_nbytes() == cf_count*((2d+1)*8+32) + k*d*8 + 512"
+          state_bounded: "test_state_bounded_for_large_n + test_cf_count_bounded: ratio < 2.0 and cf_count <= bf at n=1k..20k"
+          coef_batch: "test_batch_coef_isolated: slope/row_size in [0.8, 2.5]; measured 1.16"
+          formula_sanity: "test_formula_small_scale: predicted/measured in [0.5, 2.0]"
+          ooc: "test_ooc_batch_fixed: peak ratio < 2.0 (median-of-3)"
+          cells_passed: "6/6"
+          runtime_sec: "~5"
+          note: "Component-wise per DEC-033. cf_count is data-dependent but bounded by branching_factor (1-level tree split policy)."
         state_class: O(model)
-        bounded_state_dims: {k: 1, d: 1}
+        bounded_state_dims: {branching_factor: 1, k: 1, d: 1}
         transient_factor: 1.0
         state_type: aggregation
         bounded_state: true

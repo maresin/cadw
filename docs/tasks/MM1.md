@@ -19,7 +19,7 @@
 ### LinUCB — baseline / tier1_core
 
 **Roles:** linear_signal
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** Li et al. 2010 — per-arm ridge regression on context with an upper-confidence exploration bonus. Inductive bias: reward is a linear function of context per arm, with a disjoint or hybrid parameterization; strong when contexts are low-dimensional and reward is roughly linear.
 
@@ -52,7 +52,7 @@
 ### EpsilonGreedy — baseline / tier1_core
 
 **Roles:** linear_signal
-**Status:** ✓ agent
+**Status:** ✓ agent, desc
 
 **Purpose:** Epsilon-greedy exploration over per-arm reward estimates. Inductive bias: no structural assumption — uniform random exploration with rate epsilon, then exploit the empirical mean. Canonical baseline; weak when rewards are context-dependent.
 
@@ -73,7 +73,7 @@
 ### UCB1 — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ agent
+**Status:** ✓ agent, desc
 
 **Purpose:** Auer et al. 2002 UCB1 — non-contextual optimism under uncertainty with an O(sqrt(log T / n_a)) bonus. Inductive bias: stationary arm means with no context; outperforms epsilon-greedy on stationary problems but not context-dependent ones.
 
@@ -94,7 +94,7 @@
 ### ThompsonSampling — sota / tier2_wrapper
 
 **Roles:** probabilistic
-**Status:** ✓ agent
+**Status:** ✓ agent, desc
 
 **Purpose:** Chapelle & Li 2011 — Beta-Bernoulli posterior sampling per arm; plays an arm with probability proportional to its posterior probability of being optimal. Inductive bias: conjugate Bayesian per-arm model; naturally balances exploration and exploitation and is empirically strong on CTR data.
 

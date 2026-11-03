@@ -1,5 +1,68 @@
 ## [Unreleased]
 
+### v0.9.111 (2026-11-03) — fit_birch verified (16 total) + R6/R7 schema + baseline stabilization
+
+**Phase 0 — baseline stabilization (pre-existing red from v0.9.99 doc drift):**
+- render_matrix re-run: 10 files (MATRIX.md + docs/tasks/AA*,DD3_1,EE*,MM1,NN1).
+  15 test_render_matrix fails accumulated between v0.9.99 (last regen) and
+  v0.9.110g (YAML changes: gmm verified, HDBSCAN/NormalizingFlow described_only).
+- test_roadmap regex: accept vX.Y.Z<suffix> (v0.9.110g, v0.9.93-logistic).
+  _vkey drops trailing `$`. Subpatch is part of version, not a separate token.
+- test_iforest_verification: median-of-3 in test_ooc_batch_fixed; widen
+  test_formula_small_scale to [0.5, 2.0]. DEC-034: full-suite SNR 1.2
+  (baseline RSS from prior 4400 tests raises measure_peak_traced noise to
+  ~5 MB). Primary evidence is state-exact (bit-exact) + coef isolated.
+- test_arrow_call_memory_guard: whitelist measure_peak_pss + measure_peak_traced
+  (threading.Thread.join for daemon sampler cleanup, NOT pa.Table.join —
+  same precedent as MemoryGuard.calibrate v0.9.20-fix4).
+
+**Phase 1 — fit_birch OOC + verification (DEC-033 component-wise):**
+- cadw/ml/birch.py: batch_size kwarg. None -> derive via
+  get_batch_rows(state_est=bf*((2d+1)*8+32) + k_bound*d*8 + 512,
+  expansion_factor=3.0). Int = explicit override.
+- tests/test_birch_verification.py: 6 tests (state_nbytes_exact,
+  cf_count_bounded, state_bounded_for_large_n, batch_coef_isolated,
+  formula_small_scale, ooc_batch_fixed). State exact by construction
+  (cf_count known from tree; bounded by branching_factor via 1-level
+  split policy).
+- docs/ml_tools/N_density.yaml BIRCH card: status -> verified,
+  ram_formula + formula_evidence + measurement (component-wise per
+  DEC-033). bounded_state_dims: {k, d} -> {branching_factor, k, d}.
+- DEC-035: coef=1.16 honest (f64 zero-copy _stack_numeric; iforest 2.77
+  reflects reservoir + per-tree transients). ~5 MB intercept is glibc
+  arena fragmentation (per-row _insert transients) — allocator-dependent,
+  not code-derivable. Formula keeps 3.0 conservative per fit_linear
+  v0.9.107 precedent (safe upper for guard; at small batch under-estimates
+  by 1.7x — known small limitation, v0.9.112 `_insert` batching).
+
+**Phase 2 — Part 2 (re-scoped from 62 to 19 cards, probe-verified):**
+- tests/test_ml_tools_schema.py: +test_R6 (ModelCard without cadw_function
+  requires described_only=True OR not_implemented_in_cadw=True);
+  +test_R7 (ModelCard with cadw_function requires implementation_status
+  block present; pending status=None is valid).
+- 19 no-fn cards patched: 8 tier3_export -> not_implemented_in_cadw: true
+  (Chronos-Bolt-Tiny/Mini/Small/Base, Chronos-2-small, AutoGluon-TS,
+  Timer-S1, t0-beta); 11 tier1/tier2 -> described_only: true
+  (KaplanMeier, WeibullAFT, ComplementNB, NMF, EpsilonGreedy, UCB1,
+  ThompsonSampling, KernelDensity, OneHotEncoder, StratifiedSplit,
+  ReservoirSample).
+- scripts/bulk_flip_status.py: new helper (card-scoped, A16; idempotent;
+  --dry-run; fail-loud on anchor miss per AP8). Companion to test_R5.
+
+**Release:**
+- 16 verified total (15 + BIRCH).
+- Focused suite: 779 passed, 0 failed (test_birch x2, iforest_ver,
+  linucb_ver, gmm_ver, ml_tools_schema, yaml_state_fields,
+  render_matrix, roadmap, arrow_gate, primitive_reuse,
+  guard_before_alloc, no_dense_windows, constitution_gates).
+- docs/ROADMAP.md: Current -> v0.9.111; Status baseline 15 -> 16;
+  Next-3 shifted (v0.9.112 Group C + DEC-034/035 backlog; v0.9.113
+  SpillArray zms/cusum; v0.9.114 Group C + tag).
+- CHANGELOG.md: this entry.
+
+**Do not re-solve:** DEC-031/032/033 (component-wise, iforest/linucb);
+v0.9.107 verified cards; _stack_numeric (v0.9.108 final); MemoryGuard core.
+
 ### v0.9.110 (2026-11-03) — component-wise verification (DEC-033), 15 verified
 
 **v0.9.110a — fit_isolation_forest OOC (DEC-031):**

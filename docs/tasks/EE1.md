@@ -38,7 +38,7 @@
 ### IForest — sota / tier1_core
 
 **Roles:** nonlinear_interactions
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** Random-split isolation ensemble; O(n) fit; strong on high-dim tabular.
 

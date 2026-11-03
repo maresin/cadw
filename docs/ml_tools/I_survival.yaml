@@ -103,7 +103,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: false
+      described_only: true
       reference_impl_ready: true
     roles:
     - probabilistic
@@ -131,7 +131,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
-      described_only: false
+      described_only: true
       reference_impl_ready: true
     roles:
     - linear_signal

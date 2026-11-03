@@ -88,8 +88,9 @@ def test_roadmap_md_structure():
     #   2. `## Next 3 sessions` names >=3 `### vX.Y.Z` subsections.
     #   3. Every Next-version is strictly greater than Current.
     import re as _re
+    # v0.9.111: allow subpatch suffix (v0.9.110g, v0.9.93-logistic).
     current_m = _re.search(
-        r"^## Current:\s*(v\d+\.\d+\.\d+)\s*$",
+        r"^## Current:\s*(v\d+\.\d+\.\d+[a-z]?(?:[-+]\w+)?)\s*$",
         text, flags=_re.MULTILINE,
     )
     assert current_m, (
@@ -116,7 +117,8 @@ def test_roadmap_md_structure():
     )
 
     def _vkey(v: str) -> tuple[int, int, int]:
-        m = _re.match(r"v(\d+)\.(\d+)\.(\d+)$", v)
+        # v0.9.111: no trailing $ — subpatch suffix allowed (v0.9.110g).
+        m = _re.match(r"v(\d+)\.(\d+)\.(\d+)", v)
         assert m, f"unrecognized version: {v!r}"
         return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
 

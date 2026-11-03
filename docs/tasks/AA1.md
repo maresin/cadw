@@ -18,7 +18,7 @@
 ### LogisticRegression — baseline / tier1_core
 
 **Roles:** linear_signal
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** Additive log-odds; fast on high-d, low-n; interpretable coefficients.
 
@@ -62,7 +62,7 @@
 ### BernoulliNB — baseline / tier1_core
 
 **Roles:** probabilistic
-**Status:** ✓ cadw, ✓ agent
+**Status:** ✓ cadw
 
 **Purpose:** Naive Bayes for binary features; fast baseline.
 
@@ -80,6 +80,28 @@
   - number: https://openml.github.io/automlbenchmark/
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.BernoulliNB.html
   - note: [legacy v0.9.44, migrated v0.9.50]
+
+### NaiveBayes_multinomial — baseline / tier1_core
+
+**Roles:** linear_signal
+**Status:** ✓ cadw
+
+**Purpose:** Multinomial NB for count features (text, events); standard NLP baseline.
+
+**Use cases:**
+- Text classification
+- Spam detection
+
+**Config:** `{'alpha': 'float'}`
+
+**CADW:** `cadw.ml.naive_bayes.fit_multinomial_nb`
+
+**Benchmarks:**
+- **[literature]** AMLB → accuracy=0.72
+  - algorithm: `sklearn.naive_bayes.MultinomialNB` (docs)
+  - number: https://openml.github.io/automlbenchmark/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.MultinomialNB.html
+  - note: [v0.9.105 DEC-012: card created to unblock fit_multinomial_nb]
 
 ### TabPFN — sota / tier3_export
 
