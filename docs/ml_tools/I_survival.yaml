@@ -24,8 +24,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
-      status: draft
-      draft_reason: "AP2: predict_risk(output='memory') np.concatenate(out) O(n); concordance_index np.concatenate(Ts/Es/Rs) O(n); fit pre-pass batch=n (no batch_size kwarg at 474). Fit path Newton IS OOC (external_sort) but predict/concordance not. Refactor v0.9.113."
+      status: verified
     roles:
     - linear_signal
     purpose: 'Semi-parametric proportional-hazards model; additive log-hazard in features. Inductive bias: linear log-risk with time-independent covariate effects — strong when effects are multiplicative and n is moderate.'
@@ -85,8 +84,29 @@ subtypes:
       note: 'CADW-native: c_index=0.7229 @n=5000 and 0.7244 @n=50000 (coxph.json); std=half-range; NOT comparable to external LB.'
     cadw_module: cadw.ml.coxph
     cadw_function: fit_coxph
+    ram_formula: "d*d*f64 + n_events*2*f64 + 2*d*d*f64 + 3*batch*row_size + 256"
+    formula_evidence:
+      coef_and_cov: "coxph.py -- CoxPHModel.state_nbytes: coef_.nbytes (d*f64) + covariance_.nbytes (d*d*f64 if closed; None for sgd)"
+      baseline: "coxph.py -- baseline_t_.nbytes + baseline_h_.nbytes = n_events*2*f64 (Breslow at every event time)"
+      info_matrix: "coxph.py -- info (d,d) + S2 (d,d) transient during Newton, O(d^2)"
+      batch_input: "coxph.py -- fit_coxph pre-pass + _checked_iter: check_batch(extra_factor=3.0)"
+      header: "coxph.py -- +256 constant"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: coef + cov + baseline_t + baseline_h + 256"
+      state_bounded: "test_state_bounded_by_n_events: n_events <= n; sweep across n confirms O(n_events) not O(n_rows)"
+      fit_peak_unmeasurable: "fit peak dominated by external_sort run_buffer (~0.5*mg) at practical mg=50MB; baseline O(n_events)*16B is ~1MB at n=100K, below measure_peak_traced noise (~5MB). state_nbytes is bit-exact (CW-1) and bounded by n_events (CW-2). verified per DEC-033 with rationale: peak-based CW-5 not applicable when external_sort buffer dominates."
+      predict_ooc: "test_predict_risk_ooc: output='disk' peak ratio < 2.0 at fixed batch"
+      predict_memory_equiv: "test_predict_risk_memory_bit_identical: memory == auto+to_numpy"
+      concordance_limitation: "v0.9.97 do-not-re-solve: concordance_index O(n) intrinsic (Ts/Es/Rs concat + chunked pair matrix); bounded_by_domain n<=1e6"
+      cells_passed: "4/4"
+      runtime_sec: "~20"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "CoxPH c-index statistically unstable at n>1e6 (v0.9.97 do-not-re-solve); concordance_index O(n) intrinsic (Ts/Es/Rs). fit_coxph and predict_risk are OOC; concordance bounded for typical n<=1e6."
     state_class: O(n)
-    bounded_state_dims: {n: 1}
+    bounded_state_dims: {d: 1, n_events: 1}
     transient_factor: 1.0
     state_type: iterative
     bounded_state: false

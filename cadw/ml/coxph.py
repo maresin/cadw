@@ -124,7 +124,8 @@ class CoxPHModel:
                 "log_likelihood": self.log_likelihood_,
                 "solver": self.solver_}
 
-    def predict_risk(self, df, X_cols=None, *, output: str = "auto"):
+    def predict_risk(self, df, X_cols=None, *, output: str = "auto",
+                     batch_size: "int | None" = None):
         """Predict risk scores (higher = shorter survival).
 
         v0.9.95 (BREAKING): unified CadwDataFrame return. output=
@@ -140,12 +141,29 @@ class CoxPHModel:
                 f"'disk'; got {output!r}")
         cols = list(X_cols) if X_cols is not None else self.feature_names_
         mg = getattr(df, "_memory_guard", None)
+        # v0.9.114: derive batch_size for OOC (was batch=n, O(n) peak).
+        if batch_size is None and mg is not None:
+            try:
+                _row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+                batch_size = mg.get_batch_rows(
+                    row_size_bytes=_row_size,
+                    expansion_factor=3.0,
+                    state_bytes=0,
+                )
+            except Exception:
+                batch_size = None
 
         if output == "memory":
-            out = []
-            for b in df._iter_filtered_batches():
-                out.append(_stack_num(b, cols) @ self.coef_)
-            arr = np.concatenate(out) if out else np.zeros(0)
+            # v0.9.114: pre-alloc (was append + np.concatenate = AP2).
+            n = 0
+            for b in df._iter_filtered_batches(batch_size=batch_size):
+                n += b.num_rows
+            arr = np.empty(n, dtype=np.float64)
+            pos = 0
+            for b in df._iter_filtered_batches(batch_size=batch_size):
+                nb = b.num_rows
+                arr[pos:pos + nb] = _stack_num(b, cols) @ self.coef_
+                pos += nb
             raw = pa.table({"risk": pa.array(arr, type=pa.float64())})
         else:
             from cadw.core.spill import SpillArray
@@ -153,7 +171,7 @@ class CoxPHModel:
                 guard=mg, width=1, dtype=np.float64,
                 name="coxph.predict_risk",
                 spill_ratio=0.0 if output == "disk" else 0.5)
-            for b in df._iter_filtered_batches():
+            for b in df._iter_filtered_batches(batch_size=batch_size):
                 buf.write_array(_stack_num(b, cols) @ self.coef_)
             raw = buf.finalize()
 
@@ -433,7 +451,8 @@ def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
               sgd_lr: float = 0.1,
               sgd_epochs: int = 100,
               memory_guard: Optional[MemoryGuard] = None,
-              spill_dir: Optional[str] = None) -> CoxPHModel:
+              spill_dir: Optional[str] = None,
+              batch_size: "int | None" = None) -> CoxPHModel:
     """Fit Cox PH by Newton-Raphson on the Breslow partial likelihood.
 
     v0.9.87-P5a-fix-coxph: true streaming implementation.
@@ -455,6 +474,19 @@ def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
     mg = memory_guard or df._memory_guard
     d = len(cols)
 
+    # v0.9.114 (DEC-033 OOC): derive batch_size if not given.
+    if batch_size is None:
+        try:
+            _row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+            _state_bytes = 3 * d * d * 8
+            batch_size = mg.get_batch_rows(
+                row_size_bytes=_row_size,
+                expansion_factor=3.0,
+                state_bytes=_state_bytes,
+            )
+        except Exception:
+            batch_size = 10_000
+
     # State guard: 3 d^2 matrices (S2, info, outer(mu,mu)) + pending ties.
     pending_budget = mg.state_limit_bytes // 8
     est_state = 3 * d * d * 8 + 5 * pending_budget
@@ -471,7 +503,7 @@ def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
         # Pre-pass: n_rows + n_events (streaming, no n-sized alloc).
         n_rows = 0
         n_events = 0
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(b, name="coxph.pass1", extra_factor=2.0)
             e_arr = b.column(event_col).cast(
                 pa.float64(), safe=False).to_numpy(zero_copy_only=False)
@@ -483,7 +515,7 @@ def fit_coxph(df, X_cols, time_col, event_col, *, max_iter=50, tol=1e-7,
             raise ValueError("fit_coxph: no events (all censored)")
 
         def _checked_iter():
-            for b in df._iter_filtered_batches():
+            for b in df._iter_filtered_batches(batch_size=batch_size):
                 Xb = _stack_num(b, cols)
                 Tb = b.column(time_col).cast(
                     pa.float64(), safe=False).to_numpy(zero_copy_only=False)

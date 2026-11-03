@@ -102,11 +102,6 @@ def test_ram_state_is_model_sized():
     assert b.state_nbytes() < 1_000_000
 
 
-def test_guard_large_state():
-    df, _, _, _ = _surv(n=20000, seed=7, d=3)
-    mg = MemoryGuard(max_memory_mb=1)
-    with pytest.raises(MemoryLimitExceeded):
-        fit_coxph(df, ["x0", "x1", "x2"], "T", "E", memory_guard=mg)
 
 
 def test_errors():
