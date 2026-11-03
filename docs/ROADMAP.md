@@ -1,12 +1,12 @@
 # CADW Roadmap
 
-Last updated: 2026-11-03 (after v0.9.111).
+Last updated: 2026-11-03 (after v0.9.112).
 
-## Current: v0.9.111
+## Current: v0.9.112
 
-Baseline stabilized (Phase 0). fit_birch verified (Phase 1, 16 total).
-Schema R6/R7 + 19 no-fn cards patched (Phase 2). Next: Group C
-(windowed anomaly + P/k/w knobs) via EXPERIMENT_PROCEDURE.
+Batch 1: MiniRocket x2 + ALS x2 -> verified (18 verified fns), KShapeAD
+-> draft (DEC-013). Batch 2: 7 cards -> draft (LDA AP5, CoxPH/T/S AP2,
+EIF/KMeansAD/BOCPD DEC-013). Next: v0.9.113 SpillArray unblocks 6 drafts.
 
 ## Progress (v0.9.105 - v0.9.110g)
 
@@ -25,25 +25,30 @@ Schema R6/R7 + 19 no-fn cards patched (Phase 2). Next: Group C
 - **v0.9.110f** -- snapshot tooling: TINY_FULL += test_*_verification.py, TINY_SKELETON += experiment scripts, EXAMPLES_INDEX rows.
 - **v0.9.110g** -- `fit_gmm` verified (component-wise). batch_size kwarg + state_est = 5*max_samples*d*f64. 15 verified total.
 - **v0.9.111** -- Phase 0 baseline (doc-sync regen, iforest flake median-of-3, DEC-034, arrow-gate Thread.join whitelist). Phase 1 fit_birch verified (16 total, DEC-035). Phase 2 R6/R7 schema + 19 no-fn cards patched (described_only / not_implemented_in_cadw).
+- **v0.9.112-batch1** -- MiniRocket x2 (embedding+sota) + ALS x2 -> verified (component-wise, DEC-033). ALS `state_nbytes()` extended (was 30% under-report), `batch_size` kwarg + propagation. KShapeAD -> draft (DEC-013). 18 verified fns.
+- **v0.9.112-batch2** -- 7 cards -> draft: LDA (AP5 unbounded vocab), CoxPH + T/S_learner (AP2 concatenate/vstack), EIF/KMeansAD/BOCPD (DEC-013 SpillArray). `bounded_by_domain` added to 5 tier1_core cards (R7).
 
 
 ## Status baseline
 
 | Status | Count | Note |
 |---|---|---|
-| verified | **16** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + linucb + iforest x2 + gmm + **BIRCH (v0.9.111)** |
-| draft | 14 | 21 legacy - 9 flipped - linucb/iforest/gmm/birch promoted to verified |
-| pending (no status) | 56 fns (125 entries) | 88 with fn + 19 no-fn described_only/niic (v0.9.111) |
+| verified | **18** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + linucb + iforest x2 + gmm + BIRCH + **MiniRocket + ALS (v0.9.112)** |
+| draft | **22** | 14 legacy + KShapeAD/LDA/CoxPH/T_learner/S_learner/EIF/KMeansAD/BOCPD (v0.9.112) |
+| pending (no status) | ~48 fns | 88 with fn - 19 no-fn described_only/niic (v0.9.111) - v0.9.112 batch2 flips |
 
 ## Known gaps (remaining)
 
 - **DEC-013**: `fit_zms` x3 — O(n) output needs `SpillArray`. Deferred to v0.9.111.
 - **DEC-014**: `fit_pelt` x2 — `_collect_series` container. Deferred.
 - **DEC-030** (v0.9.109a): `fit_cusum` — O(n) state + O(n) output, SpillArray rewrite pending. Draft.
-- **DEC-034 backlog**: subprocess-isolation for `measure_peak_traced`-based tests (v0.9.112). Median-of-3 is honest interim; restores [0.7, 1.4] once isolated.
-- **DEC-035 backlog**: BIRCH `_insert` batching (removes ~5 MB glibc arena churn, reduces coef to true 1.0) — v0.9.112.
+- **SpillArray** (DEC-013): unblocks zms, cusum, kshape, eif, kmeans_ad, bocpd → v0.9.113.
+- **K-spill** (AP5): LDA `_build_vocab`, tfidf — v0.9.115.
+- **AP2 refactors** (v0.9.114): CoxPH predict_risk/concordance, T/S_learner `_collect` Xs.append+vstack.
+- **DEC-034 backlog**: subprocess-isolation for `measure_peak_traced`-based tests — v0.9.114.
+- **DEC-035 backlog**: BIRCH `_insert` batching — v0.9.114.
 - **`fit_ab_test`** — tiny O(1) state; STABILITY §4 special case.
-- **`test_R7` status backfill**: 56 has-fn cards with `status=None` (pending); R7 checks block existence only (v0.9.111). Flipping to draft/verified — separate sessions per group.
+- **Remaining pending**: zms, hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad, autoencoder — probe fresh in v0.9.115.
 
 ## Lessons learned (v0.9.105-109)
 
@@ -63,13 +68,22 @@ Schema R6/R7 + 19 no-fn cards patched (Phase 2). Next: Group C
 - **`test_roadmap` regex: субапдейт — часть версии.** `v0.9.110g` не парсился `\d+\.\d+\.\d+$` ни в `## Current:`, ни в `_vkey`. Fixed: `vX.Y.Z<suffix>` + `_vkey` без `$`. Урок: тест, проверяющий версию, должен быть толерантен к проектному формату версий.
 - **Doc-sync drift 12 versions.** `render_matrix.py` не запускали с v0.9.99 до v0.9.110g — 15 test_render_matrix fails накопились. Урок: re-run после каждого YAML change — pre-commit hook (`--check` flag) — backlog.
 
+## Lessons learned (v0.9.112)
+
+- **`n_scalability` -> verification test threshold.** `constant` → `ratio < 2.0`; `linear` → rename `test_peak_grows_linearly_with_n` + `ratio < 5.0`. Не расширять threshold ради зелёного — честный `linear` в YAML (ALS external_sort: peak O(K), K=n/run_buffer).
+- **`state_nbytes()` extension → grep tests first.** `grep -rn 'state_nbytes' tests/test_<fn>*.py` — все stale assertions в тот же патч (ALS: 2 assertions, обновил только одну в fix1, вторую в fix3).
+- **`batch_size` propagation → grep defs.** Module-level helpers — параметр, не closure. `_objective_streaming` в ALS получил NameError, потому что `batch_size` был только в `fit_als` scope.
+- **`tier1_core + bounded_state:false` → `bounded_by_domain` сразу.** R7 schema проверяет при каждом YAML change. KShapeAD + 5 draft cards — 2 итерации на забывчивость.
+- **Не бороться с `measure_peak`.** Baseline >> peak → component-wise немедленно (DEC-033). A12.
+- **Card-scoped YAML patch.** `str.replace` с `bounded_state_dims` может попасть в чужую карточку. Anchor: `- name: <Card>` + next `- name:` (A16).
+
 ## Next 3 sessions
 
-### v0.9.112 — Batch 3: group C (needs P/k/w second knob)
+### v0.9.113 — SpillArray (DEC-013): 6 drafts -> verified
 
-**Backlog closed from v0.9.111:**
-- DEC-034 subprocess-isolation for `measure_peak_traced`-based tests (restores [0.7, 1.4])
-- DEC-035 BIRCH `_insert` batching (removes glibc arena churn, coef → true 1.0)
+`SpillArray` primitive for O(n) output. Unblocks: zms, cusum, kshape,
+eif, kmeans_ad, bocpd (all DEC-013 draft from v0.9.111-112). Each:
+verification test + YAML flip. Target 24 verified fns.
 
 **Group C pending** (from probe-109):
 - `fit_zms` ×3, `fit_hampel`, `fit_sub_pca`, `fit_kshape`, `fit_eif`, `fit_autoencoder`, `fit_kmeans_ad`, `fit_patch_memory_ad`, `fit_s2g`, `fit_minirocket`, `fit_dwt_mlead`, `fit_bocpd` — O(batch) anomaly detectors
@@ -80,14 +94,18 @@ Schema R6/R7 + 19 no-fn cards patched (Phase 2). Next: Group C
 - `fit_zms` ×3, `fit_cusum` — need SpillArray write before verified
 - After SpillArray: cusum draft → verified
 
-### v0.9.113 — SpillArray (DEC-013/030): zms x3 + cusum
+### v0.9.114 — AP2 refactors + DEC-034/035 backlog
 
-`fit_zms` x3 + `fit_cusum` need SpillArray (O(n) output) before verified.
-After SpillArray: cusum draft → verified; zms draft → verified.
+- CoxPH: `predict_risk(output='memory')` + `concordance_index` — SpillArray/pre-alloc
+- T/S_learner: `_collect` Xs.append+vstack → pre-allocated, GBDT on df.filter(t==arm)
+- DEC-034: subprocess-isolation for `measure_peak_traced`-based tests
+- DEC-035: BIRCH `_insert` batching
 
-### v0.9.114 — Group C continued + tag
+### v0.9.115 — K-spill (LDA/tfidf) + remaining pending
 
-Tag `v0.9.114` when 20+ verified total.
+K-spill (HashShuffle) for LDA `_build_vocab` + tfidf. Probe fresh
+pending: zms, hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad,
+autoencoder. Tag v0.9.115 at end.
 
 ## Backlog (not scheduled)
 

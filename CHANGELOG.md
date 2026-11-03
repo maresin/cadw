@@ -1,5 +1,62 @@
 ## [Unreleased]
 
+### v0.9.112 (2026-11-03) — MiniRocket x2 + ALS x2 verified (18 fns), 8 cards -> draft
+
+**v0.9.112-batch1 — verified (component-wise DEC-033):**
+
+MiniRocket (embedding + sota aliases) -> verified:
+- fit is O(1) per n (validates cols + builds num_kernels, no data iteration).
+  state_nbytes() = num_kernels*(KERNEL_LEN*8+8) + 1024.
+- YAML: state_class O(batch)->O(model), state_type windowed->aggregation,
+  bounded_state_dims {batch}->{num_kernels}, + ram_formula/formula_evidence/
+  measurement. Both aliases flipped (R5).
+- tests/test_minirocket_verification.py: 4 tests.
+
+ALS (x2 aliases) -> verified:
+- CODE: state_nbytes() extended to include user_index_/item_index_/_u_pos/
+  _i_pos (+~165 B/entry). Was factors-only (U+I)*k*8 — 30% under-report made
+  MemoryGuard under-size batch ~6x (unsafe).
+- CODE: fit_als batch_size kwarg + propagation to all _iter_filtered_batches.
+  _objective_streaming threads batch_size (was closure-miss NameError in fix1).
+- YAML: ram_formula + formula_evidence + measurement; bounded_state_dims
+  {N,d}->{U,I,n_factors}; n_scalability kept LINEAR (external_sort K-way
+  merge peak O(K), not O(1) — honest, not widened threshold).
+- tests/test_als_verification.py: 4 tests.
+- tests/test_als.py: 2 stale state_nbytes assertions updated (fix2 missed one).
+
+KShapeAD -> draft (DEC-013):
+- O(n) output (decision_scores, labels) in RAM, not spilled (kshape.py:502).
+- YAML: state_class->O(n), bounded_state->false, n_scalability->linear,
+  + bounded_by_domain {n: 1e6}, status: draft, draft_reason.
+
+**v0.9.112-batch2 — 7 cards -> draft (no code changes):**
+
+DEC-013 (O(n) output, SpillArray pending v0.9.113):
+- EIF, KMeansAD, BOCPD (per-point/per-timestep scores).
+
+AP5 (unbounded dict, K-spill needed):
+- LDA (_build_vocab df_counts raw unique tokens ~96 B/token; guard refuses).
+
+AP2 (np.concatenate/vstack in batch loop):
+- CoxPH (predict_risk output='memory' + concordance_index).
+- T_learner / S_learner (_collect Xs.append + np.vstack; full X materialization).
+  R5: aliases same status.
+
+All 5 tier1_core+bounded_state=false cards got bounded_by_domain (R7).
+7 cards added bounded_by_domain in fix (schema caught on first verify).
+
+**Release:**
+- Verified: 16 -> 18 fns. Cards: 19 -> 23 verified / 22 draft.
+- Focused: 196 passed (test_minirocket x2, test_als x2, test_birch x2,
+  test_ml_tools_schema, test_yaml_state_fields, test_render_matrix).
+- Full fast: 4434 passed, 9 skipped, 0 failed (13:19).
+- ROADMAP: v0.9.112 -> v0.9.113 (SpillArray 6 drafts) -> v0.9.114 (AP2
+  refactors + DEC-034/035) -> v0.9.115 (K-spill + remaining pending).
+
+**Do not re-solve:** DEC-013 (zms/cusum/kshape/eif/kmeans_ad/bocpd need
+SpillArray v0.9.113); AP5 (LDA/tfidf need K-spill v0.9.115); AP2
+(CoxPH/T/S_learner refactor v0.9.114).
+
 ### v0.9.111 (2026-11-03) — fit_birch verified (16 total) + R6/R7 schema + baseline stabilization
 
 **Phase 0 — baseline stabilization (pre-existing red from v0.9.99 doc drift):**
