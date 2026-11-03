@@ -1,5 +1,60 @@
 ## [Unreleased]
 
+### v0.9.113 (2026-11-03) — STREAMING §1.5 (producer API) + zms + cusum verified (partial)
+
+**Phase A — input convention documented:**
+- `STREAMING_OUTPUT_ARCHITECTURE.md` §1.5: producer API = `fit_*(df, col, ...)`;
+  private helpers may take `np.ndarray`. Legacy producers list (8+ anomaly
+  detectors + AnomalyPipeline.fit_predict) tracked in ROADMAP §Legacy inventory.
+  Dual dispatch (`df_or_series` type sniff) documented as transitional.
+
+**Phase B — fit_zms verified × 3 aliases (pilot):**
+- `fit_zms(df_or_series, value_col=None, *, output="auto", batch_size=None)`.
+  df path: two-pass streaming + SpillArray output (spill_ratio 0.5 auto,
+  0.0 disk); np.ndarray path: legacy in-memory (7 old tests unchanged).
+- `ZMSResult` Union[np.ndarray, AutoArrayResult] + `is_spilled`.
+- `contamination` + output!="memory" -> NotImplementedError (refuse, honest).
+- YAML 3 aliases (zscore ×2, ZMS ×1): state_class O(d)->O(batch),
+  n_scalability constant->linear, bounded_state_dims {w, batch},
+  ram_formula + formula_evidence + measurement.
+- tests/test_zms_verification.py: 6 tests.
+
+**v0.9.113-cusum — fit_cusum verified:**
+- `fit_cusum(df_or_series, value_col=None, *, k, h, contamination, output="auto",
+  batch_size=None)`. `_fit_cusum_df` two-pass Welford (mean/std) + streaming
+  recurrence, O(1) state (s_pos_cur, s_neg_cur + Welford scalars).
+- `CUSUMResult` Union + is_spilled.
+- contamination + output!="memory" -> NotImplementedError.
+- YAML CUSUM: state_class O(n)->O(1), bounded_state false->true,
+  n_scalability refuse_at_guard->linear, ram_formula + formula_evidence + measurement.
+- tests/test_cusum_verification.py: 6 tests.
+
+**OOC fix — batch_size kwarg for zms + cusum** (AI_CONSTITUTION §3 pattern):
+- Both have `batch_size: int|None = None`; when None -> derive from
+  `get_batch_rows`. Tests pass `batch_size=1000, output="disk"` for OOC
+  verification (spill_ratio=0.0 -> peak = O(batch) independent of total n).
+
+**v0.9.113-dec036 — contamination-threshold blocker for eif/km/bocpd/kshape:**
+- `fit_eif`, `fit_kmeans_ad`, `fit_bocpd` have `contamination=0.1` default
+  -> `np.percentile(scores)` needs full O(n). Cannot use zms-template
+  (which has `contamination: Optional = None` + refuse). Three options
+  in DEC-036: (A) sample-based threshold, (B) Optional default breaking,
+  (C) refuse (bad UX). Recommendation: (A) v0.9.114.
+- kshape: `_map_scores_to_timestamps` expand n_w->n needs full array +
+  rolling-max; separate work v0.9.114.
+- Refined draft_reason for 3 cards (EIF × 2 aliases + KMeansAD + BOCPD).
+- ROADMAP §v0.9.113 marked partial; §v0.9.114 blocked-list updated.
+
+**Baseline:**
+- Verified fns: 18 -> 20 (+zms, cusum). Cards: 23 -> 27 (zms × 3 + cusum × 1).
+- Focused: ~190 passed, 0 failed (test_cusum x2, test_zms x2, schema,
+  yaml_state_fields, render_matrix).
+
+**Do not re-solve:**
+- zms/cusum OOC (verified v0.9.113; batch_size kwarg + SpillArray + refuse-contamination).
+- eif/kmeans_ad/bocpd/kshape (DEC-036; v0.9.114 design).
+- 4 verified in v0.9.111/112 (BIRCH, MiniRocket × 2, ALS × 2) — unchanged.
+
 ### v0.9.112 (2026-11-03) — MiniRocket x2 + ALS x2 verified (18 fns), 8 cards -> draft
 
 **v0.9.112-batch1 — verified (component-wise DEC-033):**

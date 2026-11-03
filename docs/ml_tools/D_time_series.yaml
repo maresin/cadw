@@ -1452,7 +1452,7 @@ subtypes:
       verified_in_cadw: true
       verified_by_agent: false
       status: draft
-      draft_reason: "DEC-013: per-point decision scores + labels (O(n)) in RAM, not spilled. SpillArray pending v0.9.113 (same class as zms/cusum/kshape)."
+      draft_reason: "DEC-036: contamination=0.1 default -> np.percentile(scores) needs full O(n) array; sample-based threshold or Optional-default API v0.9.114. Windowed-aggregate also needs streaming _map_max."
     roles:
     - nonlinear_interactions
     purpose: 'Extended Isolation Forest with random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed multivariate series.'
@@ -1738,7 +1738,7 @@ subtypes:
       verified_in_cadw: true
       verified_by_agent: false
       status: draft
-      draft_reason: "DEC-013: per-point anomaly scores O(n) in RAM, not spilled. SpillArray pending v0.9.113."
+      draft_reason: "DEC-036: contamination=0.1 default -> np.percentile(scores) needs full O(n) array; also _map_max(window_scores, w, n) expands n_w->n. Sample-based threshold + streaming rolling-max v0.9.114."
     roles:
     - local_structure
     purpose: 'k-means++ on windowed subsequences; distance to nearest centroid as anomaly score.'
@@ -2009,7 +2009,7 @@ subtypes:
       verified_in_cadw: true
       verified_by_agent: false
       status: draft
-      draft_reason: "DEC-013: per-timestep changepoint probability O(n) in RAM, not spilled. SpillArray pending v0.9.113."
+      draft_reason: "DEC-036: contamination Optional but run-length posterior is sequential O(n*max_run) Python loop; SpillArray output needs _map-like expand; sample-based threshold v0.9.114."
     roles:
     - probabilistic
     purpose: 'Bayesian online change-point detection with Student-t predictive likelihood (Adams & MacKay 2007). Run-length posterior plus NIG conjugate prior; score = P(change at t) = R[0], threshold 0.5. Student-t critical for heavy-tailed industrial data (SKAB: 32 percent DR at 13 percent FAR vs BOCPD-Gaussian ~0 percent DR).'
@@ -2503,7 +2503,7 @@ subtypes:
       verified_in_cadw: true
       verified_by_agent: false
       status: draft
-      draft_reason: "DEC-013: per-point decision scores + labels (O(n)) in RAM, not spilled. SpillArray pending v0.9.113 (same class as zms/cusum/kshape)."
+      draft_reason: "DEC-036: contamination=0.1 default -> np.percentile(scores) needs full O(n) array; sample-based threshold or Optional-default API v0.9.114. Windowed-aggregate also needs streaming _map_max."
     roles:
     - nonlinear_interactions
     purpose: 'Extended Isolation Forest (Hariri 2019): random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed univariate shape anomalies. Same algorithm as D3.1 EIF, different role (shape vs point).'
@@ -2640,7 +2640,7 @@ subtypes:
       verified_in_cadw: true
       verified_by_agent: false
       status: draft
-      draft_reason: "DEC-013: per-point anomaly scores O(n) in RAM, not spilled. SpillArray pending v0.9.113."
+      draft_reason: "DEC-036: contamination=0.1 default -> np.percentile(scores) needs full O(n) array; also _map_max(window_scores, w, n) expands n_w->n. Sample-based threshold + streaming rolling-max v0.9.114."
     roles:
     - local_structure
     purpose: 'k-means++ clustering on windowed subsequences (same fit_kmeans_ad as D3.1). v0.9.73: multi-channel support via _prepare_windows; correlation-break window far from all centroids. Multi-channel recall 0.868.'

@@ -79,7 +79,7 @@ EIF/KMeansAD/BOCPD DEC-013). Next: v0.9.113 SpillArray unblocks 6 drafts.
 
 ## Next 3 sessions
 
-### v0.9.113 — STREAMING §1.5 + fit_zms verified (pilot)
+### v0.9.113 — STREAMING §1.5 + zms + cusum verified (partial: eif/km/bocpd/kshape -> v0.9.114)
 
 **Phase A — input convention documented:**
 - STREAMING_OUTPUT_ARCHITECTURE §1.5: producer API = `fit_*(df, col, ...)`,
@@ -119,6 +119,8 @@ Note: `fit_minirocket`, `fit_als`, `fit_birch`, `fit_isolation_forest`,
 - AP2 refactors: CoxPH predict/concordance, T/S_learner `_collect`
 - DEC-034: subprocess-isolation for `measure_peak_traced`-based tests
 - DEC-035: BIRCH `_insert` batching
+
+**Blocked from v0.9.113** (DEC-036): eif, kmeans_ad, bocpd, kshape -> contamination-threshold / rolling-max design.
 
 ### v0.9.115 — Remaining legacy detectors + K-spill (LDA/tfidf)
 

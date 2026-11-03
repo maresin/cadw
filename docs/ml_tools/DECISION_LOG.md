@@ -702,6 +702,34 @@ v0.9.111 scope).
 
 ---
 
+## DEC-036 (2026-11-03, v0.9.113) — `contamination` default blocks OOC verification for eif/kmeans_ad/bocpd
+
+**Q:** `fit_eif`, `fit_kmeans_ad`, `fit_bocpd` all have `contamination: float = 0.1` (non-Optional default). ZMS/CUSUM (verified v0.9.113) have `contamination: Optional[float] = None`. Why the difference, and can we verify the 3 via zms-template?
+
+**A:** Not with zms-template. `contamination` triggers `np.percentile(scores, 100*(1-c))` which needs **full** scores array. ZMS/CUSUM: `None` default → user opts in; df path refuses when `output != memory` (honest). EIF/KMeansAD/BOCPD: `0.1` default → 90% of calls need percentile → refuse would break usage.
+
+**Three blockers:**
+
+1. **`np.percentile(scores)` needs full O(n) array** (all 3). Cannot be SpillArray-ed without sample-based approx.
+2. **`_map_max(window_scores, w, n)` expand n_w → n** (kmeans_ad, similar in kshape). Full O(n) intermediate even if window_scores spilled.
+3. **API default** — changing `contamination=0.1` → `None` is breaking for users relying on auto-threshold.
+
+**Options (deferred to v0.9.114):**
+
+- (A) **Sample-based threshold**: reservoir sample 1000 scores from SpillArray, percentile on sample. Approx error O(1/sqrt(1000)) ~ 3%. + streaming rolling-max for expand. 30-60 min/module, 3 modules = 2-3h.
+- (B) **API breaking**: `contamination: Optional = None` default; `None` → `threshold = h` (fixed, no percentile); percentile only if user passes `contamination`. Affects 3 modules + docs + tests.
+- (C) **refuse_at_guard for `contamination != None`** — bad UX (default 0.1 breaks), rejected.
+
+**Recommendation:** (A) sample-based for kmeans_ad (pilot), then eif, bocpd. kshape separately (rolling-max, no contamination default).
+
+**Affected (draft):** `fit_eif`, `fit_kmeans_ad`, `fit_bocpd`, `fit_kshape`. All in D_time_series.yaml.
+
+**Not blocked (verified v0.9.113):** `fit_zms` ×3, `fit_cusum` (contamination Optional).
+
+**Files touched (v0.9.113 partial):** DECISION_LOG.md (this entry), D_time_series.yaml (eif/kmeans_ad/bocpd draft_reason refined), ROADMAP §v0.9.113 marker "partial".
+
+---
+
 <!-- future entries appended here -->
 
 
