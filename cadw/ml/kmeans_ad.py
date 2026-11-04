@@ -38,6 +38,23 @@ class KMeansADResult:
     aggregate: str
     inertia: float
 
+    def state_nbytes(self):
+        """Persistent state: 2 n-sized output arrays + 2 n_w-sized aux +
+        centroids (k,d) + 256 header.
+
+        v0.9.114: honest O(n) — decision_scores + labels + window_scores
+        + labels_per_window are all O(n_w~n). bounded_by_domain n<=1e6
+        accepts this (CoxPH precedent).
+        """
+        return int(
+            self.decision_scores.nbytes
+            + self.labels.nbytes
+            + self.window_scores.nbytes
+            + self.labels_per_window.nbytes
+            + self.centroids.nbytes
+            + 256
+        )
+
 
 def _probe_memory_limit_mb(guard) -> float | None:
     def _is_pos(v):

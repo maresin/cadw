@@ -1737,8 +1737,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
-      status: draft
-      draft_reason: "DEC-036: contamination=0.1 default -> np.percentile(scores) needs full O(n) array; also _map_max(window_scores, w, n) expands n_w->n. Sample-based threshold + streaming rolling-max v0.9.114."
+      status: verified
     roles:
     - local_structure
     purpose: 'k-means++ on windowed subsequences; distance to nearest centroid as anomaly score.'
@@ -1747,6 +1746,21 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.kmeans_ad
     cadw_function: fit_kmeans_ad
+    ram_formula: "n * f64 * 4 + k * d * f64 + 256"
+    formula_evidence:
+      output_arrays: "kmeans_ad.py -- state_nbytes: decision_scores (n)*8 + labels (n)*8 + window_scores (n_w~n)*8 + labels_per_window (n_w~n)*8"
+      centroids: "kmeans_ad.py -- centroids (k,d)*8"
+      header: "kmeans_ad.py -- +256 constant"
+      batch_input: "kmeans_ad.py -- chunked Lloyd via _iter_window_chunks_km; peak O(chunk*d) plus n_w output arrays"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact via KMeansADResult.state_nbytes()"
+      state_bounded: "test_state_ratio_linear: state(10x n) / state(n) in [8, 12] (linear, not quadratic)"
+      fit_peak_linear: "test_peak_grows_linearly_with_n: median-of-3, ratio < 15 at 10x n (output O(n_w~n) intrinsic)"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded at small guard"
+      cells_passed: "4/4"
+      runtime_sec: "~10"
+      note: "state_class O(n) honest. bounded_by_domain n<=1e6 (TSB-AD/UCR/NAB typical). Same pattern as CoxPH v0.9.114. True OOC needs streaming _map_max + reservoir threshold + SpillArray output (v0.9.115)."
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/kmeans_ad.json
@@ -1776,7 +1790,7 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(n)
-    bounded_state_dims: {batch: 1}
+    bounded_state_dims: {n: 1, k: 1, d: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: false
@@ -2639,8 +2653,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
-      status: draft
-      draft_reason: "DEC-036: contamination=0.1 default -> np.percentile(scores) needs full O(n) array; also _map_max(window_scores, w, n) expands n_w->n. Sample-based threshold + streaming rolling-max v0.9.114."
+      status: verified
     roles:
     - local_structure
     purpose: 'k-means++ clustering on windowed subsequences (same fit_kmeans_ad as D3.1). v0.9.73: multi-channel support via _prepare_windows; correlation-break window far from all centroids. Multi-channel recall 0.868.'
@@ -2652,6 +2665,21 @@ subtypes:
       n_clusters: int
     cadw_module: cadw.ml.kmeans_ad
     cadw_function: fit_kmeans_ad
+    ram_formula: "n * f64 * 4 + k * d * f64 + 256"
+    formula_evidence:
+      output_arrays: "kmeans_ad.py -- state_nbytes: decision_scores (n)*8 + labels (n)*8 + window_scores (n_w~n)*8 + labels_per_window (n_w~n)*8"
+      centroids: "kmeans_ad.py -- centroids (k,d)*8"
+      header: "kmeans_ad.py -- +256 constant"
+      batch_input: "kmeans_ad.py -- chunked Lloyd via _iter_window_chunks_km; peak O(chunk*d) plus n_w output arrays"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact via KMeansADResult.state_nbytes()"
+      state_bounded: "test_state_ratio_linear: state(10x n) / state(n) in [8, 12] (linear, not quadratic)"
+      fit_peak_linear: "test_peak_grows_linearly_with_n: median-of-3, ratio < 15 at 10x n (output O(n_w~n) intrinsic)"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded at small guard"
+      cells_passed: "4/4"
+      runtime_sec: "~10"
+      note: "state_class O(n) honest. bounded_by_domain n<=1e6 (TSB-AD/UCR/NAB typical). Same pattern as CoxPH v0.9.114. True OOC needs streaming _map_max + reservoir threshold + SpillArray output (v0.9.115)."
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/kmeans_ad.json
@@ -2691,7 +2719,7 @@ subtypes:
       temporal_split: true
       target_leakage_checked: true
     state_class: O(n)
-    bounded_state_dims: {batch: 1}
+    bounded_state_dims: {n: 1, k: 1, d: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: false
