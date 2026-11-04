@@ -923,3 +923,19 @@ At n=1e6 + `MemoryGuard(10MB)` — fit raises `MemoryLimitExceeded` BEFORE OOM (
 **Precedent:** CoxPH `bounded_by_domain: n<=1e6` — same conditionality.
 
 **Deferred v0.9.117:** K-spill default; _build_vocab/_estimate_k_tokens batch_size pass-through; test_ooc_with_large_K_raw.
+
+---
+
+## DEC-042 (2026-11-04, v0.9.117) — Auto K-spill for LDA/TF-IDF (default, not opt-in)
+
+**Q:** v0.9.116 K-spill был opt-in (`spill_dir=`, `num_partitions=`). v0.9.117 verified требует honest OOC на любом K_raw. Делать default?
+
+**A:** Auto-trigger K-spill if `K_raw_est > state_limit_bytes // 96 // 2`.
+
+- Legacy path: natural corpora (K_raw ≤ ~260k at state_limit=50MB). Bit-identical.
+- K-spill: adversarial (K_raw=80k with 7.5MB state_limit; threshold ~39k). Fit succeeds.
+- Manual: `spill_dir=`/`num_partitions=` forces K-spill.
+
+**Signal << noise case (DEC-034):** TF-IDF fit peak ~4 KB (no SGD, no doc_sample) — formula_small_scale dropped. LDA keeps it (5 MB doc_sample signal). `test_state_nbytes_exact` + `state_independent_of_n` + `ooc_fixed_batch` cover formula.
+
+**Precedent:** fit_zms/fit_cusum dual dispatch (v0.9.113) — same auto-detect pattern.
