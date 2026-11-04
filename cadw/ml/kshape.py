@@ -12,9 +12,11 @@ Reference: pyod.models.ts_kshape.KShape (#2 in TSB-AD per PyOD docs).
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
+import pyarrow as pa
 
 
 @dataclass
@@ -48,6 +50,21 @@ class KShapeResult:
     max_iter: int
     n_iter_run: int
     contamination: float
+
+    def state_nbytes(self) -> int:
+        """Persistent state: decision_scores(n) + labels(n) + centroids(k*w) + header.
+
+        v0.9.115: honest O(n) (CoxPH-precedent, bocpd/eif/kmeans_ad v0.9.114).
+        Formula: 2*n*f64 + k*w*f64 + 264 (threshold 8 + dataclass header 256).
+        bounded_by_domain n<=1e6 accepts this (16 MB at n=1e6).
+        """
+        return int(
+            self.decision_scores.nbytes
+            + self.labels.nbytes
+            + self.centroids.nbytes
+            + 8    # threshold (Python float)
+            + 256  # header
+        )
 
 
 # ── MemoryGuard probe (same defensive logic as dwt_mlead) ─────────
@@ -388,7 +405,108 @@ def _kshape_chunked(windows_mm, ffts_mm, n_w: int, m: int, L: int,
 
 # ── Public API ────────────────────────────────────────────────────
 
+
 def fit_kshape(
+    df_or_series,
+    value_col=None,
+    *,
+    n_clusters: int = 3,
+    window_size: int = 50,
+    max_iter: int = 100,
+    contamination: float = 0.1,
+    random_state: int = 42,
+    guard=None,
+    output: str = "memory",
+    batch_size: "int | None" = None,
+) -> KShapeResult:
+    """KShapeAD: k-Shape clustering-based anomaly detection (v0.9.115 dual dispatch).
+
+    df path (new, v0.9.115):
+        fit_kshape(df, value_col)  # collects to ndarray, calls series path
+
+    Legacy np.ndarray path (back-compat):
+        fit_kshape(series)  # in-memory, equivalent to output="memory"
+
+    output="memory"|"auto" -> in-memory (ndarray scores/labels).
+    output="disk" or other -> NotImplementedError: SpillArray output for
+    O(n) decision_scores is v0.9.116+ (DEC-013 residue).
+
+    State: 2*n*f64 + k*w*f64 + 264. bounded_by_domain n<=1e6.
+    """
+    if output not in ("memory", "auto"):
+        raise NotImplementedError(
+            f"fit_kshape: output={output!r} not supported "
+            f"(decision_scores is O(n) ndarray; SpillArray for kshape "
+            f"is v0.9.116+, DEC-013)")
+    is_df = (hasattr(df_or_series, "_iter_filtered_batches")
+             and hasattr(df_or_series, "_columns"))
+    if is_df:
+        if value_col is None:
+            raise ValueError(
+                "fit_kshape: value_col required when df is passed")
+        if value_col not in df_or_series._columns:
+            raise KeyError(
+                f"fit_kshape: column {value_col!r} not in "
+                f"{df_or_series._columns}")
+        return _fit_kshape_df(
+            df_or_series, value_col,
+            n_clusters=n_clusters, window_size=window_size,
+            max_iter=max_iter, contamination=contamination,
+            random_state=random_state, guard=guard,
+            batch_size=batch_size,
+        )
+    if value_col is not None:
+        raise ValueError(
+            "fit_kshape: value_col only used with df input; "
+            "omit for np.ndarray")
+    return _fit_kshape_series(
+        df_or_series,
+        n_clusters=n_clusters, window_size=window_size,
+        max_iter=max_iter, contamination=contamination,
+        random_state=random_state, guard=guard,
+    )
+
+
+def _fit_kshape_series(series, *, n_clusters, window_size, max_iter,
+                       contamination, random_state, guard):
+    """np.ndarray path (output= handled by public fit_kshape)."""
+    return _fit_kshape_series_impl(
+        series,
+        n_clusters=n_clusters, window_size=window_size,
+        max_iter=max_iter, contamination=contamination,
+        random_state=random_state, guard=guard,
+    )
+
+
+def _fit_kshape_df(df, value_col, *, n_clusters, window_size, max_iter,
+                   contamination, random_state, guard, batch_size=None):
+    """df path; collects series to ndarray then calls series path.
+
+    Peak: O(n) for collected series (8n) + O(n) output (16n) = 24n.
+    At n=1e6: ~24 MB. bounded_by_domain covers (CoxPH-precedent).
+    output= handled by public fit_kshape.
+    """
+    mg = guard if guard is not None else getattr(df, "_memory_guard", None)
+    parts = []
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="kshape.batch", extra_factor=2.0)
+        x_b = b.column(value_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        if x_b.size > 0:
+            parts.append(x_b)
+    if not parts:
+        raise ValueError(f"fit_kshape: column {value_col!r} is empty")
+    series = np.concatenate(parts) if len(parts) > 1 else parts[0]
+    return _fit_kshape_series(
+        series,
+        n_clusters=n_clusters, window_size=window_size,
+        max_iter=max_iter, contamination=contamination,
+        random_state=random_state, guard=mg,
+    )
+
+
+def _fit_kshape_series_impl(
     series: np.ndarray,
     *,
     n_clusters: int = 3,

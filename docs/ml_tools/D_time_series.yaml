@@ -1405,11 +1405,25 @@ subtypes:
   - name: KShapeAD
     tier: sota
     tier_level: tier1_core
+    ram_formula: "2 * n * f64 + k * w * f64 + 264"
+    formula_evidence:
+      decision_scores: "kshape.py -- KShapeResult.decision_scores = (n,) f64 = n*f64"
+      labels: "kshape.py -- labels = (decision_scores > threshold).astype(int) = (n,) i64 (n*f64 size)"
+      centroids: "kshape.py -- centroids = (k, w) f64 = k*w*f64"
+      header: "kshape.py -- threshold 8 + dataclass header 256 = 264"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 3 (n,k,w) parametrized"
+      state_ratio_linear: "test_state_ratio_linear: DELTA (state(n2)-state(n1) == (n2-n1)*16)"
+      bounded_by_domain_1e6: "test_bounded_at_domain: at n=1e6, state ~15.3 MB < 50 MB"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      dual_dispatch: "test_df_matches_series: df path == series path bit-identical"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
-      status: draft
-      draft_reason: "O(n) decision_scores via _map_scores_to_timestamps (kshape.py:502; expand from n_w window_scores to n timestamps, needs full array). Streaming rolling-max not implemented. SpillArray rewrite v0.9.114."
+      status: verified
     roles:
     - local_structure
     purpose: 'k-Shape clustering with SBD (FFT-based cross-correlation, z-norm, shift alignment); shape-based distance to nearest centroid.'
@@ -1418,8 +1432,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.kshape
     cadw_function: fit_kshape
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/kshape.json
@@ -1449,7 +1462,7 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(n)  # n-sized output, not spilled (DEC-013 draft)
-    bounded_state_dims: {batch: 1}
+    bounded_state_dims: {n: 1, k: 1, w: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: false
