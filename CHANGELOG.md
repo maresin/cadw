@@ -1,5 +1,49 @@
 ## [Unreleased]
 
+### v0.9.114 (2026-11-04) — CoxPH-precedent: 4 O(n)-output algorithms verified (24 fns)
+
+**CoxPH-precedent** for O(n)-output: `state_nbytes()` + `bounded_by_domain
+{axis: n, bound: 1e6, reason: <domain>}`. Honest `state_class: O(n)`,
+`n_scalability: linear`, `bounded_state: false`. Avoids SpillArray for
+these 4; unblocks in one session.
+
+**v0.9.114-coxph — fit_coxph verified:**
+- batch_size kwarg + propagation (pre-pass + _checked_iter + predict_risk).
+- predict_risk output="memory": two-pass pre-alloc (AP2 fix).
+- YAML: draft -> verified; state_class O(n)->O(model); bounded_state_dims
+  {n}->{d, n_events}; bounded_by_domain n<=1e6 (c-index unstable >1e6 +
+  concordance_index O(n) intrinsic, v0.9.97 do-not-re-solve).
+- 4 tests. Peak-based fit test dropped: external_sort run_buffer (~25MB)
+  > baseline ~1MB at n=100K.
+
+**v0.9.114-kmeans_ad — verified:**
+- KMeansADResult.state_nbytes(): 4*n*8 + k*d*8 + 256.
+- YAML: verified; bounded_state_dims {batch}->{n, k, d}; bounded_by_domain.
+- 4 tests. Tight-guard uses Duck-typed guard (real MemoryGuard -> chunked,
+  no raise).
+
+**v0.9.114-eif — verified:**
+- EIFResult.state_nbytes(): 3*n*8 + 256. Forest hyperparameter-bounded
+  (n_est*psi Python objects) excluded (O(model), not O(n)).
+- Chunked fit already present (v0.9.91-S6b-fix3). No code change.
+- YAML: verified; bounded_state_dims {batch}->{n}; bounded_by_domain.
+- 4 tests.
+
+**v0.9.114-bocpd — verified:**
+- BOCPDResult.state_nbytes(): 3*n*8 + posterior (~103KB compact) + 256.
+- Sequential Python loop O(n*max_run) time; RAM O(n) output only.
+  Compact default; full_posterior=True -> O(n*max_run) quadratic, doc.
+- YAML: verified; bounded_state_dims {k,d}->{n, posterior_keep, max_run}.
+- 4 tests. test_state_ratio_linear uses DELTA (fixed posterior ~26KB
+  dominates direct ratio at 1K->10K).
+
+**DEC-036 partial:** sample-based threshold not needed for these 4
+(CoxPH-precedent path suffices). Remains for kshape v0.9.115.
+
+**Baseline:**
+- Verified fns: 20 -> 24. Cards: 27 -> 33.
+- Focused: 167 passed. Gates: 142 passed.
+
 ### v0.9.113 (2026-11-03) — STREAMING §1.5 (producer API) + zms + cusum verified (partial)
 
 **Phase A — input convention documented:**

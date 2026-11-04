@@ -1,12 +1,14 @@
 # CADW Roadmap
 
-Last updated: 2026-11-03 (after v0.9.112).
+Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.112
+## Current: v0.9.114
 
-Batch 1: MiniRocket x2 + ALS x2 -> verified (18 verified fns), KShapeAD
--> draft (DEC-013). Batch 2: 7 cards -> draft (LDA AP5, CoxPH/T/S AP2,
-EIF/KMeansAD/BOCPD DEC-013). Next: v0.9.113 SpillArray unblocks 6 drafts.
+CoxPH-precedent path for O(n)-output algorithms: coxph, kmeans_ad, eif,
+bocpd -> verified via state_nbytes() + bounded_by_domain n<=1e6 (24
+verified fns). DEC-036 partial: sample-based threshold still pending;
+SpillArray path not needed for these 4. Next: v0.9.115 kshape + legacy
+migration + K-spill.
 
 ## Progress (v0.9.105 - v0.9.110g)
 
@@ -27,29 +29,26 @@ EIF/KMeansAD/BOCPD DEC-013). Next: v0.9.113 SpillArray unblocks 6 drafts.
 - **v0.9.111** -- Phase 0 baseline (doc-sync regen, iforest flake median-of-3, DEC-034, arrow-gate Thread.join whitelist). Phase 1 fit_birch verified (16 total, DEC-035). Phase 2 R6/R7 schema + 19 no-fn cards patched (described_only / not_implemented_in_cadw).
 - **v0.9.112-batch1** -- MiniRocket x2 (embedding+sota) + ALS x2 -> verified (component-wise, DEC-033). ALS `state_nbytes()` extended (was 30% under-report), `batch_size` kwarg + propagation. KShapeAD -> draft (DEC-013). 18 verified fns.
 - **v0.9.112-batch2** -- 7 cards -> draft: LDA (AP5 unbounded vocab), CoxPH + T/S_learner (AP2 concatenate/vstack), EIF/KMeansAD/BOCPD (DEC-013 SpillArray). `bounded_by_domain` added to 5 tier1_core cards (R7).
+- **v0.9.113** -- STREAMING §1.5 input convention (producer API = fit_*(df, col)). fit_zms ×3 + fit_cusum -> verified. batch_size kwarg for zms/cusum OOC. DEC-036 recorded. 20 verified fns.
+- **v0.9.114** -- CoxPH-precedent path (bounded_by_domain n<=1e6) for O(n)-output: fit_coxph (predict_risk pre-alloc + batch_size), fit_kmeans_ad, fit_eif, fit_bocpd. 24 verified fns.
 
 
 ## Status baseline
 
 | Status | Count | Note |
 |---|---|---|
-| verified | **18** | 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + linucb + iforest x2 + gmm + BIRCH + **MiniRocket + ALS (v0.9.112)** |
-| draft | **22** | 14 legacy + KShapeAD/LDA/CoxPH/T_learner/S_learner/EIF/KMeansAD/BOCPD (v0.9.112) |
-| pending (no status) | ~48 fns | 88 with fn - 19 no-fn described_only/niic (v0.9.111) - v0.9.112 batch2 flips |
+| verified | **24** | 18 (v0.9.112) + zms + cusum (v0.9.113) + coxph + kmeans_ad + eif + bocpd (v0.9.114); was: 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + linucb + iforest x2 + gmm + BIRCH + **MiniRocket + ALS (v0.9.112)** |
+| draft | **18** | 14 legacy + KShapeAD/LDA/T_learner/S_learner |
+| pending (no status) | ~44 fns | 88 with fn - 19 no-fn (v0.9.111) - v0.9.112 batch2 |
 
 ## Known gaps (remaining)
 
-- **DEC-013**: `fit_zms` x3 — O(n) output needs `SpillArray`. Deferred to v0.9.111.
-- **DEC-014**: `fit_pelt` x2 — `_collect_series` container. Deferred.
-- **DEC-030** (v0.9.109a): `fit_cusum` — O(n) state + O(n) output, SpillArray rewrite pending. Draft.
-- **SpillArray** (DEC-013): unblocks zms, cusum, kshape, eif, kmeans_ad, bocpd → v0.9.113.
+- **kshape** (DEC-013 residue): `_map_scores_to_timestamps` expand n_w->n; can use CoxPH-precedent OR streaming rolling-max. v0.9.115.
 - **K-spill** (AP5): LDA `_build_vocab`, tfidf — v0.9.115.
-- **AP2 refactors** (v0.9.114): CoxPH predict_risk/concordance, T/S_learner `_collect` Xs.append+vstack.
-- **DEC-034 backlog**: subprocess-isolation for `measure_peak_traced`-based tests — v0.9.114.
-- **DEC-035 backlog**: BIRCH `_insert` batching — v0.9.114.
+- **T/S_learner** AP2 `_collect`: intrinsic O(n·d) GBDT fit — draft (verified requires GBDT streaming refactor).
+- **DEC-034/035 backlog**: subprocess-isolation for `measure_peak_traced`-based tests; BIRCH `_insert` batching — v0.9.115.
 - **`fit_ab_test`** — tiny O(1) state; STABILITY §4 special case.
-- **Remaining pending**: zms, hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad, autoencoder — probe fresh in v0.9.115.
-
+- **Remaining pending**: hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad, autoencoder — probe fresh in v0.9.115.
 ## Lessons learned (v0.9.105-109)
 
 - **YAML `ram_formula` / `state_class` often lie.** `fit_cusum` claimed O(1); actual code allocated 6 × 8n. Probe code first, YAML second.
@@ -77,56 +76,31 @@ EIF/KMeansAD/BOCPD DEC-013). Next: v0.9.113 SpillArray unblocks 6 drafts.
 - **Не бороться с `measure_peak`.** Baseline >> peak → component-wise немедленно (DEC-033). A12.
 - **Card-scoped YAML patch.** `str.replace` с `bounded_state_dims` может попасть в чужую карточку. Anchor: `- name: <Card>` + next `- name:` (A16).
 
+## Lessons learned (v0.9.113-114)
+
+- **CoxPH-precedent**: `state_nbytes() + bounded_by_domain {n<=1e6}` unlocks verified for O(n)-output algorithms without SpillArray (coxph, kmeans_ad, eif, bocpd). Honest: `state_class: O(n)`, `n_scalability: linear`, `bounded_state: false`.
+- **`contamination` default blocks zms-template** (DEC-036): zms/cusum have `None`; eif/km/bocpd had `= 0.1` -> percentile needs full array. CoxPH-precedent avoids the issue.
+- **`state_ratio_linear` must use DELTA**: fixed term (e.g., bocpd posterior ~26KB) dominates at small n; ratio 5.29 not 10. Delta `state(n2)-state(n1) == (n2-n1)*per_row` cancels exactly.
+- **`fit_peak_unmeasurable` when external_sort run_buffer dominates** (coxph): at mg=50MB, sort buffer ~25MB > baseline ~1MB. CW-1 (state exact) + CW-2 (state bounded) sufficient.
+- **`_map_max` stride=1 is 0-copy**: `sliding_window_view + .max(axis=1)` = O(n) output, not O(n*w).
+- **Duck-typed vs real MemoryGuard**: real -> chunked OOC (no raise); duck-typed (max_memory_mb only) -> est_bytes check (raise). Tight-guard tests use `_FakeMB`.
+
 ## Next 3 sessions
 
-### v0.9.113 — STREAMING §1.5 + zms + cusum verified (partial: eif/km/bocpd/kshape -> v0.9.114)
+### v0.9.115 — kshape + legacy detectors + K-spill
 
-**Phase A — input convention documented:**
-- STREAMING_OUTPUT_ARCHITECTURE §1.5: producer API = `fit_*(df, col, ...)`,
-  private helpers may take np.ndarray. Legacy list below.
-- ROADMAP §Legacy producer inventory.
+- kshape: CoxPH-precedent OR streaming rolling-max for `_map_scores_to_timestamps` (expand n_w->n).
+- Legacy: hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad, autoencoder — probe; if O(n)-output, CoxPH-precedent; if state OOC + output O(n), SpillArray.
+- K-spill (AP5): LDA `_build_vocab`, tfidf.
+- DEC-034/035 backlog: subprocess-isolation; BIRCH `_insert` batching.
 
-**Phase B — pilot fit_zms (dual dispatch):**
-- `fit_zms(df, value_col, ..., output="auto")` — df path, SpillArray, OOC
-- `fit_zms(series: np.ndarray, ...)` — legacy back-compat, in-memory
-- `contamination` + `output != "memory"` -> NotImplementedError
-- 3 YAML aliases (zscore ×2, ZMS ×1) -> verified (component-wise)
+### v0.9.116 — T/S_learner GBDT streaming (if prioritized)
 
-### Legacy producer inventory (v0.9.113+)
+Intrinsic O(n·d) GBDT fit; verified requires chunked / partial_fit refactor. Currently draft.
 
-| Module | Legacy API | Migration target |
-|---|---|---|
-| `fit_cusum` | `(series, *, k, h, contamination)` | v0.9.114 |
-| `fit_kshape` | `(series, *, n_clusters, window_size, ...)` | v0.9.114 |
-| `fit_eif` | `(series, *, n_estimators, max_samples, ...)` | v0.9.114 |
-| `fit_kmeans_ad` | `(series, *, window_size, n_clusters, ...)` | v0.9.114 |
-| `fit_bocpd` | `(series, *, hazard_rate, mu0, kappa0, ...)` | v0.9.114 |
-| `AnomalyPipeline.fit_predict` | `(series: np.ndarray, *, ...)` | v0.9.114 |
-| `fit_hampel` | (check) | v0.9.115 |
-| `fit_sub_pca` | (check) | v0.9.115 |
-| `fit_s2g` | (check) | v0.9.115 |
-| `fit_dwt_mlead` | (check) | v0.9.115 |
-| `fit_patch_memory_ad` | (check, has SpillDir) | v0.9.115 |
-| `fit_autoencoder` | (check, has batch_size) | v0.9.115 |
+### v0.9.117+ — Remaining + do-not-re-solve audit
 
-Note: `fit_minirocket`, `fit_als`, `fit_birch`, `fit_isolation_forest`,
-`fit_linucb`, `fit_gmm`, `fit_linear`, `fit_logistic`, ... — already df.
-
-### v0.9.114 — Legacy detectors migration + AP2 refactors + DEC-034/035
-
-- Migrate cusum, kshape, eif, kmeans_ad, bocpd -> df input + SpillArray output
-- AnomalyPipeline.fit_predict -> df input
-- AP2 refactors: CoxPH predict/concordance, T/S_learner `_collect`
-- DEC-034: subprocess-isolation for `measure_peak_traced`-based tests
-- DEC-035: BIRCH `_insert` batching
-
-**Blocked from v0.9.113** (DEC-036): eif, kmeans_ad, bocpd, kshape -> contamination-threshold / rolling-max design.
-
-### v0.9.115 — Remaining legacy detectors + K-spill (LDA/tfidf)
-
-- Migrate hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad, autoencoder -> df
-- K-spill (HashShuffle) for LDA `_build_vocab` + tfidf
-- Tag v0.9.115 when legacy inventory empty
+Re-check `do-not-re-solve` per DEC-033/034/035. Tag when 30+ verified.
 
 ## ## Backlog (not scheduled)
 

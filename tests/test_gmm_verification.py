@@ -93,7 +93,14 @@ def test_batch_coef_isolated():
 
     Signal: batch term 1.6-6.4 MB vs RSS noise ~1 MB. Coef ~3.5
     (X_b stack + column_stack + X[mask] per row).
+
+    v0.9.114 (DEC-034 precedent): median-of-3 per batch. In full-suite
+    (4400+ prior tests) baseline RSS from Python allocator + Arrow
+    pools raises `measure_peak_traced` noise to ~3-5 MB; single-run
+    coef drifts outside [1.5, 3.0] (flake observed in v0.9.114 full
+    fast; passes in isolation). Median-of-3 filters sporadic spikes.
     """
+    import statistics
     d, K, max_S = 200, 5, 1000
     cols = [f"x{i}" for i in range(d)]
     row_size = 8 * d
@@ -101,23 +108,29 @@ def test_batch_coef_isolated():
     peaks = []
     for b in batches:
         df = _make_df(max(b * 4, 4000), d)
-        _malloc_trim()
-        gc.collect()
-        mg = MemoryGuard(max_memory_mb=500)
-        r = measure_peak_traced(
-            fit_gmm, df, cols,
-            n_components=K, max_samples=max_S, random_state=0,
-            memory_guard=mg, batch_size=b, mg=mg,
-        )
-        peaks.append(int(r["peak_bytes"]))
+        cell_peaks = []
+        for _ in range(3):
+            _malloc_trim()
+            gc.collect()
+            mg = MemoryGuard(max_memory_mb=500)
+            r = measure_peak_traced(
+                fit_gmm, df, cols,
+                n_components=K, max_samples=max_S, random_state=0,
+                memory_guard=mg, batch_size=b, mg=mg,
+            )
+            cell_peaks.append(int(r["peak_bytes"]))
+            del r
+            gc.collect()
+        peaks.append(int(statistics.median(cell_peaks)))
         del df
         gc.collect()
     xs = np.array(batches, dtype=float)
     ys = np.array(peaks, dtype=float)
     slope, _ = np.polyfit(xs, ys, 1)
     coef = slope / row_size
-    # Formula v2: coef 2.0 (arrays list + column_stack). Measured 1.75
-    # (first-batch allocator reuse biases slope low). Tolerance [1.5, 3.0].
+    # Formula v2: coef 2.0 (arrays list + column_stack). Median-of-3
+    # measurement: 1.75-2.0 typical; tolerance [1.5, 3.0] (unchanged
+    # bound, only noise filtered via median).
     assert 1.5 <= coef <= 3.0, (
         f"coef_batch={coef:.2f} (expected ~2.0); peaks={peaks}")
 
