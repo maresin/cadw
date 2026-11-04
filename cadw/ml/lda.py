@@ -19,6 +19,9 @@ from __future__ import annotations
 
 import math
 import re
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -294,9 +297,115 @@ def _train_ppl(C_batches_fn, comp, alpha):
     return float(math.exp(-ll / ntok))
 
 
+def _estimate_k_tokens(df, text_col, sample_size=2000):
+    """Heuristic token-cardinality estimate for num_partitions sizing.
+
+    Sample first `sample_size` rows, count distinct tokens; extrapolate
+    to total_rows. Over-estimates for natural corpora (Heaps' law is
+    sublinear), which is safe for K-spill (extra disk, bounded RAM).
+    """
+    distinct = set()
+    sampled = 0
+    total = 0
+    for b in df._iter_filtered_batches():
+        total += b.num_rows
+        if sampled >= sample_size:
+            continue
+        take = min(b.num_rows, sample_size - sampled)
+        texts = b.column(text_col).to_pylist()[:take]
+        for t in texts:
+            for tok in set(tokenize(t)):
+                distinct.add(tok)
+        sampled += take
+    if sampled == 0:
+        return 0, total
+    return int(len(distinct) * (total / sampled)), total
+
+
+def _build_vocab_k_spill(df, text_col, vocab_size, mg, spill_dir,
+                          num_partitions):
+    """Bounded-RAM vocab via hash_shuffle (v0.9.116 K-spill, AP5).
+
+    Pass 1: tokenize → hash to P partitions (Arrow IPC on disk).
+    Pass 2: per-partition Counter → top-vocab_size.
+    Pass 3: merge per-partition tops → global top-vocab_size.
+
+    Exact (not approximate): token pruned in its partition implies
+    >= vocab_size tokens in that same partition have count >= its
+    count, so its global rank is > vocab_size (partitions are disjoint
+    by hash — global count = partition count).
+
+    RAM: max(K_raw/P * 96, vocab_size * 96) + P * vocab_size * 96.
+    Disk: O(K_raw * avg_token_len + P * vocab_size * 96).
+    """
+    from cadw.ops.shuffle import hash_shuffle
+    from cadw.io.batch_reader import ArrowIPCBatchReader
+
+    spill_dir = Path(spill_dir)
+    spill_dir.mkdir(parents=True, exist_ok=True)
+
+    _any_tokens = [False]
+
+    def _token_batches():
+        for b in df._iter_filtered_batches():
+            mg.check_batch(b, name="lda.kspill.batch", extra_factor=2.0)
+            toks = []
+            for t in b.column(text_col).to_pylist():
+                for tok in set(tokenize(t)):
+                    toks.append(tok)
+            if toks:
+                _any_tokens[0] = True
+                yield pa.RecordBatch.from_arrays(
+                    [pa.array(toks, type=pa.string())],
+                    names=["token"])
+
+    try:
+        partitions = hash_shuffle(
+            _token_batches(),
+            key_columns=["token"],
+            value_columns=[],
+            num_partitions=num_partitions,
+            memory_guard=mg,
+            spill_dir=spill_dir / "shuffle",
+            log=False,
+        )
+    except ValueError:
+        if not _any_tokens[0]:
+            return []
+        raise
+
+    per_partition_top = []
+    for p_path in partitions:
+        counter = {}
+        reader = ArrowIPCBatchReader(str(p_path), columns=["token"])
+        try:
+            for b in reader:
+                for tok in b.column("token").to_pylist():
+                    counter[tok] = counter.get(tok, 0) + 1
+                mg.check_state(
+                    len(counter) * 96 + 1024,
+                    name="lda.kspill.pcount")
+        finally:
+            reader.close()
+        top_p = sorted(counter.items(),
+                       key=lambda kv: (-kv[1], kv[0]))[:vocab_size]
+        per_partition_top.append(top_p)
+        del counter
+
+    merged = {}
+    for top_p in per_partition_top:
+        for tok, cnt in top_p:
+            merged[tok] = merged.get(tok, 0) + cnt
+
+    top = sorted(merged.items(),
+                 key=lambda kv: (-kv[1], kv[0]))[:vocab_size]
+    return [w for w, _ in top]
+
+
 def fit_lda(df, text_col, *, n_topics=10, vocab_size=1000, max_iter=15,
             batch_size=None, alpha=0.1, beta=0.01, tau0=1.0, kappa=0.0,
-            n_restarts=16, seed=0, memory_guard: Optional[MemoryGuard] = None):
+            n_restarts=16, seed=0, memory_guard: Optional[MemoryGuard] = None,
+            spill_dir=None, num_partitions=None):
     """Fit LDA over a text column (multi-restart, perplexity-selected).
 
 Note (v0.9.42): this is *sample-based* LDA, not the streaming variational
@@ -315,7 +424,28 @@ with N. True streaming E-step is future work.
     if text_col not in df._columns:
         raise KeyError(f"fit_lda: column {text_col!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    vocab = _build_vocab(df, text_col, vocab_size, mg)
+    # v0.9.116-lda-kspill: K-spill if spill_dir or num_partitions given.
+    # Default (both None) → legacy path (back-compat, bit-identical).
+    if spill_dir is None and num_partitions is None:
+        vocab = _build_vocab(df, text_col, vocab_size, mg)
+    else:
+        _cleanup_spill = spill_dir is None
+        _spill_dir = spill_dir if spill_dir is not None else tempfile.mkdtemp(
+            prefix="lda_kspill_")
+        try:
+            if num_partitions is None:
+                _k_est, _ = _estimate_k_tokens(df, text_col)
+                if _k_est <= 0:
+                    num_partitions = 2
+                else:
+                    from cadw.ops.shuffle import estimate_num_partitions
+                    num_partitions = max(2, estimate_num_partitions(
+                        _k_est, mg.state_limit_bytes))
+            vocab = _build_vocab_k_spill(
+                df, text_col, vocab_size, mg, _spill_dir, num_partitions)
+        finally:
+            if _cleanup_spill:
+                shutil.rmtree(_spill_dir, ignore_errors=True)
     if len(vocab) < 2:
         raise ValueError("fit_lda: vocabulary has fewer than 2 tokens")
     V = len(vocab)
