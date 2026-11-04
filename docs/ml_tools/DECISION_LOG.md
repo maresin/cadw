@@ -875,3 +875,32 @@ T1 = X_aug * w[:, None]           # 3× (X + X_aug + T1)
 - O2b (del X in update, DEC-019)
 - O4 (einsum, DEC-021)
 - Refactor `_stack_numeric` etc. (DEC-021, v0.9.107)
+
+---
+
+## DEC-039 (2026-11-04, v0.9.116) — CW-4 partial for 7 series-path O(n)-output fns + G2 fix for hampel/sub_pca
+
+**Q:** 7 verified fns (kshape, hampel, dwt_mlead, patch_memory_ad, autoencoder, s2g, sub_pca) claim `bounded_by_domain: n<=1e6` in YAML. `state_nbytes()` includes only persistent state (decision_scores, labels, etc.) — **not fit transient** (SpillDir memmap, chunk buffers, output O(n) intermediate). Is the claim honest?
+
+**A:** Before v0.9.116-outguard — **no** (hampel/sub_pca were OOM-vulnerable). After outguard fix + test_guard_refuses_at_domain_bound × 7 — **yes, honest refuse**.
+
+**Root cause (hampel/sub_pca, G2 violation — guard-before-alloc):**
+- `_resolve_chunk_nw` adapts to guard → chunk check passes
+- Output alloc (`5*n*8` hampel: med+mad+sigma+scores+labels; `3*n*8` sub_pca: window_scores+scores+labels) unchecked
+- Probe v0.9.116: `dRSS=41.4 MB` (hampel), `25.9 MB` (sub_pca) at n=1e6, guard=state/2
+
+**Fix (v0.9.116-outguard, commit before this DEC):**
+- hampel: `guard.check_state(5*n_w*8+256, name="hampel.output")` before output
+- sub_pca: `guard.check_state(3*n_w_out*8+2*n_out*8+256, name="sub_pca.output")` before output
+- Other 5 already included output in est_bytes (kshape `_output=n_w*24`; pma/autoencoder `output_phase`; dwt_mlead `est_details+est_chunk`; s2g `state=output+graph`)
+
+**Honest verification (test_guard_refuses_at_domain_bound × 7):**
+At n=1e6 + `MemoryGuard(10MB)` — fit raises `MemoryLimitExceeded` BEFORE OOM (dRSS=0, dt 0.1-0.6s). `bounded_by_domain` = claim that guard refuses, not that fit succeeds.
+
+**Remaining gap (CW-4 proper, v0.9.117):** `test_formula_small_scale` — predicted peak / measured RSS in [0.7, 1.4]. Currently only `test_peak_grows_linearly_with_n` (ratio, not absolute). Requires full formula (state + transient from code) per fn. 2-3 h. Tracked in ROADMAP v0.9.117.
+
+**MemoryGuard doesn't pick batch_size for series-path:** `mg.check_state(est_bytes)` — refuse or proceed. Not batch-sizing. Correct for series (already in RAM): user picks n, guard decides ok/refuse.
+
+**bounded_by_domain semantics (canonical):** "at n<=bound with adequate guard (>= peak), fit will not OOM; with inadequate guard, raises MemoryLimitExceeded". NOT "fit succeeds at n<=bound with any guard". Tested by `test_guard_refuses_at_domain_bound`.
+
+**Sweep for remaining series-path fns (v0.9.117):** test all 7 + verify `est_bytes` in code includes output O(n). Probe template: `_read_vmrss_fast()` before/after, n=1e6, guard=10MB.
