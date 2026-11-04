@@ -147,15 +147,26 @@ def _insert(root, x, threshold, branching_factor, d):
     entries.append(cf)
     if len(entries) > branching_factor:
         # split: merge the two closest CFs and keep the rest -- keeps state
-        # bounded O(branching_factor) and is the paper's split policy
+        # bounded O(branching_factor) and is the paper's split policy.
+        #
+        # v0.9.116 (DEC-035): row-by-row argmin. Prior code materialised
+        # `(bf, bf, d)` = 4 MB intermediate per split (bf=50, d=200); split
+        # fires ~per-row on random-normal data → 16 GB churn → arena
+        # fragmentation → ~5-6 MB intercept in test_batch_coef_isolated.
+        # New: per-i `(bf-i-1, d)` sum (peak 80 KB), same sum-over-d order
+        # → bit-identical (i,j) minimal pair.
         centers = np.array([c.centroid for c in entries])
-        d2 = np.sum((centers[:, None, :] - centers[None, :, :]) ** 2, axis=2)
-        np.fill_diagonal(d2, np.inf)
-        i, j = np.unravel_index(np.argmin(d2), d2.shape)
-        if i > j:
-            i, j = j, i
-        entries[i].absorb(entries[j])
-        del entries[j]
+        n_e = len(entries)
+        best_dist = np.inf
+        best_i, best_j = 0, 1
+        for i in range(n_e - 1):
+            d2_i = np.sum((centers[i + 1:] - centers[i]) ** 2, axis=1)
+            j_local = int(np.argmin(d2_i))
+            if d2_i[j_local] < best_dist:
+                best_dist = d2_i[j_local]
+                best_i, best_j = i, i + 1 + j_local
+        entries[best_i].absorb(entries[best_j])
+        del entries[best_j]
 
 
 def fit_birch(df, X_cols, *, n_clusters=8, threshold=0.5,
