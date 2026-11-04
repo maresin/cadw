@@ -56,6 +56,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import pyarrow as pa
 
 from .sub_pca import _map_max, _map_mean
 
@@ -81,6 +82,32 @@ class PatchMemoryADResult:
     aggregate: str
     encoder_weights: list
     normalization: str
+
+    def state_nbytes(self) -> int:
+        """Persistent state: decision_scores(n f64) + labels(n i64)
+        + window_scores(n_w f64) + training_losses(n_epochs py_float)
+        + memory_bank(n_memory*latent f64) + encoder_weights(W1+b1+W2+b2)
+        + header.
+
+        v0.9.115: honest O(n) (CoxPH-precedent). Formula:
+        3*n*f64 + n_epochs*32 + n_memory*latent_size*f64
+        + (window_size*hidden_size + hidden_size
+           + hidden_size*latent_size + latent_size)*f64 + 264.
+        bounded_by_domain n<=1e6 accepts this (~24 MB at n=1e6).
+        """
+        weights_bytes = sum(
+            getattr(w, "nbytes", 0) for w in self.encoder_weights)
+        losses_bytes = len(self.training_losses) * 32  # 8 ptr + 24 py_float
+        return int(
+            self.decision_scores.nbytes
+            + self.labels.nbytes
+            + self.window_scores.nbytes
+            + losses_bytes
+            + self.memory_bank.nbytes
+            + weights_bytes
+            + 8    # threshold
+            + 256  # dataclass header
+        )
 
 
 from cadw.core.spill import SpillDir
@@ -204,7 +231,136 @@ def _znormalize_rows(X: np.ndarray) -> np.ndarray:
     return (X - mu) / sd
 
 
+
 def fit_patch_memory_ad(
+    df_or_series,
+    value_col=None,
+    *,
+    window_size: int = 50,
+    patch_len: int = 10,
+    hidden_size: int = 32,
+    latent_size: int = 16,
+    n_memory: int = 100,
+    n_epochs: int = 10,
+    lr: float = 0.005,
+    memory_momentum: float = 0.1,
+    triplet_margin: float = 0.5,
+    contamination: float = 0.1,
+    aggregate: str = "max",
+    normalization: str = "none",
+    random_state: int | None = 42,
+    guard=None,
+    output: str = "memory",
+    batch_size: "int | None" = None,
+) -> PatchMemoryADResult:
+    """PatchMemoryAD anomaly detection (v0.9.115 dual dispatch).
+
+    df path (new, v0.9.115):
+        fit_patch_memory_ad(df, value_col)  # collects series -> impl
+
+    Legacy np.ndarray path (back-compat):
+        fit_patch_memory_ad(series)  # in-memory, equivalent to output="memory"
+
+    output="memory"|"auto" -> in-memory. "disk" -> NotImplementedError
+    (SpillArray for O(n) decision_scores is v0.9.116+, DEC-013).
+    """
+    if output not in ("memory", "auto"):
+        raise NotImplementedError(
+            f"fit_patch_memory_ad: output={output!r} not supported "
+            f"(decision_scores is O(n) ndarray; SpillArray for PMA "
+            f"is v0.9.116+, DEC-013)")
+    is_df = (hasattr(df_or_series, "_iter_filtered_batches")
+             and hasattr(df_or_series, "_columns"))
+    if is_df:
+        if value_col is None:
+            raise ValueError(
+                "fit_patch_memory_ad: value_col required when df is passed")
+        if value_col not in df_or_series._columns:
+            raise KeyError(
+                f"fit_patch_memory_ad: column {value_col!r} not in "
+                f"{df_or_series._columns}")
+        return _fit_patch_memory_ad_df(
+            df_or_series, value_col,
+            window_size=window_size, patch_len=patch_len,
+            hidden_size=hidden_size, latent_size=latent_size,
+            n_memory=n_memory, n_epochs=n_epochs, lr=lr,
+            memory_momentum=memory_momentum,
+            triplet_margin=triplet_margin,
+            contamination=contamination, aggregate=aggregate,
+            normalization=normalization, random_state=random_state,
+            guard=guard, batch_size=batch_size,
+        )
+    if value_col is not None:
+        raise ValueError(
+            "fit_patch_memory_ad: value_col only used with df input; "
+            "omit for np.ndarray")
+    return _fit_patch_memory_ad_series(
+        df_or_series,
+        window_size=window_size, patch_len=patch_len,
+        hidden_size=hidden_size, latent_size=latent_size,
+        n_memory=n_memory, n_epochs=n_epochs, lr=lr,
+        memory_momentum=memory_momentum,
+        triplet_margin=triplet_margin,
+        contamination=contamination, aggregate=aggregate,
+        normalization=normalization, random_state=random_state,
+        guard=guard,
+    )
+
+
+def _fit_patch_memory_ad_series(series, *, window_size, patch_len,
+                                 hidden_size, latent_size, n_memory,
+                                 n_epochs, lr, memory_momentum,
+                                 triplet_margin, contamination,
+                                 aggregate, normalization, random_state,
+                                 guard):
+    """np.ndarray path (output= handled by public dispatcher)."""
+    return _fit_patch_memory_ad_series_impl(
+        series,
+        window_size=window_size, patch_len=patch_len,
+        hidden_size=hidden_size, latent_size=latent_size,
+        n_memory=n_memory, n_epochs=n_epochs, lr=lr,
+        memory_momentum=memory_momentum,
+        triplet_margin=triplet_margin,
+        contamination=contamination, aggregate=aggregate,
+        normalization=normalization, random_state=random_state,
+        guard=guard,
+    )
+
+
+def _fit_patch_memory_ad_df(df, value_col, *, window_size, patch_len,
+                             hidden_size, latent_size, n_memory,
+                             n_epochs, lr, memory_momentum,
+                             triplet_margin, contamination,
+                             aggregate, normalization, random_state,
+                             guard, batch_size=None):
+    """df path; collects series to ndarray then calls series path."""
+    mg = guard if guard is not None else getattr(df, "_memory_guard", None)
+    parts = []
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="pma.batch", extra_factor=2.0)
+        x_b = b.column(value_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        if x_b.size > 0:
+            parts.append(x_b)
+    if not parts:
+        raise ValueError(
+            f"fit_patch_memory_ad: column {value_col!r} is empty")
+    series = np.concatenate(parts) if len(parts) > 1 else parts[0]
+    return _fit_patch_memory_ad_series(
+        series,
+        window_size=window_size, patch_len=patch_len,
+        hidden_size=hidden_size, latent_size=latent_size,
+        n_memory=n_memory, n_epochs=n_epochs, lr=lr,
+        memory_momentum=memory_momentum,
+        triplet_margin=triplet_margin,
+        contamination=contamination, aggregate=aggregate,
+        normalization=normalization, random_state=random_state,
+        guard=mg,
+    )
+
+
+def _fit_patch_memory_ad_series_impl(
     series: np.ndarray,
     *,
     window_size: int = 50,

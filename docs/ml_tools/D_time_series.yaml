@@ -1901,9 +1901,26 @@ subtypes:
   - name: PatchMemoryAD
     tier: baseline
     tier_level: tier1_core
+    ram_formula: "3 * n * f64 + n_epochs * 32 + n_memory * latent_size * f64 + (window_size * hidden_size + hidden_size + hidden_size * latent_size + latent_size) * f64 + 264"
+    formula_evidence:
+      output_arrays: "pma.py -- decision_scores (n) + labels (n) + window_scores (n_w~n), all f64"
+      training_losses: "pma.py -- len(training_losses)=n_epochs Python floats in list (8 ptr + 24 obj = 32 B)"
+      memory_bank: "pma.py -- memory_bank (n_memory, latent_size) f64"
+      encoder_weights: "pma.py -- W1(window_size,hidden)+b1(hidden)+W2(hidden,latent)+b2(latent), all f64"
+      header: "pma.py -- threshold 8 + dataclass header 256 = 264"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized (n=300/600/1200)"
+      state_ratio_linear: "test_state_ratio_linear: DELTA ~= 24*(n2-n1) (3 n-sized f64 arrays)"
+      bounded_by_domain_1e6: "test_bounded_at_domain: at n=1e6, state ~24 MB < 50 MB"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      dual_dispatch: "test_df_matches_series: df path == series path bit-identical"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: verified
     roles:
     - representation
     purpose: 'PaAno-inspired patch splitting plus MLP encoder plus memory bank with momentum; triplet loss often inactive; score equals min distance to memory.'
@@ -1912,8 +1929,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.patch_memory_ad
     cadw_function: fit_patch_memory_ad
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/patch_memory_ad.json
@@ -1943,12 +1959,17 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
+    state_class: O(n)
+    bounded_state_dims: {n: 1, n_epochs: 1, n_memory: 1, latent_size: 1, hidden_size: 1, window_size: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: 'single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores.'
+
+    n_scalability: linear
     streaming_strategy:
       fit: 'memmap+SpillDir for X_norm; per-batch patch reconstruct (P4d).'
       predict: 'per-batch patch distance.'
