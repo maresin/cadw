@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import pyarrow as pa
 
 
 @dataclass
@@ -48,6 +49,26 @@ class SubPCAResult:
     n_components: int
     contamination: float
     aggregate: str
+
+    def state_nbytes(self) -> int:
+        """Persistent state: decision_scores(n f64) + labels(n i64)
+        + components(n_components*window_size f64) + mean(window_size f64)
+        + header.
+
+        v0.9.115: honest O(n). Formula (1D case):
+        2*n*f64 + n_components*window_size*f64 + window_size*f64 + 264.
+        For multichannel (c>1): d_pre=window_size*c, components/mean
+        scale by c; formula documents 1D case, .nbytes captures actual.
+        bounded_by_domain n<=1e6.
+        """
+        return int(
+            self.decision_scores.nbytes
+            + self.labels.nbytes
+            + self.components.nbytes
+            + self.mean.nbytes
+            + 8    # threshold
+            + 256  # dataclass header
+        )
 
 
 def _probe_memory_limit_mb(guard) -> float | None:
@@ -305,6 +326,93 @@ def _prepare_windows(series: np.ndarray, window_size: int,
 
 
 def fit_sub_pca(
+    df_or_series, value_col=None, *,
+    window_size: int = 50,
+    n_components: "int | float | None" = None,
+    contamination: float = 0.1,
+    aggregate: str = "max",
+    guard=None,
+    output: str = "memory",
+    batch_size: "int | None" = None,
+) -> SubPCAResult:
+    """Sub-PCA anomaly detection (v0.9.115 dual dispatch).
+
+    df path (new, v0.9.115):
+        fit_sub_pca(df, value_col)                # univariate
+        fit_sub_pca(df, [c1, c2, ...])            # multichannel (c>1)
+        batch_size controls df-iterator (no SGD in sub_pca).
+
+    Legacy np.ndarray path (back-compat):
+        fit_sub_pca(series)  # 1D or 2D ndarray, equivalent to output="memory"
+
+    output="memory"|"auto" -> in-memory; "disk" -> NotImplementedError
+    (SpillArray for O(n) decision_scores is v0.9.116+, DEC-013).
+    """
+    if output not in ("memory", "auto"):
+        raise NotImplementedError(
+            f"fit_sub_pca: output={output!r} not supported "
+            f"(decision_scores is O(n) ndarray; SpillArray for sub_pca "
+            f"is v0.9.116+, DEC-013)")
+    is_df = (hasattr(df_or_series, "_iter_filtered_batches")
+             and hasattr(df_or_series, "_columns"))
+    if is_df:
+        if value_col is None:
+            raise ValueError("fit_sub_pca: value_col required when df is passed")
+        cols = [value_col] if isinstance(value_col, str) else list(value_col)
+        if not cols:
+            raise ValueError("fit_sub_pca: value_col empty")
+        for c in cols:
+            if c not in df_or_series._columns:
+                raise KeyError(
+                    f"fit_sub_pca: column {c!r} not in {df_or_series._columns}")
+        return _fit_sub_pca_df(
+            df_or_series, cols,
+            window_size=window_size, n_components=n_components,
+            contamination=contamination, aggregate=aggregate,
+            guard=guard, batch_size=batch_size)
+    if value_col is not None:
+        raise ValueError("fit_sub_pca: value_col only used with df input")
+    return _fit_sub_pca_series(
+        df_or_series,
+        window_size=window_size, n_components=n_components,
+        contamination=contamination, aggregate=aggregate, guard=guard)
+
+
+def _fit_sub_pca_series(series, *, window_size, n_components,
+                         contamination, aggregate, guard):
+    return _fit_sub_pca_series_impl(
+        series,
+        window_size=window_size, n_components=n_components,
+        contamination=contamination, aggregate=aggregate, guard=guard)
+
+
+def _fit_sub_pca_df(df, cols, *, window_size, n_components,
+                     contamination, aggregate, guard, batch_size=None):
+    """df path; supports str (univariate) or list[str] (multichannel)."""
+    mg = guard if guard is not None else getattr(df, "_memory_guard", None)
+    is_multi = len(cols) > 1
+    parts = []
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="sub_pca.batch", extra_factor=2.0)
+        arrays = [
+            b.column(c).cast(pa.float64(), safe=False).to_numpy(
+                zero_copy_only=False)
+            for c in cols
+        ]
+        block = np.stack(arrays, axis=1) if is_multi else arrays[0]
+        if block.shape[0] > 0:
+            parts.append(block)
+    if not parts:
+        raise ValueError(f"fit_sub_pca: columns {cols!r} empty")
+    series = np.concatenate(parts, axis=0) if len(parts) > 1 else parts[0]
+    return _fit_sub_pca_series(
+        series,
+        window_size=window_size, n_components=n_components,
+        contamination=contamination, aggregate=aggregate, guard=mg)
+
+
+def _fit_sub_pca_series_impl(
     series: np.ndarray,
     *,
     window_size: int = 50,

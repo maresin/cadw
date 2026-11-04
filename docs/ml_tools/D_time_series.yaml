@@ -1371,9 +1371,25 @@ subtypes:
   - name: Sub-PCA
     tier: sota
     tier_level: tier1_core
+    ram_formula: "2 * n * f64 + n_components * window_size * f64 + window_size * f64 + 264"
+    formula_evidence:
+      output_arrays: "sub_pca.py -- decision_scores (n) f64 + labels (n) i64 = 2*n*f64"
+      components: "sub_pca.py -- components (n_components, window_size) f64"
+      mean: "sub_pca.py -- mean_w (window_size,) f64"
+      header: "sub_pca.py -- threshold 8 + dataclass header 256 = 264"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
+      state_ratio_linear: "test_state_ratio_linear: DELTA ~= 16*(n2-n1)"
+      bounded_by_domain_1e6: "test_bounded_at_domain: at n=1e6, ~16 MB < 50 MB"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      dual_dispatch: "test_df_matches_series + test_df_multichannel_matches_series"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: verified
     roles:
     - representation
     purpose: 'PCA reconstruction error on sliding windows; small k for point anomalies; mean aggregation for spike spread decay.'
@@ -1382,8 +1398,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.sub_pca
     cadw_function: fit_sub_pca
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/sub_pca.json
@@ -1412,12 +1427,17 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
+    state_class: O(n)
+    bounded_state_dims: {n: 1, n_components: 1, window_size: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: 'single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + labels.'
+
+    n_scalability: linear
     streaming_strategy:
       fit: 'strided subwindows; chunked Welford cov + eig (P4a).'
       predict: 'chunked residual scoring.'
@@ -2769,9 +2789,25 @@ subtypes:
   - name: Sub-PCA
     tier: sota
     tier_level: tier1_core
+    ram_formula: "2 * n * f64 + n_components * window_size * f64 + window_size * f64 + 264"
+    formula_evidence:
+      output_arrays: "sub_pca.py -- decision_scores (n) f64 + labels (n) i64 = 2*n*f64"
+      components: "sub_pca.py -- components (n_components, window_size) f64"
+      mean: "sub_pca.py -- mean_w (window_size,) f64"
+      header: "sub_pca.py -- threshold 8 + dataclass header 256 = 264"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
+      state_ratio_linear: "test_state_ratio_linear: DELTA ~= 16*(n2-n1)"
+      bounded_by_domain_1e6: "test_bounded_at_domain: at n=1e6, ~16 MB < 50 MB"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      dual_dispatch: "test_df_matches_series + test_df_multichannel_matches_series"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: verified
     roles:
     - representation
     purpose: 'Windowed PCA reconstruction error (same fit_sub_pca as D3.1). v0.9.73: multi-channel support via _prepare_windows; correlation-break shape anomalies give high Q residual. Multi-channel recall 0.944 (best in D3.3), 200x faster than EIF.'
@@ -2783,8 +2819,7 @@ subtypes:
       n_components: int
     cadw_module: cadw.ml.sub_pca
     cadw_function: fit_sub_pca
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/sub_pca.json
@@ -2823,12 +2858,17 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
+    state_class: O(n)
+    bounded_state_dims: {n: 1, n_components: 1, window_size: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: 'single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + labels.'
+
+    n_scalability: linear
     streaming_strategy:
       fit: 'strided subwindows; chunked Welford cov (P4a).'
       predict: 'chunked residual scoring.'
