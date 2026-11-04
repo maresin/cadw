@@ -226,9 +226,9 @@ class LdaModel:
         return float(math.exp(-ll / ntok))
 
 
-def _build_vocab(df, text_col, vocab_size, mg):
+def _build_vocab(df, text_col, vocab_size, mg, batch_size=None):
     df_counts = {}
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="lda.vocab", extra_factor=3.0)
         # v0.9.90-S3 (G2): pre-check BEFORE dict grows. Worst case
         # this batch adds b.num_rows new unique tokens.
@@ -318,7 +318,7 @@ def _train_ppl(C_batches_fn, comp, alpha):
     return float(math.exp(-ll / ntok))
 
 
-def _estimate_k_tokens(df, text_col, sample_size=2000):
+def _estimate_k_tokens(df, text_col, sample_size=2000, batch_size=None):
     """Heuristic token-cardinality estimate for num_partitions sizing.
 
     Sample first `sample_size` rows, count distinct tokens; extrapolate
@@ -328,7 +328,7 @@ def _estimate_k_tokens(df, text_col, sample_size=2000):
     distinct = set()
     sampled = 0
     total = 0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         total += b.num_rows
         if sampled >= sample_size:
             continue
@@ -344,7 +344,7 @@ def _estimate_k_tokens(df, text_col, sample_size=2000):
 
 
 def _build_vocab_k_spill(df, text_col, vocab_size, mg, spill_dir,
-                          num_partitions, min_df=1):
+                          num_partitions, min_df=1, batch_size=None):
     """Bounded-RAM vocab via hash_shuffle (v0.9.116 K-spill, AP5).
 
     Returns (vocab, dfv) — vocab list[str], dfv list[int] (document freq
@@ -372,7 +372,7 @@ def _build_vocab_k_spill(df, text_col, vocab_size, mg, spill_dir,
     _any_tokens = [False]
 
     def _token_batches():
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(b, name="lda.kspill.batch", extra_factor=2.0)
             toks = []
             for t in b.column(text_col).to_pylist():
@@ -451,17 +451,33 @@ with N. True streaming E-step is future work.
     if text_col not in df._columns:
         raise KeyError(f"fit_lda: column {text_col!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    # v0.9.116-lda-kspill: K-spill if spill_dir or num_partitions given.
-    # Default (both None) → legacy path (back-compat, bit-identical).
+    # v0.9.117: auto-detect K-spill + explicit override via spill_dir/num_partitions.
+    # Auto: K_raw_est > state_limit_bytes // 96 // 2 → K-spill (guard-safe).
+    # Else: legacy dict path (back-compat for natural corpora, bit-identical).
+    _k_est_cached = None
+    _auto_kspill = False
     if spill_dir is None and num_partitions is None:
-        vocab = _build_vocab(df, text_col, vocab_size, mg)
+        _k_est_cached, _ = _estimate_k_tokens(
+            df, text_col, batch_size=batch_size)
+        _threshold = max(1, mg.state_limit_bytes // 96 // 2)
+        if _k_est_cached > _threshold:
+            _auto_kspill = True
+
+    if spill_dir is None and num_partitions is None and not _auto_kspill:
+        # Legacy unbounded path (bit-identical to pre-v0.9.116).
+        vocab = _build_vocab(df, text_col, vocab_size, mg,
+                             batch_size=batch_size)
     else:
+        # K-spill (manual or auto-triggered).
         _cleanup_spill = spill_dir is None
         _spill_dir = spill_dir if spill_dir is not None else tempfile.mkdtemp(
             prefix="lda_kspill_")
         try:
             if num_partitions is None:
-                _k_est, _ = _estimate_k_tokens(df, text_col)
+                _k_est = _k_est_cached
+                if _k_est is None:
+                    _k_est, _ = _estimate_k_tokens(
+                        df, text_col, batch_size=batch_size)
                 if _k_est <= 0:
                     num_partitions = 2
                 else:
@@ -469,7 +485,8 @@ with N. True streaming E-step is future work.
                     num_partitions = max(2, estimate_num_partitions(
                         _k_est, mg.state_limit_bytes))
             vocab, _ = _build_vocab_k_spill(
-                df, text_col, vocab_size, mg, _spill_dir, num_partitions)
+                df, text_col, vocab_size, mg, _spill_dir,
+                num_partitions, batch_size=batch_size)
         finally:
             if _cleanup_spill:
                 shutil.rmtree(_spill_dir, ignore_errors=True)

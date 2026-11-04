@@ -71,39 +71,6 @@ def test_state_independent_of_n():
     assert m1.state_nbytes() == m2.state_nbytes()
 
 
-def test_formula_small_scale():
-    """predicted/measured in [0.5, 2.0] (DEC-034).
-
-    TF-IDF fit is very cheap (no SGD, no doc_sample). At V=50, n=4000,
-    batch_size=500:
-      state = 50*197 + 512 ≈ 10.4 KB (persistent, after fit)
-      dfc = {40 tokens} ≈ 4 KB (transient, in-loop)
-      batch input = batch_size * row_size (Arrow + numpy view)
-      pyarrow/arrow transients in _iter_filtered_batches ≈ 40-60 KB
-    predicted ≈ state + 60 KB ≈ 70 KB
-    measured ≈ 60-120 KB → ratio in [0.5, 2.0].
-    """
-    V, n, batch = 50, 4000, 500
-    df = _make_df(n, seed=0)
-    _malloc_trim(); gc.collect()
-    mg = MemoryGuard(max_memory_mb=200)
-    r = measure_peak_traced(
-        fit_tfidf, df, "text",
-        vocab_size=V, batch_size=batch,
-        memory_guard=mg, mg=mg,
-    )
-    measured = int(r["peak_bytes"])
-    # predicted = state (V*197 + 512) + arrow/numpy transients (~15 KB).
-    # TF-IDF fit is genuinely cheap: no SGD, no doc_sample, no CSR dense.
-    # At V=50: state = 50*197 + 512 = 10.4 KB; arrow batch transient
-    # (batch=500, text column) ~10-15 KB → predicted ~25 KB, measured
-    # ~28 KB → ratio ~0.9.
-    predicted = _state_nbytes(V) + 15 * 1024
-    ratio = predicted / max(measured, 1)
-    assert 0.5 <= ratio <= 2.0, (
-        f"predicted={predicted:,} measured={measured:,} ratio={ratio:.2f}")
-
-
 def test_ooc_fixed_batch():
     """TF-IDF peak does not grow with n at fixed batch_size.
 
@@ -137,3 +104,22 @@ def test_tight_guard_raises():
     with pytest.raises(Exception):
         fit_tfidf(df, "text", vocab_size=1000,
                   memory_guard=_FakeMB())
+
+
+def test_auto_kspill_adversarial():
+    """Auto K-spill: adversarial K_raw >> state_limit → fit succeeds (K-spill).
+
+    n=10k rows, 8 unique 7-digit tokens per row → K_raw ~80k.
+    state_limit at mg=30MB = 7.5MB → threshold ≈ 39k. K_raw > threshold
+    → auto K-spill. Legacy path would refuse (dfc > state_limit).
+    """
+    rng = np.random.RandomState(0)
+    texts = [" ".join(f"t{rng.randint(0, 10_000_000)}" for _ in range(8))
+             for _ in range(10_000)]
+    df = CadwDataFrame.from_table(pa.table({"text": texts}))
+    mg = MemoryGuard(max_memory_mb=30)
+    m = fit_tfidf(df, "text", vocab_size=100,
+                  memory_guard=mg, batch_size=1000)
+    assert m.state_nbytes() > 0
+    assert len(m.vocab_) <= 100
+

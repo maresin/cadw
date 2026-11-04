@@ -147,3 +147,24 @@ def test_tight_guard_raises():
         fit_lda(df, "text", n_topics=3, vocab_size=1000,
                 max_iter=2, n_restarts=1, seed=0,
                 memory_guard=_FakeMB())
+
+
+def test_auto_kspill_adversarial():
+    """Auto K-spill: adversarial K_raw >> state_limit → fit succeeds (K-spill).
+
+    n=10k rows, 8 unique 7-digit tokens per row → K_raw ~80k.
+    state_limit at mg=30MB = 7.5MB → threshold = 7.5MB/96/2 ≈ 39k.
+    K_raw 80k > threshold → auto K-spill. Legacy path would refuse
+    (dfc=80k*96=7.7MB > 7.5MB state_limit).
+    """
+    rng = np.random.RandomState(0)
+    texts = [" ".join(f"t{rng.randint(0, 10_000_000)}" for _ in range(8))
+             for _ in range(10_000)]
+    df = CadwDataFrame.from_table(pa.table({"text": texts}))
+    mg = MemoryGuard(max_memory_mb=30)
+    m = fit_lda(df, "text", n_topics=3, vocab_size=100,
+                max_iter=1, n_restarts=1, seed=0,
+                memory_guard=mg, batch_size=1000)
+    assert m.state_nbytes() > 0
+    assert len(m.vocab_) <= 100
+

@@ -251,7 +251,18 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
     if text_col not in df._columns:
         raise KeyError(f"fit_tfidf: column {text_col!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
+
+    # v0.9.117: auto-detect K-spill + explicit override.
+    _k_est_cached = None
+    _auto_kspill = False
     if spill_dir is None and num_partitions is None:
+        _k_est_cached, _ = _estimate_k_tokens(
+            df, text_col, batch_size=batch_size)
+        _threshold = max(1, mg.state_limit_bytes // 96 // 2)
+        if _k_est_cached > _threshold:
+            _auto_kspill = True
+
+    if spill_dir is None and num_partitions is None and not _auto_kspill:
         # Legacy unbounded path (back-compat, bit-identical).
         dfc = {}
         n = 0
@@ -271,9 +282,8 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
         vocab = [w for w, _ in items]
         dfv = np.array([c for _, c in items], dtype=np.float64)
     else:
-        # v0.9.116-tfidf-kspill: bounded vocab via hash_shuffle.
+        # K-spill (manual or auto).
         import shutil, tempfile
-        # n = total docs (needed for idf); count via cheap pass
         n = 0
         for b in df._iter_filtered_batches(batch_size=batch_size):
             n += b.num_rows
@@ -284,7 +294,10 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
             prefix="tfidf_kspill_")
         try:
             if num_partitions is None:
-                _k_est, _ = _estimate_k_tokens(df, text_col)
+                _k_est = _k_est_cached
+                if _k_est is None:
+                    _k_est, _ = _estimate_k_tokens(
+                        df, text_col, batch_size=batch_size)
                 if _k_est <= 0:
                     num_partitions = 2
                 else:
@@ -293,7 +306,7 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
                         _k_est, mg.state_limit_bytes))
             vocab, dfv_list = _build_vocab_k_spill(
                 df, text_col, vocab_size, mg, _spill,
-                num_partitions, min_df=min_df)
+                num_partitions, min_df=min_df, batch_size=batch_size)
             dfv = np.array(dfv_list, dtype=np.float64)
         finally:
             if _cleanup:

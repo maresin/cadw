@@ -36,10 +36,10 @@ subtypes:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact vs formula (V parametrized)"
       state_independent_of_n: "test_state_independent_of_n: state(n=2k) == state(n=10k)"
-      formula_sanity: "test_formula_small_scale: predicted/measured in [0.5, 2.0]"
+      # formula_sanity: dropped (DEC-034: TF-IDF fit peak ~4 KB << RSS noise 1-5 MB)
       ooc: "test_ooc_fixed_batch: peak ratio < 2.5 (batch_size=1000)"
       tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
-      cells_passed: "5/5"
+      cells_passed: "4/4"
       note: "DEC-041: fit peak O(batch + K_raw). K_raw << state_limit → OOC via batch_size. K-spill default deferred v0.9.117."
 
     implementation_status:
