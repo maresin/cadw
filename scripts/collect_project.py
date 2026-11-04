@@ -89,6 +89,10 @@ TINY_FULL = {
     # bounded-not-identical for n>=S).
     "tests/test_linucb_verification.py",
     "tests/test_iforest_verification.py",
+    # v0.9.119: canonical verification templates (DEC-033 base + 5-CW final).
+    # These are procedural references; update only on template change.
+    "tests/test_coxph_verification.py",     # CoxPH-precedent (v0.9.114)
+    "tests/test_chains_verification.py",    # 5-CW final template (v0.9.118)
 }
 TINY_SKELETON = {
     "cadw/core/memory_guard.py",
@@ -102,6 +106,11 @@ TINY_SKELETON = {
     # (309 + 351 lines -> ~25 lines skeleton each).
     "scripts/experiments/experiment_v110_linucb.py",
     "scripts/experiments/experiment_v110_iforest.py",
+    # v0.9.119: canonical reference patterns (skeletonizes to ~20-40 lines each).
+    # Update only on procedural change (new pattern class).
+    "cadw/ml/coxph.py",     # CoxPH-precedent: state_nbytes + bounded_by_domain
+    "cadw/ml/lda.py",       # auto K-spill + batch_size pass-through (DEC-042)
+    "cadw/ml/chains.py",    # 5-CW state sum (v0.9.118)
 }
 
 
@@ -282,6 +291,30 @@ def _walk_files(root: Path) -> Iterable[Path]:
             yield p
 
 
+def _latest_session_brief(root: Path) -> Path | None:
+    """Latest SESSION_BRIEF_v*.md by version sort. None if absent.
+
+    v0.9.119: session briefs are supplied separately (user policy:
+    universal script, not edited per version). If present on disk,
+    auto-included in snapshot as full content. If absent — silent
+    skip (no exit 3; brief is not in AI_FIRST_FILES required-set).
+    """
+    docs = root / "docs"
+    if not docs.exists():
+        return None
+    candidates = list(docs.glob("SESSION_BRIEF_v*.md"))
+    if not candidates:
+        return None
+
+    def _vk(p: Path) -> tuple[int, int, int]:
+        m = _re.search(r"_v(\d+)\.(\d+)\.(\d+)\.md$", p.name)
+        if not m:
+            return (0, 0, 0)
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+    return max(candidates, key=_vk)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=".")
@@ -333,6 +366,12 @@ def main() -> int:
                 mode = "skeleton"
             elif rel == "CHANGELOG.md":
                 mode = "changelog_index"
+            # v0.9.119: all verification tests skeletonized in tiny.
+            # Shows test names + imports + parametrize; bodies omitted.
+            # Universal — no per-file list, works for future verifications.
+            elif (rel.startswith("tests/test_")
+                  and rel.endswith("_verification.py")):
+                mode = "skeleton"
             else:
                 mode = "stub"
         else:
@@ -356,6 +395,16 @@ def main() -> int:
     _ai_first.sort(key=lambda pm: _ai_order[pm[0].relative_to(root).as_posix()])
     if _ai_first:
         classified = _ai_first + _others
+
+    # v0.9.119: latest SESSION_BRIEF — optional, auto-included if present.
+    # Not in AI_FIRST_FILES (no exit-3 failure if missing; supplied separately).
+    _brief = _latest_session_brief(root)
+    if _brief is not None:
+        _brief_rel = _brief.relative_to(root).as_posix()
+        _present_rels = {pm[0].relative_to(root).as_posix() for pm in classified}
+        if _brief_rel not in _present_rels:
+            classified.append((_brief, "full"))
+            print(f"  + SESSION_BRIEF: {_brief_rel} (auto-included)")
 
     # Warn if expected AI-first files are missing on disk (snapshot
     # would silently omit them — check that they were actually created).
