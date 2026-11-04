@@ -47,7 +47,7 @@ def test_k_spill_vocab_matches_legacy(tmp_path):
     df = _make_df(500, n_words=50, seed=0)
     mg = MemoryGuard(max_memory_mb=200)
     v_legacy = _build_vocab(df, "text", vocab_size=20, mg=mg)
-    v_spill = _build_vocab_k_spill(
+    v_spill, _ = _build_vocab_k_spill(
         df, "text", vocab_size=20, mg=mg,
         spill_dir=tmp_path, num_partitions=4)
     assert v_legacy == v_spill, (
@@ -71,7 +71,7 @@ def test_k_spill_vocab_exact_with_skew(tmp_path):
     df = CadwDataFrame.from_table(pa.table({"text": docs}))
     mg = MemoryGuard(max_memory_mb=200)
     v_legacy = _build_vocab(df, "text", vocab_size=20, mg=mg)
-    v_spill = _build_vocab_k_spill(
+    v_spill, _ = _build_vocab_k_spill(
         df, "text", vocab_size=20, mg=mg,
         spill_dir=tmp_path, num_partitions=8)
     assert v_legacy == v_spill
@@ -87,7 +87,7 @@ def test_k_spill_bounded_memory(tmp_path):
     rss_legacy = (_read_vmrss_fast() - rss0) / 1e6
     _clean()
     rss0 = _read_vmrss_fast()
-    v_spill = _build_vocab_k_spill(
+    v_spill, _ = _build_vocab_k_spill(
         df, "text", vocab_size=100, mg=mg,
         spill_dir=tmp_path, num_partitions=8)
     rss_spill = (_read_vmrss_fast() - rss0) / 1e6
@@ -118,7 +118,7 @@ def test_k_spill_empty_input(tmp_path):
     """Empty df / no tokens → [] (no crash)."""
     df = CadwDataFrame.from_table(pa.table({"text": [""]}))
     mg = MemoryGuard(max_memory_mb=50)
-    v = _build_vocab_k_spill(
+    v, _ = _build_vocab_k_spill(
         df, "text", vocab_size=10, mg=mg,
         spill_dir=tmp_path, num_partitions=4)
     assert v == []

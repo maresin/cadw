@@ -23,7 +23,11 @@ import pyarrow as pa
 from cadw.core.memory_guard import MemoryGuard
 from cadw.core.spill import SpillArray, AutoArrayResult, SpillBuffer
 from cadw.ml._logging import log_fit
-from cadw.ml.lda import tokenize
+from cadw.ml.lda import (
+    tokenize,
+    _build_vocab_k_spill,
+    _estimate_k_tokens,
+)
 
 
 # v0.9.98: sparse row schema for transform_sparse (CSR-like).
@@ -217,7 +221,8 @@ class TfidfModel:
 
 
 def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
-              min_df=1, norm="l2", memory_guard: Optional[MemoryGuard] = None):
+              min_df=1, norm="l2", memory_guard: Optional[MemoryGuard] = None,
+              spill_dir=None, num_partitions=None):
     """Fit IDF weights by streaming the document-frequency vector."""
     if vocab_size < 2:
         raise ValueError("fit_tfidf: vocab_size must be >= 2")
@@ -228,26 +233,56 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
     if text_col not in df._columns:
         raise KeyError(f"fit_tfidf: column {text_col!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    dfc = {}
-    n = 0
-    for b in df._iter_filtered_batches():
-        mg.check_batch(b, name="tfidf.fit", extra_factor=3.0)
-        # v0.9.90-S3 (G2): pre-check BEFORE dict grows.
-        mg.check_state(
-            (len(dfc) + b.num_rows) * 96 + 1024, name="tfidf.state")
-        for t in b.column(text_col).to_pylist():
-            n += 1
-            for tok in set(tokenize(t)):
-                dfc[tok] = dfc.get(tok, 0) + 1
-    if n == 0:
-        raise ValueError("fit_tfidf: empty input")
-    items = [(w, c) for w, c in dfc.items() if c >= min_df]
-    items.sort(key=lambda kv: (-kv[1], kv[0]))
-    items = items[:vocab_size]
-    if len(items) < 2:
+    if spill_dir is None and num_partitions is None:
+        # Legacy unbounded path (back-compat, bit-identical).
+        dfc = {}
+        n = 0
+        for b in df._iter_filtered_batches():
+            mg.check_batch(b, name="tfidf.fit", extra_factor=3.0)
+            mg.check_state(
+                (len(dfc) + b.num_rows) * 96 + 1024, name="tfidf.state")
+            for t in b.column(text_col).to_pylist():
+                n += 1
+                for tok in set(tokenize(t)):
+                    dfc[tok] = dfc.get(tok, 0) + 1
+        if n == 0:
+            raise ValueError("fit_tfidf: empty input")
+        items = [(w, c) for w, c in dfc.items() if c >= min_df]
+        items.sort(key=lambda kv: (-kv[1], kv[0]))
+        items = items[:vocab_size]
+        vocab = [w for w, _ in items]
+        dfv = np.array([c for _, c in items], dtype=np.float64)
+    else:
+        # v0.9.116-tfidf-kspill: bounded vocab via hash_shuffle.
+        import shutil, tempfile
+        # n = total docs (needed for idf); count via cheap pass
+        n = 0
+        for b in df._iter_filtered_batches():
+            n += b.num_rows
+        if n == 0:
+            raise ValueError("fit_tfidf: empty input")
+        _cleanup = spill_dir is None
+        _spill = spill_dir if spill_dir is not None else tempfile.mkdtemp(
+            prefix="tfidf_kspill_")
+        try:
+            if num_partitions is None:
+                _k_est, _ = _estimate_k_tokens(df, text_col)
+                if _k_est <= 0:
+                    num_partitions = 2
+                else:
+                    from cadw.ops.shuffle import estimate_num_partitions
+                    num_partitions = max(2, estimate_num_partitions(
+                        _k_est, mg.state_limit_bytes))
+            vocab, dfv_list = _build_vocab_k_spill(
+                df, text_col, vocab_size, mg, _spill,
+                num_partitions, min_df=min_df)
+            dfv = np.array(dfv_list, dtype=np.float64)
+        finally:
+            if _cleanup:
+                shutil.rmtree(_spill, ignore_errors=True)
+
+    if len(vocab) < 2:
         raise ValueError("fit_tfidf: vocabulary has fewer than 2 tokens")
-    vocab = [w for w, _ in items]
-    dfv = np.array([c for _, c in items], dtype=np.float64)
     idf = np.log((1.0 + n) / (1.0 + dfv)) + 1.0
     model = TfidfModel(vocab, idf, {"sublinear_tf": bool(sublinear_tf),
                                     "min_df": min_df, "norm": norm,

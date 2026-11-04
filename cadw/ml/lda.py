@@ -323,8 +323,12 @@ def _estimate_k_tokens(df, text_col, sample_size=2000):
 
 
 def _build_vocab_k_spill(df, text_col, vocab_size, mg, spill_dir,
-                          num_partitions):
+                          num_partitions, min_df=1):
     """Bounded-RAM vocab via hash_shuffle (v0.9.116 K-spill, AP5).
+
+    Returns (vocab, dfv) — vocab list[str], dfv list[int] (document freq
+    per token in same order). min_df=1 gives LDA behavior; tfidf passes
+    its own min_df.
 
     Pass 1: tokenize → hash to P partitions (Arrow IPC on disk).
     Pass 2: per-partition Counter → top-vocab_size.
@@ -371,7 +375,7 @@ def _build_vocab_k_spill(df, text_col, vocab_size, mg, spill_dir,
         )
     except ValueError:
         if not _any_tokens[0]:
-            return []
+            return [], []
         raise
 
     per_partition_top = []
@@ -387,6 +391,8 @@ def _build_vocab_k_spill(df, text_col, vocab_size, mg, spill_dir,
                     name="lda.kspill.pcount")
         finally:
             reader.close()
+        if min_df > 1:
+            counter = {k: v for k, v in counter.items() if v >= min_df}
         top_p = sorted(counter.items(),
                        key=lambda kv: (-kv[1], kv[0]))[:vocab_size]
         per_partition_top.append(top_p)
@@ -399,7 +405,7 @@ def _build_vocab_k_spill(df, text_col, vocab_size, mg, spill_dir,
 
     top = sorted(merged.items(),
                  key=lambda kv: (-kv[1], kv[0]))[:vocab_size]
-    return [w for w, _ in top]
+    return [w for w, _ in top], [c for _, c in top]
 
 
 def fit_lda(df, text_col, *, n_topics=10, vocab_size=1000, max_iter=15,
@@ -441,7 +447,7 @@ with N. True streaming E-step is future work.
                     from cadw.ops.shuffle import estimate_num_partitions
                     num_partitions = max(2, estimate_num_partitions(
                         _k_est, mg.state_limit_bytes))
-            vocab = _build_vocab_k_spill(
+            vocab, _ = _build_vocab_k_spill(
                 df, text_col, vocab_size, mg, _spill_dir, num_partitions)
         finally:
             if _cleanup_spill:
