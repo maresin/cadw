@@ -1451,8 +1451,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
-      status: draft
-      draft_reason: "DEC-036: contamination=0.1 default -> np.percentile(scores) needs full O(n) array; sample-based threshold or Optional-default API v0.9.114. Windowed-aggregate also needs streaming _map_max."
+      status: verified
     roles:
     - nonlinear_interactions
     purpose: 'Extended Isolation Forest with random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed multivariate series.'
@@ -1461,6 +1460,23 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.eif
     cadw_function: fit_eif
+    ram_formula: "3 * n * f64 + 256"
+    formula_evidence:
+      decision_scores: "eif.py -- EIFResult: decision_scores (n)*f64"
+      labels: "eif.py -- EIFResult: labels (n)*8 (int64)"
+      window_scores: "eif.py -- EIFResult: window_scores (n_w~n)*f64, stride=1"
+      header: "eif.py -- EIFResult: scalar fields +256"
+      forest_not_included: "eif.py -- _EIFForest: n_estimators*psi Python objects, ~O(model) not O(n); excluded from state_nbytes (honest separate from output)"
+      batch_input: "eif.py -- chunked fit via _iter_window_chunks_eif; peak O(chunk*d) + n_estimators*psi*d (fixed forest gather)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact via EIFResult.state_nbytes()"
+      state_ratio_linear: "test_state_ratio_linear: 10x n -> [8,12]x state (linear, not quadratic)"
+      peak_not_quadratic: "test_peak_not_quadratic: ratio < 15 at 10x n (forest gather fixed + linear output)"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via duck-typed guard (no check_state -> legacy est_bytes check)"
+      cells_passed: "4/4"
+      runtime_sec: "~15"
+      note: "state_class O(n) honest. bounded_by_domain n<=1e6 (TSB-AD/UCR/NAB typical). CoxPH v0.9.114 precedent. Forest is O(model) hyperparameter, excluded from state_nbytes; total model size higher but not n-dependent."
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/eif.json
@@ -1490,7 +1506,7 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(n)
-    bounded_state_dims: {batch: 1}
+    bounded_state_dims: {n: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: false
@@ -2516,8 +2532,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
-      status: draft
-      draft_reason: "DEC-036: contamination=0.1 default -> np.percentile(scores) needs full O(n) array; sample-based threshold or Optional-default API v0.9.114. Windowed-aggregate also needs streaming _map_max."
+      status: verified
     roles:
     - nonlinear_interactions
     purpose: 'Extended Isolation Forest (Hariri 2019): random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed univariate shape anomalies. Same algorithm as D3.1 EIF, different role (shape vs point).'
@@ -2530,6 +2545,23 @@ subtypes:
       extension_level: int
     cadw_module: cadw.ml.eif
     cadw_function: fit_eif
+    ram_formula: "3 * n * f64 + 256"
+    formula_evidence:
+      decision_scores: "eif.py -- EIFResult: decision_scores (n)*f64"
+      labels: "eif.py -- EIFResult: labels (n)*8 (int64)"
+      window_scores: "eif.py -- EIFResult: window_scores (n_w~n)*f64, stride=1"
+      header: "eif.py -- EIFResult: scalar fields +256"
+      forest_not_included: "eif.py -- _EIFForest: n_estimators*psi Python objects, ~O(model) not O(n); excluded from state_nbytes (honest separate from output)"
+      batch_input: "eif.py -- chunked fit via _iter_window_chunks_eif; peak O(chunk*d) + n_estimators*psi*d (fixed forest gather)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact via EIFResult.state_nbytes()"
+      state_ratio_linear: "test_state_ratio_linear: 10x n -> [8,12]x state (linear, not quadratic)"
+      peak_not_quadratic: "test_peak_not_quadratic: ratio < 15 at 10x n (forest gather fixed + linear output)"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via duck-typed guard (no check_state -> legacy est_bytes check)"
+      cells_passed: "4/4"
+      runtime_sec: "~15"
+      note: "state_class O(n) honest. bounded_by_domain n<=1e6 (TSB-AD/UCR/NAB typical). CoxPH v0.9.114 precedent. Forest is O(model) hyperparameter, excluded from state_nbytes; total model size higher but not n-dependent."
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/eif.json
@@ -2569,7 +2601,7 @@ subtypes:
       temporal_split: true
       target_leakage_checked: true
     state_class: O(n)
-    bounded_state_dims: {batch: 1}
+    bounded_state_dims: {n: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: false

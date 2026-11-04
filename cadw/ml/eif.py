@@ -68,6 +68,22 @@ class EIFResult:
     aggregate: str
     n_channels: int
 
+    def state_nbytes(self):
+        """Persistent output state: 3 n-sized arrays + 256 header.
+
+        v0.9.114: honest O(n). decision_scores (n)*8 + labels (n)*8 +
+        window_scores (n_w~n)*8 + 256. Forest is hyperparameter-bounded
+        (n_estimators*psi nodes, Python objects, ~O(model) not O(n))
+        and is not included here — see class docstring. bounded_by_domain
+        n<=1e6 (CoxPH v0.9.114 precedent) accepts the O(n) output.
+        """
+        return int(
+            self.decision_scores.nbytes
+            + self.labels.nbytes
+            + self.window_scores.nbytes
+            + 256
+        )
+
 
 # ── MemoryGuard probe (same defensive logic as sub_pca) ───────────
 
