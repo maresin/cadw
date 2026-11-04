@@ -42,6 +42,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+import pyarrow as pa
 
 
 @dataclass
@@ -145,6 +146,143 @@ def _posterior_params(x: float, mu: float, kappa: float,
 
 
 def fit_bocpd(
+    df_or_series,
+    value_col=None,
+    *,
+    hazard_rate: float = 1.0 / 250.0,
+    mu0: float = 0.0,
+    kappa0: float = 1.0,
+    alpha0: float = 1.0,
+    beta0: float = 1.0,
+    run_length_threshold: int = 10,
+    contamination: float | None = None,
+    max_run: int | None = None,
+    burn_in: int | None = None,
+    guard=None,
+    full_posterior: bool = False,
+    posterior_keep: int = 64,
+    batch_size: "int | None" = None,
+) -> BOCPDResult:
+    """Dual dispatch (v0.9.116): df + value_col | series (legacy).
+
+    df path: fit_bocpd(df, value_col)
+    Legacy:  fit_bocpd(series)  # equivalent to previous behaviour
+    """
+    is_df = (hasattr(df_or_series, "_iter_filtered_batches")
+             and hasattr(df_or_series, "_columns"))
+    if is_df:
+        if value_col is None:
+            raise ValueError(
+                "fit_bocpd: value_col required when df is passed")
+        if value_col not in df_or_series._columns:
+            raise KeyError(
+                f"fit_bocpd: column {value_col!r} not in {df_or_series._columns}")
+        return _fit_bocpd_df(
+            df_or_series, value_col,
+            hazard_rate=hazard_rate,
+            mu0=mu0,
+            kappa0=kappa0,
+            alpha0=alpha0,
+            beta0=beta0,
+            run_length_threshold=run_length_threshold,
+            contamination=contamination,
+            max_run=max_run,
+            burn_in=burn_in,
+            full_posterior=full_posterior,
+            posterior_keep=posterior_keep,
+            guard=guard, batch_size=batch_size)
+    if value_col is not None:
+        raise ValueError(
+            "fit_bocpd: value_col only used with df input; omit for np.ndarray")
+    return _fit_bocpd_series(
+        df_or_series,
+        hazard_rate=hazard_rate,
+        mu0=mu0,
+        kappa0=kappa0,
+        alpha0=alpha0,
+        beta0=beta0,
+        run_length_threshold=run_length_threshold,
+        contamination=contamination,
+        max_run=max_run,
+        burn_in=burn_in,
+        full_posterior=full_posterior,
+        posterior_keep=posterior_keep,
+        guard=guard)
+
+
+def _fit_bocpd_series(series, *,
+    hazard_rate: float = 1.0 / 250.0,
+    mu0: float = 0.0,
+    kappa0: float = 1.0,
+    alpha0: float = 1.0,
+    beta0: float = 1.0,
+    run_length_threshold: int = 10,
+    contamination: float | None = None,
+    max_run: int | None = None,
+    burn_in: int | None = None,
+    guard=None,
+    full_posterior: bool = False,
+    posterior_keep: int = 64,
+):
+    return _fit_bocpd_series_impl(
+        series,
+        hazard_rate=hazard_rate,
+        mu0=mu0,
+        kappa0=kappa0,
+        alpha0=alpha0,
+        beta0=beta0,
+        run_length_threshold=run_length_threshold,
+        contamination=contamination,
+        max_run=max_run,
+        burn_in=burn_in,
+        full_posterior=full_posterior,
+        posterior_keep=posterior_keep,
+        guard=guard)
+
+
+def _fit_bocpd_df(df, value_col, *,
+    hazard_rate: float = 1.0 / 250.0,
+    mu0: float = 0.0,
+    kappa0: float = 1.0,
+    alpha0: float = 1.0,
+    beta0: float = 1.0,
+    run_length_threshold: int = 10,
+    contamination: float | None = None,
+    max_run: int | None = None,
+    burn_in: int | None = None,
+    guard=None,
+    full_posterior: bool = False,
+    posterior_keep: int = 64,
+    batch_size=None):
+    mg = guard if guard is not None else getattr(df, "_memory_guard", None)
+    parts = []
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="fit_bocpd.batch", extra_factor=2.0)
+        x_b = b.column(value_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        if x_b.size > 0:
+            parts.append(x_b)
+    if not parts:
+        raise ValueError(f"fit_bocpd: column {value_col!r} is empty")
+    series = np.concatenate(parts) if len(parts) > 1 else parts[0]
+    return _fit_bocpd_series(
+        series,
+        hazard_rate=hazard_rate,
+        mu0=mu0,
+        kappa0=kappa0,
+        alpha0=alpha0,
+        beta0=beta0,
+        run_length_threshold=run_length_threshold,
+        contamination=contamination,
+        max_run=max_run,
+        burn_in=burn_in,
+        full_posterior=full_posterior,
+        posterior_keep=posterior_keep,
+        guard=mg)
+
+
+def _fit_bocpd_series_impl(
     series: np.ndarray,
     *,
     hazard_rate: float = 1.0 / 250.0,

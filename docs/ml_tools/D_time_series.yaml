@@ -1533,8 +1533,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.eif
     cadw_function: fit_eif
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     ram_formula: "3 * n * f64 + 256"
     formula_evidence:
       decision_scores: "eif.py -- EIFResult: decision_scores (n)*f64"
@@ -1880,8 +1879,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.kmeans_ad
     cadw_function: fit_kmeans_ad
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     ram_formula: "n * f64 * 4 + k * d * f64 + 256"
     formula_evidence:
       output_arrays: "kmeans_ad.py -- state_nbytes: decision_scores (n)*8 + labels (n)*8 + window_scores (n_w~n)*8 + labels_per_window (n_w~n)*8"
@@ -2199,8 +2197,7 @@ subtypes:
       burn_in: int
     cadw_module: cadw.ml.bocpd
     cadw_function: fit_bocpd
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     ram_formula: "3 * n * f64 + posterior_keep * max_run * f64 + 256"
     formula_evidence:
       decision_scores: "bocpd.py -- BOCPDResult: decision_scores (n)*f64"
@@ -2715,8 +2712,7 @@ subtypes:
       extension_level: int
     cadw_module: cadw.ml.eif
     cadw_function: fit_eif
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     ram_formula: "3 * n * f64 + 256"
     formula_evidence:
       decision_scores: "eif.py -- EIFResult: decision_scores (n)*f64"
@@ -2891,8 +2887,7 @@ subtypes:
       n_clusters: int
     cadw_module: cadw.ml.kmeans_ad
     cadw_function: fit_kmeans_ad
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     ram_formula: "n * f64 * 4 + k * d * f64 + 256"
     formula_evidence:
       output_arrays: "kmeans_ad.py -- state_nbytes: decision_scores (n)*8 + labels (n)*8 + window_scores (n_w~n)*8 + labels_per_window (n_w~n)*8"
