@@ -146,3 +146,22 @@ def test_peak_grows_linearly_with_n():
     assert ratio < 15.0, (
         f"peak ratio {ratio:.2f} (small={p_small}, large={p_large}); "
         f"expected ~10x for linear; >15 suggests quadratic or formula gap")
+
+
+def test_guard_refuses_at_domain_bound():
+    """bounded_by_domain n<=1e6 honest: fit must REFUSE, not OOM.
+
+    at n=1e6 (declared domain bound) + guard=10MB (insufficient for
+    transient peak 16-42 MB): fit must raise MemoryLimitExceeded
+    BEFORE allocating output arrays. If this test OOMs — the YAML
+    bounded_by_domain claim is false (state_nbytes excludes transient).
+
+    v0.9.116: all 7 series-path O(n)-output fns verified honest.
+    """
+    x = _make_series(1_000_000)
+    try:
+        with pytest.raises(MemoryLimitExceeded):
+            fit_hampel(x, window_size=50,
+                     guard=MemoryGuard(max_memory_mb=10))
+    finally:
+        del x
