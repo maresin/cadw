@@ -2,20 +2,27 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.115
+## Current: v0.9.118
 
-**30 verified fns / 38 verified cards / 18 draft / 32 pending / 62 no-fn.**
+**31 verified fns / 45 verified cards / 8 draft fns / 13 draft cards /
+24 pending fns / 30 pending cards / 62 no-fn.**
 
-v0.9.115: 6 fns flipped to verified via CoxPH-precedent + dual dispatch:
-`fit_kshape`, `fit_hampel`, `fit_dwt_mlead`, `fit_patch_memory_ad`,
-`fit_autoencoder`, `fit_s2g`. All: state_nbytes + bounded_by_domain
-n<=1e6 + 9 CW-tests + df+series dispatch + output="memory"|"auto".
+v0.9.116-v0.9.118 (since v0.9.115):
+- v0.9.116: sub_pca verified (x2 alias); df-API migration for bocpd/eif/kmeans_ad
+  (input_api series->dual, R8 = 0 warnings); DEC-034 partial (lda_peak
+  measure_peak_traced); DEC-035 (BIRCH _insert split row-by-row argmin).
+- v0.9.117: LDA + TF-IDF verified (component-wise DEC-033); auto K-spill
+  (K_raw_est > state_limit//96//2 -> hash_shuffle, else legacy);
+  DEC-041 + DEC-042.
+- v0.9.118: ordinal_logit + chains (x2 alias) verified; R9 (cadw_function
+  importable schema test); R8 was added v0.9.115.
 
-**input_api invariant (R8):** 88 cards with `cadw_function` now declare
-`input_api: df|series|dual`. `series`-only: bocpd/eif/kmeans_ad (verified,
-migration_target: v0.9.116) + binseg/stray/sub_pca/t2q (draft).
+**Invariants:** R8 (input_api df|series|dual) + R9 (cadw_function importable).
+CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
+Component-wise (DEC-033) + DEC-034 escalation (tolerance widen on RSS drift).
 
-Next: v0.9.116 sub_pca (2 alias cards), df-API migration, K-spill LDA/tfidf.
+Next: v0.9.119 draft fns (ab_test x3, BVAR/VECM, t2q, pelt, meta_learner) +
+ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Progress (v0.9.105 - v0.9.110g)
 
@@ -44,9 +51,9 @@ Next: v0.9.116 sub_pca (2 alias cards), df-API migration, K-spill LDA/tfidf.
 
 | Status | Count | Note |
 |---|---|---|
-| verified | **30** | 24 (v0.9.114) + kshape, hampel, dwt_mlead, patch_memory_ad, autoencoder, s2g (v0.9.115) |
-| draft | **18** | 17 legacy + LDA/T_learner/S_learner (kshape flipped) |
-| pending (no status) | **32** fns | 88 with fn - 62 no-fn - 30 verified + aliases |
+| verified | **31 fns / 45 cards** | v0.9.114 (24) + v0.9.115 (+6) + v0.9.116 (+1 sub_pca) + v0.9.117 (+2 LDA/TF-IDF) + v0.9.118 (+2 ordinal/chains) |
+| draft | **8 fns / 13 cards** | BVAR/VECM, binseg x2 (permanent refuse_at_guard), pelt x2, t2q, meta_learner (T/S_learner AP2), ab_test x3 (container) |
+| pending (no status) | **24 fns / 30 cards** | A_classification x8, O_eda x16 |
 
 ## Known gaps (remaining)
 
@@ -94,31 +101,32 @@ Next: v0.9.116 sub_pca (2 alias cards), df-API migration, K-spill LDA/tfidf.
 
 ## Next 3 sessions
 
-### v0.9.116 — sub_pca + df-API migration + K-spill
+### v0.9.119 — draft fns + ML_COVERAGE_MATRIX
 
-- **sub_pca** (2 alias cards): Reduce pattern, 2-pass cov, CoxPH-precedent.
-  state_nbytes = 2*n*f64 + k*window_size*f64 + window_size*f64 + 264.
-- **df-API migration** (input_api: series → dual): fit_bocpd, fit_eif,
-  fit_kmeans_ad (verified but series-only). Removes 3 R8 warnings.
-- **K-spill LDA/tfidf** (AP5): `_build_vocab` dict grows O(K_raw). Needs
-  hash_shuffle + distinct_count. Defer to v0.9.117 if time-constrained.
-- **DEC-034/035 backlog**: subprocess-isolation for `measure_peak_traced`
-  tests; BIRCH `_insert` batching.
+- **fit_ab_test x3** (container, DriftABModel.state_nbytes=256): t/mw/cuped
+  methods. YAML flip + CW (state exact + tight_guard) — container semantics,
+  no per-row state.
+- **BVAR/VECM** (TS, tier1_core_exception likely): bounded_by_domain n<=1e6,
+  state O(d²). Probe fit signatures.
+- **fit_t2q** (T-squared+Q): strided+chunked (v0.9.104 backlog).
+- **fit_pelt x2** (container 256B + _collect_series): CoxPH-precedent on
+  detect() DP; fit container is honest O(1).
+- **fit_meta_learner** (T/S_learner): AP2 _collect + np.vstack — needs chunked
+  refactor, defer if prioritized low.
+- **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
+  Audit current coverage; identify gaps for v0.9.120+.
 
-### v0.9.117 — T/S_learner GBDT streaming (if prioritized)
+### v0.9.120 — pending fns (A_classification + O_eda)
 
-Intrinsic O(n·d) GBDT fit; verified requires chunked / partial_fit
-refactor. Currently draft. Also: binseg/stray — draft permanently
-(intrinsic O(n), refuse_at_guard is correct state).
+- A_classification x8 pending: component-wise verify (some have `status: None`
+  legacy cards — normalize to `draft`/`verified`).
+- O_eda x16 pending: same.
+- AP2 sweep (grep `column_stack|vstack|concatenate` in cadw/ml/).
 
-### v0.9.118+ — Remaining + ML coverage audit
+### v0.9.121+ — 30+ verified / 35+ verified tags
 
-- 32 pending fns (A_classification ×8, O_eda ×24) — ~4/session.
-- **ML_COVERAGE_MATRIX.md**: baseline/SOTA/ensemble audit per
-  section × subtype (roles: linear_signal, nonlinear_interactions,
-  representation, probabilistic, temporal_dynamics, local_structure,
-  calibration). Re-check do-not-re-solve per DEC-033/034/035.
-- Tag when 35+ verified.
+Re-check do-not-re-solve per DEC-033/034/035. Tag v0.9.119/120 when
+appropriate.
 
 ## ## Backlog (not scheduled)
 

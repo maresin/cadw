@@ -939,3 +939,45 @@ At n=1e6 + `MemoryGuard(10MB)` — fit raises `MemoryLimitExceeded` BEFORE OOM (
 **Signal << noise case (DEC-034):** TF-IDF fit peak ~4 KB (no SGD, no doc_sample) — formula_small_scale dropped. LDA keeps it (5 MB doc_sample signal). `test_state_nbytes_exact` + `state_independent_of_n` + `ooc_fixed_batch` cover formula.
 
 **Precedent:** fit_zms/fit_cusum dual dispatch (v0.9.113) — same auto-detect pattern.
+
+---
+
+## DEC-040 (2026-11-04, v0.9.117) — avg_word_len=24 upper bound for LDA/TF-IDF vocab str
+
+**Q:** LdaModel.state_nbytes / TfidfModel.state_nbytes include vocab_ (list[str])
++ _index (dict[str,int]). Prior v0.9.41: `8 * len(vocab) + 512` (undercount ~4x).
+New formula needs `avg_word_len` (mean token body length) for the str component.
+Where does it come from?
+
+**A:** `avg_word_len = 24` — **conservative upper bound** on token length in
+natural-language corpora after `tokenize()` (regex `[a-z0-9]+`, min length 2).
+
+**Evidence:**
+- English words: mean ~5, p99 ~15 (Zipf). 24 is ~4.8× mean, covers p99.9.
+- Technical jargon (chemical names, URLs, identifiers) can exceed 24;
+  overestimate → guard refuses earlier (safe), does not silently OOM.
+- Dataset-specific avg_word_len is not known at YAML evaluation time
+  (`estimate_memory` pre-flight).
+
+**Formula (per V token):**
+- vocab_ list_ptr: 8
+- py_str_overhead: 49 (CPython str header)
+- avg_word_len: 24 (upper bound on body; over-estimate safe)
+- _index dict_entry: 116 (CPython dict entry incl key/value ptrs)
+- Total: 197 bytes/token + K*V*8 (components) + 512 (header).
+
+**Trade-off:**
+- Over-estimate: at V=10k, ~1.7 MB (state); true ~1.2 MB (mean 5). Guard
+  refuses 30% earlier — safe.
+- Under-estimate: silent OOM — forbidden (§2.6 AP22 "refuse-at-guard is OK").
+
+**Precedent:** CoxPH `baseline_t_/baseline_h_` use `2 * n_events * 8` upper
+bound; bounded_by_domain assumes it. Same "conservative overestimate" pattern.
+
+**Calibration:** measured on py3.12/np2.4/pa26. py_str_overhead_bytes=49,
+dict_entry_bytes=116 in memory_constants.yaml. Drift test
+test_constants_match_env catches version changes.
+
+**Do NOT invent `avg_word_len` from data at fit time:** it would require full
+pass before formula evaluation → estimate_memory becomes O(n). Conservative
+upper bound is correct for pre-flight.

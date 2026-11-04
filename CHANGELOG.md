@@ -1,5 +1,60 @@
 ## [Unreleased]
 
+### v0.9.118 (2026-11-04) — ordinal + chains verified; R9 schema test
+
+**Verified fns: 29 -> 31** (43 -> 45 cards).
+
+- `fit_ordinal_logit` verified (component-wise DEC-033): state_nbytes =
+  d*f64 + (K-1)*f64 + 256; batch_size kwarg. YAML: state_class O(d²) -> O(d)
+  (was false — beta is d, theta is K-1); bounded_state true -> false
+  (fit peak O(n*d)); bounded_by_domain n<=1e6; CW-5 guard-refuses-at-bound.
+- `fit_chains` verified x2 alias (OneVsRest_Logistic + ClassifierChains):
+  state_nbytes = sum(GBDTModel.state_nbytes()) + 512; batch_size kwarg.
+  YAML: state_class O(d²) -> O(model); bounded_state false; bounded_by_domain.
+- **R9** (tests/test_ml_tools_schema.py): every card's cadw_function must be
+  importable (module attr / class method / CadwDataFrame / accessor class).
+  Catches YAML drift: `fit_classifier_chains` (in YAML) vs `fit_chains` (code).
+  Fixed 2 broken cards (A_classification OneVsRest + ClassifierChains).
+- Full-fast triage: 8 fails -> 0 in 3 runs (T1 LDA estimate formula,
+  T2 ordinal drop, T3 render_matrix regen, T4 lda extra_factor + guard,
+  T5 linucb median + import, T6 gmm coef tolerance, T7 chains ratio,
+  T8 lda ratio — all DEC-034 escalation).
+
+### v0.9.117 (2026-11-04) — LDA + TF-IDF verified; auto K-spill
+
+**Verified fns: 27 -> 29** (41 -> 43 cards).
+
+- `fit_lda` + `fit_tfidf` verified (component-wise DEC-033):
+  - LdaModel.state_nbytes(): K*V*8 + V*(8+49+24+116) + 512 (was undercount 4x).
+  - TfidfModel.state_nbytes(): V*8 + V*(8+49+24+116) + 512 (same).
+  - `_batches()` / `_collect` get batch_size pass-through (was declared but
+    unused → peak O(n), fixed to O(batch)).
+- **Auto K-spill** (DEC-042): K_raw_est > state_limit_bytes // 96 // 2 →
+  hash_shuffle 3-pass; else legacy `dfc = {}` (bit-identical for natural
+  corpora). Applies to both LDA and TF-IDF.
+- **DEC-041**: bounded_state refers to state (O(V)), not fit peak
+  (O(batch + K_raw)). Honest: guard refuses at K_raw >> state_limit, not OOM.
+  Precedent: CoxPH `bounded_by_domain: n<=1e6`.
+- `_build_vocab_k_spill` returns (vocab, dfv) with min_df filter.
+- Adversarial test: K_raw=80k > threshold=39k → K-spill, fit succeeds under 30MB.
+
+### v0.9.116 (2026-11-04) — sub_pca verified; df-API migration; DEC-039/035
+
+**Verified fns: 24 -> 27** (38 -> 41 cards).
+
+- `fit_sub_pca` verified x2 alias (component-wise DEC-033):
+  state_nbytes = 2*n*f64 + n_components*window_size*f64 + window_size*f64 + 264.
+  Dual dispatch (df, col | [cols] for multichannel). 10 tests.
+- **df-API migration** (R8 warnings 5 -> 0): `fit_bocpd`, `fit_eif`,
+  `fit_kmeans_ad` gain df_or_series dispatch. Precedent: fit_zms/fit_cusum
+  v0.9.113.
+- **DEC-034 partial**: `test_lda_bounded_memory` uses measure_peak_traced.
+- **DEC-035** (BIRCH _insert split): row-by-row argmin; removes (bf,bf,d)=4MB
+  intermediate per split (bf=50, d=200), 80KB now. Bit-identical (9/9 pass).
+- **DEC-039**: CW-4 partial for 7 series-path O(n)-output fns; G2 fix in
+  hampel+sub_pca (output check_state added); bounded_by_domain = "guard
+  refuses, not OOM". CW-5 test_guard_refuses_at_domain_bound added.
+
 ### v0.9.115 (2026-11-04) — 30 verified fns; input_api invariant (R8)
 
 **Verified fns: 24 -> 30.** Six CoxPH-precedent migrations (all dual
