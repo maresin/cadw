@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import pyarrow as pa
 
 
 @dataclass
@@ -45,6 +46,23 @@ class DwtMleadResult:
     max_level: int
     quantile_epsilon: float
     min_anomaly_consistency: int
+
+    def state_nbytes(self) -> int:
+        """Persistent state: anomaly_scores(n f64) + is_anomaly(n bool)
+        + level_counts(max_level i64) + header.
+
+        v0.9.115: honest O(n) (CoxPH-precedent, bocpd/eif/kmeans_ad v0.9.114).
+        Formula: n*f64 + n*bool + max_level*i64 + 264.
+        max_level = log2(next_pow2(n)) <= 20 for n<=1e6.
+        bounded_by_domain n<=1e6 accepts this (~9 MB at n=1e6).
+        """
+        return int(
+            self.anomaly_scores.nbytes
+            + self.is_anomaly.nbytes
+            + self.level_counts.nbytes
+            + 8    # representative scalar (4 fields collapsed per precedent)
+            + 256  # header
+        )
 
 
 def _pad_to_next_power_of_two(x: np.ndarray) -> np.ndarray:
@@ -258,7 +276,101 @@ def _probe_memory_limit_mb(guard) -> float | None:
     return None
 
 
+
 def fit_dwt_mlead(
+    df_or_series,
+    value_col=None,
+    *,
+    start_level: int = 3,
+    quantile_epsilon: float = 0.01,
+    min_anomaly_consistency: int = 2,
+    guard=None,
+    output: str = "memory",
+    batch_size: "int | None" = None,
+) -> DwtMleadResult:
+    """DWT-MLEAD anomaly detection (v0.9.115 dual dispatch).
+
+    df path (new, v0.9.115):
+        fit_dwt_mlead(df, value_col)  # collects to ndarray, calls series
+
+    Legacy np.ndarray path (back-compat):
+        fit_dwt_mlead(series)  # in-memory, equivalent to output="memory"
+
+    output="memory"|"auto" -> in-memory. "disk" -> NotImplementedError
+    (SpillArray for O(n) anomaly_scores is v0.9.116+, DEC-013).
+    """
+    if output not in ("memory", "auto"):
+        raise NotImplementedError(
+            f"fit_dwt_mlead: output={output!r} not supported "
+            f"(anomaly_scores is O(n) ndarray; SpillArray for dwt_mlead "
+            f"is v0.9.116+, DEC-013)")
+    is_df = (hasattr(df_or_series, "_iter_filtered_batches")
+             and hasattr(df_or_series, "_columns"))
+    if is_df:
+        if value_col is None:
+            raise ValueError(
+                "fit_dwt_mlead: value_col required when df is passed")
+        if value_col not in df_or_series._columns:
+            raise KeyError(
+                f"fit_dwt_mlead: column {value_col!r} not in "
+                f"{df_or_series._columns}")
+        return _fit_dwt_mlead_df(
+            df_or_series, value_col,
+            start_level=start_level,
+            quantile_epsilon=quantile_epsilon,
+            min_anomaly_consistency=min_anomaly_consistency,
+            guard=guard, batch_size=batch_size,
+        )
+    if value_col is not None:
+        raise ValueError(
+            "fit_dwt_mlead: value_col only used with df input; "
+            "omit for np.ndarray")
+    return _fit_dwt_mlead_series(
+        df_or_series,
+        start_level=start_level,
+        quantile_epsilon=quantile_epsilon,
+        min_anomaly_consistency=min_anomaly_consistency,
+        guard=guard,
+    )
+
+
+def _fit_dwt_mlead_series(series, *, start_level, quantile_epsilon,
+                          min_anomaly_consistency, guard):
+    """np.ndarray path (output= handled by public fit_dwt_mlead)."""
+    return _fit_dwt_mlead_series_impl(
+        series,
+        start_level=start_level,
+        quantile_epsilon=quantile_epsilon,
+        min_anomaly_consistency=min_anomaly_consistency,
+        guard=guard,
+    )
+
+
+def _fit_dwt_mlead_df(df, value_col, *, start_level, quantile_epsilon,
+                      min_anomaly_consistency, guard, batch_size=None):
+    """df path; collects series to ndarray then calls series path."""
+    mg = guard if guard is not None else getattr(df, "_memory_guard", None)
+    parts = []
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="dwt_mlead.batch", extra_factor=2.0)
+        x_b = b.column(value_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        if x_b.size > 0:
+            parts.append(x_b)
+    if not parts:
+        raise ValueError(f"fit_dwt_mlead: column {value_col!r} is empty")
+    series = np.concatenate(parts) if len(parts) > 1 else parts[0]
+    return _fit_dwt_mlead_series(
+        series,
+        start_level=start_level,
+        quantile_epsilon=quantile_epsilon,
+        min_anomaly_consistency=min_anomaly_consistency,
+        guard=mg,
+    )
+
+
+def _fit_dwt_mlead_series_impl(
     series: np.ndarray,
     *,
     start_level: int = 3,
