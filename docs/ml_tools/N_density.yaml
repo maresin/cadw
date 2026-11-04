@@ -37,6 +37,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/gmm.json', algorithm: 'cadw.ml.gmm', algorithm_source_url: 'cadw/ml/gmm.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: density, n_datasets: 2, metric: fit_time_s, value: 3.258, std: 1.444, note: 'CADW-native: fit_s=0.37 @n=100k and 3.258 @n=1M (scripts/bench_gmm.py, .pingis/benches/gmm.json); std=half-range; hardware-specific.'}
         cadw_module: cadw.ml.gmm
         cadw_function: fit_gmm
+        input_api: df
 
         state_class: O(model)
         bounded_state_dims: {k: 1, d: 1, max_samples: 1}
@@ -95,6 +96,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/birch.json', algorithm: 'cadw.ml.birch', algorithm_source_url: 'cadw/ml/birch.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: density, n_datasets: 3, metric: fit_time_s, value: 3.388, std: 1.551, note: 'CADW-native: fit_s=0.286/1.336/3.388 @n=5k/20k/50k (scripts/bench_birch.py, .pingis/benches/birch.json); std=half-range; hardware-specific.'}
         cadw_module: cadw.ml.birch
         cadw_function: fit_birch
+        input_api: df
 
         ram_formula: "branching_factor * ((2*d+1)*f64 + 32) + k*d*f64 + 512 + 3*batch*row_size"
         formula_evidence:

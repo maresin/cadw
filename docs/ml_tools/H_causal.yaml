@@ -37,6 +37,7 @@ subtypes:
       propensity_alpha: float
     cadw_module: cadw.ml.meta_learners
     cadw_function: fit_meta_learner
+    input_api: df
     benchmark_results:
     - benchmark: RCT_IHDP
       benchmark_url: https://www.fredjo.com/
@@ -85,6 +86,7 @@ subtypes:
       propensity_alpha: float
     cadw_module: cadw.ml.meta_learners
     cadw_function: fit_meta_learner
+    input_api: df
     benchmark_results:
     - benchmark: RCT_IHDP
       benchmark_url: https://www.fredjo.com/
@@ -188,6 +190,7 @@ subtypes:
       n_estimators: int
     cadw_module: cadw.ml.uplift
     cadw_function: _fit_uplift_two_model
+    input_api: df
     benchmark_results:
     - benchmark: RCT_IHDP
       benchmark_url: https://www.fredjo.com/
@@ -231,6 +234,7 @@ subtypes:
       max_samples: int
     cadw_module: cadw.ml.uplift
     cadw_function: fit_uplift
+    input_api: df
     benchmark_results:
     - benchmark: RCT_IHDP
       benchmark_url: https://www.fredjo.com/

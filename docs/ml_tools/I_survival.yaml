@@ -84,6 +84,7 @@ subtypes:
       note: 'CADW-native: c_index=0.7229 @n=5000 and 0.7244 @n=50000 (coxph.json); std=half-range; NOT comparable to external LB.'
     cadw_module: cadw.ml.coxph
     cadw_function: fit_coxph
+    input_api: df
     ram_formula: "d*d*f64 + n_events*2*f64 + 2*d*d*f64 + 3*batch*row_size + 256"
     formula_evidence:
       coef_and_cov: "coxph.py -- CoxPHModel.state_nbytes: coef_.nbytes (d*f64) + covariance_.nbytes (d*d*f64 if closed; None for sgd)"

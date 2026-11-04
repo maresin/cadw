@@ -98,6 +98,8 @@ migration + K-spill.
 
 Intrinsic O(n·d) GBDT fit; verified requires chunked / partial_fit refactor. Currently draft.
 
+- **df-API migration** (input_api: series -> dual): `fit_bocpd`, `fit_eif`, `fit_kmeans_ad` (verified but series-only), plus legacy `fit_hampel`, `fit_sub_pca`, `fit_s2g`, `fit_dwt_mlead`, `fit_patch_memory_ad`, `fit_autoencoder` (`fit_kshape` migrates in v0.9.115). Pattern: `df + value_col` dual dispatch, as `fit_zms` / `fit_cusum` (v0.9.113, STREAMING §1.5).
+
 ### v0.9.117+ — Remaining + do-not-re-solve audit
 
 Re-check `do-not-re-solve` per DEC-033/034/035. Tag when 30+ verified.

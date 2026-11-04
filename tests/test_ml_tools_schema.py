@@ -679,3 +679,42 @@ def test_R7_has_fn_requires_impl_block():
         "R7 (v0.9.111): has-fn ModelCards must have implementation_status "
         "block:\n" + "\n".join(bad)
     )
+
+# ============================================================
+# v0.9.115: R8 — input_api invariant
+# ============================================================
+
+def test_R8_input_api_invariant():
+    """R8 (v0.9.115): every card with cadw_function has input_api in
+    {df, series, dual}; series ⟹ migration_target; verified+series
+    emits a warning (in-memory escape hatch, AI_CONSTITUTION §1.3).
+    """
+    import warnings as _w
+    bad = []
+    warned = []
+    for yp, card, label in _iter_all_yaml_cards():
+        fn = card.get("cadw_function")
+        if not fn:
+            continue
+        api = card.get("input_api")
+        if api not in ("df", "series", "dual"):
+            bad.append(f"{label}: input_api={api!r}")
+            continue
+        if api == "series":
+            mt = card.get("migration_target")
+            if not mt:
+                bad.append(f"{label}: series but no migration_target")
+            impl = card.get("implementation_status") or {}
+            if impl.get("status") == "verified":
+                warned.append(f"{label}: mt={mt}")
+                _w.warn(
+                    f"R8: verified+series {label} (in-memory escape "
+                    f"hatch, §1.3); migration_target={mt}",
+                    stacklevel=2,
+                )
+    if warned:
+        print(f"\nR8 warn: {len(warned)} verified+series cards")
+    assert not bad, (
+        "R8 (v0.9.115): every card with cadw_function must have "
+        "input_api in {df,series,dual}; series requires "
+        "migration_target:\n" + "\n".join(bad))

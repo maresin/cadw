@@ -75,6 +75,7 @@ subtypes:
       note: 'CADW-native: peak_mb=4.7 @n=10k, 19.4 @n=50k, 51.1 @n=150k (linucb.json); fit_s=0.04 @n=150k, 5 arms. NOT comparable to external CTR numbers.'
     cadw_module: cadw.ml.linucb
     cadw_function: fit_linucb
+    input_api: df
     state_class: O(model)
     bounded_state_dims: {k: 1, d: 1}
     transient_factor: 1.0

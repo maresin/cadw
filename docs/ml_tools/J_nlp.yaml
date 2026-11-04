@@ -80,6 +80,7 @@ subtypes:
       note: 'CADW-native: peak_mb=0.7/45.1/229.6 @n=10k/100k/500k (scripts/bench_tfidf.py, .pingis/benches/tfidf.json); std=half-range; hardware-specific.'
     cadw_module: cadw.ml.tfidf
     cadw_function: fit_tfidf
+    input_api: df
     state_class: O(d²)
     bounded_state_dims: {d: 2}
     transient_factor: 2.0
@@ -259,6 +260,7 @@ subtypes:
       note: 'no_public_benchmark: STS-B GLUE LB ranks only fine-tuned PLMs; unsupervised LSA has no public row'
     cadw_module: cadw.ml.randsvd
     cadw_function: fit_randomized_svd
+    input_api: df
     state_class: O(d)
     bounded_state_dims: {d: 1, n_components: 1, n_oversamples: 1}
     transient_factor: 1.0
@@ -457,6 +459,7 @@ subtypes:
       note: 'CADW-native: fit_s=4.491/21.382/102.892 @n=2k/10k/50k (scripts/bench_lda.py, .pingis/benches/lda.json); std=half-range; hardware-specific.'
     cadw_module: cadw.ml.lda
     cadw_function: fit_lda
+    input_api: df
     state_class: O(model)
     # v0.9.101: axis is V (raw unique tokens) — _build_vocab peak is
     # K_raw * 96 B. Prior {k:1,d:1} used user's vocab_size as `d`,

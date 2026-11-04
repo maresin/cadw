@@ -64,6 +64,7 @@ subtypes:
       reg: float
     cadw_module: cadw.ml.als
     cadw_function: fit_als
+    input_api: df
     ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*batch*row_size + 256"
     formula_evidence:
       factors: "als.py:56-57 -- state_nbytes: user_factors_.nbytes + item_factors_.nbytes = (U+I)*k*8"
@@ -168,6 +169,7 @@ subtypes:
       reg: float
     cadw_module: cadw.ml.als
     cadw_function: fit_als
+    input_api: df
     ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*batch*row_size + 256"
     formula_evidence:
       factors: "als.py:56-57 -- state_nbytes: user_factors_.nbytes + item_factors_.nbytes = (U+I)*k*8"
@@ -239,6 +241,7 @@ subtypes:
       n_estimators: int
     cadw_module: cadw.ml.hybrid_mf
     cadw_function: fit_hybrid_mf
+    input_api: df
     benchmark_results:
     - benchmark: Amazon_Recsys
       benchmark_url: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/

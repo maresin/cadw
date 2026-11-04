@@ -44,6 +44,7 @@ subtypes:
       l1_ratio: float
     cadw_module: cadw.ml.logistic
     cadw_function: fit_logistic
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -90,6 +91,7 @@ subtypes:
       learning_rate: float
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_classifier
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -132,6 +134,7 @@ subtypes:
       alpha: float
     cadw_module: cadw.ml.naive_bayes
     cadw_function: fit_bernoulli_nb
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -176,6 +179,7 @@ subtypes:
       alpha: float
     cadw_module: cadw.ml.naive_bayes
     cadw_function: fit_multinomial_nb
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -301,6 +305,7 @@ subtypes:
       max_iter: int
     cadw_module: cadw.ml.logistic
     cadw_function: fit_logistic
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -345,6 +350,7 @@ subtypes:
       max_depth: int
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_classifier
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -387,6 +393,7 @@ subtypes:
       var_smoothing: float
     cadw_module: cadw.ml.naive_bayes
     cadw_function: fit_gaussian_nb
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -468,6 +475,7 @@ subtypes:
       alpha: float
     cadw_module: cadw.ml.linear
     cadw_function: fit_linear
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -512,6 +520,7 @@ subtypes:
       max_iter: int
     cadw_module: cadw.ml.linear
     cadw_function: fit_lasso
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -558,6 +567,7 @@ subtypes:
       learning_rate: float
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_regressor
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -651,6 +661,7 @@ subtypes:
       alpha: float
     cadw_module: cadw.ml.chains
     cadw_function: fit_classifier_chains
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -692,6 +703,7 @@ subtypes:
       order: list
     cadw_module: cadw.ml.chains
     cadw_function: fit_classifier_chains
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -765,6 +777,7 @@ subtypes:
       alpha: float
     cadw_module: cadw.ml.ordinal
     cadw_function: fit_ordinal_logit
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -863,6 +876,7 @@ subtypes:
       alpha: float
     cadw_module: cadw.ml.logistic
     cadw_function: fit_logistic
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -908,6 +922,7 @@ subtypes:
       n_estimators: int
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_classifier
+    input_api: df
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/

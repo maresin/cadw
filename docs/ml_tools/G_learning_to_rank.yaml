@@ -63,6 +63,7 @@ subtypes:
       learning_rate: float
     cadw_module: cadw.ml.lambdamart
     cadw_function: fit_lambdamart
+    input_api: df
     benchmark_results:
     - benchmark: LETOR
       benchmark_url: https://web.archive.org/web/20240101000000/https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/

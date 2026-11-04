@@ -42,6 +42,7 @@ subtypes:
       period: int
     cadw_module: cadw.ts.models
     cadw_function: NaiveForecaster
+    input_api: df
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -86,6 +87,7 @@ subtypes:
       damped: bool
     cadw_module: cadw.ts.ets
     cadw_function: ETSForecaster
+    input_api: df
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -161,6 +163,7 @@ subtypes:
       slow_fit_threshold_s: float
     cadw_module: cadw.ts.auto_ets
     cadw_function: AutoETSForecaster
+    input_api: df
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/auto_ets.json
@@ -224,6 +227,7 @@ subtypes:
       n_iter: int
     cadw_module: cadw.ts.theta
     cadw_function: ThetaForecaster
+    input_api: df
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/theta.json
@@ -288,6 +292,7 @@ subtypes:
       n_iter: int
     cadw_module: cadw.ts.auto_theta
     cadw_function: AutoThetaForecaster
+    input_api: df
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/auto_theta.json
@@ -355,6 +360,7 @@ subtypes:
       seasonal_order: tuple
     cadw_module: cadw.ts.models
     cadw_function: SARIMAForecaster
+    input_api: df
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -400,6 +406,7 @@ subtypes:
       mode: str
     cadw_module: cadw.ts.models
     cadw_function: GBDTForecaster
+    input_api: df
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -894,6 +901,7 @@ subtypes:
       p: int
     cadw_module: cadw.ts.var
     cadw_function: VARModel
+    input_api: df
     benchmark_results:
     - benchmark: M5
       benchmark_url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
@@ -948,6 +956,7 @@ subtypes:
       group_col: str
     cadw_module: cadw.ts.models
     cadw_function: GBDTForecaster
+    input_api: df
     benchmark_results:
     - benchmark: M5
       benchmark_url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
@@ -995,6 +1004,7 @@ subtypes:
       mu: float
     cadw_module: cadw.ts.bvar
     cadw_function: BVARModel
+    input_api: df
     state_class: O(d²)
     bounded_state_dims: {d: 2}
     transient_factor: 2.0
@@ -1027,6 +1037,7 @@ subtypes:
       det_order: int
     cadw_module: cadw.ts.vecm
     cadw_function: VECMModel
+    input_api: df
     state_class: O(d²)
     bounded_state_dims: {d: 2}
     transient_factor: 2.0
@@ -1100,6 +1111,7 @@ subtypes:
       threshold: float
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
+    input_api: dual
     ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
     formula_evidence:
       batch_input: "zms.py -- _fit_zms_df: mg.check_batch(extra_factor=3.0)"
@@ -1177,6 +1189,7 @@ subtypes:
       subsample_size: int
     cadw_module: cadw.ml.iforest
     cadw_function: fit_isolation_forest
+    input_api: df
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -1241,6 +1254,7 @@ subtypes:
       window: int
     cadw_module: cadw.ml.matrix_profile
     cadw_function: fit_matrix_profile
+    input_api: df
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -1294,6 +1308,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.dwt_mlead
     cadw_function: fit_dwt_mlead
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/dwt_mlead.json
@@ -1346,6 +1362,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.sub_pca
     cadw_function: fit_sub_pca
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/sub_pca.json
@@ -1400,6 +1418,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.kshape
     cadw_function: fit_kshape
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/kshape.json
@@ -1460,6 +1480,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.eif
     cadw_function: fit_eif
+    input_api: series
+    migration_target: v0.9.116
     ram_formula: "3 * n * f64 + 256"
     formula_evidence:
       decision_scores: "eif.py -- EIFResult: decision_scores (n)*f64"
@@ -1533,6 +1555,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.hampel
     cadw_function: fit_hampel
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/hampel.json
@@ -1586,6 +1610,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
+    input_api: dual
     ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
     formula_evidence:
       batch_input: "zms.py -- _fit_zms_df: mg.check_batch(extra_factor=3.0)"
@@ -1656,6 +1681,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.stray
     cadw_function: fit_stray
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/stray.json
@@ -1709,6 +1736,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.autoencoder
     cadw_function: fit_autoencoder
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/autoencoder.json
@@ -1762,6 +1791,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.kmeans_ad
     cadw_function: fit_kmeans_ad
+    input_api: series
+    migration_target: v0.9.116
     ram_formula: "n * f64 * 4 + k * d * f64 + 256"
     formula_evidence:
       output_arrays: "kmeans_ad.py -- state_nbytes: decision_scores (n)*8 + labels (n)*8 + window_scores (n_w~n)*8 + labels_per_window (n_w~n)*8"
@@ -1833,6 +1864,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.patch_memory_ad
     cadw_function: fit_patch_memory_ad
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/patch_memory_ad.json
@@ -1989,6 +2022,8 @@ subtypes:
       n_bkps: int
     cadw_module: cadw.ml.binseg
     cadw_function: fit_binseg
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -2054,6 +2089,8 @@ subtypes:
       burn_in: int
     cadw_module: cadw.ml.bocpd
     cadw_function: fit_bocpd
+    input_api: series
+    migration_target: v0.9.116
     ram_formula: "3 * n * f64 + posterior_keep * max_run * f64 + 256"
     formula_evidence:
       decision_scores: "bocpd.py -- BOCPDResult: decision_scores (n)*f64"
@@ -2133,6 +2170,7 @@ subtypes:
       model: str
     cadw_module: cadw.ml.pelt
     cadw_function: fit_pelt
+    input_api: df
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -2172,6 +2210,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.tspq
     cadw_function: fit_t2q
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/tspq.json
@@ -2226,6 +2266,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.cusum
     cadw_function: fit_cusum
+    input_api: dual
     ram_formula: "3 * batch * row_size + 2 * batch * f64 + 256"
     formula_evidence:
       batch_input: "cusum.py -- _fit_cusum_df: mg.check_batch(extra_factor=3.0)"
@@ -2378,6 +2419,7 @@ subtypes:
       threshold: float
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
+    input_api: dual
     ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
     formula_evidence:
       batch_input: "zms.py -- _fit_zms_df: mg.check_batch(extra_factor=3.0)"
@@ -2460,6 +2502,7 @@ subtypes:
       top_k: int
     cadw_module: cadw.ml.matrix_profile
     cadw_function: fit_matrix_profile
+    input_api: df
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -2506,6 +2549,7 @@ subtypes:
       num_kernels: int
     cadw_module: cadw.ml.minirocket
     cadw_function: fit_minirocket
+    input_api: df
     ram_formula: "num_kernels * (9*f64 + f64) + 1024"
     formula_evidence:
       per_kernel: "minirocket.py:84-85 -- state_nbytes: len(kernels_)*(KERNEL_LEN*8+8)+1024; KERNEL_LEN=9 at line 37"
@@ -2561,6 +2605,8 @@ subtypes:
       extension_level: int
     cadw_module: cadw.ml.eif
     cadw_function: fit_eif
+    input_api: series
+    migration_target: v0.9.116
     ram_formula: "3 * n * f64 + 256"
     formula_evidence:
       decision_scores: "eif.py -- EIFResult: decision_scores (n)*f64"
@@ -2647,6 +2693,8 @@ subtypes:
       n_components: int
     cadw_module: cadw.ml.sub_pca
     cadw_function: fit_sub_pca
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/sub_pca.json
@@ -2713,6 +2761,8 @@ subtypes:
       n_clusters: int
     cadw_module: cadw.ml.kmeans_ad
     cadw_function: fit_kmeans_ad
+    input_api: series
+    migration_target: v0.9.116
     ram_formula: "n * f64 * 4 + k * d * f64 + 256"
     formula_evidence:
       output_arrays: "kmeans_ad.py -- state_nbytes: decision_scores (n)*8 + labels (n)*8 + window_scores (n_w~n)*8 + labels_per_window (n_w~n)*8"
@@ -2799,6 +2849,8 @@ subtypes:
       n_epochs: int
     cadw_module: cadw.ml.autoencoder
     cadw_function: fit_autoencoder
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/autoencoder.json
@@ -2861,6 +2913,8 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.s2g
     cadw_function: fit_s2g
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/s2g.json
@@ -2994,6 +3048,7 @@ subtypes:
       stats: tuple
     cadw_module: cadw.ts.stats
     cadw_function: rolling_stats
+    input_api: df
     benchmark_results:
     - benchmark: UCR_Classification
       benchmark_url: https://www.timeseriesclassification.com/
@@ -3036,6 +3091,7 @@ subtypes:
       num_kernels: int
     cadw_module: cadw.ml.minirocket
     cadw_function: fit_minirocket
+    input_api: df
     ram_formula: "num_kernels * (9*f64 + f64) + 1024"
     formula_evidence:
       per_kernel: "minirocket.py:84-85 -- state_nbytes: len(kernels_)*(KERNEL_LEN*8+8)+1024; KERNEL_LEN=9 at line 37"
@@ -3149,6 +3205,8 @@ subtypes:
       n_bkps: int
     cadw_module: cadw.ml.binseg
     cadw_function: fit_binseg
+    input_api: series
+    migration_target: v0.9.116
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -3213,6 +3271,7 @@ subtypes:
       penalty: float
     cadw_module: cadw.ml.pelt
     cadw_function: fit_pelt
+    input_api: df
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
