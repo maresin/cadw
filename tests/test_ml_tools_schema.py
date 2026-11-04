@@ -718,3 +718,82 @@ def test_R8_input_api_invariant():
         "R8 (v0.9.115): every card with cadw_function must have "
         "input_api in {df,series,dual}; series requires "
         "migration_target:\n" + "\n".join(bad))
+
+# ============================================================
+# v0.9.118: R9 — cadw_function must be importable
+# ============================================================
+
+def test_R9_cadw_function_importable():
+    """R9: every card's `cadw_function` must be importable in its
+    `cadw_module`. Catches YAML drift (`fit_classifier_chains` vs
+    actual `fit_chains` bug — v0.9.118).
+
+    For fn / model classes / ops / dataframe methods:
+    - `cadw.ml.X` / `cadw.ops.X` / `cadw.ts.X` / `cadw`: getattr
+    - `cadw.dataframe`: CadwDataFrame attribute (methods like fillna)
+    - described_only / not_implemented_in_cadw: skip (no impl required)
+    """
+    import importlib
+    import cadw
+
+    bad: list[str] = []
+    skipped = 0
+
+    for yp, card, label in _iter_all_yaml_cards():
+        fn = card.get("cadw_function")
+        if not fn:
+            continue
+        impl = card.get("implementation_status") or {}
+        if (impl.get("described_only") is True
+                or impl.get("not_implemented_in_cadw") is True):
+            skipped += 1
+            continue
+
+        mod_name = card.get("cadw_module")
+        if not mod_name:
+            bad.append(f"{label}: no cadw_module")
+            continue
+
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError as e:
+            bad.append(f"{label}: import {mod_name!r} failed: {e}")
+            continue
+
+        if hasattr(mod, fn):
+            continue
+        if mod_name == "cadw.dataframe":
+            from cadw.dataframe import CadwDataFrame
+            if hasattr(CadwDataFrame, fn):
+                continue
+        # v0.9.118: generic class-scan fallback. Accessor modules
+        # (plot_accessor, accessors._ts/_dt/_str) and other modules
+        # where fn is a method on a class (e.g. _MatplotlibAccessor.hist,
+        # PlotAccessor.hist). Private-prefixed classes are checked too
+        # (plot_accessor defines _MatplotlibAccessor, _PlotlyAccessor,
+        # _SeabornAccessor, _PlotAccessor).
+        _found_in_class = False
+        for _cname in dir(mod):
+            _cls = getattr(mod, _cname, None)
+            if not isinstance(_cls, type):
+                continue
+            if _cls.__module__ != mod_name:
+                continue
+            if hasattr(_cls, fn):
+                _found_in_class = True
+                break
+        if _found_in_class:
+            continue
+        if hasattr(cadw, fn):
+            continue
+
+        bad.append(
+            f"{label}: cadw_function={fn!r} not importable in "
+            f"{mod_name!r} (module attr / class method / cadw top-level)")
+
+    if skipped:
+        print(f"\nR9 skip (described_only/niic): {skipped}")
+    assert not bad, (
+        "R9 (v0.9.118): cadw_function must be importable:\n"
+        + "\n".join(bad))
+

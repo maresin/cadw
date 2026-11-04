@@ -660,7 +660,7 @@ subtypes:
     config:
       alpha: float
     cadw_module: cadw.ml.chains
-    cadw_function: fit_classifier_chains
+    cadw_function: fit_chains
     input_api: df
     benchmark_results:
     - benchmark: AMLB
@@ -702,7 +702,7 @@ subtypes:
       n_estimators: int
       order: list
     cadw_module: cadw.ml.chains
-    cadw_function: fit_classifier_chains
+    cadw_function: fit_chains
     input_api: df
     benchmark_results:
     - benchmark: AMLB
