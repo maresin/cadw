@@ -64,6 +64,31 @@ class BOCPDResult:
     # (n rows, opt-in via full_posterior=True).
     posterior_keep: int | None = None
 
+    def state_nbytes(self):
+        """Persistent output state.
+
+        v0.9.114: 3 n-sized arrays (decision_scores n*f64 + labels n*i64 +
+        argmax_run_length n*i64) + run_length_posterior (compact
+        posterior_keep*(max_run+1)*f64, ~103KB at defaults
+        posterior_keep=64, max_run=200) + 256 header.
+
+        NOT included: `changepoints` (np.flatnonzero(labels), sparse
+        subset of labels — already counted) and the R/mu/beta working
+        arrays (O(max_run), hyperparameter-bounded).
+
+        full_posterior=True changes run_length_posterior to
+        (n, max_run+1) = O(n*max_run) — quadratic; documented
+        limitation, default False. bounded_by_domain n<=1e6 applies
+        to default compact mode.
+        """
+        return int(
+            self.decision_scores.nbytes
+            + self.labels.nbytes
+            + self.argmax_run_length.nbytes
+            + self.run_length_posterior.nbytes
+            + 256
+        )
+
 
 def _probe_memory_limit_mb(guard) -> float | None:
     def _is_pos(v):

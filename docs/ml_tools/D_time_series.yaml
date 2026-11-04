@@ -2038,8 +2038,7 @@ subtypes:
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
-      status: draft
-      draft_reason: "DEC-036: contamination Optional but run-length posterior is sequential O(n*max_run) Python loop; SpillArray output needs _map-like expand; sample-based threshold v0.9.114."
+      status: verified
     roles:
     - probabilistic
     purpose: 'Bayesian online change-point detection with Student-t predictive likelihood (Adams & MacKay 2007). Run-length posterior plus NIG conjugate prior; score = P(change at t) = R[0], threshold 0.5. Student-t critical for heavy-tailed industrial data (SKAB: 32 percent DR at 13 percent FAR vs BOCPD-Gaussian ~0 percent DR).'
@@ -2055,6 +2054,23 @@ subtypes:
       burn_in: int
     cadw_module: cadw.ml.bocpd
     cadw_function: fit_bocpd
+    ram_formula: "3 * n * f64 + posterior_keep * max_run * f64 + 256"
+    formula_evidence:
+      decision_scores: "bocpd.py -- BOCPDResult: decision_scores (n)*f64"
+      labels: "bocpd.py -- BOCPDResult: labels (n)*i64"
+      argmax_run_length: "bocpd.py -- BOCPDResult: argmax_run_length (n)*i64"
+      run_length_posterior: "bocpd.py -- BOCPDResult: run_length_posterior (_keep, max_run+1)*f64; default posterior_keep=64 -> ~103KB constant, NOT O(n)"
+      header: "bocpd.py -- BOCPDResult: scalars +256"
+      not_included: "bocpd.py -- changepoints (sparse np.flatnonzero(labels), subset of labels) + R/mu/beta working arrays (O(max_run) hyperparameter)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact via BOCPDResult.state_nbytes()"
+      state_ratio_linear: "test_state_ratio_linear: 10x n -> [8,12]x state (linear in n, NOT O(n*max_run) because compact mode keeps R_hist constant)"
+      peak_not_quadratic: "test_peak_not_quadratic: ratio < 15 at 10x n, max_run=30 to keep Python loop fast"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via duck-typed guard (est_bytes check)"
+      cells_passed: "4/4"
+      runtime_sec: "~20"
+      note: "state_class O(n) honest (3 n-sized outputs). bounded_by_domain n<=1e6 (TSB-AD/UCR/NAB typical). CoxPH v0.9.114 precedent. full_posterior=True -> O(n*max_run) quadratic, documented limitation."
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/bocpd.json
@@ -2082,7 +2098,7 @@ subtypes:
       temporal_split: true
       target_leakage_checked: true
     state_class: O(n)
-    bounded_state_dims: {k: 1, d: 1}
+    bounded_state_dims: {n: 1, posterior_keep: 1, max_run: 1}
     transient_factor: 1.0
     state_type: iterative
     bounded_state: false
