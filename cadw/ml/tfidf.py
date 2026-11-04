@@ -50,7 +50,25 @@ class TfidfModel:
         self.fitted_ = True
 
     def state_nbytes(self):
-        return int(self.idf_.nbytes + 8 * len(self.vocab_) + 512)
+        """Persistent state: idf(V f64) + vocab(list[str]) + _index(dict) + 512.
+
+        v0.9.117 (DEC-040): honest upper bound. Prior 8*V underestimated
+        vocab strings + _index dict. Verified via test_state_nbytes_exact
+        (bit-exact against formula `d*f64 + d*list_ptr_bytes +
+        d*py_str_overhead_bytes + d*avg_word_len + d*dict_entry_bytes + 512`).
+
+        avg_word_len=24: conservative upper bound on token length (tokenize
+        filters len>1; 24 covers ~99.9% of natural-language tokens).
+        """
+        V = len(self.vocab_)
+        return int(
+            V * 8                  # idf_.nbytes
+            + V * 8                # vocab_ list_ptr
+            + V * 49               # py_str_overhead_bytes
+            + V * 24               # avg_word_len (upper bound)
+            + V * 116              # _index dict_entry_bytes
+            + 512                  # header
+        )
 
     def to_dict(self):
         return {"vocab_size": len(self.vocab_), "params": self.params_}
@@ -222,7 +240,7 @@ class TfidfModel:
 
 def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
               min_df=1, norm="l2", memory_guard: Optional[MemoryGuard] = None,
-              spill_dir=None, num_partitions=None):
+              spill_dir=None, num_partitions=None, batch_size=None):
     """Fit IDF weights by streaming the document-frequency vector."""
     if vocab_size < 2:
         raise ValueError("fit_tfidf: vocab_size must be >= 2")
@@ -237,7 +255,7 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
         # Legacy unbounded path (back-compat, bit-identical).
         dfc = {}
         n = 0
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(b, name="tfidf.fit", extra_factor=3.0)
             mg.check_state(
                 (len(dfc) + b.num_rows) * 96 + 1024, name="tfidf.state")
@@ -257,7 +275,7 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
         import shutil, tempfile
         # n = total docs (needed for idf); count via cheap pass
         n = 0
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             n += b.num_rows
         if n == 0:
             raise ValueError("fit_tfidf: empty input")
