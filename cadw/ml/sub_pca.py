@@ -494,6 +494,18 @@ def _fit_sub_pca_series_impl(
     k = _resolve_k(n_components, eigvals, d_pre)
     components = eigvecs[:, :k].T  # (k, d_pre)
 
+    # v0.9.116-fix (G2): check_state BEFORE output O(n) allocations.
+    # Peak = window_scores(n_w) + scores(n) + labels(n) ~ 3*n_w*8 B
+    # (n_w ~ n). state_nbytes excludes this transient; state is
+    # persistent post-fit. Probe: dRSS=25.9 MB at n=1e6.
+    if (guard is not None and hasattr(guard, "check_state")
+            and callable(guard.check_state)):
+        _n_out = n_pre
+        _n_w_out = n_pre - window_size + 1
+        guard.check_state(
+            int(3 * _n_w_out * 8 + 2 * _n_out * 8 + 256),
+            name="sub_pca.output")
+
     # Pass 3: streaming residual norms (O(chunk_nw*d))
     window_scores = _stream_residual_scores(
         _arr, window_size, 1, chunk_nw, mean_w, components)

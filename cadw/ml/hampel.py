@@ -242,6 +242,14 @@ def _fit_hampel_series_impl(
     n_w = view.shape[0]
     chunk = _resolve_chunk_nw_hampel(window_size, guard)
 
+    # v0.9.116-fix (G2): check_state BEFORE output O(n) allocations.
+    # Peak = med(n_w) + mad(n_w) + sigma(n_w) + scores(n) + labels(n)
+    #       ~ 5*n_w*8 B (n_w ~ n). state_nbytes excludes this transient;
+    # state is persistent post-fit. Probe: dRSS=41.4 MB at n=1e6.
+    if has_check_state:
+        guard.check_state(
+            int(5 * n_w * 8 + 256), name="hampel.output")
+
     med = np.empty(n_w, dtype=np.float64)
     mad = np.empty(n_w, dtype=np.float64)
     for i in range(0, n_w, chunk):
