@@ -88,7 +88,28 @@ class LdaModel:
         return int(self.components_.shape[0])
 
     def state_nbytes(self):
-        return int(self.components_.nbytes + 8 * len(self.vocab_) + 512)
+        """Persistent state: components(K,V f64) + vocab(list[str]) + _index(dict) + 512.
+
+        v0.9.117 (DEC-040): honest upper bound. Prior 8*V underestimated
+        vocab strings (py_str_overhead + word body) and _index dict
+        entries. Verified via test_state_nbytes_exact (bit-exact against
+        formula `k*d*f64 + d*(list_ptr_bytes + py_str_overhead_bytes +
+        avg_word_len) + d*dict_entry_bytes + 512`).
+
+        avg_word_len=24: conservative upper bound on token length
+        (tokenize filters len>1; 24 covers ~99.9% of natural-language
+        tokens). Overestimate is guard-safe (early refuse, not OOM).
+        """
+        V = len(self.vocab_)
+        K = self.components_.shape[0]
+        return int(
+            K * V * 8              # components_.nbytes
+            + V * 8                # vocab_ list ptr (list_ptr_bytes)
+            + V * 49               # py_str_overhead_bytes
+            + V * 24               # avg_word_len (upper bound)
+            + V * 116              # _index dict_entry_bytes
+            + 512                  # header (params_ dict + fitted_ + Python obj)
+        )
 
     def to_dict(self):
         return {"n_topics": self.n_topics_, "vocab_size": len(self.vocab_),
@@ -474,7 +495,7 @@ with N. True streaming E-step is future work.
 
     def _batches():
         nonlocal doc_sample_rows
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(b, name="lda.fit", extra_factor=3.0)
             texts = b.column(text_col).to_pylist()
             C = _tokenize_to_csr(texts, idx, V)  # sparse
