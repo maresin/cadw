@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import pyarrow as pa
 
 from .sub_pca import _map_max, _map_mean, _prepare_windows
 
@@ -45,6 +46,29 @@ class AutoencoderResult:
     encoder_weights: list
     decoder_weights: list
     normalization: str
+
+    def state_nbytes(self) -> int:
+        """Persistent state: decision_scores(n f64) + labels(n i64)
+        + window_scores(n_w f64) + training_losses(n_epochs py_float)
+        + encoder_weights + decoder_weights + header.
+
+        v0.9.115: honest O(n). Formula:
+        3*n*f64 + n_epochs*32
+        + (2*window_size*hidden_size + 2*hidden_size
+           + 2*hidden_size*latent_size + window_size + latent_size)*f64
+        + 264.
+        bounded_by_domain n<=1e6 (~24 MB at n=1e6).
+        """
+        enc_b = sum(getattr(w, "nbytes", 0) for w in self.encoder_weights)
+        dec_b = sum(getattr(w, "nbytes", 0) for w in self.decoder_weights)
+        losses_b = len(self.training_losses) * 32
+        return int(
+            self.decision_scores.nbytes
+            + self.labels.nbytes
+            + self.window_scores.nbytes
+            + losses_b + enc_b + dec_b
+            + 8 + 256
+        )
 
 
 def _probe_memory_limit_mb(guard) -> float | None:
@@ -173,6 +197,96 @@ def _fetch_windows_ae(series, indices, w, c, normalization):
 
 
 def fit_autoencoder(
+    df_or_series, value_col=None, *,
+    window_size: int = 50, hidden_size: int = 32, latent_size: int = 8,
+    n_epochs: int = 30, lr: float = 0.01, batch_size: int = 64,
+    momentum: float = 0.9, contamination: float = 0.1,
+    aggregate: str = "max", reconstruction_error: str = "mean",
+    normalization: str = "none", random_state: int | None = 42,
+    guard=None, output: str = "memory", io_batch_size: "int | None" = None,
+) -> AutoencoderResult:
+    """MLP autoencoder (v0.9.115 dual dispatch).
+
+    df path: fit_autoencoder(df, value_col, io_batch_size=None)
+    (io_batch_size controls df-iterator; batch_size stays SGD mini-batch).
+
+    output="memory"|"auto" -> in-memory; "disk" -> NotImplementedError
+    (SpillArray v0.9.116+, DEC-013).
+    """
+    if output not in ("memory", "auto"):
+        raise NotImplementedError(
+            f"fit_autoencoder: output={output!r} not supported "
+            f"(decision_scores is O(n) ndarray; SpillArray v0.9.116+, DEC-013)")
+    is_df = (hasattr(df_or_series, "_iter_filtered_batches")
+             and hasattr(df_or_series, "_columns"))
+    if is_df:
+        if value_col is None:
+            raise ValueError("fit_autoencoder: value_col required when df is passed")
+        if value_col not in df_or_series._columns:
+            raise KeyError(
+                f"fit_autoencoder: column {value_col!r} not in {df_or_series._columns}")
+        return _fit_autoencoder_df(
+            df_or_series, value_col,
+            window_size=window_size, hidden_size=hidden_size,
+            latent_size=latent_size, n_epochs=n_epochs, lr=lr,
+            batch_size=batch_size, momentum=momentum,
+            contamination=contamination, aggregate=aggregate,
+            reconstruction_error=reconstruction_error,
+            normalization=normalization, random_state=random_state,
+            guard=guard, io_batch_size=io_batch_size)
+    if value_col is not None:
+        raise ValueError("fit_autoencoder: value_col only used with df input")
+    return _fit_autoencoder_series(
+        df_or_series,
+        window_size=window_size, hidden_size=hidden_size,
+        latent_size=latent_size, n_epochs=n_epochs, lr=lr,
+        batch_size=batch_size, momentum=momentum,
+        contamination=contamination, aggregate=aggregate,
+        reconstruction_error=reconstruction_error,
+        normalization=normalization, random_state=random_state, guard=guard)
+
+
+def _fit_autoencoder_series(series, *, window_size, hidden_size, latent_size,
+                             n_epochs, lr, batch_size, momentum,
+                             contamination, aggregate, reconstruction_error,
+                             normalization, random_state, guard):
+    return _fit_autoencoder_series_impl(
+        series,
+        window_size=window_size, hidden_size=hidden_size,
+        latent_size=latent_size, n_epochs=n_epochs, lr=lr,
+        batch_size=batch_size, momentum=momentum,
+        contamination=contamination, aggregate=aggregate,
+        reconstruction_error=reconstruction_error,
+        normalization=normalization, random_state=random_state, guard=guard)
+
+
+def _fit_autoencoder_df(df, value_col, *, window_size, hidden_size,
+                         latent_size, n_epochs, lr, batch_size, momentum,
+                         contamination, aggregate, reconstruction_error,
+                         normalization, random_state, guard, io_batch_size=None):
+    mg = guard if guard is not None else getattr(df, "_memory_guard", None)
+    parts = []
+    for b in df._iter_filtered_batches(batch_size=io_batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="autoencoder.batch", extra_factor=2.0)
+        x_b = b.column(value_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        if x_b.size > 0:
+            parts.append(x_b)
+    if not parts:
+        raise ValueError(f"fit_autoencoder: column {value_col!r} is empty")
+    series = np.concatenate(parts) if len(parts) > 1 else parts[0]
+    return _fit_autoencoder_series(
+        series,
+        window_size=window_size, hidden_size=hidden_size,
+        latent_size=latent_size, n_epochs=n_epochs, lr=lr,
+        batch_size=batch_size, momentum=momentum,
+        contamination=contamination, aggregate=aggregate,
+        reconstruction_error=reconstruction_error,
+        normalization=normalization, random_state=random_state, guard=mg)
+
+
+def _fit_autoencoder_series_impl(
     series: np.ndarray,
     *,
     window_size: int = 50,
