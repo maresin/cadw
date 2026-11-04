@@ -763,10 +763,24 @@ subtypes:
   - name: OrdinalLogit
     tier: baseline
     tier_level: tier1_core
+    ram_formula: "d * f64 + K * f64 + 256"
+    formula_evidence:
+      beta: "ordinal.py -- OrdinalLogitModel.beta_ = (d,) f64 = d*f64"
+      theta: "ordinal.py -- OrdinalLogitModel.theta_ = (K-1,) f64 = (K-1)*f64"
+      header: "ordinal.py -- classes_ ndarray + feature_cols list + params dict = 256"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, (d,K) parametrized (5/3, 10/4, 20/5)"
+      state_independent_of_n: "test_state_independent_of_n: state(n=2k)==state(n=10k)"
+      formula_sanity: "test_formula_small_scale: predicted+5MB baseline / measured in [0.5,2.0]"
+      peak_linear: "test_peak_grows_linearly_with_n: ratio < 15 at 10x n (n=3k vs 30k)"
+      bounded_domain: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB guard -> MemoryLimitExceeded"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
+      status: verified
       verified_by_agent: true
     roles:
     - linear_signal
@@ -791,12 +805,16 @@ subtypes:
       value: 0.55
       std: null
       note: exact-match accuracy [legacy v0.9.44, migrated v0.9.50]
-    state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    transient_factor: 2.0
+    state_class: O(d)
+    bounded_state_dims: {d: 1, K: 1}
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: '_collect np.vstack(Xs) O(n*d); state O(d+K). n<=1e6 typical for tabular ordinal classification.'
+
+    n_scalability: linear
     streaming_strategy:
       fit: 'K-1 cumulative-logit Reduces over shared beta (d² Hessian).'
       predict: 'per-row cumulative P(y<=k) from fitted thresholds.'
