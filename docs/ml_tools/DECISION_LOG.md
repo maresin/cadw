@@ -904,3 +904,22 @@ At n=1e6 + `MemoryGuard(10MB)` — fit raises `MemoryLimitExceeded` BEFORE OOM (
 **bounded_by_domain semantics (canonical):** "at n<=bound with adequate guard (>= peak), fit will not OOM; with inadequate guard, raises MemoryLimitExceeded". NOT "fit succeeds at n<=bound with any guard". Tested by `test_guard_refuses_at_domain_bound`.
 
 **Sweep for remaining series-path fns (v0.9.117):** test all 7 + verify `est_bytes` in code includes output O(n). Probe template: `_read_vmrss_fast()` before/after, n=1e6, guard=10MB.
+
+---
+
+## DEC-041 (2026-11-04, v0.9.117) — LDA/TF-IDF verified: bounded_state = state, not fit peak; K_raw conditionality
+
+**Q:** fit_lda / fit_tfidf verified with `bounded_state: true` + `bounded_state_dims: {k, d, avg_word_len}`. Legacy `_build_vocab` (unbounded path) allocates `dfc` O(K_raw). Honest?
+
+**A:** `bounded_state: true` = state after fit (LdaModel/TfidfModel: components/idf + vocab + _index = O(V)). Fit peak is separate.
+
+**Fit peak:** O(batch * row_size) + O(K_raw * 96) (`dfc` in `_build_vocab`) + O(2000 * V * 8) (doc_sample LDA only) + O(arrow transients ~60 KB).
+
+**Conditional honesty:**
+- K_raw << state_limit (natural corpora): OOC via batch_size.
+- K_raw >> state_limit: `mg.check_state((len(dfc)+b.num_rows)*96+1024)` → **refuses** (MemoryLimitExceeded), not OOM.
+- K-spill path (opt-in): true OOC.
+
+**Precedent:** CoxPH `bounded_by_domain: n<=1e6` — same conditionality.
+
+**Deferred v0.9.117:** K-spill default; _build_vocab/_estimate_k_tokens batch_size pass-through; test_ooc_with_large_K_raw.
