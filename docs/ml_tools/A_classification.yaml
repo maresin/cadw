@@ -647,10 +647,23 @@ subtypes:
   - name: OneVsRest_Logistic
     tier: baseline
     tier_level: tier1_core
+    ram_formula: "n_estimators * d * d * f64 + 512"
+    formula_evidence:
+      per_estimator: "chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64"
+      header: "chains.py -- label_cols list + feature_cols list + params dict = 512"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact sum + 512 (n_est, d, L parametrized)"
+      state_independent_of_n: "test_state_independent_of_n: bounded ratio <=1.5 (GBDT data-dependent nodes)"
+      formula_sanity: "test_formula_small_scale: 2*n*d*8 vstack + n_est*1.5MB GBDT / measured [0.5, 2.0]"
+      peak_linear: "test_peak_grows_linearly_with_n: ratio < 15 at 10x n"
+      bounded_domain: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "n_estimators=30 default; formula (n_est+1)*d^2*8 needs measurement (v0.9.104)"
+      status: verified
       verified_by_agent: true
     roles:
     - linear_signal
@@ -675,12 +688,16 @@ subtypes:
       value: 0.62
       std: null
       note: subset accuracy [legacy v0.9.44, migrated v0.9.50]
-    state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    transient_factor: 2.0
+    state_class: O(model)
+    bounded_state_dims: {n_estimators: 1, d: 2}
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: '_collect np.vstack(Xs) O(n*d); state O(n_est*d^2). n<=1e6 typical for tabular multi-label.'
+
+    n_scalability: linear
     streaming_strategy:
       fit: 'per-class binary logistic; L binary fits, each O(d²) Reduce.'
       predict: 'per-batch stack of L sigmoids.'
@@ -688,10 +705,23 @@ subtypes:
   - name: ClassifierChains
     tier: sota
     tier_level: tier1_core
+    ram_formula: "n_estimators * d * d * f64 + 512"
+    formula_evidence:
+      per_estimator: "chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64"
+      header: "chains.py -- label_cols list + feature_cols list + params dict = 512"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact sum + 512 (n_est, d, L parametrized)"
+      state_independent_of_n: "test_state_independent_of_n: bounded ratio <=1.5 (GBDT data-dependent nodes)"
+      formula_sanity: "test_formula_small_scale: 2*n*d*8 vstack + n_est*1.5MB GBDT / measured [0.5, 2.0]"
+      peak_linear: "test_peak_grows_linearly_with_n: ratio < 15 at 10x n"
+      bounded_domain: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "n_estimators=30 default; formula (n_est+1)*d^2*8 needs measurement (v0.9.104)"
+      status: verified
       verified_by_agent: true
     roles:
     - nonlinear_interactions
@@ -717,12 +747,16 @@ subtypes:
       value: 0.66
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    transient_factor: 2.0
+    state_class: O(model)
+    bounded_state_dims: {n_estimators: 1, d: 2}
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: '_collect np.vstack(Xs) O(n*d); state O(n_est*d^2). n<=1e6 typical for tabular multi-label.'
+
+    n_scalability: linear
     streaming_strategy:
       fit: 'L chained logistic fits on (X + prior labels); O(d²) per classifier.'
       predict: 'per-batch chained prediction.'

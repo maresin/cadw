@@ -28,10 +28,10 @@ from cadw.ml._logging import log_fit
 
 
 
-def _collect(df, cols, label_cols, mg):
+def _collect(df, cols, label_cols, mg, batch_size=None):
     Xs, Ys = [], []
     n = 0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         mg.check_batch(b, name="chains.pass1", extra_factor=3.0)
         # v0.9.90-S3 (G2): pre-check BEFORE append.
         n += b.num_rows
@@ -185,7 +185,8 @@ class ChainsModel:
 
 def fit_chains(df, X_cols, label_cols, *, chain=True, n_estimators=30,
                max_depth=3, learning_rate=0.1,
-               memory_guard: Optional[MemoryGuard] = None):
+               memory_guard: Optional[MemoryGuard] = None,
+               batch_size=None):
     """Fit a classifier chain (chain=True) or one-vs-rest baseline."""
     cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
     labels = [label_cols] if isinstance(label_cols, str) else list(label_cols)
@@ -197,7 +198,7 @@ def fit_chains(df, X_cols, label_cols, *, chain=True, n_estimators=30,
         if c not in df._columns:
             raise KeyError(f"fit_chains: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    X, Y = _collect(df, cols, labels, mg)
+    X, Y = _collect(df, cols, labels, mg, batch_size=batch_size)
     if np.isnan(X).any() or np.isnan(Y).any():
         raise ValueError("fit_chains: nulls in features or labels")
     for c in np.unique(Y):
