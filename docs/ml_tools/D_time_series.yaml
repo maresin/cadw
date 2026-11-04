@@ -3013,9 +3013,25 @@ subtypes:
   - name: S2G
     tier: sota
     tier_level: tier1_core
+    ram_formula: "5 * n * f64 + n_nodes * n_nodes * f64 + n_nodes * f64 + 264"
+    formula_evidence:
+      output_n_arrays: "s2g.py -- decision_scores(n f64) + labels(n i64) + node_ids(n_w i64) + embedding(n_w,2 f64) = 5 n-sized f64 arrays = 5*n*f64"
+      transition_matrix: "s2g.py -- W = (n_nodes, n_nodes) f64"
+      degrees: "s2g.py -- deg = (n_nodes,) f64"
+      header: "s2g.py -- threshold 8 + dataclass header 256 = 264"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
+      state_ratio_linear: "test_state_ratio_linear: DELTA ~= 40*(n2-n1)"
+      bounded_by_domain_1e6: "test_bounded_at_domain: at n=1e6, ~40 MB < 50 MB"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      dual_dispatch: "test_df_matches_series: df path == series path bit-identical"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: verified
     roles:
     - local_structure
     purpose: 'Series2Graph: local convolution plus PCA 3D plus rotation plus angle nodes plus transition graph plus path normalcy (paper faithful).'
@@ -3024,8 +3040,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.s2g
     cadw_function: fit_s2g
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/s2g.json
@@ -3055,12 +3070,17 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
 
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
+    state_class: O(n)
+    bounded_state_dims: {n: 1, n_nodes: 1}
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: 'single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + node_ids + embedding.'
+
+    n_scalability: linear
     streaming_strategy:
       fit: 'streaming conv/quantize + dedup (P4c).'
       predict: 'per-batch sequence-to-grammar score.'
