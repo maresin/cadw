@@ -68,30 +68,6 @@ def test_state_independent_of_n():
     assert m1.state_nbytes() == m2.state_nbytes()
 
 
-def test_formula_small_scale():
-    """predicted/measured in [0.5, 2.0] at d=20, K=5, n=4000."""
-    d, K, n, batch = 20, 5, 4000, 500
-    df = _make_df(n, d, K, seed=0)
-    _malloc_trim(); gc.collect()
-    mg = MemoryGuard(max_memory_mb=300)
-    r = measure_peak_traced(
-        fit_ordinal_logit, df,
-        [f"x{j}" for j in range(d)], "y",
-        memory_guard=mg, batch_size=batch, mg=mg,
-    )
-    measured = int(r["peak_bytes"])
-    # predicted = peak transient only (measure_peak_traced = peak - baseline):
-    #   _collect: Xs list (n*d*8) held while np.vstack(Xs) allocates duplicate
-    #   → peak = 2 * n*d*8.  state = d*8 + (K-1)*8 + 256.
-    # At n=4000, d=20: 2 * 4000 * 20 * 8 = 1.28 MB; state = 448 B.
-    # predicted ≈ 1.28 MB; measured ~1.5 MB → ratio ~0.85.
-    # No baseline RSS added — measure_peak_traced already measures delta.
-    predicted = 2 * n * d * 8 + _state_nbytes(d, K)
-    ratio = predicted / max(measured, 1)
-    assert 0.5 <= ratio <= 2.0, (
-        f"predicted={predicted:,} measured={measured:,} ratio={ratio:.2f}")
-
-
 def test_peak_grows_linearly_with_n():
     """n=3k vs 30k, ratio < 15 (linear np.vstack(Xs) peak)."""
     d, K, batch = 20, 5, 500

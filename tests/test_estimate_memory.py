@@ -70,23 +70,32 @@ def test_all_verified_cards_have_dims():
             f"{op}: missing bounded_state_dims"
         )
 
-# ── v0.9.101: LDA card dims fix (V-axis, tf=12) ─────────────────────
+# ── v0.9.118: LDA formula (v0.9.117: k, d, avg_word_len) ──
+# Old (v0.9.101) formula: d * 96 + 1024 (vocab dict only).
+# New (v0.9.117) formula:
+#   k*d*f64 + d*list_ptr + d*py_str_overhead + d*avg_word_len
+#   + d*dict_entry + 512
+# At k=10, d=10^4, avg_word_len=24: est = 2.77 MB (was 0.96 MB).
+# At k=10, d=3*10^6, avg_word_len=24: est = 831 MB (was 960 MB).
 
 
 def test_lda_vocab_fits_small():
-    """d=10^4 raw unique tokens → est ~0.96 MB, fits 100 MB guard."""
+    """v0.9.118: k=10, d=10^4, avg_word_len=24 -> est ~2.77 MB, fits 100 MB."""
     df = _make_df()
-    r = df.estimate_memory("fit_lda", d=10**4)
+    r = df.estimate_memory("fit_lda", k=10, d=10**4, avg_word_len=24)
     assert r["fits"] is True
-    assert 0.5 < r["est_ram_mb"] < 2.0
-    assert "d^1" in r["bottleneck"]
+    assert 2.0 < r["est_ram_mb"] < 4.0
+    # bottleneck is the full ram_formula string (v0.9.118: not a
+    # dominant-term summary). est_ram_mb range already validates
+    # formula correctness; here just sanity that bottleneck is non-empty
+    # and mentions 'd' (the LDA vocab axis).
+    assert r["bottleneck"] and "d" in r["bottleneck"]
 
 
 def test_lda_vocab_refuses_large():
-    """d=10^7 raw unique tokens → est ~960 MB > 100 MB → fits=False."""
+    """v0.9.118: k=10, d=3*10^6, avg_word_len=24 -> est ~831 MB > 100 MB."""
     df = _make_df()
-    r = df.estimate_memory("fit_lda", d=10**7)
+    r = df.estimate_memory("fit_lda", k=10, d=3*10**6, avg_word_len=24)
     assert r["fits"] is False
     assert 500.0 < r["est_ram_mb"] < 2000.0
-    assert "d^1" in r["bottleneck"]
 

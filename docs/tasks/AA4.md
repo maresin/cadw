@@ -25,7 +25,7 @@
 
 **Config:** `{'alpha': 'float'}`
 
-**CADW:** `cadw.ml.chains.fit_classifier_chains`
+**CADW:** `cadw.ml.chains.fit_chains`
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.62
@@ -46,7 +46,7 @@
 
 **Config:** `{'n_estimators': 'int', 'order': 'list'}`
 
-**CADW:** `cadw.ml.chains.fit_classifier_chains`
+**CADW:** `cadw.ml.chains.fit_chains`
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.66

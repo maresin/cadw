@@ -257,7 +257,7 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
     _auto_kspill = False
     if spill_dir is None and num_partitions is None:
         _k_est_cached, _ = _estimate_k_tokens(
-            df, text_col, batch_size=batch_size)
+            df, text_col, batch_size=batch_size, mg=mg)
         _threshold = max(1, mg.state_limit_bytes // 96 // 2)
         if _k_est_cached > _threshold:
             _auto_kspill = True
@@ -297,7 +297,7 @@ def fit_tfidf(df, text_col, *, vocab_size=10000, sublinear_tf=True,
                 _k_est = _k_est_cached
                 if _k_est is None:
                     _k_est, _ = _estimate_k_tokens(
-                        df, text_col, batch_size=batch_size)
+                        df, text_col, batch_size=batch_size, mg=mg)
                 if _k_est <= 0:
                     num_partitions = 2
                 else:

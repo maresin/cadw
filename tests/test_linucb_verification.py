@@ -15,6 +15,7 @@ Total runtime target: <30 seconds (small dims).
 from __future__ import annotations
 import ctypes
 import gc
+import statistics
 
 import numpy as np
 import pyarrow as pa
@@ -118,22 +119,28 @@ def test_batch_coef_isolated():
     d, K = 200, 5
     cols = [f"x{i}" for i in range(d)]
     row_size = 8 * d + 16
-    # batch >= 1000: batch term (b*row_size) = 1.6-6.4 MB >> RSS noise (~1 MB)
+    # v0.9.118 fix: median-of-3 per batch cell. Full-suite baseline RSS
+    # from prior ~4500 tests shifts single-run noise to ~5 MB; batch term
+    # at b=1000 is ~1.6 MB → SNR < 1 in full-suite (DEC-034 precedent).
     batches = [1000, 2000, 4000]
     peaks = []
     for b in batches:
-        # n >= 4*b: enough rows for 4 full batches
         df = _make_df(max(b * 4, 4000), d, K=K, seed=0)
-        _malloc_trim()
-        gc.collect()
-        mg = MemoryGuard(max_memory_mb=500)
-        r = measure_peak_traced(
-            fit_linucb, df, cols,
-            arm_col="arm", reward_col="r",
-            memory_guard=mg, batch_size=b, k_max_hint=K,
-            mg=mg,
-        )
-        peaks.append(int(r["peak_bytes"]))
+        cell_peaks = []
+        for _ in range(3):
+            _malloc_trim()
+            gc.collect()
+            mg = MemoryGuard(max_memory_mb=500)
+            r = measure_peak_traced(
+                fit_linucb, df, cols,
+                arm_col="arm", reward_col="r",
+                memory_guard=mg, batch_size=b, k_max_hint=K,
+                mg=mg,
+            )
+            cell_peaks.append(int(r["peak_bytes"]))
+            del r
+            gc.collect()
+        peaks.append(int(statistics.median(cell_peaks)))
         del df
         gc.collect()
 

@@ -318,7 +318,7 @@ def _train_ppl(C_batches_fn, comp, alpha):
     return float(math.exp(-ll / ntok))
 
 
-def _estimate_k_tokens(df, text_col, sample_size=2000, batch_size=None):
+def _estimate_k_tokens(df, text_col, sample_size=2000, batch_size=None, mg=None):
     """Heuristic token-cardinality estimate for num_partitions sizing.
 
     Sample first `sample_size` rows, count distinct tokens; extrapolate
@@ -329,6 +329,8 @@ def _estimate_k_tokens(df, text_col, sample_size=2000, batch_size=None):
     sampled = 0
     total = 0
     for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="lda.estimate_k_tokens", extra_factor=3.0)
         total += b.num_rows
         if sampled >= sample_size:
             continue
@@ -373,7 +375,7 @@ def _build_vocab_k_spill(df, text_col, vocab_size, mg, spill_dir,
 
     def _token_batches():
         for b in df._iter_filtered_batches(batch_size=batch_size):
-            mg.check_batch(b, name="lda.kspill.batch", extra_factor=2.0)
+            mg.check_batch(b, name="lda.kspill.batch", extra_factor=3.0)
             toks = []
             for t in b.column(text_col).to_pylist():
                 for tok in set(tokenize(t)):
@@ -458,7 +460,7 @@ with N. True streaming E-step is future work.
     _auto_kspill = False
     if spill_dir is None and num_partitions is None:
         _k_est_cached, _ = _estimate_k_tokens(
-            df, text_col, batch_size=batch_size)
+            df, text_col, batch_size=batch_size, mg=mg)
         _threshold = max(1, mg.state_limit_bytes // 96 // 2)
         if _k_est_cached > _threshold:
             _auto_kspill = True
@@ -477,7 +479,7 @@ with N. True streaming E-step is future work.
                 _k_est = _k_est_cached
                 if _k_est is None:
                     _k_est, _ = _estimate_k_tokens(
-                        df, text_col, batch_size=batch_size)
+                        df, text_col, batch_size=batch_size, mg=mg)
                 if _k_est <= 0:
                     num_partitions = 2
                 else:
