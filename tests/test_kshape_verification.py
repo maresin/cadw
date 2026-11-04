@@ -6,10 +6,18 @@ CoxPH-precedent (bocpd/eif/kmeans_ad v0.9.114): bounded_by_domain n<=1e6.
 """
 from __future__ import annotations
 
+import ctypes
+import gc
+import statistics
+
 import numpy as np
 import pytest
 
-from cadw.core.memory_guard import MemoryLimitExceeded
+from cadw.core.memory_guard import (
+    MemoryGuard,
+    MemoryLimitExceeded,
+    measure_peak_traced,
+)
 from cadw.ml.kshape import fit_kshape
 
 
@@ -115,3 +123,47 @@ def test_output_disk_raises():
         fit_kshape(x, n_clusters=3, window_size=30, max_iter=5,
                    output="disk")
 
+
+def _malloc_trim():
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
+def _measure_peak_median3(fn, x, **kwargs):
+    """median-of-3 peak measurement (DEC-034).
+
+    Per-cell: malloc_trim + gc.collect, MemoryGuard(50), measure_peak_traced.
+    Sporadic GC/allocator shifts filtered by median (A24/CW-AP2).
+    """
+    peaks = []
+    for _ in range(3):
+        _malloc_trim()
+        gc.collect()
+        mg = MemoryGuard(max_memory_mb=50)
+        r = measure_peak_traced(fn, x, guard=mg, mg=mg, **kwargs)
+        peaks.append(int(r["peak_bytes"]))
+        del r
+        gc.collect()
+    return int(statistics.median(peaks))
+
+
+def test_peak_grows_linearly_with_n():
+    """CW-4 (DEC-033): fit peak grows linearly with n at fixed params.
+
+    state_class O(n) honest; bounded_by_domain n<=1e6 accepts this.
+    10x n -> 8-15x peak (linear, not quadratic). Not strict OOC —
+    documented limitation. median-of-3 per DEC-034.
+    """
+    def _peak(n):
+        x = _make_series(n, seed=4)
+        return _measure_peak_median3(
+            fit_kshape, x, n_clusters=5, window_size=50, max_iter=5)
+
+    p_small = _peak(3000)
+    p_large = _peak(30000)
+    ratio = p_large / max(p_small, 1)
+    assert ratio < 15.0, (
+        f"peak ratio {ratio:.2f} (small={p_small}, large={p_large}); "
+        f"expected ~10x for linear; >15 suggests quadratic or formula gap")
