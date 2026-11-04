@@ -2,13 +2,20 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.114
+## Current: v0.9.115
 
-CoxPH-precedent path for O(n)-output algorithms: coxph, kmeans_ad, eif,
-bocpd -> verified via state_nbytes() + bounded_by_domain n<=1e6 (24
-verified fns). DEC-036 partial: sample-based threshold still pending;
-SpillArray path not needed for these 4. Next: v0.9.115 kshape + legacy
-migration + K-spill.
+**30 verified fns / 38 verified cards / 18 draft / 32 pending / 62 no-fn.**
+
+v0.9.115: 6 fns flipped to verified via CoxPH-precedent + dual dispatch:
+`fit_kshape`, `fit_hampel`, `fit_dwt_mlead`, `fit_patch_memory_ad`,
+`fit_autoencoder`, `fit_s2g`. All: state_nbytes + bounded_by_domain
+n<=1e6 + 9 CW-tests + df+series dispatch + output="memory"|"auto".
+
+**input_api invariant (R8):** 88 cards with `cadw_function` now declare
+`input_api: df|series|dual`. `series`-only: bocpd/eif/kmeans_ad (verified,
+migration_target: v0.9.116) + binseg/stray/sub_pca/t2q (draft).
+
+Next: v0.9.116 sub_pca (2 alias cards), df-API migration, K-spill LDA/tfidf.
 
 ## Progress (v0.9.105 - v0.9.110g)
 
@@ -37,9 +44,9 @@ migration + K-spill.
 
 | Status | Count | Note |
 |---|---|---|
-| verified | **24** | 18 (v0.9.112) + zms + cusum (v0.9.113) + coxph + kmeans_ad + eif + bocpd (v0.9.114); was: 2 MatrixProfile + 9 v0.9.107 + 1 randsvd + linucb + iforest x2 + gmm + BIRCH + **MiniRocket + ALS (v0.9.112)** |
-| draft | **18** | 14 legacy + KShapeAD/LDA/T_learner/S_learner |
-| pending (no status) | ~44 fns | 88 with fn - 19 no-fn (v0.9.111) - v0.9.112 batch2 |
+| verified | **30** | 24 (v0.9.114) + kshape, hampel, dwt_mlead, patch_memory_ad, autoencoder, s2g (v0.9.115) |
+| draft | **18** | 17 legacy + LDA/T_learner/S_learner (kshape flipped) |
+| pending (no status) | **32** fns | 88 with fn - 62 no-fn - 30 verified + aliases |
 
 ## Known gaps (remaining)
 
@@ -87,22 +94,31 @@ migration + K-spill.
 
 ## Next 3 sessions
 
-### v0.9.115 — kshape + legacy detectors + K-spill
+### v0.9.116 — sub_pca + df-API migration + K-spill
 
-- kshape: CoxPH-precedent OR streaming rolling-max for `_map_scores_to_timestamps` (expand n_w->n).
-- Legacy: hampel, sub_pca, s2g, dwt_mlead, patch_memory_ad, autoencoder — probe; if O(n)-output, CoxPH-precedent; if state OOC + output O(n), SpillArray.
-- K-spill (AP5): LDA `_build_vocab`, tfidf.
-- DEC-034/035 backlog: subprocess-isolation; BIRCH `_insert` batching.
+- **sub_pca** (2 alias cards): Reduce pattern, 2-pass cov, CoxPH-precedent.
+  state_nbytes = 2*n*f64 + k*window_size*f64 + window_size*f64 + 264.
+- **df-API migration** (input_api: series → dual): fit_bocpd, fit_eif,
+  fit_kmeans_ad (verified but series-only). Removes 3 R8 warnings.
+- **K-spill LDA/tfidf** (AP5): `_build_vocab` dict grows O(K_raw). Needs
+  hash_shuffle + distinct_count. Defer to v0.9.117 if time-constrained.
+- **DEC-034/035 backlog**: subprocess-isolation for `measure_peak_traced`
+  tests; BIRCH `_insert` batching.
 
-### v0.9.116 — T/S_learner GBDT streaming (if prioritized)
+### v0.9.117 — T/S_learner GBDT streaming (if prioritized)
 
-Intrinsic O(n·d) GBDT fit; verified requires chunked / partial_fit refactor. Currently draft.
+Intrinsic O(n·d) GBDT fit; verified requires chunked / partial_fit
+refactor. Currently draft. Also: binseg/stray — draft permanently
+(intrinsic O(n), refuse_at_guard is correct state).
 
-- **df-API migration** (input_api: series -> dual): `fit_bocpd`, `fit_eif`, `fit_kmeans_ad` (verified but series-only), plus legacy `fit_hampel`, `fit_sub_pca`, `fit_s2g`, `fit_dwt_mlead`, `fit_patch_memory_ad`, `fit_autoencoder` (`fit_kshape` migrates in v0.9.115). Pattern: `df + value_col` dual dispatch, as `fit_zms` / `fit_cusum` (v0.9.113, STREAMING §1.5).
+### v0.9.118+ — Remaining + ML coverage audit
 
-### v0.9.117+ — Remaining + do-not-re-solve audit
-
-Re-check `do-not-re-solve` per DEC-033/034/035. Tag when 30+ verified.
+- 32 pending fns (A_classification ×8, O_eda ×24) — ~4/session.
+- **ML_COVERAGE_MATRIX.md**: baseline/SOTA/ensemble audit per
+  section × subtype (roles: linear_signal, nonlinear_interactions,
+  representation, probabilistic, temporal_dynamics, local_structure,
+  calibration). Re-check do-not-re-solve per DEC-033/034/035.
+- Tag when 35+ verified.
 
 ## ## Backlog (not scheduled)
 

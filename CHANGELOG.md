@@ -1,5 +1,36 @@
 ## [Unreleased]
 
+### v0.9.115 (2026-11-04) — 30 verified fns; input_api invariant (R8)
+
+**Verified fns: 24 -> 30.** Six CoxPH-precedent migrations (all dual
+dispatch df+series, state_nbytes, bounded_by_domain n<=1e6, 9 CW-tests
+each, component-wise DEC-033):
+
+| fn | state formula | notes |
+|---|---|---|
+| fit_kshape | 2*n*f64 + k*w*f64 + 264 | SpillArray (output="disk") pending v0.9.116 |
+| fit_hampel | 2*n*f64 + 264 | |
+| fit_dwt_mlead | n*f64 + n*bool + max_level*i64 + 264 | YAML was O(batch), fixed to O(n) |
+| fit_patch_memory_ad | 3*n*f64 + n_epochs*32 + n_memory*latent*f64 + weights + 264 | SpillDir memmap for X_norm |
+| fit_autoencoder | 3*n*f64 + n_epochs*32 + enc_w + dec_w + 264 | 2 alias cards flipped |
+| fit_s2g | 5*n*f64 + n_nodes²*f64 + n_nodes*f64 + 264 | graph state O(model) |
+
+**input_api invariant (R8):** 88 cards with `cadw_function` declare
+`input_api: df|series|dual`. `series`-only: bocpd/eif/kmeans_ad
+(verified, migration_target: v0.9.116) + binseg/stray/sub_pca/t2q
+(draft). Precedent: zms/cusum v0.9.113 (STREAMING §1.5).
+
+**Files:**
+- cadw/ml/{kshape,hampel,dwt_mlead,patch_memory_ad,autoencoder,s2g}.py
+- tests/test_{kshape,hampel,dwt_mlead,patch_memory_ad,autoencoder,s2g}_verification.py (6 new, 54 tests)
+- tests/test_ml_tools_schema.py — R8 (39 lines)
+- docs/ml_tools/[A-O]_*.yaml — input_api on 88 cards (11 files); KShapeAD/Hampel/DWT-MLEAD/PatchMemoryAD/Autoencoder×2/S2G flipped
+- docs/ROADMAP.md — v0.9.115 closed, v0.9.116 df-API migration bullet
+- cadw/__init__.py, pyproject.toml — version bump 0.9.102 -> 0.9.115 (drift fixed: __version__ had been 0.9.102 since v0.9.102; tags advanced without bump)
+
+**Status:** 30 verified fns / 38 verified cards / 18 draft / 32 pending / 62 no-fn.
+**Full fast:** 4522 passed, 9 skipped, 0 failed (14:16).
+
 ### v0.9.114 (2026-11-04) — CoxPH-precedent: 4 O(n)-output algorithms verified (24 fns)
 
 **CoxPH-precedent** for O(n)-output: `state_nbytes()` + `bounded_by_domain
