@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import pyarrow as pa
 
 
 @dataclass
@@ -28,6 +29,20 @@ class HampelResult:
     window_size: int
     n_sigma: float
     contamination: float | None
+
+    def state_nbytes(self) -> int:
+        """Persistent state: decision_scores(n) + labels(n) + header.
+
+        v0.9.115: honest O(n) (CoxPH-precedent, bocpd/eif/kmeans_ad v0.9.114).
+        Formula: 2*n*f64 + 264 (threshold 8 + dataclass header 256).
+        bounded_by_domain n<=1e6 accepts this (16 MB at n=1e6).
+        """
+        return int(
+            self.decision_scores.nbytes
+            + self.labels.nbytes
+            + 8    # threshold (Python float)
+            + 256  # header
+        )
 
 
 def _resolve_chunk_nw_hampel(w: int, guard=None) -> int:
@@ -78,7 +93,93 @@ def _probe_memory_limit_mb(guard) -> float | None:
     return None
 
 
+
 def fit_hampel(
+    df_or_series,
+    value_col=None,
+    *,
+    window_size: int = 7,
+    n_sigma: float = 3.0,
+    contamination: float | None = None,
+    guard=None,
+    output: str = "memory",
+    batch_size: "int | None" = None,
+) -> HampelResult:
+    """Hampel filter anomaly detection (v0.9.115 dual dispatch).
+
+    df path (new, v0.9.115):
+        fit_hampel(df, value_col)  # collects to ndarray, calls series
+
+    Legacy np.ndarray path (back-compat):
+        fit_hampel(series)  # in-memory, equivalent to output="memory"
+
+    output="memory"|"auto" -> in-memory. "disk" -> NotImplementedError
+    (SpillArray for O(n) decision_scores is v0.9.116+, DEC-013).
+    """
+    if output not in ("memory", "auto"):
+        raise NotImplementedError(
+            f"fit_hampel: output={output!r} not supported "
+            f"(decision_scores is O(n) ndarray; SpillArray for hampel "
+            f"is v0.9.116+, DEC-013)")
+    is_df = (hasattr(df_or_series, "_iter_filtered_batches")
+             and hasattr(df_or_series, "_columns"))
+    if is_df:
+        if value_col is None:
+            raise ValueError(
+                "fit_hampel: value_col required when df is passed")
+        if value_col not in df_or_series._columns:
+            raise KeyError(
+                f"fit_hampel: column {value_col!r} not in "
+                f"{df_or_series._columns}")
+        return _fit_hampel_df(
+            df_or_series, value_col,
+            window_size=window_size, n_sigma=n_sigma,
+            contamination=contamination, guard=guard,
+            batch_size=batch_size,
+        )
+    if value_col is not None:
+        raise ValueError(
+            "fit_hampel: value_col only used with df input; "
+            "omit for np.ndarray")
+    return _fit_hampel_series(
+        df_or_series,
+        window_size=window_size, n_sigma=n_sigma,
+        contamination=contamination, guard=guard,
+    )
+
+
+def _fit_hampel_series(series, *, window_size, n_sigma, contamination, guard):
+    """np.ndarray path (output= handled by public fit_hampel)."""
+    return _fit_hampel_series_impl(
+        series,
+        window_size=window_size, n_sigma=n_sigma,
+        contamination=contamination, guard=guard,
+    )
+
+
+def _fit_hampel_df(df, value_col, *, window_size, n_sigma, contamination,
+                   guard, batch_size=None):
+    """df path; collects series to ndarray then calls series path."""
+    mg = guard if guard is not None else getattr(df, "_memory_guard", None)
+    parts = []
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="hampel.batch", extra_factor=2.0)
+        x_b = b.column(value_col).cast(
+            pa.float64(), safe=False).to_numpy(zero_copy_only=False)
+        if x_b.size > 0:
+            parts.append(x_b)
+    if not parts:
+        raise ValueError(f"fit_hampel: column {value_col!r} is empty")
+    series = np.concatenate(parts) if len(parts) > 1 else parts[0]
+    return _fit_hampel_series(
+        series,
+        window_size=window_size, n_sigma=n_sigma,
+        contamination=contamination, guard=mg,
+    )
+
+
+def _fit_hampel_series_impl(
     series: np.ndarray,
     *,
     window_size: int = 7,

@@ -1557,9 +1557,25 @@ subtypes:
   - name: Hampel
     tier: baseline
     tier_level: tier1_core
+    ram_formula: "2 * n * f64 + 264"
+    formula_evidence:
+      decision_scores: "hampel.py -- HampelResult.decision_scores = (n,) f64 = n*f64"
+      labels: "hampel.py -- labels = (scores > threshold).astype(int) = (n,) i64 (n*f64 size)"
+      header: "hampel.py -- threshold 8 + dataclass header 256 = 264"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
+      state_ratio_linear: "test_state_ratio_linear: DELTA (state(n2)-state(n1) == (n2-n1)*16)"
+      bounded_by_domain_1e6: "test_bounded_at_domain: at n=1e6, state ~15.3 MB < 50 MB"
+      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
+      dual_dispatch: "test_df_matches_series: df path == series path bit-identical"
+      cells_passed: "5/5"
+
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: false
+      status: verified
+
     roles:
     - local_structure
     purpose: 'Rolling median plus MAD filter; sigma equals 1.4826 times MAD; simple univariate point baseline.'
@@ -1568,8 +1584,7 @@ subtypes:
     config: {}
     cadw_module: cadw.ml.hampel
     cadw_function: fit_hampel
-    input_api: series
-    migration_target: v0.9.116
+    input_api: dual
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/hampel.json
@@ -1599,7 +1614,7 @@ subtypes:
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims: {n: 1}
     transient_factor: 1.0
     state_type: windowed
     bounded_state: true
