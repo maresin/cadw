@@ -58,7 +58,7 @@
 **Roles:** probabilistic
 **Status:** ✓ agent, desc
 
-**Purpose:** Non-parametric product-limit estimator of the marginal survival curve. Inductive bias: no covariate effects — only the pooled survival function, so it is the canonical right-censored baseline that any covariate model must improve.
+**Purpose:** Non-parametric product-limit estimator of the marginal survival curve. Inductive bias: no covariate effects — only the pooled survival function, so it is the canonical right-censored baseline that any covariate model must improve. Reference impl in .pingis/impl/I/kaplan_meier.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - Unadjusted survival by trial arm
@@ -79,7 +79,7 @@
 **Roles:** linear_signal, probabilistic
 **Status:** ✓ agent, desc
 
-**Purpose:** Parametric accelerated-failure-time model with Weibull baseline. Inductive bias: log-time is linear in covariates plus a Weibull noise shape — stronger than Cox when the Weibull assumption holds; misspecified when hazard is non-monotone.
+**Purpose:** Parametric accelerated-failure-time model with Weibull baseline. Inductive bias: log-time is linear in covariates plus a Weibull noise shape — stronger than Cox when the Weibull assumption holds; misspecified when hazard is non-monotone. Reference impl in .pingis/impl/I/weibull_aft.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - Industrial reliability with monotone hazard

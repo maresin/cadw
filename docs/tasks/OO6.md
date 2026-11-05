@@ -19,7 +19,7 @@
 **Roles:** probabilistic
 **Status:** ✓ agent, desc
 
-**Purpose:** Split preserving class proportions in each fold. Inductive bias: class is the stratifier; correct when the target is the source of imbalance.
+**Purpose:** Split preserving class proportions in each fold. Inductive bias: class is the stratifier; correct when the target is the source of imbalance. Reference impl in .pingis/impl/O/stratified_split.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - Cross-val on imbalanced target
@@ -40,7 +40,7 @@
 **Roles:** probabilistic
 **Status:** ✓ agent, desc
 
-**Purpose:** Uniform sample of k items from a stream in one pass, O(k) state. Inductive bias: uniform inclusion; unbiased but ignores strata.
+**Purpose:** Uniform sample of k items from a stream in one pass, O(k) state. Inductive bias: uniform inclusion; unbiased but ignores strata. Reference impl in .pingis/impl/O/reservoir.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - Sample from a log stream

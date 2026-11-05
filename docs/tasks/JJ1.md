@@ -54,7 +54,7 @@
 **Roles:** probabilistic
 **Status:** ✓ agent, desc
 
-**Purpose:** Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter.
+**Purpose:** Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter. Reference impl in .pingis/impl/J/complement_nb.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - Fast spam baseline

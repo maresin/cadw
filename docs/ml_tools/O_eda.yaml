@@ -261,7 +261,7 @@ subtypes:
       described_only: true
     roles:
     - local_structure
-    purpose: 'Impute from k nearest neighbours in feature space. Inductive bias: local similarity predicts missing values; O(n²) naive, requires blocking.'
+    purpose: 'Impute from k nearest neighbours in feature space. Inductive bias: local similarity predicts missing values; O(n²) naive, requires blocking. Deferred per .pingis/impl/REPORT.md §4 (memory model proved by N/KernelDensity).'
     real_life_examples:
     - Filling correlated sensor gaps
     - Recommendation-style fill
@@ -349,7 +349,7 @@ subtypes:
       reference_impl_ready: true
     roles:
     - representation
-    purpose: 'Expand a categorical column to one binary indicator per category. Inductive bias: categories are independent; high cardinality explodes dimensionality.'
+    purpose: 'Expand a categorical column to one binary indicator per category. Inductive bias: categories are independent; high cardinality explodes dimensionality. Reference impl in .pingis/impl/O/one_hot_encoder.py (smoke 9/9, REPORT.md §6).'
     real_life_examples:
     - Small-cardinality categoricals
     - Linear model preprocessing
@@ -375,7 +375,7 @@ subtypes:
       described_only: true
     roles:
     - representation
-    purpose: 'Bin a continuous column into k quantile/uniform bins. Inductive bias: piecewise-constant effect of the feature; can help non-linear models and regularize.'
+    purpose: 'Bin a continuous column into k quantile/uniform bins. Inductive bias: piecewise-constant effect of the feature; can help non-linear models and regularize. Deferred per .pingis/impl/REPORT.md §4 (proved by O/OneHotEncoder).'
     real_life_examples:
     - Age buckets
     - Income deciles
@@ -748,7 +748,7 @@ subtypes:
       reference_impl_ready: true
     roles:
     - probabilistic
-    purpose: 'Split preserving class proportions in each fold. Inductive bias: class is the stratifier; correct when the target is the source of imbalance.'
+    purpose: 'Split preserving class proportions in each fold. Inductive bias: class is the stratifier; correct when the target is the source of imbalance. Reference impl in .pingis/impl/O/stratified_split.py (smoke 9/9, REPORT.md §6).'
     real_life_examples:
     - Cross-val on imbalanced target
     - Holdout with matching priors
@@ -777,7 +777,7 @@ subtypes:
       reference_impl_ready: true
     roles:
     - probabilistic
-    purpose: 'Uniform sample of k items from a stream in one pass, O(k) state. Inductive bias: uniform inclusion; unbiased but ignores strata.'
+    purpose: 'Uniform sample of k items from a stream in one pass, O(k) state. Inductive bias: uniform inclusion; unbiased but ignores strata. Reference impl in .pingis/impl/O/reservoir.py (smoke 9/9, REPORT.md §6).'
     real_life_examples:
     - Sample from a log stream
     - Streaming EDA
@@ -858,7 +858,7 @@ subtypes:
       described_only: true
     roles:
     - linear_signal
-    purpose: 'Exhaustive grid over a discrete parameter space with CV scoring. Inductive bias: none — it is a search strategy; guarantees finding the best grid point but scales exponentially.'
+    purpose: 'Exhaustive grid over a discrete parameter space with CV scoring. Inductive bias: none — it is a search strategy; guarantees finding the best grid point but scales exponentially. Deferred per .pingis/impl/REPORT.md §4 (orchestration wrapper; no new memory model).'
     real_life_examples:
     - Small discrete grids
     - Reproducible baselines
@@ -884,7 +884,7 @@ subtypes:
       described_only: true
     roles:
     - probabilistic
-    purpose: 'Sample N random parameter configurations from declared distributions. Inductive bias: random coverage of the space, best when only a few hyperparameters matter (Bergstra & Bengio 2012).'
+    purpose: 'Sample N random parameter configurations from declared distributions. Inductive bias: random coverage of the space, best when only a few hyperparameters matter (Bergstra & Bengio 2012). Deferred per .pingis/impl/REPORT.md §4 (orchestration wrapper; no new memory model).'
     real_life_examples:
     - Large continuous spaces
     - Budget-limited tuning

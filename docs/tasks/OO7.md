@@ -19,7 +19,7 @@
 **Roles:** linear_signal
 **Status:** desc
 
-**Purpose:** Exhaustive grid over a discrete parameter space with CV scoring. Inductive bias: none — it is a search strategy; guarantees finding the best grid point but scales exponentially.
+**Purpose:** Exhaustive grid over a discrete parameter space with CV scoring. Inductive bias: none — it is a search strategy; guarantees finding the best grid point but scales exponentially. Deferred per .pingis/impl/REPORT.md §4 (orchestration wrapper; no new memory model).
 
 **Use cases:**
 - Small discrete grids
@@ -40,7 +40,7 @@
 **Roles:** probabilistic
 **Status:** desc
 
-**Purpose:** Sample N random parameter configurations from declared distributions. Inductive bias: random coverage of the space, best when only a few hyperparameters matter (Bergstra & Bengio 2012).
+**Purpose:** Sample N random parameter configurations from declared distributions. Inductive bias: random coverage of the space, best when only a few hyperparameters matter (Bergstra & Bengio 2012). Deferred per .pingis/impl/REPORT.md §4 (orchestration wrapper; no new memory model).
 
 **Use cases:**
 - Large continuous spaces

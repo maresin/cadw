@@ -54,7 +54,7 @@
 **Roles:** representation
 **Status:** desc
 
-**Purpose:** Lee & Seung 1999 - non-negative matrix factorization of the doc-term matrix. Inductive bias: additive parts-based topics with sparsity enforced by non-negativity; no probabilistic likelihood, so perplexity is undefined.
+**Purpose:** Lee & Seung 1999 - non-negative matrix factorization of the doc-term matrix. Inductive bias: additive parts-based topics with sparsity enforced by non-negativity; no probabilistic likelihood, so perplexity is undefined. Reference impl in .pingis/impl/J/nmf.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - Parts-based topic discovery

@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.123
+## Current: v0.9.124
 
 **32 verified fns / 48 verified cards / 10 draft fns / 13 draft cards /
 24 pending fns / 30 pending cards / 62 no-fn. +19 described_only in P/Q.**
@@ -42,6 +42,20 @@ v0.9.116-v0.9.118 (since v0.9.115):
 - DEC-045 (P6'-P9' validation + YAML coverage gap: fit_kmeans/fit_pca),
   DEC-046 (calibrate_throughput design; per-model time -> v0.9.121+).
 
+**v0.9.124 (since v0.9.123):**
+- .pingis/impl/ sync into cards: 10 described_only cards get `purpose`
+  reference to working sandbox impl + REPORT.md §6 smoke evidence
+  (I_*.KaplanMeier/WeibullAFT; J_*.ComplementNB/NMF;
+  M_*.EpsilonGreedy/UCB1/ThompsonSampling; O_*.ReservoirSample/
+  StratifiedSplit/OneHotEncoder). No new fields, no benchmark_results.
+- 4 deferred O_eda cards (KNNImputer, KBinsDiscretizer, GridSearch,
+  RandomizedSearch) get `purpose` reference to REPORT.md §4
+  rationale (memory model proved by N/KernelDensity or O/OneHotEncoder).
+- L_graph / K_vision unchanged: headers already state 'Out of scope:
+  torch required' = REPORT.md §7 (no duplicate).
+- Status unchanged (described_only); promotion to verified_in_cadw
+  -> v0.9.126+ (sandbox .pingis/impl/ not in cadw/ml/).
+
 **v0.9.123 (since v0.9.122):**
 - P_clustering.yaml (new, 13 cards): 2 draft (KMeans, MiniBatchKMeans;
   formula from code) + 11 described_only. Subtypes P1-P6.
@@ -80,7 +94,7 @@ v0.9.116-v0.9.118 (since v0.9.115):
 CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
 Component-wise (DEC-033) + DEC-034 escalation (tolerance widen on RSS drift).
 
-Next: v0.9.124 expansion_factor migration + YAML coverage sweep +
+Next: v0.9.125 expansion_factor migration + YAML coverage sweep +
 ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Progress (v0.9.105 - v0.9.110g)
@@ -160,7 +174,7 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Next 3 sessions
 
-### v0.9.124 — expansion_factor migration + R/S/T/U/V/W sections
+### v0.9.125 — expansion_factor migration + R/S/T/U/V/W sections
 
 - **Migration of 18 `expansion_factor` call sites** (6 via
   `derive_batch_size` + 12 direct `get_batch_rows`), 14 models (linucb,
@@ -178,14 +192,14 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
   verified model (epochs x n_rows). ~0.5 session.
 - **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
 
-### v0.9.125 — pending fns (A_classification + O_eda)
+### v0.9.126 — pending fns (A_classification + O_eda)
 
 - A_classification x8 pending: component-wise verify (some have `status: None`
   legacy cards — normalize to `draft`/`verified`).
 - O_eda x16 pending: same.
 - AP2 sweep (grep `column_stack|vstack|concatenate` in cadw/ml/).
 
-### v0.9.125+ — 30+ verified / 35+ verified tags
+### v0.9.126+ — 30+ verified / 35+ verified tags
 
 Re-check do-not-re-solve per DEC-033/034/035. Tag v0.9.122/123 when
 appropriate.

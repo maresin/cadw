@@ -1,5 +1,29 @@
 ## [Unreleased]
 
+### v0.9.124 (2026-11-06) — .pingis/impl/ sync into cards (purpose refs)
+
+**No fn/card-count changes** (32 fns / 48 verified / 10 draft / 13
+draft cards; +19 described_only in P/Q unchanged).
+
+- **10 described_only cards** get `purpose` reference to their working
+  sandbox impl + REPORT.md §6 smoke evidence (no new fields; no
+  benchmark_results entry, per "no momentary data" policy):
+  - I_survival: KaplanMeier, WeibullAFT -> .pingis/impl/I/*.py
+  - J_nlp: ComplementNB, NMF -> .pingis/impl/J/*.py
+  - M_bandits: EpsilonGreedy, UCB1, ThompsonSampling -> .pingis/impl/M/bandits.py
+  - O_eda: ReservoirSample, StratifiedSplit, OneHotEncoder -> .pingis/impl/O/*.py
+- **4 deferred O_eda cards** get `purpose` reference to REPORT.md §4
+  rationale (memory model already proved by N/KernelDensity or
+  O/OneHotEncoder; no new algorithmic content):
+  - KNNImputer, KBinsDiscretizer, GridSearch, RandomizedSearch.
+- **L_graph / K_vision** unchanged: headers already state "Out of scope:
+  torch required" = REPORT.md §7 rationale (no duplicate needed).
+
+**Status unchanged:** all 14 remain `described_only`. Pingis impls are
+sandbox `.pingis/impl/` (not `cadw/ml/`), no `ram_formula`/`measurement`/
+`test_*_verification` — promotion to `verified_in_cadw` -> separate
+session (v0.9.126+).
+
 ### v0.9.123 (2026-11-06) — P_clustering + Q_dim_reduction (22 new cards)
 
 **No verified-fn changes** (32 fns / 48 verified cards unchanged;

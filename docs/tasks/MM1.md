@@ -54,7 +54,7 @@
 **Roles:** linear_signal
 **Status:** ✓ agent, desc
 
-**Purpose:** Epsilon-greedy exploration over per-arm reward estimates. Inductive bias: no structural assumption — uniform random exploration with rate epsilon, then exploit the empirical mean. Canonical baseline; weak when rewards are context-dependent.
+**Purpose:** Epsilon-greedy exploration over per-arm reward estimates. Inductive bias: no structural assumption — uniform random exploration with rate epsilon, then exploit the empirical mean. Canonical baseline; weak when rewards are context-dependent. Reference impl in .pingis/impl/M/bandits.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - A/B test with fixed explore rate
@@ -75,7 +75,7 @@
 **Roles:** probabilistic
 **Status:** ✓ agent, desc
 
-**Purpose:** Auer et al. 2002 UCB1 — non-contextual optimism under uncertainty with an O(sqrt(log T / n_a)) bonus. Inductive bias: stationary arm means with no context; outperforms epsilon-greedy on stationary problems but not context-dependent ones.
+**Purpose:** Auer et al. 2002 UCB1 — non-contextual optimism under uncertainty with an O(sqrt(log T / n_a)) bonus. Inductive bias: stationary arm means with no context; outperforms epsilon-greedy on stationary problems but not context-dependent ones. Reference impl in .pingis/impl/M/bandits.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - Non-contextual slot selection
@@ -96,7 +96,7 @@
 **Roles:** probabilistic
 **Status:** ✓ agent, desc
 
-**Purpose:** Chapelle & Li 2011 — Beta-Bernoulli posterior sampling per arm; plays an arm with probability proportional to its posterior probability of being optimal. Inductive bias: conjugate Bayesian per-arm model; naturally balances exploration and exploitation and is empirically strong on CTR data.
+**Purpose:** Chapelle & Li 2011 — Beta-Bernoulli posterior sampling per arm; plays an arm with probability proportional to its posterior probability of being optimal. Inductive bias: conjugate Bayesian per-arm model; naturally balances exploration and exploitation and is empirically strong on CTR data. Reference impl in .pingis/impl/M/bandits.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - News recommendation with Thompson sampling

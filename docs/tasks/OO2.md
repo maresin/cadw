@@ -42,7 +42,7 @@
 **Roles:** local_structure
 **Status:** desc
 
-**Purpose:** Impute from k nearest neighbours in feature space. Inductive bias: local similarity predicts missing values; O(n²) naive, requires blocking.
+**Purpose:** Impute from k nearest neighbours in feature space. Inductive bias: local similarity predicts missing values; O(n²) naive, requires blocking. Deferred per .pingis/impl/REPORT.md §4 (memory model proved by N/KernelDensity).
 
 **Use cases:**
 - Filling correlated sensor gaps

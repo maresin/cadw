@@ -116,7 +116,7 @@ subtypes:
       reference_impl_ready: true
     roles:
     - probabilistic
-    purpose: 'Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter.'
+    purpose: 'Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter. Reference impl in .pingis/impl/J/complement_nb.py (smoke 9/9, REPORT.md §6).'
     real_life_examples:
     - Fast spam baseline
     - Long-tail topic tagging
@@ -514,7 +514,7 @@ subtypes:
       reference_impl_ready: true
     roles:
     - representation
-    purpose: 'Lee & Seung 1999 - non-negative matrix factorization of the doc-term matrix. Inductive bias: additive parts-based topics with sparsity enforced by non-negativity; no probabilistic likelihood, so perplexity is undefined.'
+    purpose: 'Lee & Seung 1999 - non-negative matrix factorization of the doc-term matrix. Inductive bias: additive parts-based topics with sparsity enforced by non-negativity; no probabilistic likelihood, so perplexity is undefined. Reference impl in .pingis/impl/J/nmf.py (smoke 9/9, REPORT.md §6).'
     real_life_examples:
     - Parts-based topic discovery
     - Topic tagging with sparse vocabularies

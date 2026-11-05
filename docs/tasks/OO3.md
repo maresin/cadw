@@ -19,7 +19,7 @@
 **Roles:** representation
 **Status:** desc
 
-**Purpose:** Expand a categorical column to one binary indicator per category. Inductive bias: categories are independent; high cardinality explodes dimensionality.
+**Purpose:** Expand a categorical column to one binary indicator per category. Inductive bias: categories are independent; high cardinality explodes dimensionality. Reference impl in .pingis/impl/O/one_hot_encoder.py (smoke 9/9, REPORT.md §6).
 
 **Use cases:**
 - Small-cardinality categoricals
@@ -40,7 +40,7 @@
 **Roles:** representation
 **Status:** desc
 
-**Purpose:** Bin a continuous column into k quantile/uniform bins. Inductive bias: piecewise-constant effect of the feature; can help non-linear models and regularize.
+**Purpose:** Bin a continuous column into k quantile/uniform bins. Inductive bias: piecewise-constant effect of the feature; can help non-linear models and regularize. Deferred per .pingis/impl/REPORT.md §4 (proved by O/OneHotEncoder).
 
 **Use cases:**
 - Age buckets
