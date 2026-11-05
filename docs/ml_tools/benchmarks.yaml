@@ -44,6 +44,14 @@ benchmarks:
       vary by protocol. Prefer ranking (best-5 / best-10) over absolute
       numbers. Not comparable to TSB-AD."
 
+  HPOBench:
+    url: https://github.com/automl/HPOBench
+    modality: tabular_hpo
+    metrics: [best_found_value, n_evals_to_target]
+    warning: "Hyperparameter-optimization benchmark (tabular). Evaluates
+      optimizers, not models; best_found_value depends on eval budget.
+      Not comparable to AMLB (different protocol: HPO vs AutoML)."
+
   TSB-AD:
     url: https://github.com/TheDatumOrg/TSB-AD
     modality: ts_anomaly

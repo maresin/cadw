@@ -1,5 +1,47 @@
 ## [Unreleased]
 
+### v0.9.125 (2026-11-06) — R/S/T/U/V/W sections (27 described_only cards)
+
+**No verified-fn changes** (32 fns / 48 verified / 10 draft / 13 draft
+cards). +27 described_only in 6 new sections (cumulative described_only
+46: 19 in P/Q + 27 here).
+
+New sections (all described_only, no CADW impl, no formula):
+- **R_association.yaml** (5 cards, R1 FrequentItemset + R2
+  SequentialPattern): Apriori, Eclat, FP-growth (SOTA), GSP, PrefixSpan
+  (SOTA). Anchor: mean_lift / sequence_coverage.
+- **S_generative.yaml** (5 cards, S1 Neural VAE/GAN + S2 Diffusion):
+  TVAE, CTGAN, CTAB-GAN+, TabDDPM, TabSyn. All tier3_export (torch).
+  Anchor: downstream_accuracy.
+- **T_optimization.yaml** (5 cards, T1 Bayesian + T2 Derivative-free):
+  GP-EI, TPE (SOTA), SMAC, Nelder-Mead, CMA-ES (SOTA). Anchor:
+  best_found_value.
+- **U_automl.yaml** (3 cards, U1 Full AutoML): Auto-sklearn, H2O AutoML,
+  AutoGluon 1.2 (SOTA per AMLB 2025). Anchor: mean_rank.
+- **V_uncertainty.yaml** (5 cards, V1 Calibration + V2 Conformal):
+  Platt, Temperature, Isotonic (SOTA), Split Conformal, CV+ (SOTA).
+  Anchor: ece / empirical_coverage.
+- **W_probabilistic.yaml** (4 cards, W1 VI + W2 MCMC): Mean-field VI,
+  Black-box VI (SOTA), Metropolis-Hastings, NUTS (SOTA). Anchor:
+  elbo / ess.
+
+**benchmarks.yaml:** +HPOBench (tabular_hpo, modality=HPOBench) —
+referenced by T_optimization; canonical HPO leaderboard.
+
+**Anchor metric warnings:** all anchors in R/S/T/U/V/W are
+`not_implemented_in_cadw: true` (no CADW code) — schema emits warning
+(not error): subtype has no computable anchor, values external.
+
+**Canonical homes for cross-ref:**
+- R/S/T/U/V/W new — no other canonical home.
+- V1 Platt/Isotonic -> cadw.ml.calibration (existing); W: VI/MCMC have
+  no CADW impl (Pingis .pingis/impl/J/nmf.py similar spirit but not
+  canonical).
+
+**Deferred (v0.9.126):** expansion_factor migration (18 call sites) +
+formal cross_ref schema field + promotion of `.pingis/impl/` verified
+models to `cadw/ml/`.
+
 ### v0.9.124 (2026-11-06) — .pingis/impl/ sync into cards (purpose refs)
 
 **No fn/card-count changes** (32 fns / 48 verified / 10 draft / 13

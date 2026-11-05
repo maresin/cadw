@@ -182,3 +182,30 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | Q | Q3 Manifold learning | UMAP | sota | tier2_wrapper | representation, local_structure | desc, export | trustworthiness |
 | Q | Q4 Feature selection | PermutationImportance | baseline | tier1_core | calibration | desc, export | downstream_accuracy |
 | Q | Q4 Feature selection | Boruta | sota | tier2_wrapper | calibration, nonlinear_interactions | desc, export | downstream_accuracy |
+| R | R1 Frequent itemset mining | Apriori | baseline | tier2_wrapper | local_structure | desc, export | mean_lift |
+| R | R1 Frequent itemset mining | Eclat | baseline | tier2_wrapper | local_structure | desc, export | mean_lift |
+| R | R1 Frequent itemset mining | FP-growth | sota | tier2_wrapper | local_structure | desc, export | mean_lift |
+| R | R2 Sequential pattern mining | GSP | baseline | tier2_wrapper | local_structure, temporal_dynamics | desc, export | sequence_coverage |
+| R | R2 Sequential pattern mining | PrefixSpan | sota | tier2_wrapper | local_structure, temporal_dynamics | desc, export | sequence_coverage |
+| S | S1 Neural generative (VAE / GAN) | TVAE | baseline | tier3_export | probabilistic, representation | desc, export | downstream_accuracy |
+| S | S1 Neural generative (VAE / GAN) | CTGAN | sota | tier3_export | probabilistic, representation | desc, export | downstream_accuracy |
+| S | S1 Neural generative (VAE / GAN) | CTAB-GAN+ | sota | tier3_export | probabilistic, representation | desc, export | downstream_accuracy |
+| S | S2 Diffusion (tabular) | TabDDPM | baseline | tier3_export | probabilistic | desc, export | downstream_accuracy |
+| S | S2 Diffusion (tabular) | TabSyn | sota | tier3_export | probabilistic, representation | desc, export | downstream_accuracy |
+| T | T1 Bayesian optimization | GP-EI | baseline | tier2_wrapper | probabilistic | desc, export | best_found_value |
+| T | T1 Bayesian optimization | TPE | sota | tier2_wrapper | probabilistic, local_structure | desc, export | best_found_value |
+| T | T1 Bayesian optimization | SMAC | sota | tier2_wrapper | probabilistic | desc, export | best_found_value |
+| T | T2 Derivative-free optimization | NelderMead | baseline | tier2_wrapper | local_structure | desc, export | best_found_value |
+| T | T2 Derivative-free optimization | CMA-ES | sota | tier2_wrapper | local_structure | desc, export | best_found_value |
+| U | U1 Full AutoML (pipeline search + ensemble) | Auto-sklearn | baseline | tier3_export | nonlinear_interactions, linear_signal | desc, export | mean_rank |
+| U | U1 Full AutoML (pipeline search + ensemble) | H2OAutoML | baseline | tier3_export | nonlinear_interactions, linear_signal | desc, export | mean_rank |
+| U | U1 Full AutoML (pipeline search + ensemble) | AutoGluon_1_2 | sota | tier3_export | nonlinear_interactions, linear_signal, representation, probabilistic | desc, export | mean_rank |
+| V | V1 Calibration | PlattScaling | baseline | tier1_core | calibration | desc, export | ece |
+| V | V1 Calibration | TemperatureScaling | baseline | tier2_wrapper | calibration | desc, export | ece |
+| V | V1 Calibration | IsotonicCalibration | sota | tier1_core | calibration | desc, export | ece |
+| V | V2 Conformal prediction | SplitConformal | baseline | tier2_wrapper | calibration | desc, export | empirical_coverage |
+| V | V2 Conformal prediction | CVplus | sota | tier2_wrapper | calibration | desc, export | empirical_coverage |
+| W | W1 Variational inference | MeanFieldVI | baseline | tier2_wrapper | probabilistic | desc, export | elbo |
+| W | W1 Variational inference | BlackBoxVI | sota | tier2_wrapper | probabilistic, representation | desc, export | elbo |
+| W | W2 Markov Chain Monte Carlo | MetropolisHastings | baseline | tier2_wrapper | probabilistic | desc, export | ess |
+| W | W2 Markov Chain Monte Carlo | NUTS | sota | tier2_wrapper | probabilistic | desc, export | ess |

@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.124
+## Current: v0.9.125
 
 **32 verified fns / 48 verified cards / 10 draft fns / 13 draft cards /
 24 pending fns / 30 pending cards / 62 no-fn. +19 described_only in P/Q.**
@@ -41,6 +41,19 @@ v0.9.116-v0.9.118 (since v0.9.115):
   reduce/sort/hash_shuffle; PyYAML 1.1 string-float quirk fixed.
 - DEC-045 (P6'-P9' validation + YAML coverage gap: fit_kmeans/fit_pca),
   DEC-046 (calibrate_throughput design; per-model time -> v0.9.121+).
+
+**v0.9.125 (since v0.9.124):**
+- R_association.yaml (5 cards), S_generative.yaml (5), T_optimization.yaml
+  (5), U_automl.yaml (3), V_uncertainty.yaml (5), W_probabilistic.yaml (4)
+  -- 27 described_only cards, 6 new sections.
+- R: Apriori, Eclat, FP-growth (SOTA), GSP, PrefixSpan (SOTA).
+- S: TVAE, CTGAN, CTAB-GAN+, TabDDPM, TabSyn (all tier3_export, torch).
+- T: GP-EI, TPE (SOTA), SMAC, Nelder-Mead, CMA-ES (SOTA).
+- U: Auto-sklearn, H2O AutoML, AutoGluon 1.2 (SOTA per AMLB 2025).
+- V: Platt, Temperature, Isotonic (SOTA), SplitConformal, CV+ (SOTA).
+- W: Mean-field VI, Black-box VI (SOTA), Metropolis-Hastings, NUTS (SOTA).
+- benchmarks.yaml: +HPOBench (tabular_hpo; canonical HPO LB).
+- Cumulative described_only: 46 (19 P/Q + 27 here).
 
 **v0.9.124 (since v0.9.123):**
 - .pingis/impl/ sync into cards: 10 described_only cards get `purpose`
@@ -94,7 +107,7 @@ v0.9.116-v0.9.118 (since v0.9.115):
 CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
 Component-wise (DEC-033) + DEC-034 escalation (tolerance widen on RSS drift).
 
-Next: v0.9.125 expansion_factor migration + YAML coverage sweep +
+Next: v0.9.126 expansion_factor migration + YAML coverage sweep +
 ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Progress (v0.9.105 - v0.9.110g)
@@ -174,7 +187,7 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Next 3 sessions
 
-### v0.9.125 — expansion_factor migration + R/S/T/U/V/W sections
+### v0.9.126 — expansion_factor migration + cross_ref schema + promotion
 
 - **Migration of 18 `expansion_factor` call sites** (6 via
   `derive_batch_size` + 12 direct `get_batch_rows`), 14 models (linucb,
@@ -192,14 +205,14 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
   verified model (epochs x n_rows). ~0.5 session.
 - **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
 
-### v0.9.126 — pending fns (A_classification + O_eda)
+### v0.9.127 — pending fns (A_classification + O_eda)
 
 - A_classification x8 pending: component-wise verify (some have `status: None`
   legacy cards — normalize to `draft`/`verified`).
 - O_eda x16 pending: same.
 - AP2 sweep (grep `column_stack|vstack|concatenate` in cadw/ml/).
 
-### v0.9.126+ — 30+ verified / 35+ verified tags
+### v0.9.127+ — 30+ verified / 35+ verified tags
 
 Re-check do-not-re-solve per DEC-033/034/035. Tag v0.9.122/123 when
 appropriate.
