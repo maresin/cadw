@@ -943,6 +943,52 @@ e.g. `fit_ab_test` ×3: ProportionsZTest/MannWhitneyU/CUPED).
 
 ---
 
+## DEC-048 (2026-11-06, v0.9.122) — taxonomy extension (28 types) + CADWBoost SOTA
+
+**Q1:** `TASK_TYPES` (14 from v0.9.44) misses several task classes.
+Расширять?
+
+**A1:** Да. **28 types** = 14 original + **14 new** (clustering,
+dimensionality_reduction, matrix_factorization, association_rules,
+generative_modelling, structured_prediction, feature_selection,
+covariance_estimation, biclustering, manifold_learning, optimization,
+automl, uncertainty_quantification, probabilistic_inference). Источники:
+SMU DIGA (2025), Zenodo Two-Axis (2026), sklearn Unsupervised §2.2-2.6.
+
+**Discovery:** model-level `task_type` = **0/302 cards**. Все `task_type`
+в YAML — внутри `benchmark_results[]` (free-form). Расширение безопасно;
+adoption — v0.9.123+ (по разделу, вместе с подбором кандидатов).
+
+**Q2:** CADWBoost — SOTA для A1/A2/A3?
+
+**A2:** Да. `.pingis/drafts/cadwboost/`: 6/6 better than cadw.ml.gbdt
+(-12%..-80% rmse), OOC ratio 1.08. Reference-only card в A_classification
+(`tier: sota`, `described_only: true`, `not_implemented_in_cadw: true`).
+Promote target v0.9.124+ (после P2: ordered boosting, exact SHAP,
+464-test suite).
+
+**Q3:** Reference policy для нейросетей?
+
+**A3:** Реализуемые SOTA (AutoGluon stacking, HDBSCAN, FP-growth,
+CTAB-GAN+, NGBoost) → `tier: sota` + eventual `cadw_function`.
+Нереализуемые (TabPFN, TabICL, BERT, ResNet, GCN) → `tier: sota` +
+`not_implemented_in_cadw: true` + `attribution: literature`. Честно:
+"SOTA по литературе, реализация вне OOC CADW (нейросети)."
+
+**New sections (v0.9.123+):** P_clustering, Q_dim_reduction,
+R_association, S_generative, T_optimization, U_automl, V_uncertainty,
+W_probabilistic_inference.
+
+**Non-goals (NEVER):** vision/graph/NLP transformers on non-tabular
+(reference-only); GPU/distributed.
+
+**Files:** `docs/ml_tools/enums.py` (14→28),
+`docs/ML_TASKS_TAXONOMY.md` (+section),
+`docs/ml_tools/A_classification.yaml` (+CADWBoost described_only),
+`DECISION_LOG.md` (this DEC).
+
+---
+
 <!-- future entries appended here -->
 
 

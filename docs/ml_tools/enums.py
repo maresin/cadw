@@ -137,9 +137,23 @@ TASK_FAMILIES = (
     "specialized", "applicability",
 )
 
-# === Task type (14) ===
+# === Task type (28) ===
+# v0.9.122 (DEC-048): extended taxonomy. Model-level `task_type` was
+# empty (0/302 cards) before this — extension is safe (no schema breaks),
+# but adoption requires filling `task_type` on ModelCard, per-section
+# track v0.9.123+.
 TASK_TYPES = (
+    # Original 14 (v0.9.44)
     "classification", "regression", "forecast", "anomaly", "density",
     "recsys", "ltr", "causal", "survival", "bandit",
     "nlp", "vision", "graph", "eda",
+    # v0.9.122: unsupervised / decomposition / generative (SMU DIGA 2025,
+    # Zenodo two-axis taxonomy 2026, sklearn Unsupervised §2.2-2.6)
+    "clustering", "dimensionality_reduction", "matrix_factorization",
+    "association_rules", "generative_modelling", "structured_prediction",
+    "feature_selection", "covariance_estimation", "biclustering",
+    "manifold_learning",
+    # v0.9.122: decision / optimization / probabilistic (SMU DIGA 2025)
+    "optimization", "automl", "uncertainty_quantification",
+    "probabilistic_inference",
 )

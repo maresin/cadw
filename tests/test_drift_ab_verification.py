@@ -193,3 +193,35 @@ def test_to_dict_kind_preserved():
     d = m.to_dict()
     assert d["kind"] == "ab"
     assert "result" in d  # new field, additive
+
+
+# ---- v0.9.122: per-method expansion_factor consistency ----
+
+def test_per_method_expansion_factor(monkeypatch):
+    """v0.9.122: fit_ab_test calls get_batch_rows with op.batch_memory_factor()
+    (t=4.0, cuped=5.0), mw falls back to 5.0 (sort path). Prior v0.9.119
+    used hardcoded 5.0 for ALL methods -> t's batch was over-conservative."""
+    from cadw.core import memory_guard as _mg_mod
+    calls = []
+    original = _mg_mod.MemoryGuard.get_batch_rows
+
+    def _spy(self, *args, **kwargs):
+        calls.append(dict(kwargs))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(_mg_mod.MemoryGuard, "get_batch_rows", _spy)
+
+    df = _make_df(2000, seed=0)
+    mg = MemoryGuard(max_memory_mb=100)
+    fit_ab_test(df, "y", "t", method="t", memory_guard=mg)
+    fit_ab_test(df, "y", "t", method="cuped",
+                covariate_col="x", memory_guard=mg)
+    fit_ab_test(df, "y", "t", method="mw", memory_guard=mg)
+
+    # Find the get_batch_rows call from fit_ab_test (skip any from estimate).
+    ab_calls = [c for c in calls if "expansion_factor" in c and "state_bytes" in c]
+    assert len(ab_calls) >= 3, f"expected >=3 fit calls, got {len(ab_calls)}"
+    factors = [c["expansion_factor"] for c in ab_calls[:3]]
+    state_bytes = [c["state_bytes"] for c in ab_calls[:3]]
+    assert factors == [4.0, 5.0, 5.0], f"t/cuped/mw factors: {factors}"
+    assert state_bytes == [1696, 1744, 296], f"t/cuped/mw state: {state_bytes}"

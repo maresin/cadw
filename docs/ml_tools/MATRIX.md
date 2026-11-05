@@ -15,9 +15,11 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | A | A1 Binary classification | TabPFN | sota | tier3_export | nonlinear_interactions | desc, export | roc_auc |
 | A | A2 Multiclass classification | LogisticRegression_multinomial | baseline | tier1_core | linear_signal | ✓ cadw | accuracy |
 | A | A2 Multiclass classification | GBDT_multiclass | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | accuracy |
+| A | A2 Multiclass classification | CADWBoost | sota | tier1_core | nonlinear_interactions | desc, export | accuracy |
 | A | A2 Multiclass classification | GaussianNB | baseline | tier1_core | probabilistic | ✓ cadw | accuracy |
 | A | A3 Regression | Ridge | baseline | tier1_core | linear_signal | ✓ cadw | rmse |
 | A | A3 Regression | Lasso | baseline | tier1_core | linear_signal | ✓ cadw | rmse |
+| A | A3 Regression | ElasticNet | baseline | tier1_core | linear_signal | ✓ cadw | rmse |
 | A | A3 Regression | GBDT_L2 | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | rmse |
 | A | A4 Multilabel classification | OneVsRest_Logistic | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | subset_accuracy |
 | A | A4 Multilabel classification | ClassifierChains | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | subset_accuracy |

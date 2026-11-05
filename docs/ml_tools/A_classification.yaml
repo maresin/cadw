@@ -378,6 +378,49 @@ subtypes:
     - spill_dir
     - memmap
     - codes_bin
+  - name: CADWBoost
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - nonlinear_interactions
+    purpose: 'Sandbox full gradient booster (.pingis/drafts/cadwboost/).
+      CatBoost symmetric + LightGBM leaf-wise + XGBoost hist binning + EFB +
+      9 losses + DART + GOSS + NGBoost + SHAP. 6/6 datasets better than
+      cadw.ml.gbdt (-12%..-80% rmse), OOC ratio 1.08. Promote target v0.9.124.'
+    real_life_examples:
+    - Best-tabular regression where cadw.ml.gbdt underfits
+    - Multiclass with class imbalance (focal loss)
+    - Probabilistic forecast (NGBoost intervals)
+    config:
+      n_estimators: int
+      tree_mode: 'symmetric | leaf_wise'
+      loss: 'mse | mae | huber | quantile | logistic | focal | poisson | gamma | tweedie'
+    cadw_module: .pingis/drafts/cadwboost
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/drafts/cadwboost/README.md
+      algorithm: cadw.sandbox.cadwboost.CADWBoost
+      algorithm_source_url: .pingis/drafts/cadwboost/README.md
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: regression
+      n_datasets: 6
+      metric: rmse
+      value: 0.099
+      std: null
+      note: 'CADW-native sandbox: 6/6 better than cadw.ml.gbdt; OOC ratio 1.08. Not promoted (P2: ordered boosting, exact SHAP, 464-test suite).'
+    state_class: O(model)
+    bounded_state: true
+    bounded_state_dims: {n_estimators: 1, max_depth: 1}
+    state_type: iterative
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'SpillDir memmap codes+y+pred; reservoir binning; MAX_OOC_BATCH=20k.'
+      predict: 'per-batch tree traversal; SpillBuffer for output.'
+    primitive_reuse: [reduce, spill_dir, memmap]
   - name: GaussianNB
     tier: baseline
     tier_level: tier1_core
@@ -547,6 +590,59 @@ subtypes:
     n_scalability: constant
     streaming_strategy:
       fit: 'XTX / XTy Reduce; coordinate descent on d² state.'
+      predict: 'per-batch X @ coef.'
+    primitive_reuse: [reduce]
+  - name: ElasticNet
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - linear_signal
+    purpose: L1+L2 regularised linear regression; l1_ratio=1.0 -> Lasso, 0.0 -> Ridge.
+    real_life_examples:
+    - High-dimensional regression with correlated features
+    - Gene expression with grouped predictors
+    config:
+      alpha: float
+      l1_ratio: float
+      max_iter: int
+    cadw_module: cadw.ml.linear
+    cadw_function: fit_elasticnet
+    input_api: df
+    benchmark_results:
+    - benchmark: AMLB
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.linear_model.ElasticNet
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.ElasticNet.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: regression
+      n_datasets: null
+      metric: rmse
+      value: 0.43
+      std: null
+      note: '[legacy v0.9.44, migrated v0.9.50; delegation to fit_linear]'
+    state_class: O(d²)
+    bounded_state_dims: {d: 2}
+    ram_formula: "2 * batch * row_size + 2 * d * d * f64"
+    formula_evidence:
+      delegation: "linear.py:658 -- fit_elasticnet returns fit_linear(..., penalty='elasticnet'); same XTXOp path"
+      batch_term: "same as fit_linear (XTXOp); a=1.92"
+      state_term: "same XTXOp; iter-2 D confirms l1==closed"
+      guard: "linear.py:XTXOp.batch_memory_factor = 3.0"
+    measurement:
+      verification_mode: "delegated to fit_linear (v0.9.107 verified)"
+      reference: "test_elasticnet_l1_ratio_0_equals_ridge + test_elasticnet_l1_ratio_1_equals_lasso (test_linear_lasso.py)"
+      cells_passed: "delegated (formula identical to fit_linear)"
+      date: "2026-11-05"
+    transient_factor: 2.0
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'XTX / XTy Reduce; coordinate descent on d² state (shared with fit_lasso).'
       predict: 'per-batch X @ coef.'
     primitive_reuse: [reduce]
   - name: GBDT_L2

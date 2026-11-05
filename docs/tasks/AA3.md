@@ -56,6 +56,28 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Lasso.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### ElasticNet — baseline / tier1_core
+
+**Roles:** linear_signal
+**Status:** ✓ cadw
+
+**Purpose:** L1+L2 regularised linear regression; l1_ratio=1.0 -> Lasso, 0.0 -> Ridge.
+
+**Use cases:**
+- High-dimensional regression with correlated features
+- Gene expression with grouped predictors
+
+**Config:** `{'alpha': 'float', 'l1_ratio': 'float', 'max_iter': 'int'}`
+
+**CADW:** `cadw.ml.linear.fit_elasticnet`
+
+**Benchmarks:**
+- **[literature]** AMLB → rmse=0.43
+  - algorithm: `sklearn.linear_model.ElasticNet` (docs)
+  - number: https://openml.github.io/automlbenchmark/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.ElasticNet.html
+  - note: [legacy v0.9.44, migrated v0.9.50; delegation to fit_linear]
+
 ### GBDT_L2 — sota / tier1_core
 
 **Roles:** nonlinear_interactions

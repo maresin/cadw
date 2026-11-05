@@ -55,6 +55,29 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingClassifier.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### CADWBoost — sota / tier1_core
+
+**Roles:** nonlinear_interactions
+**Status:** desc, export
+
+**Purpose:** Sandbox full gradient booster (.pingis/drafts/cadwboost/). CatBoost symmetric + LightGBM leaf-wise + XGBoost hist binning + EFB + 9 losses + DART + GOSS + NGBoost + SHAP. 6/6 datasets better than cadw.ml.gbdt (-12%..-80% rmse), OOC ratio 1.08. Promote target v0.9.124.
+
+**Use cases:**
+- Best-tabular regression where cadw.ml.gbdt underfits
+- Multiclass with class imbalance (focal loss)
+- Probabilistic forecast (NGBoost intervals)
+
+**Config:** `{'n_estimators': 'int', 'tree_mode': 'symmetric | leaf_wise', 'loss': 'mse | mae | huber | quantile | logistic | focal | poisson | gamma | tweedie'}`
+
+**CADW:** `.pingis/drafts/cadwboost.`
+
+**Benchmarks:**
+- **[cadw_measured]** cadw_internal → rmse=0.099 (n=6)
+  - algorithm: `cadw.sandbox.cadwboost.CADWBoost` (code)
+  - number: .pingis/drafts/cadwboost/README.md
+  - code/paper: .pingis/drafts/cadwboost/README.md
+  - note: CADW-native sandbox: 6/6 better than cadw.ml.gbdt; OOC ratio 1.08. Not promoted (P2: ordered boosting, exact SHAP, 464-test suite).
+
 ### GaussianNB — baseline / tier1_core
 
 **Roles:** probabilistic

@@ -1,5 +1,30 @@
 ## [Unreleased]
 
+### v0.9.122 (2026-11-06) — taxonomy extension (28 types) + CADWBoost SOTA reference
+
+**No fn/card changes** (32 fns / 48 cards; taxonomy + reference-only card).
+
+- **TASK_TYPES** 14 -> **28** (DEC-048). 14 new: `clustering`,
+  `dimensionality_reduction`, `matrix_factorization`, `association_rules`,
+  `generative_modelling`, `structured_prediction`, `feature_selection`,
+  `covariance_estimation`, `biclustering`, `manifold_learning`,
+  `optimization`, `automl`, `uncertainty_quantification`,
+  `probabilistic_inference`. Sources: SMU DIGA 2025, Zenodo Two-Axis 2026,
+  sklearn Unsupervised §2.2-2.6.
+- **Discovery:** model-level `task_type` = 0/302 cards (all `task_type`
+  in YAML live inside `benchmark_results[]`, free-form). Extension safe;
+  adoption -> v0.9.123+ (per section, together with candidate selection).
+- **CADWBoost** reference-only card in A_classification (`tier: sota`,
+  `described_only: true`, `not_implemented_in_cadw: true`).
+  `.pingis/drafts/cadwboost/`: 6/6 datasets better than `cadw.ml.gbdt`
+  (-12%..-80% rmse), OOC ratio 1.08. Promote target v0.9.124+.
+- **`ML_TASKS_TAXONOMY.md`**: v0.9.122 section — table of 14 new types
+  with section home + baseline/SOTA/ensemble candidates. Reference
+  policy: реализуемые SOTA -> eventual `cadw_function`; нереализуемые
+  (TabPFN/TabICL/BERT/ResNet/GCN) -> `not_implemented_in_cadw: true`.
+- **DEC-048**: taxonomy extension + CADWBoost + reference policy +
+  non-goals (vision/graph/NLP transformers — reference-only).
+
 ### v0.9.121 (2026-11-05) — R10 coverage gate + GBDT_multiclass card fix
 
 **No fn/card changes** (32 fns / 48 cards; gate hygiene only).

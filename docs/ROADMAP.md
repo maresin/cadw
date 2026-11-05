@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.121
+## Current: v0.9.122
 
 **32 verified fns / 48 verified cards / 7 draft fns / 10 draft cards /
 24 pending fns / 30 pending cards / 62 no-fn.**
@@ -42,6 +42,20 @@ v0.9.116-v0.9.118 (since v0.9.115):
 - DEC-045 (P6'-P9' validation + YAML coverage gap: fit_kmeans/fit_pca),
   DEC-046 (calibrate_throughput design; per-model time -> v0.9.121+).
 
+**v0.9.122 (since v0.9.121):**
+- TASK_TYPES 14 -> 28 (DEC-048). +14 new types (clustering, dim_reduction,
+  matrix_factorization, association_rules, generative_modelling,
+  structured_prediction, feature_selection, covariance_estimation,
+  biclustering, manifold_learning, optimization, automl,
+  uncertainty_quantification, probabilistic_inference).
+- Discovery: model-level `task_type` = 0/302 cards. Extension safe;
+  adoption -> v0.9.123+ (per section, together with candidate selection).
+- CADWBoost reference-only card in A_classification (tier: sota,
+  described_only). `.pingis/drafts/cadwboost/`: 6/6 better than
+  cadw.ml.gbdt; promote target v0.9.124+.
+- ML_TASKS_TAXONOMY.md: v0.9.122 section + reference policy.
+- DEC-048: taxonomy + CADWBoost + non-goals.
+
 **v0.9.121 (since v0.9.120):**
 - R10 (`tests/test_ml_tools_schema.py`): `test_R10_public_fit_covered`
   (every public `fit_*` in `cadw.ml.__all__` has a YAML card or is
@@ -56,7 +70,7 @@ v0.9.116-v0.9.118 (since v0.9.115):
 CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
 Component-wise (DEC-033) + DEC-034 escalation (tolerance widen on RSS drift).
 
-Next: v0.9.122 expansion_factor migration + YAML coverage sweep +
+Next: v0.9.123 expansion_factor migration + YAML coverage sweep +
 ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Progress (v0.9.105 - v0.9.110g)
@@ -136,7 +150,7 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Next 3 sessions
 
-### v0.9.122 — expansion_factor migration + YAML coverage sweep
+### v0.9.123 — expansion_factor migration + YAML coverage sweep
 
 - **Migration of 18 `expansion_factor` call sites** (6 via
   `derive_batch_size` + 12 direct `get_batch_rows`), 14 models (linucb,
@@ -154,14 +168,14 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
   verified model (epochs x n_rows). ~0.5 session.
 - **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
 
-### v0.9.123 — pending fns (A_classification + O_eda)
+### v0.9.124 — pending fns (A_classification + O_eda)
 
 - A_classification x8 pending: component-wise verify (some have `status: None`
   legacy cards — normalize to `draft`/`verified`).
 - O_eda x16 pending: same.
 - AP2 sweep (grep `column_stack|vstack|concatenate` in cadw/ml/).
 
-### v0.9.123+ — 30+ verified / 35+ verified tags
+### v0.9.124+ — 30+ verified / 35+ verified tags
 
 Re-check do-not-re-solve per DEC-033/034/035. Tag v0.9.122/123 when
 appropriate.

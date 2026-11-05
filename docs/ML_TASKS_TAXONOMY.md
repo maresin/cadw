@@ -305,3 +305,55 @@ J2, J5, K1-K4, L1, L2, N2.
 
 These CAN still be used via `df.to_batches(format='torch')` —
 recipes in `docs/roadmap_research/part2_todo_roadmap.md §T5-T10`.
+
+
+---
+
+## v0.9.122 — taxonomy extension (DEC-048)
+
+**Context:** `TASK_TYPES` was 14 types from v0.9.44. Audit against
+SMU DIGA "Machine Learning Infos" (2025, 16 categories -> 91 specifics),
+Zenodo Two-Axis Taxonomy (2026), and sklearn Unsupervised §2.2-2.6
+revealed gaps: clustering, dim_reduction, matrix_factorization,
+association_rules, generative_modelling, structured_prediction,
+feature_selection, covariance_estimation, biclustering, manifold_learning,
+optimization, automl, uncertainty_quantification, probabilistic_inference.
+
+**Count:** 14 original + 14 new = **28 total**.
+
+**Status:** **0/302 model cards** populate `task_type` (model-level).
+All `task_type` values in YAML today live inside `benchmark_results[]`
+(free-form, not validated). Extension safe; **adoption** = v0.9.123+.
+
+**14 new task types, with section home:**
+
+| task_type | Home section (new) | Baseline / SOTA / Ensemble |
+|---|---|---|
+| `clustering` | P_clustering | KMeans / HDBSCAN / KMeans+BIRCH |
+| `dimensionality_reduction` | Q_dim_reduction | PCA / randSVD / PCA+randSVD |
+| `matrix_factorization` | Q_dim_reduction | NMF / ALS / NMF+ALS |
+| `feature_selection` | Q_dim_reduction | Filter / Embedded (GBDT gain) |
+| `manifold_learning` | Q_dim_reduction | Isomap / UMAP / t-SNE+Isomap |
+| `biclustering` | P_clustering | Spectral biclustering / — |
+| `association_rules` | R_association | Apriori / FP-growth |
+| `generative_modelling` | S_generative | TVAE / CTGAN/CTAB-GAN+ / TabDDPM |
+| `structured_prediction` | A_classification | (already multilabel) |
+| `covariance_estimation` | N_density | Empirical / graphical lasso |
+| `optimization` | T_optimization | Bayesian Opt / CMA-ES / TPE |
+| `automl` | U_automl | AutoGluon 1.2 (SOTA) / hyperopt / optuna |
+| `uncertainty_quantification` | V_uncertainty | Platt / isotonic / conformal |
+| `probabilistic_inference` | W_probabilistic | VI / MCMC |
+
+**CADWBoost — SOTA candidate for A1/A2/A3:**
+`.pingis/drafts/cadwboost/`. 6/6 datasets better than `cadw.ml.gbdt`
+(-12%..-80% rmse), OOC ratio 1.08. `not_implemented_in_cadw: true`.
+Promote target v0.9.124+.
+
+**Reference policy (canonical):**
+- Реализуемые SOTA (AutoGluon, HDBSCAN, FP-growth, CTAB-GAN+, NGBoost)
+  -> `tier: sota`, `cadw_function` + `status: draft`/`verified`.
+- Нереализуемые SOTA (TabPFN, TabICL, BERT, ResNet, GCN) -> `tier: sota`,
+  `not_implemented_in_cadw: true`, `attribution: literature`.
+
+**Non-goals (NEVER):** vision/graph/NLP transformers on non-tabular
+(reference-only); GPU/distributed.

@@ -806,9 +806,8 @@ def test_R9_cadw_function_importable():
 # Uncased public fit_* in cadw.ml.__all__ that have no YAML card yet.
 # See DEC-047 (v0.9.121) for rationale + target version.
 UNCARDED_WHITELIST = {
-    "fit_kmeans": "v0.9.122 coverage; DEC-045 + DEC-047",
-    "fit_pca": "v0.9.122 coverage; DEC-045 + DEC-047",
-    "fit_elasticnet": "v0.9.122 coverage; DEC-047",
+    "fit_kmeans": "v0.9.123 taxonomy extension; TASK_TYPES gap (clustering)",
+    "fit_pca": "v0.9.123 taxonomy extension; TASK_TYPES gap (dim_reduction)",
 }
 
 

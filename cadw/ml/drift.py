@@ -548,24 +548,40 @@ def fit_ab_test(df, outcome_col, treatment_col, *, covariate_col=None,
             f"fit_ab_test: est_ram={cost.est_ram_bytes} B exceeds budget "
             f"{int(mg.available_bytes() * 0.7)} B")
 
+    # v0.9.122: build op first, then batch_size from op.batch_memory_factor().
+    # Prior (v0.9.119): expansion_factor=5.0 + state_bytes=1696 for ALL
+    # methods. t's op factor is 4.0 (y+t+mask+select copies), cuped 5.0
+    # (y+t+x+mask+select), mw uses sort path (not Reduce; 5.0 conservative).
+    # state_bytes differs: t=1696, cuped=1744, mw=296 (rank-scan).
+    _DE_PER_ARM = 116  # dict_entry_bytes (memory_constants.yaml)
+    if method == "t":
+        op = _ArmStatsOp(outcome_col, treatment_col)
+        state_bytes = 256 + 2 * (3 * 8 + 6 * _DE_PER_ARM)   # 1696
+        batch_factor = op.batch_memory_factor()              # 4.0
+    elif method == "cuped":
+        op = _CupedStatsOp(outcome_col, treatment_col, covariate_col)
+        state_bytes = 256 + 2 * (6 * 8 + 6 * _DE_PER_ARM)   # 1744
+        batch_factor = op.batch_memory_factor()              # 5.0
+    else:  # mw
+        op = None
+        state_bytes = 5 * 8 + 256                            # 296 (rank-scan)
+        batch_factor = 5.0  # sort path; SortMemoryModel v0.9.123
+
     # Derive batch_size from formula if not given.
     if batch_size is None:
         try:
             sample = next(iter(df._iter_filtered_batches(batch_size=8)))
-            state_bytes = 256 + 2 * (6 * 116)
             batch_size = mg.get_batch_rows(
                 sample_batch=sample, state_bytes=state_bytes,
-                expansion_factor=5.0)
+                expansion_factor=batch_factor)
         except StopIteration:
             batch_size = 1000
 
     it = df._iter_filtered_batches(batch_size=batch_size)
     if method == "t":
-        op = _ArmStatsOp(outcome_col, treatment_col)
         agg = _reduce(it, op, mg, log=False)
         result = _welch_from_aggregates(agg)
     elif method == "cuped":
-        op = _CupedStatsOp(outcome_col, treatment_col, covariate_col)
         agg = _reduce(it, op, mg, log=False)
         result = _cuped_from_aggregates(agg)
     else:  # mw
