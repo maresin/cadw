@@ -1,5 +1,32 @@
 ## [Unreleased]
 
+### v0.9.119 (2026-11-05) — pipeline planner v2 + solve_batch + fit_ab_test x3 verified
+
+**Verified fns: 31 -> 32** (45 -> 48 cards).
+
+Framework (DEC-043, DEC-044):
+- `plan_pipeline(memory_guard=...)` — pipeline planner v2: segments by
+  `OpSpec.spill_after`, carried state between segments, per-segment batch,
+  time via `throughput.yaml`. `memory_guard=None` -> v1 (24 test_planner.py
+  back-compat).
+- `CostEstimate` + `MemoryGuard.estimate_cost` + `MemoryModel.estimate_time`
+  (AP22 skeleton; calibration `scripts/calibrate_throughput.py` -> v0.9.120).
+- `MemoryGuard.solve_batch`: inverse of `ram_formula` via numeric sampling
+  (AP23-compliant, `_is_linear_in_batch` guard); `None` -> fallback
+  `expansion_factor`.
+
+`fit_ab_test` x3 verified (ProportionsZTest / MannWhitneyU / CUPED):
+- OOC via `Reduce` (t/cuped) and `external_sort` + streaming rank (mw).
+- Component-wise (DEC-033): state exact (1696/1744/296 B), state_n-independent,
+  tight_guard refuses, batch_size invariant, streaming matches scipy.
+- `DriftABModel.result_` populated; `to_dict()["kind"]=="ab"` preserved
+  (9 existing test_drift.py green).
+
+Tests: +6 `test_estimate_cost.py`, +10 `test_pipeline_planner_examples.py`
+(P1-P8 synthetic), +14 `test_solve_batch.py`, +17 `test_drift_ab_verification.py`.
+Schema gates: 141/141 (test_ml_tools_schema, test_yaml_state_fields,
+test_render_matrix).
+
 ### v0.9.118 (2026-11-04) — ordinal + chains verified; R9 schema test
 
 **Verified fns: 29 -> 31** (43 -> 45 cards).

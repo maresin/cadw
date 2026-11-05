@@ -26,7 +26,7 @@ import pyarrow as pa
 
 from cadw.core.logging import get_logger
 
-from cadw.core.models import DataChars, Params, get_model
+from cadw.core.models import DataChars, Params, CostEstimate, get_model
 
 
 logger = get_logger("memory_guard")
@@ -1174,6 +1174,139 @@ class MemoryGuard:
 
     # ---------- логирование ----------
 
+    def _load_throughput_rates(self) -> dict:
+        """Read rates from throughput.yaml (default profile). v0.9.119."""
+        from pathlib import Path as _P
+        try:
+            import yaml as _yaml
+        except ImportError:
+            return {}
+        _YAML_DIR = _P(__file__).resolve().parent.parent.parent / "docs" / "ml_tools"
+        cp = _YAML_DIR / "throughput.yaml"
+        if not cp.exists():
+            return {}
+        try:
+            data = _yaml.safe_load(cp.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        profiles = (data or {}).get("profiles") or {}
+        default = profiles.get("default") or {}
+        return dict(default.get("rates") or {})
+
+    @staticmethod
+    def _classify_time(seconds: float) -> str:
+        if seconds < 1.0:
+            return "fast"
+        if seconds < 60.0:
+            return "medium"
+        if seconds < 600.0:
+            return "slow"
+        return "very_slow"
+
+    def solve_batch(
+        self,
+        op_name: str,
+        data_chars: DataChars,
+        *,
+        budget: Optional[int] = None,
+        **extra_params,
+    ) -> "int | None":
+        """Inverse of ram_formula w.r.t. batch (DEC-044, AP23).
+
+        Returns largest batch b s.t. ram_formula(op_name, batch=b,
+        row_size=..., **extra_params) <= budget. Fills d, n, k_est, k, K
+        from data_chars if absent in extra_params. Caller supplies C,
+        K_topics, w, etc. explicitly via **extra_params.
+
+        Returns None if:
+          - card has no ram_formula (draft/legacy)
+          - formula is batch-independent (e.g. state-only)
+          - formula is non-linear in batch
+        In all None cases caller falls back to expansion_factor +
+        LegacyFormulaWarning.
+        """
+        from cadw.ml._memory_estimate import (
+            _lookup_card, _is_linear_in_batch, _numeric_inverse_batch,
+        )
+        card = _lookup_card(op_name)
+        if card is None or not card.get("ram_formula"):
+            return None
+        budget = int(budget) if budget is not None else int(self._usable_bytes())
+        row_size = max(1, int(data_chars.row_size_bytes))
+        params = dict(extra_params)
+        params.setdefault("d", len(data_chars.schema))
+        params.setdefault("n", int(data_chars.n_rows))
+        if data_chars.k_est is not None:
+            kk = int(data_chars.k_est)
+            params.setdefault("k_est", kk)
+            params.setdefault("k", kk)
+            params.setdefault("K", kk)
+        if not _is_linear_in_batch(op_name, params, row_size):
+            return None
+        return _numeric_inverse_batch(op_name, params, budget, row_size)
+
+    def estimate_cost(
+        self,
+        op_name: str,
+        data_chars: DataChars,
+        *,
+        op_context: Optional[dict] = None,
+    ) -> CostEstimate:
+        """Estimated RAM + time for op_name (v0.9.119, AP22).
+
+        Uses existing plan() + estimate() for RAM; adds time from
+        throughput.yaml rate (conservative, LegacyFormulaWarning if
+        absent). Returns CostEstimate with fits_ram + time_class.
+        """
+        import warnings as _w
+        from cadw.core.warnings import LegacyFormulaWarning
+
+        model = get_model(op_name)
+        params = model.solve(
+            self.available_bytes(), data_chars,
+            safety=self._safety, op_context=op_context,
+        )
+        if params is None:
+            return CostEstimate(
+                op_name=op_name, est_ram_bytes=0, fits_ram=False,
+                est_ops=0, est_time_seconds=0.0,
+                time_class="unknown", reason="does_not_fit",
+            )
+        est_ram = model.estimate(params, data_chars)
+        fits_ram = int(est_ram) <= int(self.available_bytes() * self._safety)
+
+        est_time_model = model.estimate_time(params, data_chars)
+        est_ops_default = int(data_chars.n_rows)
+        if est_time_model is not None:
+            est_ops = est_ops_default
+            est_time = float(est_time_model)
+            time_class = self._classify_time(est_time)
+        else:
+            rates = self._load_throughput_rates()
+            entry = rates.get(op_name) or {}
+            rate = entry.get("rate_per_sec")
+            est_ops = est_ops_default
+            if rate and float(rate) > 0:
+                est_time = float(est_ops) / float(rate)
+                time_class = self._classify_time(est_time)
+            else:
+                _w.warn(
+                    f"estimate_cost({op_name!r}): no throughput rate; "
+                    f"time_class=unknown (LegacyFormulaWarning, AP22)",
+                    LegacyFormulaWarning, stacklevel=2,
+                )
+                est_time = 0.0
+                time_class = "unknown"
+
+        return CostEstimate(
+            op_name=op_name,
+            est_ram_bytes=int(est_ram),
+            fits_ram=fits_ram,
+            est_ops=int(est_ops),
+            est_time_seconds=float(est_time),
+            time_class=time_class,
+        )
+
     def plan(
         self,
         op_name: str,
@@ -1207,6 +1340,7 @@ class MemoryGuard:
             self.available_bytes(),
             safety=self._safety,
             allow_spill=allow_spill,
+            memory_guard=self,
         )
 
     def log_step(

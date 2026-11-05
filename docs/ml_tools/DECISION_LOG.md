@@ -730,6 +730,54 @@ v0.9.111 scope).
 
 ---
 
+## DEC-043 (2026-11-05, v0.9.119) — pipeline planner v2: segments, retained state, time
+
+**Q:** Как планировать RAM/время для цепочки операций (не только для одной модели)?
+
+**A:** Расширить `plan_pipeline` через `memory_guard` kwarg (back-compat: `None` -> v1). Новый путь `_plan_pipeline_v2`:
+1. `OpSpec.spill_after` — pipeline breaker (граница этапов).
+2. `_split_segments(ops)` — сегменты по `spill_after`.
+3. `carried_state` между сегментами (из `retained_state_bytes`; для примитивов = 0, т.к. данные на диске).
+4. `peak_bytes = max over segments of (carried + seg_max_step_estimate)` — подтверждено литературой (Impala/Volcano: peak между breaker'ами, не sum).
+5. Time = Σ(`MemoryModel.estimate_time` или `n_rows/rate` из `throughput.yaml`).
+6. `OpSpec.model_spec` — терминальный ML-шаг: `{"cadw_function", "ram_params", "state_bytes"}`.
+
+**Почему не автоматический spill insertion:** требует `spill_out`/`spill_in` у каждого из 60+ op'ов; корректность недоказуема. В литературе auto-spill реализован только для 3 операторов (Sort/HashJoin/HashAgg). MVP — explicit `spill_after`.
+
+**Time estimation (AP22):** `MemoryGuard.estimate_cost(op_name, dc)` + `throughput.yaml` (conservative rates). Калибровка `scripts/calibrate_throughput.py` — v0.9.120.
+
+**Back-compat:** `test_planner.py` 24/24, `test_pipeline_planner_examples.py` 10/10 (P1–P8). Если `memory_guard=None`, поведение идентично v0.9.118 (`spill_boundaries=[]`, `segments=[]`).
+
+**Файлы:** `cadw/core/models.py` (+`CostEstimate`, `estimate_time`), `cadw/core/memory_guard.py` (`estimate_cost`), `cadw/core/planner.py` (`_split_segments`, `_plan_pipeline_v2`, `_model_step_estimate`), `docs/ml_tools/throughput.yaml` (new).
+
+---
+
+## DEC-044 (2026-11-05, v0.9.119) — inverse formula via solve_batch; batch_formula future path
+
+**Q:** Как получить `batch_size` из `ram_formula`? Прямая формула есть (`evaluate_formula`), обратной не было.
+
+**A:** `MemoryGuard.solve_batch(op_name, data_chars, budget) -> int|None` — численный inverse. Механизм:
+1. `_is_linear_in_batch(op, params, row_size)` — sample slope at b=1..100, 100..1000, 1000..10000; все должны совпадать ±1%. Если формула batch-независима (slopes=0) — `False`.
+2. `_numeric_inverse_batch(op, params, budget, row_size)` — `coef = (e(1000) − e(1))/999`; `batch = (budget − e(1))/coef`; clamp 1..10M; `0` если state > budget.
+
+**Почему numeric, не symbolic:** формула — текст (`ast.parse` уже реализован в `evaluate_formula`). Symbolic solve для общих выражений (AST → equation solver) — избыточен: все 31 verified линейны по batch (STABILITY_PROTOCOL §3 контракт: `coef_batch × batch × row_size` — единственный терм с `batch`). Numeric inverse точен для линейных и безопасен (linearity check → отказ).
+
+**Fallback chain:**
+- `batch_formula` в YAML (v0.9.120+): явная обратная, если появится нелинейная модель. Не сейчас — второй источник истины (§5.1), тест-consistency не спроектирован.
+- `solve_batch` returns None -> `derive_batch_size` (старый путь) -> `get_batch_rows(expansion_factor=...)` + `LegacyFormulaWarning`.
+
+**Совместимость с существующими call sites:** 12 моделей (`linucb`, `coxph`, `iforest`, `zms`, `randsvd`, `birch`, `logistic`, `als`, `cusum`, `drift`, `gmm`, `naive_bayes`) вызывают `mg.get_batch_rows(expansion_factor=X.Y)` напрямую. Это conservative approximation: `expansion_factor > coef_formula` (safety margin). Миграция на `solve_batch` — v0.9.120, требует переизмерения (batch увеличится → пик ближе к budget → risk OOM). Регрессия: `solve_batch` = consistent inverse, `expansion_factor` = safe approximation; менять местами без переизмерения — нарушение §7 STABILITY_PROTOCOL (re-opening verified).
+
+**Backlog (v0.9.120):**
+- `fit_ab_test` YAML: формулы t/cuped state-only (без batch term) — нужно `+ 4*batch*row_size` / `+ 5*batch*row_size` для планирования fit peak.
+- `fit_ab_test` mw: sort buffer peak не выражается в YAML грамматике → SortMemoryModel integration.
+- Migrate 12 `expansion_factor` call sites через поэтапное переизмерение.
+- `scripts/calibrate_throughput.py` — реальная калибровка rates.
+
+**Файлы:** `cadw/ml/_memory_estimate.py` (+`_is_linear_in_batch`, `_numeric_inverse_batch`), `cadw/core/memory_guard.py` (+`solve_batch`), `cadw/core/planner.py` (`_derive_batch_from_formula` → delegate), `tests/test_solve_batch.py` (new).
+
+---
+
 <!-- future entries appended here -->
 
 

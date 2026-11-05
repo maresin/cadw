@@ -1335,8 +1335,7 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
+      status: verified
       verified_by_agent: true
     roles:
     - probabilistic
@@ -1383,13 +1382,28 @@ subtypes:
       fit: 'streaming per-arm success/total counts.'
       predict: 'returns z-stat and p-value (output).'
     primitive_reuse: [reduce]
+    ram_formula: "2 * (3 * f64 + 6 * dict_entry_bytes) + 256"
+    formula_evidence:
+      state_per_arm: "drift.py:237 — _ArmStatsOp.state_nbytes: 3*f64 + 6*dict_entry_bytes per arm"
+      state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
+      num_arms: "drift.py:155 — arms_=2 (binary treatment)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact (t): 1696 bit-exact"
+      state_ooc: "test_state_independent_of_n (t): state(n=500)==state(n=5000)"
+      tight_guard: "test_tight_guard_raises (t): MemoryLimitExceeded"
+      batch_invariant: "test_batch_size_invariant (t): bit-identical at batch=100 vs 700"
+      reference: "test_t_streaming_matches_scipy: |stat-scipy|<1e-6, |p-scipy|<1e-6"
+      cells_passed: "17/17"
+      runtime_sec: "~4"
+      date: "2026-11-05"
+      note: "O(1) state; combined RSS matrix unmeasurable (baseline>>state, DEC-034). Component-wise per DEC-033."
   - name: MannWhitneyU
     tier: baseline
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
+      status: verified
       verified_by_agent: true
     roles:
     - probabilistic
@@ -1426,7 +1440,7 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     input_api: df
-    state_class: O(model)
+    state_class: O(1)
     bounded_state_dims: {k: 1, d: 1}
     transient_factor: 1.0
     state_type: aggregation
@@ -1435,14 +1449,29 @@ subtypes:
     streaming_strategy:
       fit: 'bounded per-arm rank stats (histogram/external_sort-based rank sum).'
       predict: 'returns U-stat and p-value (output).'
-    primitive_reuse: [reduce, external_sort]
+    primitive_reuse: [external_sort]
+    ram_formula: "5 * f64 + 256"
+    formula_evidence:
+      rank_scan_state: "drift.py:352-355 — _mann_whitney_ooc: r0,r1,n0,n1,rank_pos,cur_val = 5*f64"
+      state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
+      note_old: "prior draft said [reduce, external_sort]; mw uses ONLY external_sort"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact (mw): 296 bit-exact"
+      state_ooc: "test_state_independent_of_n (mw): state(n=500)==state(n=5000)"
+      tight_guard: "test_tight_guard_raises (mw): MemoryLimitExceeded"
+      batch_invariant: "test_batch_size_invariant (mw): bit-identical"
+      reference: "test_mw_streaming_matches_scipy: |U-scipy|<1"
+      cells_passed: "17/17"
+      runtime_sec: "~4"
+      date: "2026-11-05"
+      note: "Sort-buffer peak via SortMemoryModel (O(budget), not O(n)); OOC across n. state O(1)."
   - name: CUPED
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
+      status: verified
       verified_by_agent: true
     roles:
     - calibration
@@ -1469,7 +1498,7 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     input_api: df
-    state_class: O(d²)
+    state_class: O(1)
     bounded_state_dims: {d: 2}
     transient_factor: 2.0
     state_type: aggregation
@@ -1479,6 +1508,22 @@ subtypes:
       fit: 'streaming XTX / XTY covariate adjustment Reduce.'
       predict: 'returns adjusted ATE (output).'
     primitive_reuse: [reduce]
+    ram_formula: "2 * (6 * f64 + 6 * dict_entry_bytes) + 256"
+    formula_evidence:
+      state_per_arm: "drift.py:290 — _CupedStatsOp.state_nbytes: 6*f64 + 6*dict_entry_bytes per arm"
+      state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
+      num_arms: "drift.py:155 — arms_=2 (binary treatment)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact (cuped): 1744 bit-exact"
+      state_ooc: "test_state_independent_of_n (cuped): state(n=500)==state(n=5000)"
+      tight_guard: "test_tight_guard_raises (cuped): MemoryLimitExceeded"
+      batch_invariant: "test_batch_size_invariant (cuped): bit-identical"
+      reference: "test_cuped_theta_recovers_true_parameter: |theta-0.8|<0.1"
+      cells_passed: "17/17"
+      runtime_sec: "~4"
+      date: "2026-11-05"
+      note: "Per-arm 6-tuple state (n,sy,sy2,sx,sxy,sx2) is O(1) in n. Not O(d^2) — XTX model is per-arm scalars, not covariance matrix."
   metrics:
   - name: p_value
     combination: anchor

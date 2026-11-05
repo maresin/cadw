@@ -174,6 +174,66 @@ def evaluate_formula(op: str, **params) -> dict:
     }
 
 
+def _is_linear_in_batch(
+    op: str, params: dict, row_size: int, *, tol: float = 0.01,
+) -> bool:
+    """True if ram_formula is linear in batch (constant slope).
+
+    DEC-044 (v0.9.119): inverse formula requires linearity. All 31
+    verified cards satisfy the STABILITY_PROTOCOL §3 contract (batch
+    enters via a single `coef_batch * batch * row_size` term). Detection:
+    sample slope at 3 intervals (1..100, 100..1000, 1000..10000); all
+    must agree within `tol`. Batch-independent formula (no batch term)
+    returns False — caller must fallback.
+    """
+    try:
+        e1 = int(evaluate_formula(
+            op, batch=1, row_size=row_size, **params).get("bytes", 0))
+        e100 = int(evaluate_formula(
+            op, batch=100, row_size=row_size, **params).get("bytes", 0))
+        e1k = int(evaluate_formula(
+            op, batch=1000, row_size=row_size, **params).get("bytes", 0))
+        e10k = int(evaluate_formula(
+            op, batch=10000, row_size=row_size, **params).get("bytes", 0))
+    except Exception:
+        return False
+    s1 = (e100 - e1) / 99.0
+    s2 = (e1k - e100) / 900.0
+    s3 = (e10k - e1k) / 9000.0
+    if s1 == 0 and s2 == 0 and s3 == 0:
+        return False   # batch-independent
+    for a, b in [(s1, s2), (s2, s3)]:
+        if abs(a - b) / max(abs(b), 1.0) > tol:
+            return False
+    return True
+
+
+def _numeric_inverse_batch(
+    op: str, params: dict, budget: int, row_size: int,
+    *, max_batch: int = 10_000_000,
+) -> "int | None":
+    """Largest batch s.t. ram_formula(op, batch, ...) <= budget (DEC-044).
+
+    Assumes linear-in-batch (caller must check _is_linear_in_batch first).
+    Returns 0 if state alone exceeds budget. Returns None if formula
+    cannot be evaluated.
+    """
+    try:
+        e1 = int(evaluate_formula(
+            op, batch=1, row_size=row_size, **params).get("bytes", 0))
+        e1k = int(evaluate_formula(
+            op, batch=1000, row_size=row_size, **params).get("bytes", 0))
+    except Exception:
+        return None
+    coef_per_row = (e1k - e1) / 999.0
+    if coef_per_row <= 0:
+        return None
+    slack = budget - e1
+    if slack <= 0:
+        return 0
+    return max(1, min(max_batch, int(slack / coef_per_row)))
+
+
 def derive_batch_size(op, df, guard, batch_size=None):
     """v0.9.106 (DEC-022/023): derive batch size from state-aware guard.
 

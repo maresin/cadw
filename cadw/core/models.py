@@ -53,6 +53,27 @@ class Params:
     """Базовый класс параметров. Подклассы — в models_<op>.py."""
     pass
 
+@dataclass
+class CostEstimate:
+    """Estimated RAM + time for one op (v0.9.119, AP22).
+
+    Returned by MemoryGuard.estimate_cost(). `est_ram_bytes` = model
+    estimate(params) under the guard's budget. `est_time_seconds` =
+    est_ops / rate (rate from throughput.yaml), or 0.0 with
+    LegacyFormulaWarning when no rate exists.
+
+    time_class: "fast" < 1s | "medium" < 60s | "slow" < 600s |
+                "very_slow" >= 600s | "unknown" (no rate).
+    """
+    op_name: str
+    est_ram_bytes: int
+    fits_ram: bool
+    est_ops: int
+    est_time_seconds: float
+    time_class: str
+    reason: Optional[str] = None
+
+
 
 # ---------- OpMemoryModel ----------
 
@@ -85,6 +106,19 @@ class OpMemoryModel(ABC):
 
     @abstractmethod
     def describe(self) -> str: ...
+
+    def estimate_time(
+        self,
+        params: Params,
+        data_chars: DataChars,
+    ) -> Optional[float]:
+        """Estimated wall-clock seconds for this op (AP22, v0.9.119).
+
+        Default returns None -> MemoryGuard.estimate_cost falls back to
+        throughput.yaml conservative rate + LegacyFormulaWarning.
+        Override for model-specific estimates (e.g. n_epochs * n_rows).
+        """
+        return None
 
 
 _MODELS: dict[str, OpMemoryModel] = {}

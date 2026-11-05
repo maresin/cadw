@@ -1,0 +1,21 @@
+# Throughput rates for MemoryGuard.estimate_cost (AP22, v0.9.119).
+# Referenced by cadw/core/memory_guard.py::MemoryGuard.estimate_cost.
+# Conservative = lower bound on real throughput, calibrated on synthetic
+# workloads py3.12/np2.4/pa26. Real calibration via
+# scripts/calibrate_throughput.py planned v0.9.120.
+
+profiles:
+  default:
+    calibrated: "2026-11-04"
+    env: {python: "3.12", numpy: "2.4", pyarrow: "26"}
+    rates:
+      # Propagator-only ops (no model in registry, O(n) per batch).
+      filter:        {ops_unit: elements, rate_per_sec: 5.0e7}
+      with_column:   {ops_unit: elements, rate_per_sec: 5.0e7}
+      # Primitive ops with models.
+      reduce:        {ops_unit: elements, rate_per_sec: 1.0e7}
+      sort:          {ops_unit: elements, rate_per_sec: 2.0e6}
+      hash_shuffle:  {ops_unit: elements, rate_per_sec: 5.0e5}
+      groupby:       {ops_unit: elements, rate_per_sec: 5.0e5}
+      join:          {ops_unit: elements, rate_per_sec: 5.0e5}
+      dedup:         {ops_unit: elements, rate_per_sec: 5.0e5}

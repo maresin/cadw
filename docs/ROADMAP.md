@@ -2,9 +2,9 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.118
+## Current: v0.9.119
 
-**31 verified fns / 45 verified cards / 8 draft fns / 13 draft cards /
+**32 verified fns / 48 verified cards / 7 draft fns / 10 draft cards /
 24 pending fns / 30 pending cards / 62 no-fn.**
 
 v0.9.116-v0.9.118 (since v0.9.115):
@@ -16,6 +16,20 @@ v0.9.116-v0.9.118 (since v0.9.115):
   DEC-041 + DEC-042.
 - v0.9.118: ordinal_logit + chains (x2 alias) verified; R9 (cadw_function
   importable schema test); R8 was added v0.9.115.
+
+**v0.9.119 (since v0.9.118):**
+- pipeline planner v2 (`plan_pipeline(memory_guard=...)`): segments by
+  `OpSpec.spill_after`, carried state between segments, per-segment batch,
+  time estimation via `throughput.yaml`. Back-compat: `memory_guard=None` -> v1.
+- `CostEstimate` + `MemoryGuard.estimate_cost` + `MemoryModel.estimate_time`
+  (AP22 skeleton; calibration `scripts/calibrate_throughput.py` -> v0.9.120).
+- `MemoryGuard.solve_batch` (DEC-044): inverse of `ram_formula` via numeric
+  sampling + `_is_linear_in_batch` guard; `None` -> fallback expansion_factor.
+- `fit_ab_test` x3 verified (ProportionsZTest/MannWhitneyU/CUPED): OOC via
+  `Reduce` (t/cuped) and `external_sort` + streaming rank (mw);
+  component-wise (DEC-033). `DriftABModel.result_` populated.
+- P1-P8 synthetic pipeline tests (`tests/test_pipeline_planner_examples.py`).
+- DEC-043 (pipeline planner v2), DEC-044 (inverse via solve_batch).
 
 **Invariants:** R8 (input_api df|series|dual) + R9 (cadw_function importable).
 CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
@@ -51,8 +65,8 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 | Status | Count | Note |
 |---|---|---|
-| verified | **31 fns / 45 cards** | v0.9.114 (24) + v0.9.115 (+6) + v0.9.116 (+1 sub_pca) + v0.9.117 (+2 LDA/TF-IDF) + v0.9.118 (+2 ordinal/chains) |
-| draft | **8 fns / 13 cards** | BVAR/VECM, binseg x2 (permanent refuse_at_guard), pelt x2, t2q, meta_learner (T/S_learner AP2), ab_test x3 (container) |
+| verified | **32 fns / 48 cards** | v0.9.114 (24) + v0.9.115 (+6) + v0.9.116 (+1) + v0.9.117 (+2) + v0.9.118 (+2) + v0.9.119 (+1 ab_test x3 cards) |
+| draft | **7 fns / 10 cards** | BVAR/VECM, binseg x2 (permanent refuse_at_guard), pelt x2, t2q, meta_learner (T/S_learner AP2) |
 | pending (no status) | **24 fns / 30 cards** | A_classification x8, O_eda x16 |
 
 ## Known gaps (remaining)
@@ -101,22 +115,21 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Next 3 sessions
 
-### v0.9.119 — draft fns + ML_COVERAGE_MATRIX
+### v0.9.120 — real-model pipelines + expansion_factor migration
 
-- **fit_ab_test x3** (container, DriftABModel.state_nbytes=256): t/mw/cuped
-  methods. YAML flip + CW (state exact + tight_guard) — container semantics,
-  no per-row state.
-- **BVAR/VECM** (TS, tier1_core_exception likely): bounded_by_domain n<=1e6,
-  state O(d²). Probe fit signatures.
-- **fit_t2q** (T-squared+Q): strided+chunked (v0.9.104 backlog).
-- **fit_pelt x2** (container 256B + _collect_series): CoxPH-precedent on
-  detect() DP; fit container is honest O(1).
-- **fit_meta_learner** (T/S_learner): AP2 _collect + np.vstack — needs chunked
-  refactor, defer if prioritized low.
+- **P6'-P9' real pipelines**: `OpSpec.model_spec` with `cadw_function` +
+  `ram_params` (not hardcoded `state_bytes`); `_model_step_estimate` uses
+  `solve_batch` for verified models. Verify planner batch == model's
+  `derive_batch_size` output.
+- **Migration of 12 `expansion_factor` call sites** (linucb, coxph, iforest,
+  zms, randsvd, birch, logistic, als, cusum, drift, gmm, naive_bayes) to
+  `solve_batch`. Requires re-measurement (batch increases -> tighter peak).
+- **`fit_ab_test` YAML**: state-only formula -> add `+ N*batch*row_size`
+  (t=4, cuped=5, mw via SortMemoryModel).
+- **`scripts/calibrate_throughput.py`**: real rate calibration. ~0.5 session.
 - **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
-  Audit current coverage; identify gaps for v0.9.120+.
 
-### v0.9.120 — pending fns (A_classification + O_eda)
+### v0.9.121 — pending fns (A_classification + O_eda)
 
 - A_classification x8 pending: component-wise verify (some have `status: None`
   legacy cards — normalize to `draft`/`verified`).
