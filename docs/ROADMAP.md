@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.119
+## Current: v0.9.120
 
 **32 verified fns / 48 verified cards / 7 draft fns / 10 draft cards /
 24 pending fns / 30 pending cards / 62 no-fn.**
@@ -31,11 +31,22 @@ v0.9.116-v0.9.118 (since v0.9.115):
 - P1-P8 synthetic pipeline tests (`tests/test_pipeline_planner_examples.py`).
 - DEC-043 (pipeline planner v2), DEC-044 (inverse via solve_batch).
 
+**v0.9.120 (since v0.9.119):**
+- P6'-P9' real pipelines (`tests/test_pipeline_planner_real.py`, 9 tests):
+  `model_spec={"cadw_function":..., "ram_params":{...}}`; `solve_batch`
+  inverse resolves real YAML formulas for verified models.
+- Bug fix (planner): model_spec output_chars used `state_bytes` (=0 when
+  omitted) instead of computed `estimate` (solve_batch + evaluate_formula).
+- `scripts/calibrate_throughput.py` + 5 tests: dry-run/write for
+  reduce/sort/hash_shuffle; PyYAML 1.1 string-float quirk fixed.
+- DEC-045 (P6'-P9' validation + YAML coverage gap: fit_kmeans/fit_pca),
+  DEC-046 (calibrate_throughput design; per-model time -> v0.9.121+).
+
 **Invariants:** R8 (input_api df|series|dual) + R9 (cadw_function importable).
 CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
 Component-wise (DEC-033) + DEC-034 escalation (tolerance widen on RSS drift).
 
-Next: v0.9.119 draft fns (ab_test x3, BVAR/VECM, t2q, pelt, meta_learner) +
+Next: v0.9.121 expansion_factor migration + YAML coverage sweep +
 ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Progress (v0.9.105 - v0.9.110g)
@@ -115,18 +126,22 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Next 3 sessions
 
-### v0.9.120 — real-model pipelines + expansion_factor migration
+### v0.9.121 — expansion_factor migration + YAML coverage sweep
 
-- **P6'-P9' real pipelines**: `OpSpec.model_spec` with `cadw_function` +
-  `ram_params` (not hardcoded `state_bytes`); `_model_step_estimate` uses
-  `solve_batch` for verified models. Verify planner batch == model's
-  `derive_batch_size` output.
-- **Migration of 12 `expansion_factor` call sites** (linucb, coxph, iforest,
-  zms, randsvd, birch, logistic, als, cusum, drift, gmm, naive_bayes) to
-  `solve_batch`. Requires re-measurement (batch increases -> tighter peak).
+- **Migration of 18 `expansion_factor` call sites** (6 via
+  `derive_batch_size` + 12 direct `get_batch_rows`), 14 models (linucb,
+  coxph, iforest, zms, randsvd, birch, logistic, als, cusum, drift, gmm,
+  naive_bayes) to `solve_batch`. Requires: (a) mapping `ReduceOp`-class ->
+  `cadw_function` (derive_batch_size takes op object, not name); (b)
+  re-measurement (batch increases -> tighter peak -> risk OOM). Separate
+  commit per model group.
+- **YAML coverage sweep** (DEC-045): add cards for uncarded base algorithms
+  (`fit_kmeans`, `fit_pca`, verify `fit_isolation_forest`/`fit_iforest`).
+  `status: draft` + formula; verification separate session.
 - **`fit_ab_test` YAML**: state-only formula -> add `+ N*batch*row_size`
-  (t=4, cuped=5, mw via SortMemoryModel).
-- **`scripts/calibrate_throughput.py`**: real rate calibration. ~0.5 session.
+  (t=4, cuped=5, mw via SortMemoryModel). Now `solve_batch` returns None.
+- **Per-model fit-time calibration** (DEC-046): `estimate_time` for each
+  verified model (epochs x n_rows). ~0.5 session.
 - **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
 
 ### v0.9.121 — pending fns (A_classification + O_eda)

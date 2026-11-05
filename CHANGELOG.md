@@ -1,5 +1,27 @@
 ## [Unreleased]
 
+### v0.9.120 (2026-11-05) — P6'-P9' real pipelines + calibrate_throughput
+
+**No fn/card changes** (32 fns / 48 cards, framework validation only).
+
+- **P6'-P9' real** (`tests/test_pipeline_planner_real.py`, 9 tests):
+  `model_spec={"cadw_function": ..., "ram_params": {...}}` — planner uses
+  `solve_batch` (inverse of actual YAML `ram_formula`) for verified models
+  (`fit_logistic`, `fit_linear`, `fit_gaussian_nb`; `fit_ab_test` — state-only
+  formula -> `None` -> fallback `state_bytes`).
+- **Bug fix** (planner): `_plan_pipeline_v2` model_spec output_chars used
+  `spec.state_bytes` (=0 when only `cadw_function`+`ram_params` passed);
+  now uses computed `estimate` (single source: planner knows estimate).
+- **`scripts/calibrate_throughput.py`** + `tests/test_calibrate_throughput.py`
+  (5 tests): `--dry-run`/`--write` for `reduce`/`sort`/`hash_shuffle`
+  rates. PyYAML 1.1 quirk fix: `5.0e7` without sign-in-exponent resolved as
+  string; `_write_rates` normalizes all rates to float.
+- **DEC-045**: P6'-P9' validation + YAML coverage gap (`fit_kmeans`,
+  `fit_pca` — 0 cards, pre-cards-era base algorithms; `fit_kmeans_ad`
+  aliased, covered).
+- **DEC-046**: calibrate_throughput.py design; per-model fit-time
+  calibration deferred to v0.9.121+.
+
 ### v0.9.119 (2026-11-05) — pipeline planner v2 + solve_batch + fit_ab_test x3 verified
 
 **Verified fns: 31 -> 32** (45 -> 48 cards).

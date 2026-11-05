@@ -1,8 +1,8 @@
 # Throughput rates for MemoryGuard.estimate_cost (AP22, v0.9.119).
 # Referenced by cadw/core/memory_guard.py::MemoryGuard.estimate_cost.
 # Conservative = lower bound on real throughput, calibrated on synthetic
-# workloads py3.12/np2.4/pa26. Real calibration via
-# scripts/calibrate_throughput.py planned v0.9.120.
+# workloads py3.12/np2.4/pa26. Run `scripts/calibrate_throughput.py
+# --write` to update (v0.9.120+). Until then, conservative defaults.
 
 profiles:
   default:

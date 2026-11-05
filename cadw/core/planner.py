@@ -610,7 +610,16 @@ def _plan_pipeline_v2(
                 if rate and float(rate) > 0:
                     est_time_total += float(current_chars.n_rows) / float(rate)
 
-            output_chars = propagate_chars(op, current_chars, params)
+            # v0.9.120-fix1: for model_spec, use computed `estimate` as
+            # the output state size. propagate_chars would read
+            # op.model_spec["state_bytes"] (0 if not passed), disagreeing
+            # with estimate from solve_batch + evaluate_formula.
+            if op.model_spec is not None and estimate > 0:
+                output_chars = _copy_chars(
+                    current_chars, n_rows=1, k_est=1,
+                    row_size_bytes=int(estimate))
+            else:
+                output_chars = propagate_chars(op, current_chars, params)
             estimated_io_total += _io_estimate(
                 current_chars.n_rows, current_chars.row_size_bytes)
 

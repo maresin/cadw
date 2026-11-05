@@ -778,6 +778,120 @@ v0.9.111 scope).
 
 ---
 
+## DEC-045 (2026-11-05, v0.9.120) — P6'-P9' real validation + YAML coverage gap
+
+**Q1:** Framework v0.9.119 проверен на synthetic pipelines (P1-P8, hardcoded
+`state_bytes`). Достаточно ли для `status: verified`?
+
+**A1:** Для framework — да (unit-level: `solve_batch`, `estimate_cost`,
+segmentation). Для того, чтобы показать, что framework работает **на
+реальных verified моделях** — нужны P6'-P9' с `model_spec={"cadw_function":
+..., "ram_params": {...}}`, где `_model_step_estimate` вызывает
+`solve_batch` (inverse реальной YAML формулы).
+
+**Результаты P6'-P9' (tests/test_pipeline_planner_real.py, 9 tests):**
+- `_load_cards` индексирует по `cadw_function` (line 37), `_lookup_card`
+  резолвит 4 verified модели напрямую.
+- `solve_batch` возвращает валидный batch для batch-linear формул
+  (`fit_logistic`, `fit_linear`, `fit_gaussian_nb`); `None` для
+  state-only (`fit_ab_test`).
+- Planner корректно сегментирует реальные цепочки: sort/groupby —
+  breakers, model — терминальный шаг (`n_rows=1`, `row_size=state`).
+- State в model step: `4*d²*f64` (logistic), `2*d²*f64` (linear),
+  `3*C*d*f64` (gaussian_nb) — совпадает с YAML `ram_formula`.
+
+**Q2 (probe user report):** «kmeans возможно был реализован до введения
+карточек... могли быть и другие».
+
+**A2:** Подтверждено. YAML coverage gap:
+- `fit_kmeans`: 0 cards
+- `fit_pca`: 0 cards
+- `fit_iforest` (as `fit_isolation_forest`? — требует проверки имени
+  карточки): 0 cards в моём grep `fit_iforest`, но возможно под полным
+  именем
+- `fit_kmeans_ad`: 2 cards (aliased D_time_series) — покрыт
+- `fit_coxph`: 1 card — покрыт
+- `fit_randomized_svd`: 1 card — покрыт
+
+**Причина:** CADW эволюционировал — базовые ML алгоритмы (kmeans, pca,
+linear, logistic) добавлены в v0.9.x до введения YAML cards
+(v0.9.44+). Линейно/logistic получили карточки в v0.9.102-107 (при
+первой верификации), kmeans/pca — нет (не были в фокусе верификации).
+
+**Не является дефектом framework:** `_model_step_estimate` для uncarded
+модели корректно fallback-ит на `spec.state_bytes`. Но `solve_batch`
+возвращает `None` (нет формулы) → planner не может вычислить batch
+из формулы → caller должен задать `state_bytes` в `model_spec` (или
+использовать `expansion_factor`-based `get_batch_rows`).
+
+**Backlog (v0.9.121+):**
+1. **YAML coverage sweep:** прогнать `cadw/ml/*.py` по всем `fit_*` и
+   добавить карточки для uncarded моделей (`fit_kmeans`, `fit_pca`,
+   проверить `fit_isolation_forest`/`fit_iforest`). Это **не**
+   verification — `status: draft` с формулой, верификация отдельной
+   сессией.
+2. **Coverage test:** `test_yaml_coverage::test_all_public_fit_functions_have_cards`
+   — soft-fail (skip с warning), не block, чтобы gap не разросся.
+
+**Q3 (migration expansion_factor):** DEC-044 fixiровал «migration to
+solve_batch — v0.9.120». Пересмотрено: **v0.9.121**.
+
+**A3:** Причины:
+1. **18 call sites** (6 через `derive_batch_size` + 12 direct
+   `get_batch_rows`), 14 моделей. `derive_batch_size(op, df, guard)`
+   принимает `ReduceOp`-объект, не `cadw_function`-имя. Нужен mapping
+   `ReduceOp`-class → `cadw_function` — **нетривиальный дизайн**.
+2. **Re-measurement требуется:** batch увеличится (уйдёт safety margin),
+   пик ближе к budget → риск OOM. STABILITY_PROTOCOL §7: не открывать
+   verified карточки без веской причины.
+3. **P6'-P9' показал, что solve_batch работает** — миграция станет
+   механической после mapping, но не критична для v0.9.120.
+
+**Файлы:** `tests/test_pipeline_planner_real.py` (new, 9 tests),
+`DECISION_LOG.md` (this DEC).
+
+---
+
+## DEC-046 (2026-11-05, v0.9.120) — calibrate_throughput.py: measured rates
+
+**Q:** `throughput.yaml` (v0.9.119) содержал conservative guess rates
+(1e7/2e6/5e5), не измеренные. Как заменить их на реальные?
+
+**A:** `scripts/calibrate_throughput.py`:
+- Меряет wall-clock throughput для `reduce` (SumOp), `sort` (external_sort),
+  `hash_shuffle` (8 partitions) на N=100k x 3 повторения, медиана.
+- `--dry-run` (default): печатает rates, не пишет.
+- `--write`: обновляет `docs/ml_tools/throughput.yaml` (`rates` + `calibrated`).
+- Header comment (до `profiles:`) сохраняется; `env` не трогается.
+
+**Ограничения:**
+1. **filter/with_column не калибруются** — нет отдельного API; это O(n)
+   операции внутри `Dataset._iter_batches`/`with_column`-экспрессии.
+   Static 5e7 (conservative).
+2. **groupby/join/dedup не калибруются** — доминируются `reduce`/`sort`/
+   `hash_shuffle` (их rates уже измерены). Static 5e5.
+3. **Per-model fit time не калибруется** — `estimate_time` для моделей
+   (эпохи x n_rows) требует отдельного замера для каждой verified модели.
+   v0.9.121+ после миграции `expansion_factor`.
+4. **Comment preservation** — только header (до `profiles:`). Inline
+   комментарии (`# Propagator-only ops`) теряются при `--write`. Future:
+   `ruamel.yaml` (не в deps).
+
+**Результат:** `MemoryGuard.estimate_cost` для `reduce`/`sort`/`hash_shuffle`
+получает измеренные rates -> `est_time_seconds` реалистичен ->
+`SlowOperationWarning` (>60s) срабатывает корректно на реальных данных.
+
+**v0.9.120 tag:** dry-run output записывается в DEC (по мере необходимости);
+`--write` — post-tag follow-up (пользователь запускает на своих CPU/disk,
+числа зависят от окружения). v0.9.120 тег = calibrated defaults as in
+v0.9.119 + opportunity to update.
+
+**Файлы:** `scripts/calibrate_throughput.py` (new),
+`tests/test_calibrate_throughput.py` (new, 5 tests),
+`throughput.yaml` (comment header updated).
+
+---
+
 <!-- future entries appended here -->
 
 
