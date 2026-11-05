@@ -1,5 +1,39 @@
 ## [Unreleased]
 
+### v0.9.123 (2026-11-06) — P_clustering + Q_dim_reduction (22 new cards)
+
+**No verified-fn changes** (32 fns / 48 verified cards unchanged;
+draft fns 7 -> 10, draft cards 10 -> 13).
+
+- **P_clustering.yaml** (new, 13 cards): 2 draft (KMeans,
+  MiniBatchKMeans — formula from code, measurement v0.9.124) + 11
+  described_only (BisectingKMeans, DBSCAN, HDBSCAN, Agglomerative,
+  BIRCH, KShape, EuclideanKMeansZ, SpectralCoclustering,
+  SpectralBiclustering, KMeansOnly, KMeansHDBSCAN_consensus).
+  Subtypes P1-P6 (centroid / density / hierarchical / shape /
+  biclustering / ensemble).
+- **Q_dim_reduction.yaml** (new, 9 cards): 1 draft (PCA — formula from
+  code, measurement v0.9.124) + 8 described_only (TruncatedSVD,
+  randomized_svd, NMF, ALS, t-SNE, UMAP, PermutationImportance,
+  Boruta). Subtypes Q1-Q4 (linear / matrix factor / manifold /
+  feature selection).
+- **Cross-ref policy** (DEC-049): canonical home + markdown comment +
+  `cross_ref_comment` (schema-ignored field). HDBSCAN/BIRCH ->
+  N_density.N1; NMF -> J_nlp.J3; ALS -> F_recsys; KShape ->
+  D_time_series.D4; randomized_svd -> J_nlp.J2.LSA_TFIDF_SVD;
+  PermutationImportance -> O_eda.O8. Migration to formal
+  `cross_ref` field -> v0.9.124+.
+- **R10 whitelist empty**: fit_kmeans, fit_minibatch_kmeans, fit_pca
+  now in cards (P1, Q1). No uncarded public `fit_*` remain.
+- **Schema rules discovered/fixed**: `O(k·d)` not in VALID_STATE_CLASS
+  (use `O(model)`); baseline+sota required per subtype; exactly one
+  anchor metric per subtype (+`special` field); `bounded_state_dims`
+  no `batch`/`row_size`.
+
+**Deferred (v0.9.124):** R_association, S_generative, T_optimization,
+U_automl, V_uncertainty, W_probabilistic (all described_only —
+no code, will land when implementable).
+
 ### v0.9.122 (2026-11-06) — taxonomy extension (28 types) + CADWBoost SOTA reference
 
 **No fn/card changes** (32 fns / 48 cards; taxonomy + reference-only card).

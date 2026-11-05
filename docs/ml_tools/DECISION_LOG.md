@@ -989,6 +989,78 @@ W_probabilistic_inference.
 
 ---
 
+## DEC-049 (2026-11-06, v0.9.123) — cross-ref policy + P/Q sections (drafts + described_only)
+
+**Q1:** `fit_kmeans`, `fit_minibatch_kmeans`, `fit_pca` — implementable в
+`cadw/ml/`, но 0 карточек. Куда положить?
+
+**A1:** Новые секции **P_clustering** (13 cards: 2 draft + 11 described_only),
+**Q_dim_reduction** (9 cards: 1 draft + 8 described_only). R10 whitelist
+пуст (все public `fit_*` в `cadw.ml.__all__` теперь в карточках).
+
+**Q2:** Алгоритмы, подходящие под несколько task_type (HDBSCAN = density +
+clustering; NMF = NLP + dim_reduction; ALS = recsys + dim_reduction;
+KShape = TS anomaly + clustering; BIRCH = density + hierarchical) — как
+обрабатывать?
+
+**A2:** **Cross-ref policy** (не migration). Одна canonical-локация +
+markdown-комментарий `# cross-ref: <home>.<card>` в дублирующей карточке
++ `cross_ref_comment` поле в карточке (опциональное, schema-ignored
+сегодня). Canonical homes:
+- HDBSCAN, BIRCH → N_density.N1 (density view)
+- NMF → J_nlp.J3 (verified there)
+- ALS → F_recsys (verified there)
+- KShape → D_time_series.D4 (verified there)
+- randomized_svd → J_nlp.J2.LSA_TFIDF_SVD (verified there)
+- PermutationImportance → O_eda.O8 (verified there)
+- KMeans, MiniBatchKMeans, PCA, BisectingKMeans, DBSCAN, Agglomerative,
+  TruncatedSVD, t-SNE, UMAP, Boruta, SpectralBiclustering/Coclustering
+  → **canonical в P/Q** (нет других мест).
+
+**Rationale для cross-ref, не migration:**
+1. Migration — breaking change для тестов, ссылающихся на `N_density.HDBSCAN`.
+2. Dual classification легитимна (HDBSCAN = density + clustering).
+3. Formal `cross_ref` field в ModelCard требует schema extension — v0.9.124.
+4. Markdown comment + `cross_ref_comment` (unknown field, ignored) —
+   schema-safe, документирует уже сейчас.
+
+**Q3:** Обязательные поля для `described_only` карточки?
+
+**A3:** Минимум (R6/R7 требуют):
+- `described_only: true`, `not_implemented_in_cadw: true`
+- `tier`, `tier_level`, `roles`, `purpose`, `real_life_examples`, `config`
+- `benchmark_results` с `algorithm_source_url` + `algorithm_source_kind`
+  (обязательно: источник для сверки при будущей реализации)
+- `attribution: literature` (не `cadw_measured` — code нет)
+
+Для `draft` (KMeans, MiniBatchKMeans, PCA) — плюс formula-evidence-state
+(AP23, from code), `measurement.status: pending (v0.9.124)`.
+
+**Schema discovery (полезно зафиксировать):**
+- `VALID_STATE_CLASS` **не содержит** `O(k·d)` — используем `O(model)`.
+- Baseline + sota обязательны в **каждом subtype** (не только в section).
+- `metrics:` на уровне subtype, **ровно один anchor** + `special` field.
+- `bounded_state_dims` не принимает `batch`/`row_size` (auto-injected).
+- `cadw_measured` → `algorithm.startswith("cadw.")`.
+
+**Backlog v0.9.124:**
+- R_association.yaml (Apriori, FP-growth, Eclat, PrefixSpan, SPADE) —
+  ~5 described_only.
+- S_generative.yaml (TVAE, CTGAN, CTAB-GAN+, TabDDPM) — ~4 described_only.
+- T_optimization.yaml (GP-EI, TPE, CMA-ES, SMAC) — ~4 described_only.
+- U_automl.yaml (AutoGluon 1.2, Auto-sklearn, Optuna-TPE) — ~3 described_only.
+- V_uncertainty.yaml (Platt, Isotonic, Conformal) — ~3 described_only.
+- W_probabilistic.yaml (MF-VI, BB-VI, NUTS) — ~3 described_only.
+- Formal `cross_ref` field в ModelCard (schema extension).
+- Measurement of draft cards (KMeans, MiniBatchKMeans, PCA).
+
+**Files:** `docs/ml_tools/P_clustering.yaml` (new, 13 cards),
+`docs/ml_tools/Q_dim_reduction.yaml` (new, 9 cards),
+`tests/test_ml_tools_schema.py` (UNCARDED_WHITELIST -> {}),
+`DECISION_LOG.md` (this DEC).
+
+---
+
 <!-- future entries appended here -->
 
 

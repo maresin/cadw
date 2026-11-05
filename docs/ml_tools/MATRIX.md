@@ -160,3 +160,25 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | O | O11 A/B testing / statistical tests | ProportionsZTest | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | p_value |
 | O | O11 A/B testing / statistical tests | MannWhitneyU | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | p_value |
 | O | O11 A/B testing / statistical tests | CUPED | sota | tier1_core | calibration, probabilistic | ✓ cadw, ✓ agent | p_value |
+| P | P1 Centroid-based clustering | KMeans | baseline | tier1_core | local_structure | ✓ cadw | silhouette |
+| P | P1 Centroid-based clustering | MiniBatchKMeans | baseline | tier1_core | local_structure | ✓ cadw | silhouette |
+| P | P1 Centroid-based clustering | BisectingKMeans | sota | tier1_core | local_structure | desc, export | silhouette |
+| P | P2 Density-based clustering | DBSCAN | baseline | tier2_wrapper | local_structure | desc, export | adjusted_rand_score |
+| P | P2 Density-based clustering | HDBSCAN | sota | tier2_wrapper | local_structure | desc, export | adjusted_rand_score |
+| P | P3 Hierarchical clustering | AgglomerativeClustering | baseline | tier1_core | local_structure | desc, export | cophenetic_correlation |
+| P | P3 Hierarchical clustering | BIRCH | sota | tier1_core | local_structure | desc, export | cophenetic_correlation |
+| P | P4 Shape-based clustering (time series) | EuclideanKMeansZ | baseline | tier1_core | local_structure, temporal_dynamics | desc, export | adjusted_rand_score |
+| P | P4 Shape-based clustering (time series) | KShape | sota | tier1_core | local_structure, temporal_dynamics | desc, export | adjusted_rand_score |
+| P | P5 Biclustering | SpectralCoclustering | baseline | tier2_wrapper | local_structure | desc, export | mean_squared_residue |
+| P | P5 Biclustering | SpectralBiclustering | sota | tier2_wrapper | local_structure | desc, export | mean_squared_residue |
+| P | P6 Ensemble clustering | KMeansOnly | baseline | tier1_core | local_structure | desc, export | adjusted_rand_score |
+| P | P6 Ensemble clustering | KMeansHDBSCAN_consensus | sota | tier1_core | local_structure | desc, export | adjusted_rand_score |
+| Q | Q1 Linear projection | PCA | baseline | tier1_core | representation | ✓ cadw | reconstruction_error |
+| Q | Q1 Linear projection | TruncatedSVD | baseline | tier2_wrapper | representation | desc, export | reconstruction_error |
+| Q | Q1 Linear projection | randomized_svd | sota | tier1_core | representation | desc, export | reconstruction_error |
+| Q | Q2 Matrix factorization | NMF | baseline | tier2_wrapper | representation, probabilistic | desc, export | reconstruction_error |
+| Q | Q2 Matrix factorization | ALS | sota | tier1_core | representation, local_structure | desc, export | reconstruction_error |
+| Q | Q3 Manifold learning | t-SNE | baseline | tier2_wrapper | representation, local_structure | desc, export | trustworthiness |
+| Q | Q3 Manifold learning | UMAP | sota | tier2_wrapper | representation, local_structure | desc, export | trustworthiness |
+| Q | Q4 Feature selection | PermutationImportance | baseline | tier1_core | calibration | desc, export | downstream_accuracy |
+| Q | Q4 Feature selection | Boruta | sota | tier2_wrapper | calibration, nonlinear_interactions | desc, export | downstream_accuracy |
