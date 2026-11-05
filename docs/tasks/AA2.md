@@ -46,7 +46,7 @@
 
 **Config:** `{'n_estimators': 'int', 'max_depth': 'int'}`
 
-**CADW:** `cadw.ml.gbdt.fit_gbdt_classifier`
+**CADW:** `cadw.ml.gbdt.fit_gbdt_multiclass`
 
 **Benchmarks:**
 - **[literature]** AMLB → accuracy=0.81
