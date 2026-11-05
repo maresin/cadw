@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.120
+## Current: v0.9.121
 
 **32 verified fns / 48 verified cards / 7 draft fns / 10 draft cards /
 24 pending fns / 30 pending cards / 62 no-fn.**
@@ -42,11 +42,21 @@ v0.9.116-v0.9.118 (since v0.9.115):
 - DEC-045 (P6'-P9' validation + YAML coverage gap: fit_kmeans/fit_pca),
   DEC-046 (calibrate_throughput design; per-model time -> v0.9.121+).
 
+**v0.9.121 (since v0.9.120):**
+- R10 (`tests/test_ml_tools_schema.py`): `test_R10_public_fit_covered`
+  (every public `fit_*` in `cadw.ml.__all__` has a YAML card or is
+  whitelisted with DEC ref) + `test_R10_GBDT_multiclass_function_matches`
+  (name -> function for the one case where they diverge).
+- GBDT_multiclass card fix: `cadw_function` `fit_gbdt_classifier` ->
+  `fit_gbdt_multiclass` (card purpose = softmax, function was binary
+  dispatcher; R5 + R9 both passed, invisible until audit).
+- DEC-047 (R10 + GBDT bug + coverage gap plan for v0.9.122).
+
 **Invariants:** R8 (input_api df|series|dual) + R9 (cadw_function importable).
 CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
 Component-wise (DEC-033) + DEC-034 escalation (tolerance widen on RSS drift).
 
-Next: v0.9.121 expansion_factor migration + YAML coverage sweep +
+Next: v0.9.122 expansion_factor migration + YAML coverage sweep +
 ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Progress (v0.9.105 - v0.9.110g)
@@ -126,7 +136,7 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Next 3 sessions
 
-### v0.9.121 — expansion_factor migration + YAML coverage sweep
+### v0.9.122 — expansion_factor migration + YAML coverage sweep
 
 - **Migration of 18 `expansion_factor` call sites** (6 via
   `derive_batch_size` + 12 direct `get_batch_rows`), 14 models (linucb,
@@ -144,16 +154,16 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
   verified model (epochs x n_rows). ~0.5 session.
 - **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
 
-### v0.9.121 — pending fns (A_classification + O_eda)
+### v0.9.123 — pending fns (A_classification + O_eda)
 
 - A_classification x8 pending: component-wise verify (some have `status: None`
   legacy cards — normalize to `draft`/`verified`).
 - O_eda x16 pending: same.
 - AP2 sweep (grep `column_stack|vstack|concatenate` in cadw/ml/).
 
-### v0.9.121+ — 30+ verified / 35+ verified tags
+### v0.9.123+ — 30+ verified / 35+ verified tags
 
-Re-check do-not-re-solve per DEC-033/034/035. Tag v0.9.119/120 when
+Re-check do-not-re-solve per DEC-033/034/035. Tag v0.9.122/123 when
 appropriate.
 
 ## ## Backlog (not scheduled)

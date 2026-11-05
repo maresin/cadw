@@ -1,5 +1,27 @@
 ## [Unreleased]
 
+### v0.9.121 (2026-11-05) — R10 coverage gate + GBDT_multiclass card fix
+
+**No fn/card changes** (32 fns / 48 cards; gate hygiene only).
+
+- **GBDT_multiclass card bug fix**: `cadw_function: fit_gbdt_classifier` ->
+  `fit_gbdt_multiclass`. Card purpose is "One-vs-all softmax GBDT"
+  (`_fit_boosting_multiclass`), but cadw_function pointed to the binary
+  dispatcher (`_fit_boosting`). R5 (alias status consistency) and R9
+  (importable) both passed — semantic mismatch invisible until audit.
+- **R10** (`tests/test_ml_tools_schema.py`):
+  - `test_R10_public_fit_covered`: every public `fit_*` in
+    `cadw.ml.__all__` must be resolvable by `_load_cards()` or whitelisted
+    (`UNCARDED_WHITELIST` with DEC ref + target version). Catches the
+    DEC-045 class of gap (pre-cards-era base algorithms).
+  - `test_R10_GBDT_multiclass_function_matches`: pins the specific
+    GBDT_multiclass expectation (name -> function match for cases where
+    they diverge meaningfully). Not a general heuristic (R5 alias system
+    legitimately shares `cadw_function` across differently-named cards).
+- **DEC-047**: GBDT_multiclass bug + R10 rationale + coverage gap plan.
+  Uncаrded public `fit_*` (whitelist, target v0.9.122): `fit_kmeans`
+  (v0.7.1), `fit_pca` (v0.7.2), `fit_elasticnet`.
+
 ### v0.9.120 (2026-11-05) — P6'-P9' real pipelines + calibrate_throughput
 
 **No fn/card changes** (32 fns / 48 cards, framework validation only).

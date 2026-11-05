@@ -349,7 +349,7 @@ subtypes:
       n_estimators: int
       max_depth: int
     cadw_module: cadw.ml.gbdt
-    cadw_function: fit_gbdt_classifier
+    cadw_function: fit_gbdt_multiclass
     input_api: df
     benchmark_results:
     - benchmark: AMLB

@@ -892,6 +892,57 @@ v0.9.119 + opportunity to update.
 
 ---
 
+## DEC-047 (2026-11-05, v0.9.121) — R10 coverage gate + GBDT_multiclass bug
+
+**Q1:** `fit_gbdt_multiclass` (softmax implementation) не имеет card с
+правильным `cadw_function`; карточка `GBDT_multiclass` ссылается на
+`fit_gbdt_classifier` (binary/multiclass dispatch). Это bug или alias?
+
+**A1:** **Bug**. `_fit_boosting_multiclass` (softmax) и `_fit_boosting`
+(binary/regression) — независимые реализации. `purpose` карточки
+описывает softmax, `cadw_function` указывает на binary. Ни R5 (alias
+status consistency — одна карточка, нет conflict), ни R9 (importable —
+`fit_gbdt_classifier` импортируется) этого не ловят.
+
+**Fix:** `GBDT_multiclass.cadw_function: fit_gbdt_classifier` ->
+`fit_gbdt_multiclass`. R10 (см. Q2) ловит будущие такие расхождения.
+
+**Q2 (probe user):** Сколько публичных `fit_*` без карточек?
+
+**A2:** Из `cadw.ml.__all__` — **3** (fit_kmeans v0.7.1, fit_pca v0.7.2,
+fit_elasticnet). Остальные uncarded (`fit_calibration`, `fit_geo_agg`,
+`fit_minibatch_kmeans`, `fit_minibatch_gmm`, `fit_rocket`) — **df-API-only**
+(`_ml_bindings.py` methods), не в `cadw.ml.__all__`. Это отдельный
+gap (df-API coverage), не входит в R10.
+
+**R10 (test_R10_public_fit_covered):** every public `fit_*` in
+`cadw.ml.__all__` must be resolvable via `_load_cards()` OR in explicit
+`UNCARDED_WHITELIST` (with DEC ref + target version). Catches the
+DEC-045 class of gap (pre-cards-era base algorithms).
+
+**R10 (test_R10_GBDT_multiclass_function_matches):** pins the specific
+semantic expectation — card name → cadw_function match for cases where
+they diverge meaningfully. Not a general heuristic (R5 alias system
+legitimately shares `cadw_function` across differently-named cards,
+e.g. `fit_ab_test` ×3: ProportionsZTest/MannWhitneyU/CUPED).
+
+**Coverage gap plan (v0.9.122):**
+1. `fit_kmeans` card (draft): `ram_formula` from `KMeansStepOp.state_nbytes`,
+   evidence per term (AP23). Pre-cards era, formula никогда не измерялась.
+2. `fit_pca` card (draft): `PCA` class — covariance-based, `ram_formula`
+   = `2*d*d*f64 + 2*batch*row_size` (по аналогии с `fit_linear`).
+3. `fit_elasticnet` card (draft): `_fit_lasso_elasticnet` путь, та же
+   формула, что `fit_lasso`, + l1_ratio параметр.
+4. **Separate (v0.9.123+):** df-API-only algorithms (`fit_calibration`,
+   `fit_geo_agg`, `fit_minibatch_*`, `fit_rocket`) — либо в `cadw.ml.__all__`,
+   либо docs-only. Требует решения, какие из них публичные.
+
+**Файлы:** `docs/ml_tools/A_classification.yaml` (GBDT_multiclass card fix),
+`tests/test_ml_tools_schema.py` (+ R10 tests + whitelist),
+`DECISION_LOG.md` (this DEC).
+
+---
+
 <!-- future entries appended here -->
 
 

@@ -797,3 +797,64 @@ def test_R9_cadw_function_importable():
         "R9 (v0.9.118): cadw_function must be importable:\n"
         + "\n".join(bad))
 
+
+
+# ============================================================
+# v0.9.121: R10 — public fit_* coverage + card/function consistency
+# ============================================================
+
+# Uncased public fit_* in cadw.ml.__all__ that have no YAML card yet.
+# See DEC-047 (v0.9.121) for rationale + target version.
+UNCARDED_WHITELIST = {
+    "fit_kmeans": "v0.9.122 coverage; DEC-045 + DEC-047",
+    "fit_pca": "v0.9.122 coverage; DEC-045 + DEC-047",
+    "fit_elasticnet": "v0.9.122 coverage; DEC-047",
+}
+
+
+def test_R10_public_fit_covered():
+    """R10 (v0.9.121): every public `fit_*` in cadw.ml.__all__ has a YAML
+    card (resolvable by _lookup_card) OR is in UNCARDED_WHITELIST.
+
+    Catches the same class of gap as DEC-045 (fit_kmeans/fit_pca were
+    added v0.7.1/v0.7.2, pre-cards era). Whitelist entries document
+    target version; when a card lands, remove the entry.
+    """
+    from cadw.ml import __all__ as ml_all
+    from cadw.ml._memory_estimate import _load_cards
+
+    cards = _load_cards()
+    public_fits = sorted(n for n in ml_all if n.startswith("fit_"))
+    missing = [n for n in public_fits
+               if n not in cards and n not in UNCARDED_WHITELIST]
+    assert not missing, (
+        "Uncarded public fit_* (add YAML card or whitelist in DEC-047):\n"
+        + "\n".join(f"  {n}" for n in missing)
+    )
+
+
+def test_R10_GBDT_multiclass_function_matches():
+    """R10 (v0.9.121): GBDT_multiclass card must reference
+    fit_gbdt_multiclass (distinct softmax implementation), not
+    fit_gbdt_classifier (binary/multiclass dispatch).
+
+    Prior state (v0.9.120 and earlier): card purpose says "One-vs-all
+    softmax GBDT" but cadw_function pointed to fit_gbdt_classifier.
+    R9 (importable) and R5 (alias status consistency) both passed — the
+    semantic mismatch was invisible until manual audit.
+    """
+    import yaml
+    from pathlib import Path as _P
+
+    yp = _P(__file__).parent.parent / "docs" / "ml_tools" / "A_classification.yaml"
+    data = yaml.safe_load(yp.read_text())
+    for st in data.get("subtypes", []):
+        for card in st.get("models", []):
+            if card.get("name") == "GBDT_multiclass":
+                assert card.get("cadw_function") == "fit_gbdt_multiclass", (
+                    f"GBDT_multiclass card references "
+                    f"{card.get('cadw_function')!r}; should be "
+                    f"'fit_gbdt_multiclass' (distinct softmax impl)")
+                return
+    import pytest
+    pytest.fail("GBDT_multiclass card not found in A_classification.yaml")
