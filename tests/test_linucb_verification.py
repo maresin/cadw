@@ -119,7 +119,7 @@ def test_batch_coef_isolated():
     d, K = 200, 5
     cols = [f"x{i}" for i in range(d)]
     row_size = 8 * d + 16
-    # v0.9.118 fix: median-of-3 per batch cell. Full-suite baseline RSS
+    # v0.9.128: median-of-5 per batch cell (DEC-034 escalation). Full-suite baseline RSS
     # from prior ~4500 tests shifts single-run noise to ~5 MB; batch term
     # at b=1000 is ~1.6 MB → SNR < 1 in full-suite (DEC-034 precedent).
     batches = [1000, 2000, 4000]
@@ -127,7 +127,7 @@ def test_batch_coef_isolated():
     for b in batches:
         df = _make_df(max(b * 4, 4000), d, K=K, seed=0)
         cell_peaks = []
-        for _ in range(3):
+        for _ in range(5):
             _malloc_trim()
             gc.collect()
             mg = MemoryGuard(max_memory_mb=500)
@@ -220,16 +220,21 @@ def test_ooc_batch_fixed():
     peaks = []
     for n in [1000, 5000]:
         df = _make_df(n, d, K=K, seed=0)
-        _malloc_trim()
-        gc.collect()
-        mg = MemoryGuard(max_memory_mb=500)
-        r = measure_peak_traced(
-            fit_linucb, df, cols,
-            arm_col="arm", reward_col="r",
-            memory_guard=mg, batch_size=batch, k_max_hint=K,
-            mg=mg,
-        )
-        peaks.append(int(r["peak_bytes"]))
+        cell_peaks = []
+        for _ in range(5):
+            _malloc_trim()
+            gc.collect()
+            mg = MemoryGuard(max_memory_mb=500)
+            r = measure_peak_traced(
+                fit_linucb, df, cols,
+                arm_col="arm", reward_col="r",
+                memory_guard=mg, batch_size=batch, k_max_hint=K,
+                mg=mg,
+            )
+            cell_peaks.append(int(r["peak_bytes"]))
+            del r
+            gc.collect()
+        peaks.append(int(statistics.median(cell_peaks)))
         del df
         gc.collect()
     ratio = peaks[-1] / max(peaks[0], 1)
