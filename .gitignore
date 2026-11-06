@@ -53,7 +53,7 @@ _verify_*.py
 .pingis/summary.md
 .pingis/plan.md
 .pingis/session.log
-.pingis/audits/fetch_cache/
+.pingis/audits/
 .pingis/drafts/
 .pingis/tasks/
 

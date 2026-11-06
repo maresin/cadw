@@ -39,6 +39,9 @@ EXCLUDE_DIRS = {
     ".pytest_cache", ".mypy_cache", ".ruff_cache", ".basedpyright",
     "node_modules", "dist", "build", "htmlcov",
     "cadw_cache", "cadw_shuffle", ".ipynb_checkpoints", ".OTHER",
+    # v0.9.126-fix2: .pingis/ is temporary (agent scratch; planned removal).
+    # Not in snapshot for new sessions.
+    ".pingis",
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".so", ".dylib", ".pyd",
                     ".arrow", ".parquet", ".tar", ".gz"}
@@ -76,7 +79,6 @@ TINY_FULL = {
     "README.md",
     "docs/ml_tools/METHODOLOGY_ALGORITHM_SELECTION.md",
     "docs/ml_tools/PRIMITIVES_AND_PRINCIPLES.md",
-    ".pingis/plan_v0.9.87_refactor.md",
     "cadw/io/batch_writer.py",
     "cadw/io/batch_reader.py",
     "cadw/core/models.py",
@@ -135,8 +137,6 @@ def _classify(p: Path, root: Path, keep_patches: int) -> str:
     if s.startswith("tests/") and p.suffix == ".py":
         return "full"
     if s == "scripts/collect_project.py":
-        return "full"
-    if s.startswith(".pingis/") and p.suffix == ".md":
         return "full"
     if s.startswith("scripts/patch_") and p.suffix == ".py":
         all_patches = sorted(
