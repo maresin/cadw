@@ -61,6 +61,26 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html
   - note: [legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot
 
+### SVDpp — sota / tier2_wrapper
+
+**Roles:** local_structure
+**Status:** desc, export
+
+**Purpose:** SVD++ (Koren 2008): MF + implicit-neighborhood signals; local structure of user-item graph.
+
+**Use cases:**
+- Implicit-feedback recsys
+- Neighborhood-augmented MF
+
+**Config:** `{'n_factors': 'int', 'n_epochs': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → ndcg_at_k=null
+  - algorithm: `SVDpp` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/0804.0861
+  - note: no_public_benchmark: SVD++ per-dataset
+
 ## Metrics
 - **ndcg_at_k** (anchor, higher)
   - Ranking quality in top-K.

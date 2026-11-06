@@ -1046,6 +1046,18 @@ subtypes:
     primitive_reuse:
     - reduce
 
+  - name: GaussianProcessForecaster
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "GP-based multivariate forecaster with kernel-induced credible bands."
+    real_life_examples: ["Small multivariate series with intervals", "Sensor network forecast"]
+    config: {kernel: string, n_restarts: int}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianProcessForecaster', algorithm_source_url: 'https://scikit-learn.org/stable/modules/gaussian_process.html', algorithm_source_kind: docs, attribution: literature, task_type: multivariate forecasting, n_datasets: null, metric: mase, value: null, note: 'no_public_benchmark: GP per-dataset'}
   metrics:
   - name: wrmse
     combination: anchor
@@ -3337,6 +3349,7 @@ subtypes:
     - IntervalFeatures_GBDT
     max_per_role: 1
     note: Stack features from both and fit a linear head; +1-2% accuracy.
+# NOT-ENSEMBLE (D5): alias of D3.2 (change-point); canonical in D3.2
 - id: D5
   name: TS change-point detection (alias of D3.2)
   description: DEPRECATED — use D3.2. Kept for taxonomy completeness only.

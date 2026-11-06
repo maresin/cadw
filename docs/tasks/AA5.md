@@ -54,6 +54,26 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingClassifier.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### OrderedProbitBayesian — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Bayesian ordered probit: latent Gaussian + cutpoints; full posterior over thresholds.
+
+**Use cases:**
+- Ordinal survey responses
+- Severity grading
+
+**Config:** `{'n_draws': 'int', 'prior_scale': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → mae_ordinal=null
+  - algorithm: `OrderedProbitBayesian` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/2104.05494
+  - note: no_public_benchmark: ordered probit per-dataset
+
 ## Metrics
 - **mae_ordinal** (anchor, lower)
   - Distance-aware accuracy; respects ordered classes.

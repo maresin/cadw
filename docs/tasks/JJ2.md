@@ -86,6 +86,26 @@
   - code/paper: https://arxiv.org/abs/1908.10084
   - note: no_public_benchmark: STS-B GLUE LB not fetchable; S-BERT paper reports STS-B dev Spearman but that is a paper number, not a live LB row
 
+### LDA_embedding — baseline / tier1_core
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Topic posterior from LDA as probabilistic text embedding (canonical topic-feature).
+
+**Use cases:**
+- Short-text embedding
+- Document representation for clustering
+
+**Config:** `{'n_topics': 'int', 'max_iter': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → spearman_cosine=null
+  - algorithm: `LDA_embedding` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/2104.08696
+  - note: no_public_benchmark: LDA embedding quality = downstream proxy
+
 ## Metrics
 - **spearman_cosine** (anchor, higher)
   - Rank correlation between cosine similarity and human similarity.

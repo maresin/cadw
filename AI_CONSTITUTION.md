@@ -750,6 +750,41 @@ status. Only one temporary wart exists, fixed in v0.9.103.
 
 ---
 
+### §5.3. Taxonomy freeze (v0.9.128+)
+
+**Frozen at v0.9.128.** 58 subtypes, каждый имеет ≥3 разнотипных
+кандидатов (или explicit `# NOT-ENSEMBLE: <reason>` в YAML).
+
+**Rule:** after v0.9.128, **no new cards** without DEC entry + explicit
+rationale (entirely new model category, not "another candidate in
+existing subtype"). Post-freeze allowed:
+
+- `status: draft → verified` (via `ram_formula` from code + measurement,
+  AP23 + DEC-033).
+- `ram_formula` / `formula_evidence` completion for existing `draft` cards.
+- `cross_ref` field formalization (markdown -> schema field).
+- `ensemble_recommendation` additions/refinements.
+- `tier: ensemble` card creation **only if** explicit DEC (e.g.,
+  CADW-native ensembling framework, not per-subtype duplicated recipes).
+
+**Why freeze:** taxonomy filling became the dominant activity
+(v0.9.123-128: 5 of 10 releases). Each session found gaps; filling them
+increased surface without changing what CADW actually *does*. After
+v0.9.128, all subtypes have ≥3 diverse candidates or explicit NOT-ENSEMBLE.
+Further additions are diminishing returns — implementation, verification,
+migration dominate future sessions.
+
+**Anti-pattern:** adding "one more candidate" to a subtype without DEC
+rationale. This is how v0.9.119-127 accumulated 8 releases of card-only
+work. Post-freeze, card additions are exceptional, not routine.
+
+**Enforcement:** `test_R10_public_fit_covered` + `test_R10_cadw_ts_covered`
+ensure new public functions get cards. There is no automated "no new
+candidate cards" check (would need heuristic on card names/types). The
+freeze is a **declared convention** (this §), enforced by review.
+
+---
+
 ## §6. Roadmap summary (3 sessions)
 
 **Next sessions** (see docs/ROADMAP.md for details):

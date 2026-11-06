@@ -56,6 +56,26 @@
   - code/paper: https://www.jstatsoft.org/article/view/v036i11
   - note: Kursa & Rudnicki 2010.
 
+### SelectKBest — baseline / tier1_core
+
+**Roles:** linear_signal
+**Status:** desc, export
+
+**Purpose:** Univariate filter (F-stat / chi2 / mutual info); canonical linear feature selection.
+
+**Use cases:**
+- Fast pre-filter before model
+- Variance-based baseline
+
+**Config:** `{'score_func': 'string', 'k': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → downstream_accuracy=null
+  - algorithm: `SelectKBest` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.SelectKBest.html
+  - note: no_public_benchmark: filter selection quality = downstream proxy
+
 ## Metrics
 - **downstream_accuracy** (anchor, higher)
   - Accuracy/R2 of model trained on selected features only; ultimate test of feature-selection quality.

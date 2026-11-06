@@ -38,10 +38,23 @@ subtypes:
         config: {n_samples: int, learning_rate: float, max_iter: int}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://arxiv.org/abs/1401.0118', algorithm: 'black-box VI', algorithm_source_url: 'https://arxiv.org/abs/1401.0118', algorithm_source_kind: paper, attribution: literature, task_type: probabilistic_inference, n_datasets: null, metric: elbo, value: null, note: 'Ranganath et al. 2014.'}
+      - name: SVI
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [local_structure]
+        purpose: "Stochastic Variational Inference (Hoffman 2013): minibatch VI with local steps; scalable to large data."
+        real_life_examples: ["Large-data Bayesian fit", "Streaming VI"]
+        config: {n_steps: int, learning_rate: float}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SVI', algorithm_source_url: 'https://arxiv.org/abs/1303.2225', algorithm_source_kind: paper, attribution: literature, task_type: probabilistic_inference, n_datasets: null, metric: elbo, value: null, note: 'no_public_benchmark: SVI convergence per-model'}
     metrics:
       - {name: elbo, combination: anchor, direction: higher, responsibility: "Evidence Lower BOund: VI objective; higher = better fit.", special: "Only comparable within the same model; different models have different ELBO scales.", not_implemented_in_cadw: true}
       - {name: runtime_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
 
+  # NOT-ENSEMBLE (W2): MCMC chain alternatives — fusion statistically invalid
   - id: W2
     name: "Markov Chain Monte Carlo"
     description: "Sample from exact posterior via Markov chains. Asymptotically unbiased; slower than VI."

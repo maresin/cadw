@@ -52,6 +52,26 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingRegressor.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### CQR — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Conformalized Quantile Regression (Romano 2019); finite-sample coverage guarantee.
+
+**Use cases:**
+- Risk-sensitive point + interval forecast
+- Inventory quantile planning
+
+**Config:** `{'coverage': 'float', 'n_folds': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → pinball_loss=null
+  - algorithm: `CQR` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/1905.03222
+  - note: no_public_benchmark: CQR per-dataset
+
 ## Metrics
 - **pinball_loss** (anchor, lower)
   - Official quantile regression loss.

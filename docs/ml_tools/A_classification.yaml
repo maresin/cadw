@@ -677,6 +677,18 @@ subtypes:
     - reduce
     - spill_dir
     - codes_bin
+  - name: GaussianProcessRegressor
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "GP regression with kernel prior; credible intervals. Top-1 on small-n tabular regression."
+    real_life_examples: ["Small-n regression with uncertainty", "Bayesian optimization surrogate"]
+    config: {kernel: string, alpha: float}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianProcessRegressor', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessRegressor.html', algorithm_source_kind: docs, attribution: literature, task_type: regression, n_datasets: null, metric: rmse, value: null, note: 'no_public_benchmark: GP per-dataset; not on AMLB tabular regression LB'}
   metrics:
   - name: rmse
     combination: anchor
@@ -831,6 +843,18 @@ subtypes:
       fit: 'L chained logistic fits on (X + prior labels); O(d²) per classifier.'
       predict: 'per-batch chained prediction.'
     primitive_reuse: [reduce]
+  - name: ML-kNN
+    tier: baseline
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "Multi-label kNN with Bayesian prior (Zhang & Zhou 2007). Label posterior from neighbour counts."
+    real_life_examples: ["Multi-label text tagging", "Gene function prediction"]
+    config: {n_neighbors: int, smoothing: float}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'ML-kNN', algorithm_source_url: 'https://scikit.ml/api/skmultilearn.adapt.mlknn.html', algorithm_source_kind: docs, attribution: literature, task_type: multilabel classification, n_datasets: null, metric: hamming_loss, value: null, note: 'no_public_benchmark: ML-kNN per-dataset; no unified multilabel LB'}
   metrics:
   - name: subset_accuracy
     combination: anchor
@@ -949,6 +973,18 @@ subtypes:
       value: 0.6
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+  - name: OrderedProbitBayesian
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "Bayesian ordered probit: latent Gaussian + cutpoints; full posterior over thresholds."
+    real_life_examples: ["Ordinal survey responses", "Severity grading"]
+    config: {n_draws: int, prior_scale: float}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'OrderedProbitBayesian', algorithm_source_url: 'https://arxiv.org/abs/2104.05494', algorithm_source_kind: paper, attribution: literature, task_type: ordinal classification, n_datasets: null, metric: mae_ordinal, value: null, note: 'no_public_benchmark: ordered probit per-dataset'}
   metrics:
   - name: mae_ordinal
     combination: anchor
@@ -1071,6 +1107,18 @@ subtypes:
     - reduce
     - spill_dir
     - codes_bin
+  - name: RUSBoost
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "Random Under-Sampling + AdaBoost (Seiffert 2010); robust on skewed binary."
+    real_life_examples: ["Fraud detection (1:100)", "Medical rare-disease screening"]
+    config: {n_estimators: int, sampling_rate: float}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'RUSBoost', algorithm_source_url: 'https://ieeexplore.ieee.org/document/5438940', algorithm_source_kind: paper, attribution: literature, task_type: imbalanced binary classification, n_datasets: null, metric: pr_auc, value: null, note: 'no_public_benchmark: RUSBoost per-dataset'}
   metrics:
   - name: pr_auc
     combination: anchor
@@ -1161,6 +1209,18 @@ subtypes:
       value: 0.46
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+  - name: CQR
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "Conformalized Quantile Regression (Romano 2019); finite-sample coverage guarantee."
+    real_life_examples: ["Risk-sensitive point + interval forecast", "Inventory quantile planning"]
+    config: {coverage: float, n_folds: int}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CQR', algorithm_source_url: 'https://arxiv.org/abs/1905.03222', algorithm_source_kind: paper, attribution: literature, task_type: quantile regression, n_datasets: null, metric: pinball_loss, value: null, note: 'no_public_benchmark: CQR per-dataset'}
   metrics:
   - name: pinball_loss
     combination: anchor

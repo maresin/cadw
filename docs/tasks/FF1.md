@@ -60,6 +60,26 @@
   - code/paper: cadw/ml/als.py
   - note: M2 parity on synthetic_recsys_like DGP; cadw=0.38273, ref(implicit)=0.36734, verdict=consistent; NDCG@10 on 20% holdout, user-item matrix ~10% density
 
+### GBDT_ALS_embedding — sota / tier2_wrapper
+
+**Roles:** nonlinear_interactions
+**Status:** desc, export
+
+**Purpose:** GBDT stacking on ALS factor embeddings (nonlinear side-features on top of MF).
+
+**Use cases:**
+- Hybrid side-info recommendation
+- Click prediction on MF features
+
+**Config:** `{'n_estimators': 'int', 'max_depth': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → ndcg_at_k=null
+  - algorithm: `GBDT_ALS_embedding` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/1609.02464
+  - note: no_public_benchmark: GBDT-on-MF per-dataset
+
 ## Metrics
 - **ndcg_at_k** (anchor, higher)
   - Position-weighted ranking quality in top-K.

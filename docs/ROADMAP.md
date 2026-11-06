@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.127
+## Current: v0.9.128
 
 **32 verified fns / 48 verified cards / 14 draft fns / 17 draft cards /
 24 pending fns / 30 pending cards / 62 no-fn. +19 described_only in P/Q.**
@@ -41,6 +41,19 @@ v0.9.116-v0.9.118 (since v0.9.115):
   reduce/sort/hash_shuffle; PyYAML 1.1 string-float quirk fixed.
 - DEC-045 (P6'-P9' validation + YAML coverage gap: fit_kmeans/fit_pca),
   DEC-046 (calibrate_throughput design; per-model time -> v0.9.121+).
+
+**v0.9.128 (since v0.9.127):**
+- TAXONOMY FROZEN (DEC-052, AI_CONSTITUTION §5.3). 58/58 subtypes
+  have ≥3 diverse candidates or explicit NOT-ENSEMBLE.
+- +42 described_only cards across 15 YAMLs (27 NEED-1 third-role
+  candidates + 16 NEED-2 pairs; all AP23-evidenced).
+- 8 NOT-ENSEMBLE header comments (D5, O5, O9, R1, T1, V1, V2, W2)
+  with explicit reason.
+- Post-freeze: no new cards without DEC. Allowed: draft→verified
+  status flips, ram_formula completion, cross_ref formalization,
+  ensemble_recommendation refinements.
+- Open (v0.9.129): verify 4 ts drafts; expansion_factor migration;
+  fit_stacking infrastructure; promotion .pingis/impl -> cadw/ml.
 
 **v0.9.127 (since v0.9.126):**
 - cadw.ts coverage gap closed: 5 uncarded models found by audit.
@@ -134,7 +147,7 @@ v0.9.116-v0.9.118 (since v0.9.115):
 CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
 Component-wise (DEC-033) + DEC-034 escalation (tolerance widen on RSS drift).
 
-Next: v0.9.128 expansion_factor migration + YAML coverage sweep +
+Next: v0.9.129 expansion_factor migration + YAML coverage sweep +
 ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Progress (v0.9.105 - v0.9.110g)
@@ -214,7 +227,7 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Next 3 sessions
 
-### v0.9.128 — expansion_factor migration + cross_ref schema + fit_stacking
+### v0.9.129 — expansion_factor migration + cross_ref schema + fit_stacking
 
 - **Migration of 18 `expansion_factor` call sites** (6 via
   `derive_batch_size` + 12 direct `get_batch_rows`), 14 models (linucb,
@@ -232,14 +245,14 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
   verified model (epochs x n_rows). ~0.5 session.
 - **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
 
-### v0.9.129 — pending fns (A_classification + O_eda)
+### v0.9.130 — pending fns (A_classification + O_eda)
 
 - A_classification x8 pending: component-wise verify (some have `status: None`
   legacy cards — normalize to `draft`/`verified`).
 - O_eda x16 pending: same.
 - AP2 sweep (grep `column_stack|vstack|concatenate` in cadw/ml/).
 
-### v0.9.129+ — 30+ verified / 35+ verified tags
+### v0.9.130+ — 30+ verified / 35+ verified tags
 
 Re-check do-not-re-solve per DEC-033/034/035. Tag v0.9.122/123 when
 appropriate.

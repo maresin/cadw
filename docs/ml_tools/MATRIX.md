@@ -20,36 +20,56 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | A | A3 Regression | Lasso | baseline | tier1_core | linear_signal | ✓ cadw | rmse |
 | A | A3 Regression | ElasticNet | baseline | tier1_core | linear_signal | ✓ cadw | rmse |
 | A | A3 Regression | GBDT_L2 | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | rmse |
+| A | A3 Regression | GaussianProcessRegressor | sota | tier2_wrapper | probabilistic | desc, export | rmse |
 | A | A4 Multilabel classification | OneVsRest_Logistic | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | subset_accuracy |
 | A | A4 Multilabel classification | ClassifierChains | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | subset_accuracy |
+| A | A4 Multilabel classification | ML-kNN | baseline | tier2_wrapper | probabilistic | desc, export | subset_accuracy |
 | A | A5 Ordinal classification | OrdinalLogit | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | mae_ordinal |
 | A | A5 Ordinal classification | GBDT_threshold | sota | tier1_core | nonlinear_interactions | desc | mae_ordinal |
+| A | A5 Ordinal classification | OrderedProbitBayesian | sota | tier2_wrapper | probabilistic | desc, export | mae_ordinal |
 | A | A6 Imbalanced classification | Logistic_balanced | baseline | tier1_core | linear_signal | ✓ cadw | pr_auc |
 | A | A6 Imbalanced classification | GBDT_scale_pos_weight | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | pr_auc |
+| A | A6 Imbalanced classification | RUSBoost | sota | tier2_wrapper | probabilistic | desc, export | pr_auc |
 | A | A7 Quantile / interval regression | LinearQuantReg | baseline | tier1_core | linear_signal | desc | pinball_loss |
 | A | A7 Quantile / interval regression | GBDT_pinball | sota | tier1_core | nonlinear_interactions | desc | pinball_loss |
+| A | A7 Quantile / interval regression | CQR | sota | tier2_wrapper | probabilistic | desc, export | pinball_loss |
 | B | B1 Centroid-based clustering | KMeans | baseline | tier1_core | local_structure | ✓ cadw | silhouette |
 | B | B1 Centroid-based clustering | MiniBatchKMeans | baseline | tier1_core | local_structure | ✓ cadw | silhouette |
 | B | B1 Centroid-based clustering | BisectingKMeans | sota | tier1_core | local_structure | desc, export | silhouette |
+| B | B1 Centroid-based clustering | GaussianMixtureClustering | sota | tier2_wrapper | probabilistic | desc, export | silhouette |
+| B | B1 Centroid-based clustering | SpectralClustering | sota | tier2_wrapper | representation | desc, export | silhouette |
 | B | B2 Density-based clustering | DBSCAN | baseline | tier2_wrapper | local_structure | desc, export | adjusted_rand_score |
 | B | B2 Density-based clustering | HDBSCAN | sota | tier2_wrapper | local_structure | desc, export | adjusted_rand_score |
+| B | B2 Density-based clustering | GaussianMixtureClustering | sota | tier2_wrapper | probabilistic | desc, export | adjusted_rand_score |
+| B | B2 Density-based clustering | SpectralClustering | sota | tier2_wrapper | representation | desc, export | adjusted_rand_score |
 | B | B3 Hierarchical clustering | AgglomerativeClustering | baseline | tier1_core | local_structure | desc, export | cophenetic_correlation |
 | B | B3 Hierarchical clustering | BIRCH | sota | tier1_core | local_structure | desc, export | cophenetic_correlation |
+| B | B3 Hierarchical clustering | BisectingKMeans | sota | tier1_core | local_structure | desc, export | cophenetic_correlation |
+| B | B3 Hierarchical clustering | SpectralClustering | sota | tier2_wrapper | representation | desc, export | cophenetic_correlation |
 | B | B4 Shape-based clustering (time series) | EuclideanKMeansZ | baseline | tier1_core | local_structure, temporal_dynamics | desc, export | adjusted_rand_score |
 | B | B4 Shape-based clustering (time series) | KShape | sota | tier1_core | local_structure, temporal_dynamics | desc, export | adjusted_rand_score |
+| B | B4 Shape-based clustering (time series) | ShapeGMM | sota | tier2_wrapper | probabilistic | desc, export | adjusted_rand_score |
 | B | B5 Biclustering | SpectralCoclustering | baseline | tier2_wrapper | local_structure | desc, export | mean_squared_residue |
 | B | B5 Biclustering | SpectralBiclustering | sota | tier2_wrapper | local_structure | desc, export | mean_squared_residue |
+| B | B5 Biclustering | PlaidModel | sota | tier2_wrapper | probabilistic | desc, export | mean_squared_residue |
+| B | B5 Biclustering | Bimax | baseline | tier2_wrapper | local_structure | desc, export | mean_squared_residue |
 | B | B6 Ensemble clustering | KMeansOnly | baseline | tier1_core | local_structure | desc, export | adjusted_rand_score |
 | B | B6 Ensemble clustering | KMeansHDBSCAN_consensus | sota | tier1_core | local_structure | desc, export | adjusted_rand_score |
+| B | B6 Ensemble clustering | EvidenceAccumulation | sota | tier2_wrapper | probabilistic | desc, export | adjusted_rand_score |
+| B | B6 Ensemble clustering | CSPA | sota | tier2_wrapper | representation | desc, export | adjusted_rand_score |
 | C | C1 Linear projection | PCA | baseline | tier1_core | representation | ✓ cadw | reconstruction_error |
 | C | C1 Linear projection | TruncatedSVD | baseline | tier2_wrapper | representation | desc, export | reconstruction_error |
 | C | C1 Linear projection | randomized_svd | sota | tier1_core | representation | desc, export | reconstruction_error |
+| C | C1 Linear projection | KernelPCA | sota | tier2_wrapper | nonlinear_interactions | desc, export | reconstruction_error |
+| C | C1 Linear projection | SparsePCA | sota | tier2_wrapper | local_structure | desc, export | reconstruction_error |
 | C | C2 Matrix factorization | NMF | baseline | tier2_wrapper | representation, probabilistic | desc, export | reconstruction_error |
 | C | C2 Matrix factorization | ALS | sota | tier1_core | representation, local_structure | desc, export | reconstruction_error |
 | C | C3 Manifold learning | t-SNE | baseline | tier2_wrapper | representation, local_structure | desc, export | trustworthiness |
 | C | C3 Manifold learning | UMAP | sota | tier2_wrapper | representation, local_structure | desc, export | trustworthiness |
+| C | C3 Manifold learning | GPLVM | sota | tier2_wrapper | probabilistic | desc, export | trustworthiness |
 | C | C4 Feature selection | PermutationImportance | baseline | tier1_core | calibration | desc, export | downstream_accuracy |
 | C | C4 Feature selection | Boruta | sota | tier2_wrapper | calibration, nonlinear_interactions | desc, export | downstream_accuracy |
+| C | C4 Feature selection | SelectKBest | baseline | tier1_core | linear_signal | desc, export | downstream_accuracy |
 | D | D1 Univariate forecasting | NaiveForecaster | baseline | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | ETS | baseline | tier1_core | temporal_dynamics, probabilistic | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | AutoETS | sota | tier1_core | temporal_dynamics, probabilistic | ✓ cadw, ✓ agent | mase |
@@ -69,6 +89,7 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | D | D2 Multivariate forecasting | GBDT_multiseries | sota | tier1_core | nonlinear_interactions, temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D2 Multivariate forecasting | BVAR | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
 | D | D2 Multivariate forecasting | VECM | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | wrmse |
+| D | D2 Multivariate forecasting | GaussianProcessForecaster | sota | tier2_wrapper | probabilistic | desc, export | wrmse |
 | D | D3.1 TS anomaly — point | zscore | baseline | tier1_core | local_structure | ✓ cadw, ✓ agent | vus_pr |
 | D | D3.1 TS anomaly — point | IForest | baseline | tier1_core | nonlinear_interactions | ✓ cadw | vus_pr |
 | D | D3.1 TS anomaly — point | MatrixProfile | sota | tier1_core | local_structure, temporal_dynamics | ✓ cadw, ✓ agent | vus_pr |
@@ -103,19 +124,27 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | E | E1 Unsupervised anomaly detection | zscore | baseline | tier1_core | local_structure | ✓ agent, desc | roc_auc |
 | E | E1 Unsupervised anomaly detection | IForest | sota | tier1_core | nonlinear_interactions | ✓ cadw | roc_auc |
 | E | E1 Unsupervised anomaly detection | LOF | baseline | tier3_export | local_structure | desc, export | roc_auc |
+| E | E1 Unsupervised anomaly detection | GMMAnomaly | sota | tier2_wrapper | probabilistic | desc, export | roc_auc |
 | E | E2 Supervised anomaly detection | Logistic_balanced | baseline | tier1_core | linear_signal | ✓ cadw | pr_auc |
 | E | E2 Supervised anomaly detection | GBDT_scale_pos_weight | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | pr_auc |
+| E | E2 Supervised anomaly detection | CalibratedClassifierCV | sota | tier2_wrapper | probabilistic | desc, export | pr_auc |
 | F | F1 Collaborative filtering | ItemKNN | baseline | tier3_export | local_structure | desc, export | ndcg_at_k |
 | F | F1 Collaborative filtering | ALS | sota | tier1_core | representation | ✓ cadw, ✓ agent | ndcg_at_k |
+| F | F1 Collaborative filtering | GBDT_ALS_embedding | sota | tier2_wrapper | nonlinear_interactions | desc, export | ndcg_at_k |
 | F | F2 Hybrid recommendation | ALS | baseline | tier1_core | representation | ✓ cadw, ✓ agent | ndcg_at_k |
 | F | F2 Hybrid recommendation | Hybrid_MF_GBDT | sota | tier1_core | representation, nonlinear_interactions | ✓ cadw, ✓ agent | ndcg_at_k |
+| F | F2 Hybrid recommendation | SVDpp | sota | tier2_wrapper | local_structure | desc, export | ndcg_at_k |
 | G | G1 Ranking (LTR) | PairwiseLogistic | baseline | tier1_core | linear_signal | ✓ agent, desc | ndcg_at_k |
 | G | G1 Ranking (LTR) | LambdaMART | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | ndcg_at_k |
+| G | G1 Ranking (LTR) | ListNet | sota | tier2_wrapper | probabilistic | desc, export | ndcg_at_k |
 | H | H1 Treatment effect (ATE / CATE) | T_learner | baseline | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | ate_error |
 | H | H1 Treatment effect (ATE / CATE) | S_learner | baseline | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | ate_error |
 | H | H1 Treatment effect (ATE / CATE) | DR_learner | sota | tier3_export | nonlinear_interactions, probabilistic | desc, export | ate_error |
+| H | H1 Treatment effect (ATE / CATE) | CausalForest | sota | tier2_wrapper | local_structure | desc, export | ate_error |
 | H | H2 Uplift modeling (Qini) | T_learner_uplift | baseline | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | qini |
 | H | H2 Uplift modeling (Qini) | CausalTree | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | qini |
+| H | H2 Uplift modeling (Qini) | CausalForest | sota | tier2_wrapper | local_structure | desc, export | qini |
+| H | H2 Uplift modeling (Qini) | DR_learner_uplift | sota | tier2_wrapper | probabilistic | desc, export | qini |
 | I | I1 Time-to-event (Cox / AFT / deep) | CoxPH | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | KaplanMeier | baseline | tier1_core | probabilistic | ✓ agent, desc | c_index |
 | I | I1 Time-to-event (Cox / AFT / deep) | WeibullAFT | baseline | tier1_core | linear_signal, probabilistic | ✓ agent, desc | c_index |
@@ -128,8 +157,10 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | J | J2 Text embeddings | LSA_TFIDF_SVD | baseline | tier1_core | representation | ✓ cadw, ✓ agent | spearman_cosine |
 | J | J2 Text embeddings | Word2Vec | baseline | tier2_wrapper | representation | desc | spearman_cosine |
 | J | J2 Text embeddings | SentenceTransformer | sota | tier3_export | representation, nonlinear_interactions | export | spearman_cosine |
+| J | J2 Text embeddings | LDA_embedding | baseline | tier1_core | probabilistic | desc, export | spearman_cosine |
 | J | J3 Topic modeling | LDA | baseline | tier1_core | probabilistic, representation | ✓ cadw, ✓ agent | perplexity |
 | J | J3 Topic modeling | NMF | sota | tier2_wrapper | representation | desc | perplexity |
+| J | J3 Topic modeling | Top2Vec | sota | tier2_wrapper | nonlinear_interactions | desc, export | perplexity |
 | M | M1 Contextual bandit (online policy selection) | LinUCB | baseline | tier1_core | linear_signal | ✓ cadw | ctr |
 | M | M1 Contextual bandit (online policy selection) | EpsilonGreedy | baseline | tier1_core | linear_signal | ✓ agent, desc | ctr |
 | M | M1 Contextual bandit (online policy selection) | UCB1 | baseline | tier1_core | probabilistic | ✓ agent, desc | ctr |
@@ -150,6 +181,7 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | O | O3 Feature engineering / encoding | KBinsDiscretizer | baseline | tier1_core | representation | desc | accuracy |
 | O | O3 Feature engineering / encoding | PolynomialFeatures | sota | tier1_core | nonlinear_interactions, representation | desc | accuracy |
 | O | O3 Feature engineering / encoding | EncodeCategorical | baseline | tier1_core | representation | ✓ cadw, ✓ agent | accuracy |
+| O | O3 Feature engineering / encoding | TargetEncoder | baseline | tier1_core | local_structure | desc, export | accuracy |
 | O | O4 Feature selection | MutualInfoSelect | baseline | tier1_core | linear_signal, probabilistic | ✓ cadw, ✓ agent | accuracy |
 | O | O4 Feature selection | VarianceThreshold | baseline | tier1_core | linear_signal | ✓ cadw, ✓ agent | accuracy |
 | O | O4 Feature selection | BorutaSelect | sota | tier2_wrapper | nonlinear_interactions | ✓ cadw, ✓ agent | accuracy |
@@ -158,33 +190,42 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | O | O6 Sampling / splitting / resampling | StratifiedSplit | baseline | tier1_core | probabilistic | ✓ agent, desc | auc |
 | O | O6 Sampling / splitting / resampling | ReservoirSample | baseline | tier1_core | probabilistic | ✓ agent, desc | auc |
 | O | O6 Sampling / splitting / resampling | SMOTE | sota | tier2_wrapper | nonlinear_interactions, probabilistic | desc, export | auc |
+| O | O6 Sampling / splitting / resampling | WeightedSample | baseline | tier1_core | linear_signal | desc, export | auc |
 | O | O7 Hyperparameter tuning / AutoML | GridSearch | baseline | tier1_core | linear_signal | desc | accuracy |
 | O | O7 Hyperparameter tuning / AutoML | RandomizedSearch | baseline | tier1_core | probabilistic | desc | accuracy |
 | O | O7 Hyperparameter tuning / AutoML | OptunaTPE | sota | tier2_wrapper | probabilistic, representation | desc, export | accuracy |
 | O | O8 Explainability (XAI) | PermutationImportance | baseline | tier1_core | calibration | ✓ cadw, ✓ agent | auc |
 | O | O8 Explainability (XAI) | SHAPTreeExplainer | sota | tier3_export | calibration, representation | desc, export | auc |
+| O | O8 Explainability (XAI) | Anchors | sota | tier2_wrapper | local_structure | desc, export | auc |
 | O | O9 Fairness / bias | FairnessMetrics | baseline | tier1_core | calibration | ✓ cadw, ✓ agent | dp_diff |
 | O | O9 Fairness / bias | FairlearnParity | sota | tier2_wrapper | calibration | desc, export | dp_diff |
 | O | O10 Drift detection | DriftStats | baseline | tier1_core | calibration | ✓ cadw, ✓ agent | psi |
 | O | O10 Drift detection | EvidentlyDrift | sota | tier3_export | calibration, representation | desc, export | psi |
+| O | O10 Drift detection | ADWIN | sota | tier2_wrapper | probabilistic | desc, export | psi |
 | O | O11 A/B testing / statistical tests | ProportionsZTest | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | p_value |
 | O | O11 A/B testing / statistical tests | MannWhitneyU | baseline | tier1_core | probabilistic | ✓ cadw, ✓ agent | p_value |
 | O | O11 A/B testing / statistical tests | CUPED | sota | tier1_core | calibration, probabilistic | ✓ cadw, ✓ agent | p_value |
+| O | O11 A/B testing / statistical tests | SequentialTest | sota | tier2_wrapper | linear_signal | desc, export | p_value |
 | R | R1 Frequent itemset mining | Apriori | baseline | tier2_wrapper | local_structure | desc, export | mean_lift |
 | R | R1 Frequent itemset mining | Eclat | baseline | tier2_wrapper | local_structure | desc, export | mean_lift |
 | R | R1 Frequent itemset mining | FP-growth | sota | tier2_wrapper | local_structure | desc, export | mean_lift |
 | R | R2 Sequential pattern mining | GSP | baseline | tier2_wrapper | local_structure, temporal_dynamics | desc, export | sequence_coverage |
 | R | R2 Sequential pattern mining | PrefixSpan | sota | tier2_wrapper | local_structure, temporal_dynamics | desc, export | sequence_coverage |
+| R | R2 Sequential pattern mining | HMM | sota | tier2_wrapper | probabilistic | desc, export | sequence_coverage |
 | S | S1 Neural generative (VAE / GAN) | TVAE | baseline | tier3_export | probabilistic, representation | desc, export | downstream_accuracy |
 | S | S1 Neural generative (VAE / GAN) | CTGAN | sota | tier3_export | probabilistic, representation | desc, export | downstream_accuracy |
 | S | S1 Neural generative (VAE / GAN) | CTAB-GAN+ | sota | tier3_export | probabilistic, representation | desc, export | downstream_accuracy |
+| S | S1 Neural generative (VAE / GAN) | TabNet | sota | tier3_export | nonlinear_interactions | desc, export | downstream_accuracy |
 | S | S2 Diffusion (tabular) | TabDDPM | baseline | tier3_export | probabilistic | desc, export | downstream_accuracy |
 | S | S2 Diffusion (tabular) | TabSyn | sota | tier3_export | probabilistic, representation | desc, export | downstream_accuracy |
+| S | S2 Diffusion (tabular) | TabDDPM_classifier | sota | tier3_export | nonlinear_interactions | desc, export | downstream_accuracy |
 | T | T1 Bayesian optimization | GP-EI | baseline | tier2_wrapper | probabilistic | desc, export | best_found_value |
 | T | T1 Bayesian optimization | TPE | sota | tier2_wrapper | probabilistic, local_structure | desc, export | best_found_value |
 | T | T1 Bayesian optimization | SMAC | sota | tier2_wrapper | probabilistic | desc, export | best_found_value |
 | T | T2 Derivative-free optimization | NelderMead | baseline | tier2_wrapper | local_structure | desc, export | best_found_value |
 | T | T2 Derivative-free optimization | CMA-ES | sota | tier2_wrapper | local_structure | desc, export | best_found_value |
+| T | T2 Derivative-free optimization | BayesianOpt_GP | sota | tier2_wrapper | probabilistic | desc, export | best_found_value |
+| T | T2 Derivative-free optimization | SMAC | sota | tier2_wrapper | nonlinear_interactions | desc, export | best_found_value |
 | V | V1 Calibration | PlattScaling | baseline | tier1_core | calibration | desc, export | ece |
 | V | V1 Calibration | TemperatureScaling | baseline | tier2_wrapper | calibration | desc, export | ece |
 | V | V1 Calibration | IsotonicCalibration | sota | tier1_core | calibration | desc, export | ece |
@@ -192,5 +233,6 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | V | V2 Conformal prediction | CVplus | sota | tier2_wrapper | calibration | desc, export | empirical_coverage |
 | W | W1 Variational inference | MeanFieldVI | baseline | tier2_wrapper | probabilistic | desc, export | elbo |
 | W | W1 Variational inference | BlackBoxVI | sota | tier2_wrapper | probabilistic, representation | desc, export | elbo |
+| W | W1 Variational inference | SVI | sota | tier2_wrapper | local_structure | desc, export | elbo |
 | W | W2 Markov Chain Monte Carlo | MetropolisHastings | baseline | tier2_wrapper | probabilistic | desc, export | ess |
 | W | W2 Markov Chain Monte Carlo | NUTS | sota | tier2_wrapper | probabilistic | desc, export | ess |

@@ -55,6 +55,26 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.multioutput.ClassifierChain.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### ML-kNN — baseline / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Multi-label kNN with Bayesian prior (Zhang & Zhou 2007). Label posterior from neighbour counts.
+
+**Use cases:**
+- Multi-label text tagging
+- Gene function prediction
+
+**Config:** `{'n_neighbors': 'int', 'smoothing': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → hamming_loss=null
+  - algorithm: `ML-kNN` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit.ml/api/skmultilearn.adapt.mlknn.html
+  - note: no_public_benchmark: ML-kNN per-dataset; no unified multilabel LB
+
 ## Metrics
 - **subset_accuracy** (anchor, higher)
   - Exact-match accuracy per row.

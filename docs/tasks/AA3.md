@@ -105,6 +105,26 @@
   - code/paper: cadw/ml/gbdt.py
   - note: M2 parity on synthetic_amlb_regression_like DGP; ref(sklearn.GradientBoostingRegressor)=1.0498, verdict=consistent
 
+### GaussianProcessRegressor — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** GP regression with kernel prior; credible intervals. Top-1 on small-n tabular regression.
+
+**Use cases:**
+- Small-n regression with uncertainty
+- Bayesian optimization surrogate
+
+**Config:** `{'kernel': 'string', 'alpha': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → rmse=null
+  - algorithm: `GaussianProcessRegressor` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessRegressor.html
+  - note: no_public_benchmark: GP per-dataset; not on AMLB tabular regression LB
+
 ## Metrics
 - **rmse** (anchor, lower)
   - Standard regression loss; interpretable in y units.

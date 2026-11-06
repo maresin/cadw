@@ -74,6 +74,26 @@
   - code/paper: https://arxiv.org/abs/2109.06563
   - note: no_public_benchmark: Zhao et al. 2022. torch required.
 
+### TabNet — sota / tier3_export
+
+**Roles:** nonlinear_interactions
+**Status:** desc, export
+
+**Purpose:** TabNet (Arik & Pfister 2019): attentive tabular deep net; sequential feature attention.
+
+**Use cases:**
+- Tabular deep learning baseline
+- Feature-attribution-friendly DL
+
+**Config:** `{'n_steps': 'int', 'n_epochs': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → downstream_accuracy=null
+  - algorithm: `TabNet` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/1908.07442
+  - note: no_public_benchmark: TabNet per-dataset (torch; CPU-feasible)
+
 ## Metrics
 - **downstream_accuracy** (anchor, higher)
   - Train downstream model on synthetic, test on real; utility of synthetic data.

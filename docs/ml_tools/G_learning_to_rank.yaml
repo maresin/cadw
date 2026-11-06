@@ -92,6 +92,18 @@ subtypes:
     - memmap
     - spill_dir
     - codes_bin
+  - name: ListNet
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "ListNet (Cao 2007): Plackett-Luce probability of permutation; listwise probabilistic LTR."
+    real_life_examples: ["Whole-page ranking", "Query-document list"]
+    config: {n_epochs: int, lr: float}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'ListNet', algorithm_source_url: 'https://arxiv.org/abs/2002.07416', algorithm_source_kind: paper, attribution: literature, task_type: ltr, n_datasets: null, metric: ndcg_at_10, value: null, note: 'no_public_benchmark: ListNet per-dataset'}
   metrics:
   - name: ndcg_at_k
     combination: anchor

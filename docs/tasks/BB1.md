@@ -80,6 +80,46 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html
   - note: no_public_benchmark: not on AMLB.
 
+### GaussianMixtureClustering — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Soft-assignment clustering via Gaussian mixture; probabilistic alternative to hard centroid.
+
+**Use cases:**
+- Soft customer segmentation
+- Model-based clustering
+
+**Config:** `{'n_components': 'int', 'covariance_type': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → adjusted_rand_score=null
+  - algorithm: `GaussianMixtureClustering` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/mixture.html
+  - note: no_public_benchmark: GMM clustering per-dataset
+
+### SpectralClustering — sota / tier2_wrapper
+
+**Roles:** representation
+**Status:** desc, export
+
+**Purpose:** Graph-Laplacian spectral clustering (Ng 2002); captures non-convex cluster shape via eigenvectors.
+
+**Use cases:**
+- Non-convex cluster discovery
+- Manifold-based grouping
+
+**Config:** `{'n_clusters': 'int', 'affinity': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → adjusted_rand_score=null
+  - algorithm: `SpectralClustering` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html
+  - note: no_public_benchmark: spectral clustering per-dataset
+
 ## Metrics
 - **silhouette** (anchor, higher)
   - Unsupervised cluster separation; primary diagnostic without labels.

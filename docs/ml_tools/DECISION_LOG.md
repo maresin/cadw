@@ -1204,6 +1204,72 @@ OTMThetaForecaster / TemporalHierarchy / TransformedTargetForecaster —
 
 ---
 
+## DEC-052 (2026-11-06, v0.9.128) — taxonomy FROZEN: 58 subtypes, 3+ diverse candidates each
+
+**Q (user):** "Мы изучили интернет и должны были подобрать кандидатов
+моделей, чтобы закрыть все тиши в subtypes. Сейчас мы этого добились?
+Неважно в каком состоянии карточки, главное получить полный список
+кандидатов."
+
+**A:** До v0.9.128 — **нет**. Probe v0.9.128 (ensemble-viability) по 58
+subtypes:
+- **16 OK-roles** (≥3 diverse role) — baseline + sota + 3-я роль
+  уже есть.
+- **27 NEED-1** (2 roles) — не хватает 3-го diverse candidate.
+- **8 NEED-2** (1 role, <3 algorithms) — B1-B6, C1, H2, T2: недостаточно
+  algorithmically different.
+- **7 NOT-ENSEMBLE** — fusion бессмыслен/невозможен (D5 alias, O5/O9
+  metrics, R1 association patterns, V1/V2 alternatives, W2 MCMC chains,
+  T1 3 algorithmically different уже есть).
+
+**Fix (v0.9.128):**
+1. **42 новых `described_only` карточек** — по одному на каждый
+   NEED-1, по два на NEED-2. Все `not_implemented_in_cadw: true`,
+   `tier: baseline|sota`, `algorithm_source_url` (paper / docs / code).
+2. **8 NOT-ENSEMBLE** header-комментариев (`# NOT-ENSEMBLE (<id>):
+   <reason>`) — в YAML, перед `- id:`. Не карточки.
+
+**Итог v0.9.128:**
+- **58/58 subtypes:** ≥3 разнотипных кандидата **или** explicit
+  NOT-ENSEMBLE.
+- **Total 42 new cards** — все `described_only`, ни одна не `verified`
+  (verify отдельной сессией, если/когда пойдёт в implementation).
+- **Ensemble-tier cards:** D1.EnsembleForecaster (v0.9.82, verified) +
+  все остальные — как `ensemble_recommendation` в YAML или explicit
+  NOT-ENSEMBLE. Не создаём 61 дублирующих `tier: ensemble` карточек.
+
+**FREEZE DECLARATION:**
+
+> **Taxonomy frozen at v0.9.128.** No new cards added without a DEC
+> entry + explicit rationale (e.g., entirely new model category,
+> not "another candidate in existing subtype"). Post-freeze allowed:
+> - `status: draft → verified` (via formula + measurement)
+> - `ram_formula` / `formula_evidence` completion (AP23)
+> - `cross_ref` field formalization
+> - `ensemble_recommendation` additions/refinements
+
+**Root cause of pre-v0.9.128 gaps:**
+- Legacy sections A-H (v0.9.44-76) have 2 roles (baseline+sota),
+  because `ensemble` был не formal. `ROLES` enum существует, но
+  `ensemble-tier` не enforced.
+- `tier: ensemble` требует ≥3 diverse roles; schema проверяет только
+  `baseline+sota` presence, не `ensemble`.
+- v0.9.128 закрывает это добавлением 42 `described_only` cards
+  (3rd/4th role per subtype), не добавлением `tier: ensemble` cards.
+
+**Что НЕ входит в freeze (post-freeze work):**
+- Verify 4 ts drafts (v0.9.129).
+- `expansion_factor` migration (v0.9.129+).
+- Promotion `.pingis/impl/` → `cadw/ml/` (v0.9.130+).
+- `cross_ref` schema field.
+- `fit_stacking` infrastructure.
+
+**Files:** 15 YAMLs, +42 cards (A:5, B:12, C:5, D:1, E:2, F:2, G:1,
+H:3, J:2, O:5, R:1, S:2, T:2, V:0, W:1) + 8 NOT-ENSEMBLE comments.
+`DECISION_LOG.md` (this DEC).
+
+---
+
 <!-- future entries appended here -->
 
 

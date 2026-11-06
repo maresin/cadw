@@ -452,6 +452,18 @@ subtypes:
     primitive_reuse: []
     bounded_state_dims: {K: 1}
     transient_factor: 22.5
+  - name: TargetEncoder
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [local_structure]
+    purpose: "Out-of-fold target statistic encoding; local (per-category) mean with smoothing."
+    real_life_examples: ["High-cardinality categorical", "Leakage-safe encoding"]
+    config: {smoothing: float, n_folds: int}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'TargetEncoder', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.TargetEncoder.html', algorithm_source_kind: docs, attribution: literature, task_type: feature_selection, n_datasets: null, metric: accuracy, value: null, note: 'no_public_benchmark: target encoding quality = downstream proxy'}
   metrics:
   - name: accuracy
     combination: anchor
@@ -650,6 +662,7 @@ subtypes:
     - MutualInfoSelect
     max_per_role: 2
     note: Always start with VarianceThreshold (near-free); layer MutualInfo on survivors.
+# NOT-ENSEMBLE (O5): validation metrics, not predictions
 - id: O5
   name: Validation / data quality
   description: Assert schema and statistical contracts on incoming batches before fitting or scoring.
@@ -825,6 +838,18 @@ subtypes:
       metric: auc
       value: null
       note: 'no_public_benchmark: imbalanced-learn docs page has usage examples but no cross-dataset AUC leaderboard for SMOTE.'
+  - name: WeightedSample
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [linear_signal]
+    purpose: "Importance-weighted sampling (IPW / class-weight); linear weights per row."
+    real_life_examples: ["Covariate shift correction", "Reweighted CV"]
+    config: {weight_col: string}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'WeightedSample', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.utils.class_weight.compute_sample_weight.html', algorithm_source_kind: docs, attribution: literature, task_type: sampling, n_datasets: null, metric: accuracy, value: null, note: 'no_public_benchmark: sampling utility; downstream metric'}
   metrics:
   - name: auc
     combination: anchor
@@ -1025,6 +1050,18 @@ subtypes:
       metric: auc
       value: null
       note: 'no_public_benchmark: SHAP paper (Lundberg & Lee 2017) is a theoretical/methodological paper; no cross-dataset accuracy leaderboard.'
+  - name: Anchors
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [local_structure]
+    purpose: "Anchors (Ribeiro 2018): local if-then rule explanations with precision/coverage."
+    real_life_examples: ["Rule-based model explanation", "Local decision rules"]
+    config: {threshold: float, beam_size: int}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'Anchors', algorithm_source_url: 'https://ojs.aaai.org/index.php/AAAI/article/view/11491', algorithm_source_kind: paper, attribution: literature, task_type: feature_selection, n_datasets: null, metric: fidelity, value: null, note: 'no_public_benchmark: Anchors precision/coverage per-dataset'}
   metrics:
   - name: auc
     combination: anchor
@@ -1042,6 +1079,7 @@ subtypes:
     - PermutationImportance
     max_per_role: 2
     note: Permutation is model-agnostic and cheap; use SHAPTreeExplainer for exact per-row attributions on GBDT.
+# NOT-ENSEMBLE (O9): fairness metrics, not predictions
 - id: O9
   name: Fairness / bias
   description: Measure group-level disparity in model outcomes or errors; audit before deployment.
@@ -1282,6 +1320,18 @@ subtypes:
       metric: psi
       value: null
       note: 'fetch_ok_no_number: https://docs.evidentlyai.com/introduction (Evidently docs); no cross-dataset drift-detector leaderboard published.'
+  - name: ADWIN
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "ADWIN (Bifet & Gavalda 2007): adaptive window with statistical change detection."
+    real_life_examples: ["Streaming concept drift", "Sensor regime change"]
+    config: {delta: float, max_window: int}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'ADWIN', algorithm_source_url: 'https://www.cs.upc.edu/~gavalda/papers/adwin06.pdf', algorithm_source_kind: paper, attribution: literature, task_type: anomaly, n_datasets: null, metric: drift_share, value: null, note: 'no_public_benchmark: ADWIN per-stream; delay metric depends on DGP'}
   metrics:
   - name: psi
     combination: anchor
@@ -1524,6 +1574,18 @@ subtypes:
       runtime_sec: "~4"
       date: "2026-11-05"
       note: "Per-arm 6-tuple state (n,sy,sy2,sx,sxy,sx2) is O(1) in n. Not O(d^2) — XTX model is per-arm scalars, not covariance matrix."
+  - name: SequentialTest
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [linear_signal]
+    purpose: "Wald SPRT (1945): sequential likelihood-ratio test; linear log-LR threshold."
+    real_life_examples: ["Early-stop A/B test", "Streaming conversion decision"]
+    config: {alpha: float, beta: float}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SequentialTest', algorithm_source_url: 'https://en.wikipedia.org/wiki/Sequential_probability_ratio_test', algorithm_source_kind: description, attribution: literature, task_type: eda, n_datasets: null, metric: power, value: null, note: 'no_public_benchmark: SPRT expected sample-size per-DGP'}
   metrics:
   - name: p_value
     combination: anchor

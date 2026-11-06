@@ -55,6 +55,46 @@
   - code/paper: https://github.com/CMA-ES/pycma
   - note: Hansen 2001; pycma reference.
 
+### BayesianOpt_GP — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** GP surrogate + EI acquisition; sample-efficient HPO alternative to simplex/evolution methods.
+
+**Use cases:**
+- Sample-efficient HPO
+- Expensive simulation optimization
+
+**Config:** `{'n_initial': 'int', 'n_iter': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → best_found_value=null
+  - algorithm: `BayesianOpt_GP` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/1012.2599
+  - note: no_public_benchmark: HPOBench suites (no single LB)
+
+### SMAC — sota / tier2_wrapper
+
+**Roles:** nonlinear_interactions
+**Status:** desc, export
+
+**Purpose:** Random-forest surrogate + intensification; nonlinear HPO surrogate for categorical/conditional.
+
+**Use cases:**
+- Algorithm configuration
+- Categorical search space
+
+**Config:** `{'n_initial': 'int', 'intensification': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → best_found_value=null
+  - algorithm: `SMAC` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://automl.github.io/SMAC3/
+  - note: no_public_benchmark: HPOBench suites
+
 ## Metrics
 - **best_found_value** (anchor, higher)
   - Best objective value at fixed eval budget.

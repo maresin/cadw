@@ -96,6 +96,26 @@
 
 **Benchmarks:** —
 
+### GaussianProcessForecaster — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** GP-based multivariate forecaster with kernel-induced credible bands.
+
+**Use cases:**
+- Small multivariate series with intervals
+- Sensor network forecast
+
+**Config:** `{'kernel': 'string', 'n_restarts': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → mase=null
+  - algorithm: `GaussianProcessForecaster` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/gaussian_process.html
+  - note: no_public_benchmark: GP per-dataset
+
 ## Metrics
 - **wrmse** (anchor, lower)
   - Hierarchical weighted error (M5 official).

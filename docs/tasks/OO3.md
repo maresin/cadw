@@ -95,6 +95,26 @@
 
 **Benchmarks:** —
 
+### TargetEncoder — baseline / tier1_core
+
+**Roles:** local_structure
+**Status:** desc, export
+
+**Purpose:** Out-of-fold target statistic encoding; local (per-category) mean with smoothing.
+
+**Use cases:**
+- High-cardinality categorical
+- Leakage-safe encoding
+
+**Config:** `{'smoothing': 'float', 'n_folds': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → accuracy=null
+  - algorithm: `TargetEncoder` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.TargetEncoder.html
+  - note: no_public_benchmark: target encoding quality = downstream proxy
+
 ## Metrics
 - **accuracy** (anchor, higher)
   - Downstream accuracy of the model trained on the transformed features.

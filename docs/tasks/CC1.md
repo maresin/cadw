@@ -79,6 +79,46 @@
   - code/paper: https://arxiv.org/abs/0909.4061
   - note: Halko et al. 2011. CADW impl: fit_randomized_svd (J_nlp J2).
 
+### KernelPCA — sota / tier2_wrapper
+
+**Roles:** nonlinear_interactions
+**Status:** desc, export
+
+**Purpose:** Kernel PCA (Scholkopf 1998): nonlinear projection via kernel-induced feature map.
+
+**Use cases:**
+- Nonlinear feature compression
+- Denoising with kernel ridge
+
+**Config:** `{'n_components': 'int', 'kernel': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → reconstruction_error=null
+  - algorithm: `KernelPCA` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.KernelPCA.html
+  - note: no_public_benchmark: kernel PCA per-dataset
+
+### SparsePCA — sota / tier2_wrapper
+
+**Roles:** local_structure
+**Status:** desc, export
+
+**Purpose:** Sparse PCA (Zou 2006): elastic-net-regularized components; local (sparse) loading structure.
+
+**Use cases:**
+- Interpretable feature projection
+- Sparse loadings for report
+
+**Config:** `{'n_components': 'int', 'alpha': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → reconstruction_error=null
+  - algorithm: `SparsePCA` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.SparsePCA.html
+  - note: no_public_benchmark: sparse PCA per-dataset
+
 ## Metrics
 - **reconstruction_error** (anchor, lower)
   - Frobenius norm of (X - X_reconstructed); lower = better preservation.

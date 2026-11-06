@@ -56,6 +56,46 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.Birch.html
   - note: no_public_benchmark: CADW-native measurement in .pingis/benches/birch.json (fit_time_s).
 
+### BisectingKMeans — sota / tier1_core
+
+**Roles:** local_structure
+**Status:** desc, export
+
+**Purpose:** Top-down recursive bisection with 2-means; centroid-based hierarchical alternative to bottom-up.
+
+**Use cases:**
+- Taxonomy induction via bisection
+- Document hierarchy
+
+**Config:** `{'n_clusters': 'int', 'bisecting_strategy': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → cophenetic_correlation=null
+  - algorithm: `BisectingKMeans` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html
+  - note: no_public_benchmark: bisecting clustering per-dataset
+
+### SpectralClustering — sota / tier2_wrapper
+
+**Roles:** representation
+**Status:** desc, export
+
+**Purpose:** Graph-spectral hierarchical clustering; reveals manifold structure lost by bottom-up linkage.
+
+**Use cases:**
+- Non-convex hierarchical cluster
+- Graph community hierarchy
+
+**Config:** `{'n_clusters': 'int', 'affinity': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → cophenetic_correlation=null
+  - algorithm: `SpectralClustering` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html
+  - note: no_public_benchmark: spectral clustering per-dataset
+
 ## Metrics
 - **cophenetic_correlation** (anchor, higher)
   - Preservation of pairwise distances in dendrogram.

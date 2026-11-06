@@ -70,6 +70,26 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html
   - note: no_public_benchmark: NMF has no likelihood/perplexity; 20NG has no live public coherence leaderboard either
 
+### Top2Vec — sota / tier2_wrapper
+
+**Roles:** nonlinear_interactions
+**Status:** desc, export
+
+**Purpose:** Top2Vec (Angelov 2020): joint doc+word embedding then nonlinear density clusters of topics.
+
+**Use cases:**
+- Dynamic topic discovery
+- Thematic clustering of docs
+
+**Config:** `{'embedding_model': 'string', 'min_topic_size': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → perplexity=null
+  - algorithm: `Top2Vec` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/2008.09470
+  - note: no_public_benchmark: Top2Vec per-dataset
+
 ## Metrics
 - **perplexity** (anchor, lower)
   - Held-out per-word perplexity; canonical probabilistic topic-model fit.

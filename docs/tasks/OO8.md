@@ -58,6 +58,26 @@
   - code/paper: https://github.com/shap/shap
   - note: no_public_benchmark: SHAP paper (Lundberg & Lee 2017) is a theoretical/methodological paper; no cross-dataset accuracy leaderboard.
 
+### Anchors — sota / tier2_wrapper
+
+**Roles:** local_structure
+**Status:** desc, export
+
+**Purpose:** Anchors (Ribeiro 2018): local if-then rule explanations with precision/coverage.
+
+**Use cases:**
+- Rule-based model explanation
+- Local decision rules
+
+**Config:** `{'threshold': 'float', 'beam_size': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → fidelity=null
+  - algorithm: `Anchors` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://ojs.aaai.org/index.php/AAAI/article/view/11491
+  - note: no_public_benchmark: Anchors precision/coverage per-dataset
+
 ## Metrics
 - **auc** (anchor, higher)
   - Downstream model AUC (XAI is evaluated indirectly via model sanity).

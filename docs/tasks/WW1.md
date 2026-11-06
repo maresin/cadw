@@ -56,6 +56,26 @@
   - code/paper: https://arxiv.org/abs/1401.0118
   - note: Ranganath et al. 2014.
 
+### SVI — sota / tier2_wrapper
+
+**Roles:** local_structure
+**Status:** desc, export
+
+**Purpose:** Stochastic Variational Inference (Hoffman 2013): minibatch VI with local steps; scalable to large data.
+
+**Use cases:**
+- Large-data Bayesian fit
+- Streaming VI
+
+**Config:** `{'n_steps': 'int', 'learning_rate': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → elbo=null
+  - algorithm: `SVI` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/1303.2225
+  - note: no_public_benchmark: SVI convergence per-model
+
 ## Metrics
 - **elbo** (anchor, higher)
   - Evidence Lower BOund: VI objective; higher = better fit.

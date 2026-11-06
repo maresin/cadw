@@ -143,6 +143,18 @@ subtypes:
       value: 0.06
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+  - name: CausalForest
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [local_structure]
+    purpose: "Generalized Random Forest (Athey 2019): honest-split local CATE estimation."
+    real_life_examples: ["Heterogeneous treatment effects", "Subgroup policy targeting"]
+    config: {n_trees: int, honesty: bool}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CausalForest', algorithm_source_url: 'https://arxiv.org/abs/1510.04342', algorithm_source_kind: paper, attribution: literature, task_type: causal, n_datasets: null, metric: cate_rmse, value: null, note: 'no_public_benchmark: CausalForest per-dataset'}
   metrics:
   - name: ate_error
     combination: anchor
@@ -261,6 +273,30 @@ subtypes:
     - reduce
     - spill_dir
     - codes_bin
+  - name: CausalForest
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [local_structure]
+    purpose: "Generalized Random Forest (Athey 2019): local CATE estimation via honest trees; used for uplift targeting."
+    real_life_examples: ["Uplift targeting with local CATE", "Subgroup policy for uplift"]
+    config: {n_trees: int, honesty: bool}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CausalForest', algorithm_source_url: 'https://arxiv.org/abs/1510.04342', algorithm_source_kind: paper, attribution: literature, task_type: causal, n_datasets: null, metric: qini_coefficient, value: null, note: 'no_public_benchmark: causal forest uplift per-dataset'}
+  - name: DR_learner_uplift
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "Doubly-robust meta-learner for uplift; propensity + outcome models give semiparametric efficiency."
+    real_life_examples: ["Semiparametric uplift estimation", "Robust Qini vs misspecification"]
+    config: {n_estimators: int, propensity: 'logistic'}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'DR_learner_uplift', algorithm_source_url: 'https://arxiv.org/abs/1712.05898', algorithm_source_kind: paper, attribution: literature, task_type: causal, n_datasets: null, metric: qini_coefficient, value: null, note: 'no_public_benchmark: DR-learner per-dataset'}
   metrics:
   - name: qini
     combination: anchor

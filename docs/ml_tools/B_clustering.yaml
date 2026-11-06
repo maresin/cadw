@@ -97,6 +97,30 @@ subtypes:
         config: {n_clusters: int, bisecting_strategy: string}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.BisectingKMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: inertia, value: null, note: 'no_public_benchmark: not on AMLB.'}
+      - name: GaussianMixtureClustering
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [probabilistic]
+        purpose: "Soft-assignment clustering via Gaussian mixture; probabilistic alternative to hard centroid."
+        real_life_examples: ["Soft customer segmentation", "Model-based clustering"]
+        config: {n_components: int, covariance_type: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianMixtureClustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/mixture.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: GMM clustering per-dataset'}
+      - name: SpectralClustering
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation]
+        purpose: "Graph-Laplacian spectral clustering (Ng 2002); captures non-convex cluster shape via eigenvectors."
+        real_life_examples: ["Non-convex cluster discovery", "Manifold-based grouping"]
+        config: {n_clusters: int, affinity: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
     metrics:
       - {name: silhouette, combination: anchor, direction: higher, responsibility: "Unsupervised cluster separation; primary diagnostic without labels.", special: "O(n^2) naive; sample-based for large n. Not comparable across k."}
       - {name: inertia, combination: diagnostic, direction: lower, responsibility: "Within-cluster sum of squared distances (KMeans objective).", special: "Decreases with k; only comparable at same k."}
@@ -134,6 +158,30 @@ subtypes:
         config: {min_cluster_size: int, min_samples: int, metric: string}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'hdbscan.HDBSCAN', algorithm_source_url: 'https://github.com/scikit-learn-contrib/hdbscan', algorithm_source_kind: code, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: Campello 2013 per-dataset numbers. Reference impl in .pingis/impl/N/HDBSCAN.txt.'}
+      - name: GaussianMixtureClustering
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [probabilistic]
+        purpose: "Density view via GMM; contrasts with DBSCAN/HDBSCAN (no explicit p(x))."
+        real_life_examples: ["Density-mode discovery", "Soft density cluster"]
+        config: {n_components: int, covariance_type: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianMixtureClustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/mixture.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: GMM clustering per-dataset'}
+      - name: SpectralClustering
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation]
+        purpose: "Graph-based density clustering: mode-seeking via spectral eigenvectors of similarity graph."
+        real_life_examples: ["Arbitrary-shape density cluster", "Manifold density"]
+        config: {n_clusters: int, affinity: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
     metrics:
       - {name: adjusted_rand_score, combination: anchor, direction: higher, responsibility: "Pairwise agreement with ground truth, chance-corrected.", special: "Requires labels; use silhouette for unsupervised mode."}
       - {name: noise_ratio, combination: diagnostic, direction: target, responsibility: "Fraction of points labelled -1.", special: "Domain-dependent; high noise may signal wrong eps."}
@@ -171,6 +219,30 @@ subtypes:
         config: {threshold: float, branching_factor: int, n_clusters: int}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.Birch', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.Birch.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: CADW-native measurement in .pingis/benches/birch.json (fit_time_s).'}
+      - name: BisectingKMeans
+        tier: sota
+        tier_level: tier1_core
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [local_structure]
+        purpose: "Top-down recursive bisection with 2-means; centroid-based hierarchical alternative to bottom-up."
+        real_life_examples: ["Taxonomy induction via bisection", "Document hierarchy"]
+        config: {n_clusters: int, bisecting_strategy: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'BisectingKMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: bisecting clustering per-dataset'}
+      - name: SpectralClustering
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation]
+        purpose: "Graph-spectral hierarchical clustering; reveals manifold structure lost by bottom-up linkage."
+        real_life_examples: ["Non-convex hierarchical cluster", "Graph community hierarchy"]
+        config: {n_clusters: int, affinity: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
     metrics:
       - {name: cophenetic_correlation, combination: anchor, direction: higher, responsibility: "Preservation of pairwise distances in dendrogram.", special: "Requires dendrogram; for flat methods (k-means) use silhouette."}
       - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
@@ -207,6 +279,18 @@ subtypes:
         config: {n_clusters: int, max_iter: int, tol: float}
         benchmark_results:
           - {benchmark: UCR_Classification, benchmark_url: 'https://www.timeseriesclassification.com/', algorithm: 'k-Shape (Paparrizos & Gravano 2015)', algorithm_source_url: 'https://arxiv.org/abs/1506.07608', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'Paper reports ARI per UCR dataset; no unified LB. CADW TS-anomaly implementation in D_time_series (fit_kshape); clustering-task view here.'}
+      - name: ShapeGMM
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [probabilistic]
+        purpose: "Gaussian Mixture on z-normalized shapes; soft shape-cluster assignment."
+        real_life_examples: ["Soft TS motif clustering", "Patient trajectory uncertainty"]
+        config: {n_components: int, covariance_type: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'ShapeGMM', algorithm_source_url: 'https://arxiv.org/abs/2205.00905', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: ShapeGMM per-dataset'}
     metrics:
       - {name: adjusted_rand_score, combination: anchor, direction: higher, responsibility: "Pairwise agreement with ground truth, chance-corrected.", special: "Requires labels (UCR benchmark); use silhouette for unsupervised."}
 
@@ -242,6 +326,30 @@ subtypes:
         config: {n_clusters: tuple, method: string, svd_method: string}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.SpectralBiclustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.SpectralBiclustering.html', algorithm_source_kind: docs, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: no unified biclustering LB.'}
+      - name: PlaidModel
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [probabilistic]
+        purpose: "Plaid biclustering (Lazzeroni & Owen 2002): probabilistic submatrix model with layer decomposition."
+        real_life_examples: ["Gene expression layers", "Recommender co-cluster"]
+        config: {n_clusters: int, max_layers: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'PlaidModel', algorithm_source_url: 'https://academic.oup.com/biostatistics/article/3/4/459/247731', algorithm_source_kind: paper, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: plaid per-dataset'}
+      - name: Bimax
+        tier: baseline
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [local_structure]
+        purpose: "Bimax (Prelic 2006): binary biclustering; local rule-based pattern submatrices."
+        real_life_examples: ["Binary cohort pattern", "Sparse binary co-cluster"]
+        config: {min_rows: int, min_cols: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'Bimax', algorithm_source_url: 'https://academic.oup.com/bioinformatics/article/22/9/1122/232367', algorithm_source_kind: paper, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: Bimax per-dataset'}
     metrics:
       - {name: mean_squared_residue, combination: anchor, direction: lower, responsibility: "Coherence of bicluster submatrices (lower = tighter).", special: "Depends on data scale; report per-dataset."}
       - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
@@ -278,6 +386,30 @@ subtypes:
         config: {kmeans_k: int, hdbscan_min_cluster_size: int, agreement_method: string}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'consensus (KMeans + HDBSCAN) -- Strehl & Ghosh 2002 framework', algorithm_source_url: 'https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: custom ensemble; ARI vs each base partition. Strehl & Ghosh 2002 consensus-clustering framework.'}
+      - name: EvidenceAccumulation
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [probabilistic]
+        purpose: "Evidence-accumulation consensus (Fred & Jain 2005); probabilistic co-association fusion."
+        real_life_examples: ["Consensus from multiple runs", "Probabilistic clustering combination"]
+        config: {n_partitions: int, linkage: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'EvidenceAccumulation', algorithm_source_url: 'https://ieeexplore.ieee.org/document/1427769', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: evidence-accumulation per-dataset'}
+      - name: CSPA
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation]
+        purpose: "Cluster-similarity partitioning algorithm (Strehl & Ghosh 2002); meta-graph fusion."
+        real_life_examples: ["Similarity-graph consensus", "Cluster-space representation"]
+        config: {n_partitions: int, n_clusters: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CSPA', algorithm_source_url: 'https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: CSPA per-dataset'}
     metrics:
       - {name: adjusted_rand_score, combination: anchor, direction: higher, responsibility: "Agreement with ground truth (synthetic) or each base partition.", special: "Requires labels or a reference partition."}
       - {name: agreement_fraction, combination: diagnostic, direction: target, responsibility: "Fraction of points where all runs agree.", special: "Higher agreement = more confident core; disagreement = ambiguous."}

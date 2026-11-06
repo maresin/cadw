@@ -52,6 +52,46 @@
   - code/paper: https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751
   - note: no_public_benchmark: custom ensemble; ARI vs each base partition. Strehl & Ghosh 2002 consensus-clustering framework.
 
+### EvidenceAccumulation — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Evidence-accumulation consensus (Fred & Jain 2005); probabilistic co-association fusion.
+
+**Use cases:**
+- Consensus from multiple runs
+- Probabilistic clustering combination
+
+**Config:** `{'n_partitions': 'int', 'linkage': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → adjusted_rand_score=null
+  - algorithm: `EvidenceAccumulation` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://ieeexplore.ieee.org/document/1427769
+  - note: no_public_benchmark: evidence-accumulation per-dataset
+
+### CSPA — sota / tier2_wrapper
+
+**Roles:** representation
+**Status:** desc, export
+
+**Purpose:** Cluster-similarity partitioning algorithm (Strehl & Ghosh 2002); meta-graph fusion.
+
+**Use cases:**
+- Similarity-graph consensus
+- Cluster-space representation
+
+**Config:** `{'n_partitions': 'int', 'n_clusters': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → adjusted_rand_score=null
+  - algorithm: `CSPA` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751
+  - note: no_public_benchmark: CSPA per-dataset
+
 ## Metrics
 - **adjusted_rand_score** (anchor, higher)
   - Agreement with ground truth (synthetic) or each base partition.

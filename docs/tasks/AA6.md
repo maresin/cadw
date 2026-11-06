@@ -57,6 +57,26 @@
   - code/paper: https://xgboost.readthedocs.io/en/stable/parameter.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### RUSBoost — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Random Under-Sampling + AdaBoost (Seiffert 2010); robust on skewed binary.
+
+**Use cases:**
+- Fraud detection (1:100)
+- Medical rare-disease screening
+
+**Config:** `{'n_estimators': 'int', 'sampling_rate': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → pr_auc=null
+  - algorithm: `RUSBoost` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://ieeexplore.ieee.org/document/5438940
+  - note: no_public_benchmark: RUSBoost per-dataset
+
 ## Metrics
 - **pr_auc** (anchor, higher)
   - Discrimination of the rare class; prefers models that rank positives high.

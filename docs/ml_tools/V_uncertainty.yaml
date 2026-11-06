@@ -6,6 +6,7 @@
 section: V
 name: Uncertainty quantification
 subtypes:
+  # NOT-ENSEMBLE (V1): calibration alternatives (Platt/Isotonic) — fusion breaks calibration
   - id: V1
     name: "Calibration"
     description: "Post-hoc adjustment of predicted probabilities so that P(y=1|p_hat) = p_hat. Improves reliability of classifiers / soft scores."
@@ -57,6 +58,7 @@ subtypes:
       - {name: ece, combination: anchor, direction: lower, responsibility: "Expected Calibration Error: |p_hat - empirical|, binned. Lower = better calibrated.", special: "Bin-count sensitive; report with 15 or 20 bins. Not comparable across different bin counts.", not_implemented_in_cadw: true}
       - {name: brier_score, combination: diagnostic, direction: lower, responsibility: "Mean squared error of probabilities (proper scoring rule).", special: "Combines calibration + sharpness; not pure calibration metric."}
 
+  # NOT-ENSEMBLE (V2): conformal alternatives (tighter vs simpler) — fusion impossible
   - id: V2
     name: "Conformal prediction"
     description: "Distribution-free prediction intervals with finite-sample coverage guarantee (under exchangeability)."

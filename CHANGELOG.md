@@ -1,5 +1,58 @@
 ## [Unreleased]
 
+### v0.9.128 (2026-11-06) — TAXONOMY FROZEN: 42 candidates + 8 NOT-ENSEMBLE
+
+**No verified-fn count change** (32 fns / 48 verified unchanged; 14
+draft fns / 17 draft cards unchanged). +42 described_only cards across
+15 sections.
+
+Probe v0.9.128 (ensemble-viability): 16 OK-roles, 27 NEED-1, 8 NEED-2,
+7 NOT-ENSEMBLE. 35 subtypes had <3 diverse candidates.
+
+**Added (42 described_only cards):**
+- NEED-1 (27 subtypes): +1 third-role candidate each.
+  A3 GP, A4 ML-kNN, A5 OrderedProbit-Bayesian, A6 RUSBoost, A7 CQR,
+  B4 ShapeGMM, C3 GPLVM, C4 SelectKBest, D2 GaussianProcessForecaster,
+  E1 GMMAnomaly, E2 CalibratedClassifierCV, F1 GBDT_ALS_embedding,
+  F2 SVDpp, G1 ListNet, H1 CausalForest, J2 LDA_embedding, J3 Top2Vec,
+  O3 TargetEncoder, O6 WeightedSample, O8 Anchors, O10 ADWIN,
+  O11 SequentialTest, R2 HMM, S1 TabNet, S2 TabDDPM_classifier,
+  W1 SVI.
+- NEED-2 (8 subtypes): +2 candidates each.
+  B1 +GMMClustering+SpectralClustering
+  B2 +GMMClustering+SpectralClustering
+  B3 +BisectingKMeans+SpectralClustering
+  B5 +PlaidModel+Bimax
+  B6 +EvidenceAccumulation+CSPA
+  C1 +KernelPCA+SparsePCA
+  H2 +CausalForest+DR_learner_uplift
+  T2 +BayesianOpt_GP+SMAC
+- All 42 cards: `described_only: true, not_implemented_in_cadw: true,
+  tier: baseline|sota, algorithm_source_url: paper|docs|code` (AP23,
+  evidence-chain for future implementation).
+
+**8 NOT-ENSEMBLE header comments** (`# NOT-ENSEMBLE (<id>): <reason>`):
+- D5 alias of D3.2
+- O5 validation metrics, not predictions
+- O9 fairness metrics, not predictions
+- R1 association patterns, not predictions
+- T1 GP-EI/TPE/SMAC = 3 algorithmically different (roles-proxy not
+  applicable)
+- V1 calibration alternatives — fusion breaks calibration
+- V2 conformal alternatives — fusion impossible
+- W2 MCMC chain alternatives — fusion statistically invalid
+
+**FREEZE DECLARATION (DEC-052 + AI_CONSTITUTION §5.3):**
+
+> Taxonomy frozen at v0.9.128. 58/58 subtypes have ≥3 diverse
+> candidates OR explicit NOT-ENSEMBLE. No new cards without DEC entry
+> + explicit rationale. Post-freeze allowed: draft→verified status
+> flips, ram_formula completion, cross_ref formalization,
+> ensemble_recommendation refinements.
+
+**Tests:** `test_ml_tools_schema.py` 108 passed (no new tests; all
+42 cards pass existing R1-R10 gates). Version bump 0.9.127 -> 0.9.128.
+
 ### v0.9.127 (2026-11-06) — cadw.ts coverage gap: 5 forecasters + R10 extension
 
 **No verified-fn count change** (32 fns / 48 verified unchanged; draft

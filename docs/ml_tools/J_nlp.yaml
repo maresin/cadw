@@ -334,6 +334,18 @@ subtypes:
       metric: spearman_cosine
       value: null
       note: 'no_public_benchmark: STS-B GLUE LB not fetchable; S-BERT paper reports STS-B dev Spearman but that is a paper number, not a live LB row'
+  - name: LDA_embedding
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [probabilistic]
+    purpose: "Topic posterior from LDA as probabilistic text embedding (canonical topic-feature)."
+    real_life_examples: ["Short-text embedding", "Document representation for clustering"]
+    config: {n_topics: int, max_iter: int}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'LDA_embedding', algorithm_source_url: 'https://arxiv.org/abs/2104.08696', algorithm_source_kind: paper, attribution: literature, task_type: text embedding, n_datasets: null, metric: spearman_cosine, value: null, note: 'no_public_benchmark: LDA embedding quality = downstream proxy'}
   metrics:
   - name: spearman_cosine
     combination: anchor
@@ -504,6 +516,18 @@ subtypes:
       metric: perplexity
       value: null
       note: 'no_public_benchmark: NMF has no likelihood/perplexity; 20NG has no live public coherence leaderboard either'
+  - name: Top2Vec
+    tier: sota
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles: [nonlinear_interactions]
+    purpose: "Top2Vec (Angelov 2020): joint doc+word embedding then nonlinear density clusters of topics."
+    real_life_examples: ["Dynamic topic discovery", "Thematic clustering of docs"]
+    config: {embedding_model: string, min_topic_size: int}
+    benchmark_results:
+      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'Top2Vec', algorithm_source_url: 'https://arxiv.org/abs/2008.09470', algorithm_source_kind: paper, attribution: literature, task_type: nlp, n_datasets: null, metric: perplexity, value: null, note: 'no_public_benchmark: Top2Vec per-dataset'}
   metrics:
   - name: perplexity
     combination: anchor

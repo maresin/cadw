@@ -77,6 +77,26 @@
   - code/paper: https://arxiv.org/abs/1106.1813
   - note: no_public_benchmark: imbalanced-learn docs page has usage examples but no cross-dataset AUC leaderboard for SMOTE.
 
+### WeightedSample — baseline / tier1_core
+
+**Roles:** linear_signal
+**Status:** desc, export
+
+**Purpose:** Importance-weighted sampling (IPW / class-weight); linear weights per row.
+
+**Use cases:**
+- Covariate shift correction
+- Reweighted CV
+
+**Config:** `{'weight_col': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → accuracy=null
+  - algorithm: `WeightedSample` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.utils.class_weight.compute_sample_weight.html
+  - note: no_public_benchmark: sampling utility; downstream metric
+
 ## Metrics
 - **auc** (anchor, higher)
   - ROC AUC of the downstream model on the minority class.

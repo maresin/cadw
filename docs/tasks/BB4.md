@@ -55,6 +55,26 @@
   - code/paper: https://arxiv.org/abs/1506.07608
   - note: Paper reports ARI per UCR dataset; no unified LB. CADW TS-anomaly implementation in D_time_series (fit_kshape); clustering-task view here.
 
+### ShapeGMM — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Gaussian Mixture on z-normalized shapes; soft shape-cluster assignment.
+
+**Use cases:**
+- Soft TS motif clustering
+- Patient trajectory uncertainty
+
+**Config:** `{'n_components': 'int', 'covariance_type': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → adjusted_rand_score=null
+  - algorithm: `ShapeGMM` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/2205.00905
+  - note: no_public_benchmark: ShapeGMM per-dataset
+
 ## Metrics
 - **adjusted_rand_score** (anchor, higher)
   - Pairwise agreement with ground truth, chance-corrected.

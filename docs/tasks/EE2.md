@@ -56,6 +56,26 @@
   - code/paper: https://xgboost.readthedocs.io/en/stable/parameter.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### CalibratedClassifierCV — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Platt/isotonic-calibrated anomaly score; decision threshold derived from calibrated proba.
+
+**Use cases:**
+- Supervised fraud threshold
+- Anomaly scoring with calibrated P(y|x)
+
+**Config:** `{'method': 'sigmoid|isotonic', 'cv': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → roc_auc=null
+  - algorithm: `CalibratedClassifierCV` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/calibration.html
+  - note: no_public_benchmark: calibration wrapper; use supervised anomaly LB upstream
+
 ## Metrics
 - **pr_auc** (anchor, higher)
   - Discrimination of the rare class under strong imbalance.

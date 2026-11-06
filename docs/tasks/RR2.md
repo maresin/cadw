@@ -55,6 +55,26 @@
   - code/paper: https://www.philippe-fournier-viger.com/spmf/
   - note: no_public_benchmark: SPMF reference. Pei et al. 2001.
 
+### HMM — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Hidden Markov Model: probabilistic sequential structure via latent states.
+
+**Use cases:**
+- Sequence motif discovery
+- User-journey state modeling
+
+**Config:** `{'n_states': 'int', 'n_iter': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → sequence_coverage=null
+  - algorithm: `HMM` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.mixture.GaussianMixture.html
+  - note: no_public_benchmark: HMM sequential coherence per-dataset
+
 ## Metrics
 - **sequence_coverage** (anchor, higher)
   - Fraction of input sequences containing at least one discovered pattern.

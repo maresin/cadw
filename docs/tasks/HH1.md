@@ -73,6 +73,26 @@
   - code/paper: https://econml.azurewebsites.net/spec/estimation/dr.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### CausalForest — sota / tier2_wrapper
+
+**Roles:** local_structure
+**Status:** desc, export
+
+**Purpose:** Generalized Random Forest (Athey 2019): honest-split local CATE estimation.
+
+**Use cases:**
+- Heterogeneous treatment effects
+- Subgroup policy targeting
+
+**Config:** `{'n_trees': 'int', 'honesty': 'bool'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → cate_rmse=null
+  - algorithm: `CausalForest` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/1510.04342
+  - note: no_public_benchmark: CausalForest per-dataset
+
 ## Metrics
 - **ate_error** (anchor, lower)
   - Absolute error of the estimated average treatment effect.

@@ -55,6 +55,26 @@
   - code/paper: https://github.com/microsoft/LightGBM/tree/master/examples/lambdarank
   - note: [legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot
 
+### ListNet — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** ListNet (Cao 2007): Plackett-Luce probability of permutation; listwise probabilistic LTR.
+
+**Use cases:**
+- Whole-page ranking
+- Query-document list
+
+**Config:** `{'n_epochs': 'int', 'lr': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → ndcg_at_10=null
+  - algorithm: `ListNet` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/2002.07416
+  - note: no_public_benchmark: ListNet per-dataset
+
 ## Metrics
 - **ndcg_at_k** (anchor, higher)
   - Position-weighted ranking quality in top-K.

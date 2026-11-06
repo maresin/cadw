@@ -56,6 +56,26 @@
   - code/paper: https://arxiv.org/abs/1802.03426
   - note: McInnes et al. 2018.
 
+### GPLVM — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Gaussian Process Latent Variable Model (Lawrence 2005); Bayesian nonlinear embedding.
+
+**Use cases:**
+- Small-n nonlinear embedding
+- Uncertainty-aware visualization
+
+**Config:** `{'n_components': 'int', 'kernel': 'string'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → trustworthiness=null
+  - algorithm: `GPLVM` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/2105.03541
+  - note: no_public_benchmark: GPLVM per-dataset
+
 ## Metrics
 - **trustworthiness** (anchor, higher)
   - Agreement between neighbor ranks in high-D and low-D; local-structure preservation.

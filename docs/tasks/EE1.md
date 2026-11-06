@@ -82,6 +82,26 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.LocalOutlierFactor.html
   - note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
 
+### GMMAnomaly — sota / tier2_wrapper
+
+**Roles:** probabilistic
+**Status:** desc, export
+
+**Purpose:** Anomaly via low-likelihood threshold on a fitted Gaussian mixture.
+
+**Use cases:**
+- Multimodal anomaly detection
+- Cohort outlier detection
+
+**Config:** `{'n_components': 'int', 'threshold_q': 'float'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → roc_auc=null
+  - algorithm: `GMMAnomaly` (docs)
+  - number: .pingis/benches/
+  - code/paper: https://scikit-learn.org/stable/modules/mixture.html
+  - note: no_public_benchmark: GMM anomaly per-dataset
+
 ## Metrics
 - **roc_auc** (anchor, higher)
   - Rank-based discrimination across all thresholds.

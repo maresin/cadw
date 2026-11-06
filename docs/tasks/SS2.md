@@ -53,6 +53,26 @@
   - code/paper: https://arxiv.org/abs/2310.09656
   - note: no_public_benchmark: Zhang et al. 2023. torch required.
 
+### TabDDPM_classifier — sota / tier3_export
+
+**Roles:** nonlinear_interactions
+**Status:** desc, export
+
+**Purpose:** TabDDPM-trained synthetic data + downstream classifier; diffusion features via nonlinear discriminative fit.
+
+**Use cases:**
+- Downstream-on-synthetic tabular
+- Privacy-preserving ML
+
+**Config:** `{'epochs': 'int', 'batch_size': 'int'}`
+
+**Benchmarks:**
+- **[literature]** cadw_internal → downstream_accuracy=null
+  - algorithm: `TabDDPM_classifier` (paper)
+  - number: .pingis/benches/
+  - code/paper: https://arxiv.org/abs/2209.15421
+  - note: no_public_benchmark: diffusion-classifier per-dataset (torch; CPU slow)
+
 ## Metrics
 - **downstream_accuracy** (anchor, higher)
   - Train-on-synthetic / test-on-real ML utility.

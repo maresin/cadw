@@ -76,6 +76,30 @@ subtypes:
         config: {n_components: int, n_oversamples: int, random_state: int}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.utils.extmath.randomized_svd', algorithm_source_url: 'https://arxiv.org/abs/0909.4061', algorithm_source_kind: paper, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'Halko et al. 2011. CADW impl: fit_randomized_svd (J_nlp J2).'}
+      - name: KernelPCA
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [nonlinear_interactions]
+        purpose: "Kernel PCA (Scholkopf 1998): nonlinear projection via kernel-induced feature map."
+        real_life_examples: ["Nonlinear feature compression", "Denoising with kernel ridge"]
+        config: {n_components: int, kernel: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'KernelPCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.KernelPCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: kernel PCA per-dataset'}
+      - name: SparsePCA
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [local_structure]
+        purpose: "Sparse PCA (Zou 2006): elastic-net-regularized components; local (sparse) loading structure."
+        real_life_examples: ["Interpretable feature projection", "Sparse loadings for report"]
+        config: {n_components: int, alpha: float}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SparsePCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.SparsePCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: sparse PCA per-dataset'}
     metrics:
       - {name: reconstruction_error, combination: anchor, direction: lower, responsibility: "Frobenius norm of (X - X_reconstructed); lower = better preservation.", special: "Scale-dependent; normalize by ||X||_F for cross-dataset comparability."}
       - {name: explained_variance_ratio, combination: diagnostic, direction: higher, responsibility: "Fraction of total variance in top-k components.", special: "Only meaningful for PCA (centered); TruncatedSVD lacks center."}
@@ -149,6 +173,18 @@ subtypes:
         config: {n_components: int, n_neighbors: int, min_dist: float}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'umap.UMAP', algorithm_source_url: 'https://arxiv.org/abs/1802.03426', algorithm_source_kind: paper, attribution: literature, task_type: manifold_learning, n_datasets: null, metric: trustworthiness, value: null, note: 'McInnes et al. 2018.'}
+      - name: GPLVM
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [probabilistic]
+        purpose: "Gaussian Process Latent Variable Model (Lawrence 2005); Bayesian nonlinear embedding."
+        real_life_examples: ["Small-n nonlinear embedding", "Uncertainty-aware visualization"]
+        config: {n_components: int, kernel: string}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GPLVM', algorithm_source_url: 'https://arxiv.org/abs/2105.03541', algorithm_source_kind: paper, attribution: literature, task_type: manifold_learning, n_datasets: null, metric: trustworthiness, value: null, note: 'no_public_benchmark: GPLVM per-dataset'}
     metrics:
       - {name: trustworthiness, combination: anchor, direction: higher, responsibility: "Agreement between neighbor ranks in high-D and low-D; local-structure preservation.", special: "n_neighbors parameter sensitive; report across k."}
       - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific; t-SNE vs UMAP speed differs ~10x."}
@@ -185,6 +221,18 @@ subtypes:
         config: {n_estimators: int, max_iter: int, alpha: float}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'boruta.BorutaPy', algorithm_source_url: 'https://www.jstatsoft.org/article/view/v036i11', algorithm_source_kind: paper, attribution: literature, task_type: feature_selection, n_datasets: null, metric: downstream_accuracy, value: null, note: 'Kursa & Rudnicki 2010.'}
+      - name: SelectKBest
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [linear_signal]
+        purpose: "Univariate filter (F-stat / chi2 / mutual info); canonical linear feature selection."
+        real_life_examples: ["Fast pre-filter before model", "Variance-based baseline"]
+        config: {score_func: string, k: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SelectKBest', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.SelectKBest.html', algorithm_source_kind: docs, attribution: literature, task_type: feature_selection, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: filter selection quality = downstream proxy'}
     metrics:
       - {name: downstream_accuracy, combination: anchor, direction: higher, responsibility: "Accuracy/R2 of model trained on selected features only; ultimate test of feature-selection quality.", special: "Depends on downstream model; report across 2-3 model families."}
       - {name: n_selected, combination: diagnostic, direction: lower, responsibility: "Number of retained features.", special: "Tradeoff: fewer features = faster but may lose signal."}
