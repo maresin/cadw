@@ -160,15 +160,15 @@ def test_verified_cards_resolvable_by_cadw_function():
 
 # ---- coverage gap: known uncarded base algorithms (DEC-045) ----
 
-def test_known_coverage_gap_base_algorithms():
-    """Documented gap: fit_kmeans, fit_pca have no YAML card.
+def test_base_algorithms_coverage_closed():
+    """v0.9.128: gap closed in v0.9.123.
 
-    These are base algorithms from pre-cards era. Test pins the current
-    state so v0.9.121+ can flip it when cards are added.
+    DEC-045 documented fit_kmeans / fit_pca as uncarded (pre-cards era).
+    v0.9.123 added B_clustering.B1.KMeans, B1.MiniBatchKMeans,
+    C_dim_reduction.C1.PCA. Verify _lookup_card resolves all three.
     """
     from cadw.ml._memory_estimate import _lookup_card
-    # These are None today (known gap, DEC-045).
-    assert _lookup_card("fit_kmeans") is None
-    assert _lookup_card("fit_pca") is None
-    # fit_kmeans_ad HAS cards (aliased, D_time_series)
-    assert _lookup_card("fit_kmeans_ad") is not None
+    assert _lookup_card("fit_kmeans") is not None, "B_clustering.B1.KMeans"
+    assert _lookup_card("fit_minibatch_kmeans") is not None, "B_clustering.B1.MiniBatchKMeans"
+    assert _lookup_card("fit_pca") is not None, "C_dim_reduction.C1.PCA"
+    assert _lookup_card("fit_kmeans_ad") is not None, "D_time_series (aliased)"
