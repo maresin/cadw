@@ -135,20 +135,6 @@ subtypes:
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'hdbscan.HDBSCAN', algorithm_source_url: 'https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html', algorithm_source_kind: docs, attribution: literature, task_type: density, n_datasets: null, metric: mean_log_likelihood, value: null, note: 'no_public_benchmark: HDBSCAN does not output log-likelihood; no unified density leaderboard'}
 
-      - name: NormalizingFlow
-        tier: sota
-        tier_level: tier3_export
-        implementation_status:
-          described_only: false
-          not_implemented_in_cadw: true
-          requires_torch: true
-        roles: [representation, probabilistic]
-        purpose: "Invertible neural network (RealNVP/MAF/Glow) that maps data to a latent Gaussian via a chain of bijections. Inductive bias: arbitrary smooth density with exact likelihood — SOTA in high dimensions but torch-only, reached only via to_batches(format='torch')."
-        real_life_examples: ["High-d generative modeling", "Likelihood-based anomaly detection", "Tabular density for CATE posterior"]
-        config: {flow_type: string, n_layers: int, hidden_sizes: list}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'Normalizing flows (Papamakarios et al. 2021)', algorithm_source_url: 'https://arxiv.org/abs/1912.02762', algorithm_source_kind: paper, attribution: literature, task_type: density, n_datasets: null, metric: mean_log_likelihood, value: null, note: 'no_public_benchmark: flows reported per-dataset in papers; no unified public density LB on the AMLB task set'}
-
     metrics:
       - {name: mean_log_likelihood, combination: anchor, direction: higher, responsibility: 'Mean held-out log-likelihood; the canonical density-quality metric.', special: 'Scale-dependent: not comparable across dataset normalizations. Report median across runs when n_datasets>=2.'}
       - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: 'Wall-clock fit time.', special: 'Hardware-specific; only comparable within the same bench run.'}

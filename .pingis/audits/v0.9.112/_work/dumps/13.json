@@ -1,0 +1,51 @@
+{
+ "inv": {
+  "state_class": "O(batch)",
+  "state_type": "windowed",
+  "bounded_state": true,
+  "n_scalability": "constant",
+  "bounded_state_dims": {
+   "batch": 1
+  },
+  "streaming_strategy": {
+   "fit": "memmap+SpillDir for X_norm; per-batch patch reconstruct (P4d).",
+   "predict": "per-batch patch distance."
+  },
+  "primitive_reuse": [
+   "memmap",
+   "spill_dir",
+   "strided_view"
+  ],
+  "ram_formula": null,
+  "formula_evidence": null,
+  "measurement": null,
+  "bounded_by_domain": null,
+  "tier1_core_exception": null,
+  "model_class": "dl_from_scratch",
+  "learning_mode": "unsupervised",
+  "anomaly_type": "point",
+  "data_modality": "uni",
+  "source_library": "native",
+  "evaluation_scope": "synthetic",
+  "purpose": "PaAno-inspired patch splitting plus MLP encoder plus memory bank with momentum; triplet loss often inactive; score equals min distance to memory.",
+  "tier_level": "tier1_core",
+  "config": {},
+  "cadw_function": "fit_patch_memory_ad",
+  "cadw_module": "cadw.ml.patch_memory_ad",
+  "implementation_status": {
+   "verified_in_cadw": true,
+   "verified_by_agent": false
+  }
+ },
+ "facts": {
+  "modfile": "cadw/ml/patch_memory_ad.py",
+  "exists": true,
+  "lines": 415,
+  "fn_def": "",
+  "git": [
+   "7215019 v0.9.87-P4d: patch_memory_ad via SpillDir+memmap (audit HIGH-1)",
+   "24db796 v0.9.63-fix2: normalization strategies + honest limitation",
+   "251faaf v0.9.63: PatchMemoryAD (PaAno-inspired, tier1_core, Phase C.11)"
+  ]
+ }
+}

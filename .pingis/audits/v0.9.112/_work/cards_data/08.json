@@ -1,0 +1,55 @@
+{
+ "yaml": "D_time_series.yaml",
+ "name": "Sub-PCA",
+ "fn": "fit_sub_pca",
+ "mod": "cadw.ml.sub_pca",
+ "tier": "tier1_core",
+ "cur": null,
+ "bucket": "draft",
+ "prio": "medium",
+ "conf": "medium",
+ "formula": "w*d*f64 + chunk_nw*d*f64*3 + n_w*f64 (scores)",
+ "ev": {
+  "w*d*f64": "sub_pca.py:107-120 - _fit_pca_eigh on window matrix (w,d)",
+  "chunk_nw*d*f64*3": "sub_pca.py:365-366 - guard.check_state(est_bytes) chunked residual temps",
+  "n_w*f64": "sub_pca.py:269/272 - scores_chunks.append + np.concatenate -> O(n_w) output"
+ },
+ "ooc": [
+  [
+   "n",
+   "NO",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "d",
+   "PARTIAL",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "K",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "n_groups",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ]
+ ],
+ "lies": [],
+ "aps": [
+  "**AP2** at `cadw/ml/sub_pca.py:269` - `scores_chunks.append(...)` in chunk loop, then `np.concatenate` at 272 (bounded by n_w, not chunk); output is O(n)"
+ ],
+ "blockers": [
+  "O(n) output `scores_chunks` accumulated then concatenated - sub_pca.py:269-272 (SpillArray needed)",
+  "`implementation_status.status` missing",
+  "`ram_formula`/`formula_evidence`/`measurement` missing",
+  "No verification test"
+ ],
+ "rationale": "Sub-PCA streams the residual computation but still accumulates per-window scores in a list and concatenates them, so the output path is O(n).",
+ "next_action": "draft_reason: O(n) output via AP2 list concat (DEC-013 class); refactor `_stream_residual_scores` to spill scores, then formula+measure. Code: cadw/ml/sub_pca.py:255-272.",
+ "refs": [
+  "DEC-013",
+  "tests/test_sub_pca.py"
+ ]
+}

@@ -1,0 +1,53 @@
+{
+ "yaml": "D_time_series.yaml",
+ "name": "KShapeAD",
+ "fn": "fit_kshape",
+ "mod": "cadw.ml.kshape",
+ "tier": "tier1_core",
+ "cur": null,
+ "bucket": "needs-patch",
+ "prio": "medium",
+ "conf": "medium",
+ "formula": "chunk_nw*(m*8 + L*16 + k*L*16 + k*(2m-1)*8 + k*8) + n_w*24 + m*m*f64 + k*m*f64 + 16",
+ "ev": {
+  "per_chunk": "kshape.py:443-446 - _per_chunk formula copied in code",
+  "n_w*24": "kshape.py:447 - _output = (n-m+1)*24",
+  "model": "kshape.py:448 - _model = m*m*8 + k*m*8 + 16",
+  "windows/ffts memmap": "kshape.py:481-492 - SpillDir memmap-backed windows + ffts (OOC)"
+ },
+ "ooc": [
+  [
+   "n",
+   "YES",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "d",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "K",
+   "PARTIAL",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "n_groups",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ]
+ ],
+ "lies": [],
+ "aps": [],
+ "blockers": [
+  "`implementation_status.status` missing",
+  "`ram_formula`/`formula_evidence`/`measurement` missing",
+  "No verification test"
+ ],
+ "rationale": "KShape already uses SpillDir memmaps for windows and FFTs and a chunked assignment loop; the per-chunk estimator at 443-446 is a ready-made formula. Only docs/measurement are missing.",
+ "next_action": "flip after formula+evidence+component-wise measurement; formula already written at kshape.py:443-449.",
+ "refs": [
+  "tests/test_kshape.py",
+  "tests/test_iforest_verification.py (template)"
+ ]
+}

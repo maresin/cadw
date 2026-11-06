@@ -1,0 +1,190 @@
+# C - Dimensionality reduction
+# v0.9.123 (DEC-048/049). 1 draft (PCA with formula from cadw/ml/pca.py)
+# + 8 described_only.
+# cross-ref (markdown only): randomized SVD canonical J_nlp.J2 (verified);
+# NMF canonical J_nlp.J3 (verified); ALS canonical F_recsys (verified);
+# PermutationImportance canonical O_eda.O8 (verified).
+
+section: C
+name: Dimensionality reduction
+subtypes:
+  - id: C1
+    name: "Linear projection"
+    description: "Project data onto k linear directions that maximize variance (PCA) or a related objective. Interpretable, invertible."
+    real_life: ["Preprocessing for downstream models", "Noise reduction / denoising", "Visualization (k=2)"]
+    benchmarks:
+      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [reconstruction_error, explained_variance_ratio, fit_time_s], note: "No unified dim-reduction leaderboard; cadw_internal synthetic DGP."}
+    models:
+      - name: PCA
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status:
+          verified_in_cadw: true
+          status: draft
+          draft_reason: "formula from code (v0.9.123); measurement component-wise (DEC-033) v0.9.124"
+        roles: [representation]
+        purpose: "Pearson 1901: orthogonal linear projection maximizing variance. Eigendecomposition of covariance; exact for full SVD, randomized for large d. Canonical baseline."
+        real_life_examples: ["Feature preprocessing", "Denoising", "2D visualization"]
+        config: {n_components: int, method: 'auto|exact|randomized'}
+        cadw_module: cadw.ml.pca
+        cadw_function: fit_pca
+        input_api: df
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.PCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB; measure v0.9.124.'}
+        state_class: O(d²)
+        bounded_state_dims: {d: 2}
+        state_type: aggregation
+        bounded_state: true
+        n_scalability: constant
+        ram_formula: "2 * batch * row_size + 3 * d * d * f64 + 4 * d * f64 + 264"
+        formula_evidence:
+          batch_term: "pca.py:405 -- reduce over CovarianceMeanOp; _stack_numeric (parts + column_stack) = 2x batch"
+          state_cov: "reduce.py:378 -- CovarianceOp.estimate_state_nbytes = 8 + 8*d + 8*d*d"
+          finalize_cov: "reduce.py:428-438 -- CovarianceMeanOp.finalize: cov (d,d) + mean (d,)"
+          eigh: "pca.py:405 -- np.linalg.eigh(cov) -> eigvals (d,), eigvecs (d,d); sort copies both"
+          header: "pca.py -- PCA class header; 256"
+        measurement:
+          status: "pending (v0.9.124)"
+          note: "Formula from code (AP23); eigh transient (d²) dominant at large d."
+        streaming_strategy:
+          fit: 'Reduce(CovarianceMeanOp) then eigh; O(d²) state independent of n.'
+          predict: 'per-batch (X - mean) @ components.T.'
+        primitive_reuse: [reduce]
+
+      - name: TruncatedSVD
+        tier: baseline
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation]
+        purpose: "SVD without centering (LSA-style). Unlike PCA, does not require mean removal; suited for sparse inputs."
+        real_life_examples: ["Sparse text embeddings", "LSA preprocessing", "No mean removal needed"]
+        config: {n_components: int, algorithm: 'randomized|arpack'}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.TruncatedSVD', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.TruncatedSVD.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB.'}
+
+      - name: randomized_svd
+        tier: sota
+        tier_level: tier1_core
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation]
+        purpose: "Halko et al. 2011: randomized SVD for large d. Approximate; O(d·k·p) vs O(d²·k) exact. Canonical CADW implementation: cadw.ml.randsvd.fit_randomized_svd (verified in J_nlp.J2.LSA_TFIDF_SVD)."
+        real_life_examples: ["Large-d PCA", "Approximate SVD for sparse / low-rank", "Truncated LSA"]
+        config: {n_components: int, n_oversamples: int, random_state: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.utils.extmath.randomized_svd', algorithm_source_url: 'https://arxiv.org/abs/0909.4061', algorithm_source_kind: paper, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'Halko et al. 2011. CADW impl: fit_randomized_svd (J_nlp J2).'}
+    metrics:
+      - {name: reconstruction_error, combination: anchor, direction: lower, responsibility: "Frobenius norm of (X - X_reconstructed); lower = better preservation.", special: "Scale-dependent; normalize by ||X||_F for cross-dataset comparability."}
+      - {name: explained_variance_ratio, combination: diagnostic, direction: higher, responsibility: "Fraction of total variance in top-k components.", special: "Only meaningful for PCA (centered); TruncatedSVD lacks center."}
+
+  - id: C2
+    name: "Matrix factorization"
+    description: "Factor X ≈ W·H with non-negativity (NMF), implicit-feedback (ALS), or general constraints."
+    real_life: ["Topic modeling (docs × words)", "Recommender factorization (users × items)", "Parts-based representation"]
+    benchmarks:
+      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [reconstruction_error, fit_time_s], note: "No unified dim-reduction LB."}
+    models:
+      - name: NMF
+        tier: baseline
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+          reference_impl_ready: true
+        roles: [representation, probabilistic]
+        purpose: "Lee & Seung 1999: non-negative matrix factorization X ≈ W·H with W,H ≥ 0. Parts-based representation; interpretable components. Canonical CADW: .pingis/impl/J/nmf.py (reference impl), J_nlp.J3.NMF card."
+        real_life_examples: ["Topic modeling (docs × words)", "Parts-based image decomposition", "Interpretable dim reduction"]
+        config: {n_components: int, max_iter: int, init: 'random|nndsvd'}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.NMF', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html', algorithm_source_kind: docs, attribution: literature, task_type: matrix_factorization, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB. Reference impl .pingis/impl/J/nmf.py; card J_nlp.J3.NMF.'}
+
+      - name: ALS
+        tier: sota
+        tier_level: tier1_core
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation, local_structure]
+        purpose: "Hu et al. 2008: Alternating Least Squares for implicit-feedback matrices. Solves weighted least squares per user/item iteratively. Canonical CADW: cadw.ml.als.fit_als (verified in F_recsys.ALS)."
+        real_life_examples: ["Implicit-feedback recommenders", "Large sparse matrix factorization", "Low-rank approximation"]
+        config: {n_factors: int, regularization: float, iterations: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'implicit.als.AlternatingLeastSquares', algorithm_source_url: 'https://arxiv.org/abs/1205.2618', algorithm_source_kind: paper, attribution: literature, task_type: matrix_factorization, n_datasets: null, metric: reconstruction_error, value: null, note: 'Hu et al. 2008. CADW impl: fit_als (F_recsys).'}
+    metrics:
+      - {name: reconstruction_error, combination: anchor, direction: lower, responsibility: "||X - W·H||_F; quality of low-rank approximation.", special: "Normalize by ||X||_F."}
+      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
+
+  - id: C3
+    name: "Manifold learning"
+    description: "Non-linear dim reduction that preserves local neighborhoods or topology."
+    real_life: ["Visualization (k=2)", "Non-linear feature extraction", "Clustering preprocessing"]
+    benchmarks:
+      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [trustworthiness, fit_time_s], note: "No unified manifold-learning LB."}
+    models:
+      - name: t-SNE
+        tier: baseline
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation, local_structure]
+        purpose: "van der Maaten & Hinton 2008: t-distributed Stochastic Neighbor Embedding. Preserves local neighborhoods via KL divergence between similarity distributions. Strong at 2D visualization."
+        real_life_examples: ["2D visualization", "Local-structure discovery", "Cluster inspection"]
+        config: {n_components: int, perplexity: float, max_iter: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.manifold.TSNE', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.manifold.TSNE.html', algorithm_source_kind: docs, attribution: literature, task_type: manifold_learning, n_datasets: null, metric: trustworthiness, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB.'}
+
+      - name: UMAP
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [representation, local_structure]
+        purpose: "McInnes et al. 2018: Uniform Manifold Approximation. Fuzzy topological representation; faster than t-SNE and preserves both local and some global structure."
+        real_life_examples: ["Fast visualization (n > 10^5)", "Local + global structure", "Preprocessing for clustering"]
+        config: {n_components: int, n_neighbors: int, min_dist: float}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'umap.UMAP', algorithm_source_url: 'https://arxiv.org/abs/1802.03426', algorithm_source_kind: paper, attribution: literature, task_type: manifold_learning, n_datasets: null, metric: trustworthiness, value: null, note: 'McInnes et al. 2018.'}
+    metrics:
+      - {name: trustworthiness, combination: anchor, direction: higher, responsibility: "Agreement between neighbor ranks in high-D and low-D; local-structure preservation.", special: "n_neighbors parameter sensitive; report across k."}
+      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific; t-SNE vs UMAP speed differs ~10x."}
+
+  - id: C4
+    name: "Feature selection"
+    description: "Select subset of features by importance, eliminating noise / redundant signals."
+    real_life: ["Model interpretability (few features)", "Remove noisy features", "Speed up downstream training"]
+    benchmarks:
+      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [downstream_accuracy, n_selected, fit_time_s], note: "Feature-selection quality via downstream model accuracy (proxy)."}
+    models:
+      - name: PermutationImportance
+        tier: baseline
+        tier_level: tier1_core
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [calibration]
+        purpose: "Breiman 2001: feature importance by permuting each feature and measuring score drop. Model-agnostic; honest (unlike in-sample impurity). Canonical CADW: cadw.ml.importance.permutation_importance (verified in O_eda.O8)."
+        real_life_examples: ["Feature ranking post-hoc", "Model-agnostic importance", "Sanity check for built-in importance"]
+        config: {n_repeats: int, random_state: int}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.inspection.permutation_importance', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.inspection.permutation_importance.html', algorithm_source_kind: docs, attribution: literature, task_type: feature_selection, n_datasets: null, metric: downstream_accuracy, value: null, note: 'Breiman 2001. CADW impl: permutation_importance (O_eda O8, verified).'}
+
+      - name: Boruta
+        tier: sota
+        tier_level: tier2_wrapper
+        implementation_status:
+          described_only: true
+          not_implemented_in_cadw: true
+        roles: [calibration, nonlinear_interactions]
+        purpose: "Kursa & Rudnicki 2010: all-relevant feature selection. Shadow features + iterative random-forest comparison; keeps all features statistically more important than random."
+        real_life_examples: ["Biomarker discovery (all-relevant)", "Nonlinear feature importance", "Small-nomics data"]
+        config: {n_estimators: int, max_iter: int, alpha: float}
+        benchmark_results:
+          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'boruta.BorutaPy', algorithm_source_url: 'https://www.jstatsoft.org/article/view/v036i11', algorithm_source_kind: paper, attribution: literature, task_type: feature_selection, n_datasets: null, metric: downstream_accuracy, value: null, note: 'Kursa & Rudnicki 2010.'}
+    metrics:
+      - {name: downstream_accuracy, combination: anchor, direction: higher, responsibility: "Accuracy/R2 of model trained on selected features only; ultimate test of feature-selection quality.", special: "Depends on downstream model; report across 2-3 model families."}
+      - {name: n_selected, combination: diagnostic, direction: lower, responsibility: "Number of retained features.", special: "Tradeoff: fewer features = faster but may lose signal."}

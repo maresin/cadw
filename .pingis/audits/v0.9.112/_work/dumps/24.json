@@ -1,0 +1,56 @@
+{
+ "inv": {
+  "state_class": "O(N\u00b7d)",
+  "state_type": "partitioned",
+  "bounded_state": true,
+  "n_scalability": "linear",
+  "bounded_state_dims": {
+   "N": 1,
+   "d": 1
+  },
+  "streaming_strategy": {
+   "fit": "HashShuffle by user/item + external_sort item-sweep; per-factor state (m+n)\u00b7k param-bounded by k.",
+   "predict": "per-batch dot product on cached factors."
+  },
+  "primitive_reuse": [
+   "hash_shuffle",
+   "external_sort",
+   "reduce"
+  ],
+  "ram_formula": null,
+  "formula_evidence": null,
+  "measurement": null,
+  "bounded_by_domain": null,
+  "tier1_core_exception": null,
+  "model_class": null,
+  "learning_mode": null,
+  "anomaly_type": null,
+  "data_modality": null,
+  "source_library": null,
+  "evaluation_scope": "both",
+  "purpose": "Alternating Least Squares on implicit feedback; scalable to millions.",
+  "tier_level": "tier1_core",
+  "config": {
+   "n_factors": "int",
+   "n_iter": "int",
+   "reg": "float"
+  },
+  "cadw_function": "fit_als",
+  "cadw_module": "cadw.ml.als",
+  "implementation_status": {
+   "verified_in_cadw": true,
+   "verified_by_agent": true
+  }
+ },
+ "facts": {
+  "modfile": "cadw/ml/als.py",
+  "exists": true,
+  "lines": 235,
+  "fn_def": "",
+  "git": [
+   "2a12956 v0.9.87-P5a-fix-als: streaming dict build + streaming objective",
+   "1bf5ebb v0.9.46-fix2: ALS item-sweep sort-key bug (found via M2)",
+   "a9e559e v0.9.36: Phase D group 2/7 - ALS (D.2.2), hybrid MF (D.2.3), CoxPH (D.3.1)"
+  ]
+ }
+}

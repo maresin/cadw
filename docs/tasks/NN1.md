@@ -107,27 +107,6 @@
   - code/paper: https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html
   - note: no_public_benchmark: HDBSCAN does not output log-likelihood; no unified density leaderboard
 
-### NormalizingFlow — sota / tier3_export
-
-**Roles:** representation, probabilistic
-**Status:** export
-
-**Purpose:** Invertible neural network (RealNVP/MAF/Glow) that maps data to a latent Gaussian via a chain of bijections. Inductive bias: arbitrary smooth density with exact likelihood — SOTA in high dimensions but torch-only, reached only via to_batches(format='torch').
-
-**Use cases:**
-- High-d generative modeling
-- Likelihood-based anomaly detection
-- Tabular density for CATE posterior
-
-**Config:** `{'flow_type': 'string', 'n_layers': 'int', 'hidden_sizes': 'list'}`
-
-**Benchmarks:**
-- **[literature]** cadw_internal → mean_log_likelihood=null
-  - algorithm: `Normalizing flows (Papamakarios et al. 2021)` (paper)
-  - number: https://openml.github.io/automlbenchmark/
-  - code/paper: https://arxiv.org/abs/1912.02762
-  - note: no_public_benchmark: flows reported per-dataset in papers; no unified public density LB on the AMLB task set
-
 ## Metrics
 - **mean_log_likelihood** (anchor, higher)
   - Mean held-out log-likelihood; the canonical density-quality metric.

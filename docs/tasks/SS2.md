@@ -18,7 +18,7 @@
 **Roles:** probabilistic
 **Status:** desc, export
 
-**Purpose:** Kotelnikov et al. 2022: diffusion for tabular data. Gaussian for continuous, multinomial diffusion for categorical. Best quality on many benchmarks.
+**Purpose:** Kotelnikov et al. 2022: diffusion for tabular data. Gaussian for continuous, multinomial diffusion for categorical. Best quality on many benchmarks. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.
 
 **Use cases:**
 - Synthetic tabular data
@@ -38,7 +38,7 @@
 **Roles:** probabilistic, representation
 **Status:** desc, export
 
-**Purpose:** Zhang et al. 2023: diffusion in latent space of a VAE. Combines VAE compression with diffusion generation; better efficiency.
+**Purpose:** Zhang et al. 2023: diffusion in latent space of a VAE. Combines VAE compression with diffusion generation; better efficiency. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.
 
 **Use cases:**
 - Efficient synthetic data

@@ -1,0 +1,57 @@
+{
+ "yaml": "H_causal.yaml",
+ "name": "T_learner",
+ "fn": "fit_meta_learner",
+ "mod": "cadw.ml.meta_learners",
+ "tier": "tier1_core",
+ "cur": null,
+ "bucket": "draft",
+ "prio": "medium",
+ "conf": "high",
+ "formula": "UNDERIVABLE - reason: `_collect` at meta_learners.py:131-144 appends every batch to Xs/ts/ys and then np.vstack/np.concatenate -> O(n*d) materialized matrix; peak depends on total n, not batch.",
+ "ev": {
+  "_collect append": "meta_learners.py:137-138 - Xs.append(_stack_numeric(b, cols)); ts.append(...)",
+  "vstack": "meta_learners.py:144 - return np.vstack(Xs), np.concatenate(ts), np.concatenate(ys)",
+  "guard": "meta_learners.py:136 - mg.check_state(n*(len(cols)*8+16))"
+ },
+ "ooc": [
+  [
+   "n",
+   "NO",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "d",
+   "NO",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "K",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "n_groups",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ]
+ ],
+ "lies": [
+  "**bounded_state / n_scalability** claim true/constant, but `_collect` materializes all rows at `cadw/ml/meta_learners.py:137-144`."
+ ],
+ "aps": [
+  "**AP2** at `cadw/ml/meta_learners.py:137-144` - list.append in batch loop + np.vstack/np.concatenate -> O(n*d)"
+ ],
+ "blockers": [
+  "AP2 O(n*d) materialization in `_collect` - meta_learners.py:137-144",
+  "`implementation_status.status` missing",
+  "`ram_formula`/`formula_evidence`/`measurement` missing",
+  "No verification test"
+ ],
+ "rationale": "T-learner delegates to GBDT but pre-collects the entire design matrix in `_collect`, so the constant-n claim is false. This is a real refactor (two-pass or per-arm streaming), not a docs fix.",
+ "next_action": "draft_reason: AP2 O(n*d) collect at meta_learners.py:137-144; needs streaming two-pass refactor + SpillDir before formula. Code: cadw/ml/meta_learners.py:125-150.",
+ "refs": [
+  "tests/test_meta_learners.py",
+  "DEC-012 (same AP2 class)"
+ ]
+}

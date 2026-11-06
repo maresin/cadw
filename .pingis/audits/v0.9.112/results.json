@@ -1,0 +1,1049 @@
+{
+ "audit_version": "v0.9.112",
+ "generated_by": "pingis",
+ "generated_at": "2026-11-03",
+ "task_file": ".pingis/tasks/TASK_v0.9.112_pingis_audit.md",
+ "slot_resolutions": {
+  "slot_01": {
+   "yaml_file": "A_classification.yaml",
+   "card_name": "GBDT",
+   "cadw_function": "fit_gbdt_classifier"
+  },
+  "slot_02": {
+   "yaml_file": "A_classification.yaml",
+   "card_name": "GBDT_L2",
+   "cadw_function": "fit_gbdt_regressor"
+  },
+  "slot_05": {
+   "yaml_file": "A_classification.yaml",
+   "card_name": "GBDT_multiclass",
+   "cadw_function": "fit_gbdt_classifier"
+  }
+ },
+ "cards": [
+  {
+   "id": "01",
+   "yaml_file": "docs/ml_tools/A_classification.yaml",
+   "card_name": "GBDT",
+   "cadw_function": "fit_gbdt_classifier",
+   "cadw_module": "cadw.ml.gbdt",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "high",
+   "confidence": "medium",
+   "blocking_items": [
+    "`implementation_status.status` missing - YAML field",
+    "`ram_formula` missing - YAML field",
+    "`formula_evidence` missing - YAML field",
+    "`measurement` missing - YAML field",
+    "No `batch_size` kwarg on fit - gbdt.py:1197",
+    "O(n) internal-state guard contradicts `n_scalability: constant` - gbdt.py:997",
+    "No verification test `tests/test_gbdt_verification.py`"
+   ],
+   "yaml_lies": [
+    "**state_class / bounded_state / n_scalability** claim O(batch)/true/constant, code guards n_total*32 at cadw/ml/gbdt.py:997 (multiclass: np.full(n,-1)/(n,K) at :1512-1513, guard n_total*8*2 at :1598)"
+   ],
+   "aps_detected": [
+    "**AP4** at `cadw/ml/gbdt.py:1295` - `y_onehot = np.zeros((len(y_idx), n_classes))` allocated in multiclass path; guard at 1598 is in the enclosing caller, not adjacent"
+   ],
+   "ram_formula_hypothesis": "2*d*f64 + S*(f*bins*8*2 + 8*3) + 7.0*batch*row_size + n_total*32",
+   "formula_evidence_hypothesis": {
+    "2*d*f64": "gbdt.py:208/212 - MinMax ReduceOp estimate_state_nbytes 8*d*2",
+    "S*(f*bins*8*2 + 8*3)": "gbdt.py:289/380 - histogram ReduceOp per-slot state",
+    "7.0*batch*row_size": "gbdt.py:295/456 - batch_memory_factor 7.0 / 4.0",
+    "n_total*32": "gbdt.py:997 - est_n_state = n_total*32"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "PARTIAL",
+    "K": "PARTIAL",
+    "n_groups": "N/A"
+   },
+   "next_action": "gbdt.py:997/1598: replace n_total*32 state guard with batch-bounded SpillDir estimate and add batch_size kwarg to fit_gbdt_classifier; then derive+measure formula.",
+   "references": [
+    "tests/test_gbdt_classification.py",
+    "tests/test_gbdt_multiclass.py",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "02",
+   "yaml_file": "docs/ml_tools/A_classification.yaml",
+   "card_name": "GBDT_L2",
+   "cadw_function": "fit_gbdt_regressor",
+   "cadw_module": "cadw.ml.gbdt",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "high",
+   "confidence": "medium",
+   "blocking_items": [
+    "`implementation_status.status` missing - YAML field",
+    "`ram_formula` missing - YAML field",
+    "`formula_evidence` missing - YAML field",
+    "`measurement` missing - YAML field",
+    "No `batch_size` kwarg on fit - gbdt.py:1197",
+    "O(n) internal-state guard contradicts `n_scalability: constant` - gbdt.py:997",
+    "No verification test `tests/test_gbdt_verification.py`"
+   ],
+   "yaml_lies": [
+    "**state_class / bounded_state / n_scalability** claim O(batch)/true/constant, code guards n_total*32 at cadw/ml/gbdt.py:997 (multiclass: np.full(n,-1)/(n,K) at :1512-1513, guard n_total*8*2 at :1598)"
+   ],
+   "aps_detected": [
+    "**AP4** at `cadw/ml/gbdt.py:1295` - `y_onehot = np.zeros((len(y_idx), n_classes))` allocated in multiclass path; guard at 1598 is in the enclosing caller, not adjacent"
+   ],
+   "ram_formula_hypothesis": "2*d*f64 + S*(f*bins*8*2 + 8*3) + 7.0*batch*row_size + n_total*32",
+   "formula_evidence_hypothesis": {
+    "2*d*f64": "gbdt.py:208/212 - MinMax ReduceOp estimate_state_nbytes 8*d*2",
+    "S*(f*bins*8*2 + 8*3)": "gbdt.py:289/380 - histogram ReduceOp per-slot state",
+    "7.0*batch*row_size": "gbdt.py:295/456 - batch_memory_factor 7.0 / 4.0",
+    "n_total*32": "gbdt.py:997 - est_n_state = n_total*32"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "PARTIAL",
+    "K": "PARTIAL",
+    "n_groups": "N/A"
+   },
+   "next_action": "gbdt.py:997/1598: replace n_total*32 state guard with batch-bounded SpillDir estimate and add batch_size kwarg to fit_gbdt_classifier; then derive+measure formula.",
+   "references": [
+    "tests/test_gbdt_classification.py",
+    "tests/test_gbdt_multiclass.py",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "03",
+   "yaml_file": "docs/ml_tools/J_nlp.yaml",
+   "card_name": "LDA",
+   "cadw_function": "fit_lda",
+   "cadw_module": "cadw.ml.lda",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "high",
+   "confidence": "medium",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula` missing",
+    "`formula_evidence` missing",
+    "`measurement` missing",
+    "`bounded_state_dims` wrong ({d:1} vs {n_topics,vocab_size}) - lda.py:368",
+    "No verification test `tests/test_lda_verification.py`"
+   ],
+   "yaml_lies": [
+    "**bounded_state_dims** claims {d: 1}, persistent model is K*V*f64 at cadw/ml/lda.py:368"
+   ],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "K*V*f64 + max_sample_rows*V*f64 + 3.0*batch*row_size + 6*max(nnz_batch)*K*f64",
+   "formula_evidence_hypothesis": {
+    "K*V*f64": "lda.py:368/87-90 - mg.check_state(K*V*8+512) and LdaModel.state_nbytes",
+    "max_sample_rows*V*f64": "lda.py:360/362 - doc_sample np.vstack(n_ds*V*8)",
+    "3.0*batch*row_size": "lda.py:342 - mg.check_batch(b, extra_factor=3.0)",
+    "6*nnz*K*f64": "lda.py:345 - C.nnz*K*8*6 sparse E-step temp"
+   },
+   "ooc": {
+    "n": "YES",
+    "d": "PARTIAL",
+    "K": "NO",
+    "n_groups": "N/A"
+   },
+   "next_action": "flip after adding formula + measurement + fixing bounded_state_dims to {n_topics,vocab_size} in J_nlp.yaml LDA card.",
+   "references": [
+    "tests/test_lda.py",
+    "tests/test_lda_bounded_memory.py"
+   ]
+  },
+  {
+   "id": "04",
+   "yaml_file": "docs/ml_tools/I_survival.yaml",
+   "card_name": "CoxPH",
+   "cadw_function": "fit_coxph",
+   "cadw_module": "cadw.ml.coxph",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "high",
+   "confidence": "medium",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula` missing",
+    "`formula_evidence` missing",
+    "`measurement` missing",
+    "`tier1_core_exception` wart (DEC-011) - use `bounded_by_domain` instead",
+    "`state_class`/`bounded_state`/`n_scalability` mismatch - coxph.py:474-500",
+    "No verification test `tests/test_coxph_verification.py`"
+   ],
+   "yaml_lies": [
+    "**state_class / bounded_state / n_scalability** claim O(n)/false/linear, code streams n via external_sort + _iter_filtered_batches and bounds by pending_budget at cadw/ml/coxph.py:460, :474-500"
+   ],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "3*d*d*f64 + 2.0*batch*row_size + 5*pending_budget*f64 + 2*n_events*f64",
+   "formula_evidence_hypothesis": {
+    "3*d*d*f64": "coxph.py:461 - mg.check_state(3*d*d*8 + 5*pending_budget)",
+    "2.0*batch*row_size": "coxph.py:475 - mg.check_batch(extra_factor=2.0)",
+    "5*pending_budget*f64": "coxph.py:460 - pending_budget = state_limit_bytes//8",
+    "2*n_events*f64": "coxph.py:535 - mg.check_state(2*n_events*8+256)"
+   },
+   "ooc": {
+    "n": "YES",
+    "d": "PARTIAL",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "after formula: add `bounded_by_domain: {axis: n, bound: 1e7, reason: ...}`, set `state_class: O(d^2 + pending)`, flip status. Evidence path: cadw/ml/coxph.py:455-500; binding not needed (module-level fit_coxph).",
+   "references": [
+    "tests/test_coxph.py",
+    "DEC-011",
+    "DEC-014"
+   ]
+  },
+  {
+   "id": "05",
+   "yaml_file": "docs/ml_tools/A_classification.yaml",
+   "card_name": "GBDT_multiclass",
+   "cadw_function": "fit_gbdt_classifier",
+   "cadw_module": "cadw.ml.gbdt",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "high",
+   "confidence": "medium",
+   "blocking_items": [
+    "`implementation_status.status` missing - YAML field",
+    "`ram_formula` missing - YAML field",
+    "`formula_evidence` missing - YAML field",
+    "`measurement` missing - YAML field",
+    "No `batch_size` kwarg on fit - gbdt.py:1197",
+    "O(n) internal-state guard contradicts `n_scalability: constant` - gbdt.py:997",
+    "No verification test `tests/test_gbdt_verification.py`"
+   ],
+   "yaml_lies": [
+    "**state_class / bounded_state / n_scalability** claim O(batch)/true/constant, code guards n_total*32 at cadw/ml/gbdt.py:997 (multiclass: np.full(n,-1)/(n,K) at :1512-1513, guard n_total*8*2 at :1598)"
+   ],
+   "aps_detected": [
+    "**AP1** at `cadw/ml/gbdt.py:1512-1513` - `np.full(n, -1)` and `np.full((n, K), np.nan)` outside the guard at 1598 (allocated in caller before guard)"
+   ],
+   "ram_formula_hypothesis": "2*d*f64 + S*(f*bins*8*2 + 8*3) + 7.0*batch*row_size + n_total*8*2",
+   "formula_evidence_hypothesis": {
+    "2*d*f64": "gbdt.py:208/212 - MinMax ReduceOp estimate_state_nbytes 8*d*2",
+    "S*(f*bins*8*2 + 8*3)": "gbdt.py:289/380 - histogram ReduceOp per-slot state",
+    "7.0*batch*row_size": "gbdt.py:295/456 - batch_memory_factor 7.0 / 4.0",
+    "n_total*32": "gbdt.py:997 - est_n_state = n_total*32",
+    "n_total*8*2": "gbdt.py:1598 - est_n_state = n_total*8*2"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "PARTIAL",
+    "K": "PARTIAL",
+    "n_groups": "N/A"
+   },
+   "next_action": "gbdt.py:997/1598: replace n_total*32 state guard with batch-bounded SpillDir estimate and add batch_size kwarg to fit_gbdt_classifier; then derive+measure formula.",
+   "references": [
+    "tests/test_gbdt_classification.py",
+    "tests/test_gbdt_multiclass.py",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "06",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "ZMS",
+   "cadw_function": "fit_zms",
+   "cadw_module": "cadw.ml.zms",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "draft",
+   "priority": "medium",
+   "confidence": "high",
+   "blocking_items": [
+    "DEC-013: `ZMSResult.decision_scores` + `labels` are O(n) output - blocked until SpillArray",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "`bounded_state` true is wrong - output is O(n)"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "n*f64 + chunk*window_size*f64*2 + n*f64 (labels as int)",
+   "formula_evidence_hypothesis": {
+    "n*f64": "zms.py:132-133/149-150 - mu,sigma np.empty(n_w) and scores = abs(x-mu)/sigma (n,)",
+    "chunk*window_size*f64*2": "zms.py:138-141 - guard.check_state(nb*window_size*8*2)",
+    "n*f64 labels": "zms.py:156 - labels = (scores>thr).astype(int)"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "draft_reason: O(n) output (DEC-013); revisit after SpillArray. Code evidence: cadw/ml/zms.py:132-156.",
+   "references": [
+    "DEC-013",
+    "tests/test_zms.py"
+   ]
+  },
+  {
+   "id": "07",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "Hampel",
+   "cadw_function": "fit_hampel",
+   "cadw_module": "cadw.ml.hampel",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "draft",
+   "priority": "medium",
+   "confidence": "high",
+   "blocking_items": [
+    "DEC-013 predicted this: O(n) output (decision_scores, labels) - blocked until SpillArray",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "`bounded_state` true wrong (O(n) output)"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "n*f64*2 + chunk*window_size*f64*2 + n*f64 (labels)",
+   "formula_evidence_hypothesis": {
+    "n*8*2": "hampel.py:144-145/165-166 - med,mad np.empty(n_w) and scores = abs(x-med)/sigma",
+    "chunk*window_size*16": "hampel.py:149-151 - guard.check_state(nb*window_size*8*2)",
+    "n labels": "hampel.py:171 - labels = (scores>threshold).astype(int)"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "draft_reason: O(n) output (DEC-013 same class); revisit after SpillArray. Code: cadw/ml/hampel.py:140-178.",
+   "references": [
+    "DEC-013",
+    "tests/test_hampel.py"
+   ]
+  },
+  {
+   "id": "08",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "Sub-PCA",
+   "cadw_function": "fit_sub_pca",
+   "cadw_module": "cadw.ml.sub_pca",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "draft",
+   "priority": "medium",
+   "confidence": "medium",
+   "blocking_items": [
+    "O(n) output `scores_chunks` accumulated then concatenated - sub_pca.py:269-272 (SpillArray needed)",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [
+    "**AP2** at `cadw/ml/sub_pca.py:269` - `scores_chunks.append(...)` in chunk loop, then `np.concatenate` at 272 (bounded by n_w, not chunk); output is O(n)"
+   ],
+   "ram_formula_hypothesis": "w*d*f64 + chunk_nw*d*f64*3 + n_w*f64 (scores)",
+   "formula_evidence_hypothesis": {
+    "w*d*f64": "sub_pca.py:107-120 - _fit_pca_eigh on window matrix (w,d)",
+    "chunk_nw*d*f64*3": "sub_pca.py:365-366 - guard.check_state(est_bytes) chunked residual temps",
+    "n_w*f64": "sub_pca.py:269/272 - scores_chunks.append + np.concatenate -> O(n_w) output"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "PARTIAL",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "draft_reason: O(n) output via AP2 list concat (DEC-013 class); refactor `_stream_residual_scores` to spill scores, then formula+measure. Code: cadw/ml/sub_pca.py:255-272.",
+   "references": [
+    "DEC-013",
+    "tests/test_sub_pca.py"
+   ]
+  },
+  {
+   "id": "09",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "KShapeAD",
+   "cadw_function": "fit_kshape",
+   "cadw_module": "cadw.ml.kshape",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "medium",
+   "confidence": "medium",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "chunk_nw*(m*8 + L*16 + k*L*16 + k*(2m-1)*8 + k*8) + n_w*24 + m*m*f64 + k*m*f64 + 16",
+   "formula_evidence_hypothesis": {
+    "per_chunk": "kshape.py:443-446 - _per_chunk formula copied in code",
+    "n_w*24": "kshape.py:447 - _output = (n-m+1)*24",
+    "model": "kshape.py:448 - _model = m*m*8 + k*m*8 + 16",
+    "windows/ffts memmap": "kshape.py:481-492 - SpillDir memmap-backed windows + ffts (OOC)"
+   },
+   "ooc": {
+    "n": "YES",
+    "d": "N/A",
+    "K": "PARTIAL",
+    "n_groups": "N/A"
+   },
+   "next_action": "flip after formula+evidence+component-wise measurement; formula already written at kshape.py:443-449.",
+   "references": [
+    "tests/test_kshape.py",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "10",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "EIF",
+   "cadw_function": "fit_eif",
+   "cadw_module": "cadw.ml.eif",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "medium",
+   "confidence": "medium",
+   "blocking_items": [
+    "O(n_w) output `window_scores` - eif.py:413/454 (DEC-013 class; may block true OOC)",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "n_estimators*psi*d*f64 + n_w*f64 + chunk_nw*d*f64*2",
+   "formula_evidence_hypothesis": {
+    "n_est*psi*d*8": "eif.py:367-372 - est_bytes = n_estimators*psi_est*d_pre*8 + n_w_pre*8 + chunk*d*8*2",
+    "n_w*f64": "eif.py:413/454 - window_scores np.empty(n_w) (output)",
+    "chunk_nw*d*8*2": "eif.py:372 - chunk buffer term"
+   },
+   "ooc": {
+    "n": "YES",
+    "d": "PARTIAL",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "needs-patch: add DEC-013 note for O(n_w) output and write formula from eif.py:367-372; if output is accepted as bounded-by-domain, flip after component-wise test.",
+   "references": [
+    "tests/test_eif.py",
+    "DEC-013",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "11",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "Autoencoder",
+   "cadw_function": "fit_autoencoder",
+   "cadw_module": "cadw.ml.autoencoder",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "medium",
+   "confidence": "medium",
+   "blocking_items": [
+    "O(n_w) output `window_scores` + permutation - autoencoder.py:322-323, 368 (DEC-013 class)",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "16*n_w + batch_size*d*f64*6 + 2*f64*(d*h + h + h*lat + lat + lat*h + h + h*d + d)",
+   "formula_evidence_hypothesis": {
+    "16*n_w": "autoencoder.py:322-324 - permutation (8n_w) + scores (8n_w)",
+    "batch*d*8*6": "autoencoder.py:324 - batch buffer forward+backward temps",
+    "params+velocities": "autoencoder.py:324-327 - (d*h+h+h*lat+...) * 8 * 2"
+   },
+   "ooc": {
+    "n": "YES",
+    "d": "PARTIAL",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "needs-patch: write formula from autoencoder.py:322-327, record O(n_w) output as bounded_by_domain modifier, run component-wise test.",
+   "references": [
+    "tests/test_autoencoder.py",
+    "DEC-013",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "12",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "KMeansAD",
+   "cadw_function": "fit_kmeans_ad",
+   "cadw_module": "cadw.ml.kmeans_ad",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "medium",
+   "confidence": "medium",
+   "blocking_items": [
+    "O(n_w) output `window_scores`/`labels_per_window` - kmeans_ad.py:305-306 (DEC-013 class)",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "S*d*f64 + k*d*f64 + n_w*f64 + n_w*i64 + chunk_nw*d*f64*2",
+   "formula_evidence_hypothesis": {
+    "S*d*f64": "kmeans_ad.py:256 - sample = np.empty((S,d)) reservoir, S = max(k*10, min(10000,n_w))",
+    "k*d*f64": "kmeans_ad.py:275-276 - sums np.zeros((k,d)) + counts np.zeros(k)",
+    "n_w*f64+i64": "kmeans_ad.py:305-306 - window_scores + labels_per_window np.empty(n_w) (output)",
+    "chunk*d*2": "kmeans_ad.py:249 - chunk_nw buffers"
+   },
+   "ooc": {
+    "n": "YES",
+    "d": "PARTIAL",
+    "K": "YES",
+    "n_groups": "N/A"
+   },
+   "next_action": "needs-patch: formula from kmeans_ad.py:256-306; declare bounded_by_domain on output or spill it; then component-wise test.",
+   "references": [
+    "tests/test_kmeans_ad.py",
+    "DEC-013",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "13",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "PatchMemoryAD",
+   "cadw_function": "fit_patch_memory_ad",
+   "cadw_module": "cadw.ml.patch_memory_ad",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "medium",
+   "confidence": "medium",
+   "blocking_items": [
+    "O(n) output `(n_w + n)*16` - patch_memory_ad.py:256 (DEC-013 class; SpillDir already used for X_norm)",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "max(chunk_nw*d_patches*f64*6, (n_w+n)*16) + 2*f64*(d_p*h + h + h*lat + lat) + 2*f64*n_memory*lat",
+   "formula_evidence_hypothesis": {
+    "per_chunk": "patch_memory_ad.py:255 - _chunk_nw*_d_patches*8*6",
+    "output_phase": "patch_memory_ad.py:256 - (n_w + n)*8*2",
+    "model_params": "patch_memory_ad.py:257-258",
+    "mem_params": "patch_memory_ad.py:259 - n_memory*latent*8*2"
+   },
+   "ooc": {
+    "n": "YES",
+    "d": "PARTIAL",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "needs-patch: formula from patch_memory_ad.py:255-259; spill output or bounded_by_domain; component-wise test.",
+   "references": [
+    "tests/test_patch_memory_ad.py",
+    "DEC-013",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "14",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "S2G",
+   "cadw_function": "fit_s2g",
+   "cadw_module": "cadw.ml.s2g",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "draft",
+   "priority": "low",
+   "confidence": "medium",
+   "blocking_items": [
+    "`est_bytes` keeps full input `n*8` and O(n) output - s2g.py:452-453",
+    "O(n_nodes^2) graph state - s2g.py:453",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "UNDERIVABLE - reason: est_bytes at s2g.py:452-454 includes n*8 (full input series) and n_nodes*n_nodes*8; graph size is data-dependent (n_nodes bounded by quantile binning but not formula-expressed).",
+   "formula_evidence_hypothesis": {
+    "n*8": "s2g.py:452 - est_bytes = int(n*8 + per_chunk + output + W_bounded)",
+    "W_bounded": "s2g.py:453 - n_nodes*n_nodes*8",
+    "output": "s2g.py:453 - _n_w*24 (O(n) output)"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "draft_reason: n*8 input + n_nodes^2 graph + O(n) output; needs input streaming + SpillArray. Code: cadw/ml/s2g.py:446-456.",
+   "references": [
+    "tests/test_s2g.py",
+    "DEC-013"
+   ]
+  },
+  {
+   "id": "15",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "MiniRocket",
+   "cadw_function": "fit_minirocket",
+   "cadw_module": "cadw.ml.minirocket",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "low",
+   "confidence": "high",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "`bounded_state_dims {batch:1}` wrong - state is O(num_kernels), not batch",
+    "transform() accumulates `rows` list -> vstack at 102-105 (AP2, but transform not fit)"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "num_kernels*(8 + 8) + 5*8",
+   "formula_evidence_hypothesis": {
+    "num_kernels*16": "minirocket.py:31/52 - make_kernels list of (w,d) tuples + dilations",
+    "model state": "minirocket.py:84 - MiniRocketModel.state_nbytes",
+    "guard": "minirocket.py:128 - mg.check_state(model.state_nbytes())"
+   },
+   "ooc": {
+    "n": "N/A",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "cheap flip: add formula num_kernels*(8+8)+5*8, fix bounded_state_dims to {num_kernels}, run tests/test_minirocket.py + add verification test.",
+   "references": [
+    "tests/test_minirocket.py"
+   ]
+  },
+  {
+   "id": "16",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "DWT-MLEAD",
+   "cadw_function": "fit_dwt_mlead",
+   "cadw_module": "cadw.ml.dwt_mlead",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "draft",
+   "priority": "low",
+   "confidence": "medium",
+   "blocking_items": [
+    "O(n) output arrays - dwt_mlead.py:326-342 (DEC-013 class)",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [
+    "**AP1** at `cadw/ml/dwt_mlead.py:326-328` - `np.zeros(n)` arrays for anomaly_scores/is_anomaly/counts"
+   ],
+   "ram_formula_hypothesis": "UNDERIVABLE - reason: est_bytes_pre at dwt_mlead.py:302-308 is not visible as a single expression in the read window; output is O(n) (anomaly_scores + is_anomaly + counts at 326-342).",
+   "formula_evidence_hypothesis": {
+    "n output": "dwt_mlead.py:326-342 - anomaly_scores np.zeros(n), is_anomaly np.zeros(n), anomaly_counts np.zeros(n)",
+    "guard": "dwt_mlead.py:307-308 - guard.check_state(est_bytes_pre)"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "draft_reason: O(n) output (DEC-013 class); revisit after SpillArray. Code: cadw/ml/dwt_mlead.py:326-342.",
+   "references": [
+    "tests/test_dwt_mlead.py",
+    "DEC-013"
+   ]
+  },
+  {
+   "id": "17",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "BOCPD",
+   "cadw_function": "fit_bocpd",
+   "cadw_module": "cadw.ml.bocpd",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "medium",
+   "confidence": "medium",
+   "blocking_items": [
+    "O(n) output `anomaly_score` + `argmax_run` - bocpd.py:264-265 (DEC-013 class)",
+    "R_hist is O(n*(max_run+1)) when `full_posterior` - bocpd.py:268",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "`bounded_state_dims {k,d}` wrong - run-length dim `max_run` not declared"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "n*8 (score) + n*8 (argmax) + _keep*(max_run+1)*f64 + 3*(max_run+1)*f64 + chunk",
+   "formula_evidence_hypothesis": {
+    "n*8 score": "bocpd.py:264 - anomaly_score = np.zeros(n)",
+    "n*8 argmax": "bocpd.py:265 - argmax_run = np.zeros(n, dtype=int64)",
+    "R_hist": "bocpd.py:268 - R_hist = np.zeros((_keep, max_run+1))",
+    "R/mu/beta": "bocpd.py:259-262"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "PARTIAL",
+    "n_groups": "N/A"
+   },
+   "next_action": "needs-patch: add formula from bocpd.py:259-268, declare O(n) output + bounded_by_domain or spill, then component-wise test.",
+   "references": [
+    "tests/test_bocpd.py",
+    "DEC-013",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "18",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "ETS",
+   "cadw_function": "ETSForecaster",
+   "cadw_module": "cadw.ts.ets",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "tier1_core_exception",
+   "priority": "medium",
+   "confidence": "high",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "DEC-011: `tier1_core_exception` is a wart - replace with `bounded_by_domain` (I_survival/D_time_series YAML)",
+    "n_scalability: linear + bounded_state false is honest, but no `bounded_by_domain` block present",
+    "No verification test `tests/test_ets_verification.py`"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "3*n*f64 + 256",
+   "formula_evidence_hypothesis": {
+    "3*n*f64": "ets.py:169-172 - state_nbytes = y_.nbytes + fitted_.nbytes + season_.nbytes + 256",
+    "grid search cost": "ets.py:86 - _grid_search over (alpha,beta,gamma,phi), O(n*grid) time not RAM",
+    "binding": "cadw/dataframe/_ml_bindings.py:850-865 - fit_ets -> ETSForecaster(...).fit(...)"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "docs-only: replace `tier1_core_exception` with `bounded_by_domain: {axis: n, bound: 1000000, reason: single-series forecasting}` and add formula `3*n*f64 + 256` from cadw/ts/ets.py:169-172. Binding evidence: cadw/dataframe/_ml_bindings.py:850.",
+   "references": [
+    "DEC-011",
+    "DEC-014",
+    "tests/test_ets.py"
+   ]
+  },
+  {
+   "id": "19",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "AutoETS",
+   "cadw_function": "AutoETSForecaster",
+   "cadw_module": "cadw.ts.auto_ets",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "tier1_core_exception",
+   "priority": "medium",
+   "confidence": "high",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "DEC-011: `tier1_core_exception` is a wart - replace with `bounded_by_domain` (I_survival/D_time_series YAML)",
+    "n_scalability: linear + bounded_state false is honest, but no `bounded_by_domain` block present",
+    "AutoETS card `cadw_function: AutoETSForecaster` is a class, not a fit_* function - no DataFrame binding",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "3*n*f64 + 256 + configs*8",
+   "formula_evidence_hypothesis": {
+    "inner model state": "auto_ets.py:283-286 - state_nbytes returns best_model_.state_nbytes()",
+    "config enumeration": "auto_ets.py:126/220 - configs + aicc_scores lists (bounded by config count)",
+    "binding": "no DataFrame binding found for AutoETS in _ml_bindings.py (uses class directly)"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "docs-only: bounded_by_domain n<=1e6, formula = inner ETS state from cadw/ts/auto_ets.py:283-286.",
+   "references": [
+    "DEC-011",
+    "DEC-014",
+    "tests/test_auto_ets.py"
+   ]
+  },
+  {
+   "id": "20",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "Theta",
+   "cadw_function": "ThetaForecaster",
+   "cadw_module": "cadw.ts.theta",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "tier1_core_exception",
+   "priority": "medium",
+   "confidence": "high",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "DEC-011: `tier1_core_exception` is a wart - replace with `bounded_by_domain` (I_survival/D_time_series YAML)",
+    "n_scalability: linear + bounded_state false is honest, but no `bounded_by_domain` block present",
+    "No verification test `tests/test_theta_verification.py`"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "n*f64*2 + 256",
+   "formula_evidence_hypothesis": {
+    "state": "theta.py:245-247 - state_nbytes (series + decomposition)",
+    "STL decomp": "theta.py:170-175 - stl_decompose(y) on full series",
+    "binding": "cadw/dataframe/_ml_bindings.py:867-882 - fit_theta -> ThetaForecaster(...).fit(...)"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "docs-only: bounded_by_domain n<=1e6, formula from cadw/ts/theta.py:245; binding evidence cadw/dataframe/_ml_bindings.py:867.",
+   "references": [
+    "DEC-011",
+    "DEC-014",
+    "tests/test_theta.py"
+   ]
+  },
+  {
+   "id": "21",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "AutoTheta",
+   "cadw_function": "AutoThetaForecaster",
+   "cadw_module": "cadw.ts.auto_theta",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "tier1_core_exception",
+   "priority": "medium",
+   "confidence": "high",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "DEC-011: `tier1_core_exception` is a wart - replace with `bounded_by_domain` (I_survival/D_time_series YAML)",
+    "n_scalability: linear + bounded_state false is honest, but no `bounded_by_domain` block present",
+    "AutoTheta card `cadw_function: AutoThetaForecaster` is a class, not fit_* - no DataFrame binding",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "3*n*f64 + 256",
+   "formula_evidence_hypothesis": {
+    "inner state": "auto_theta.py:284-285 - state_nbytes = best_model_.state_nbytes()",
+    "CV candidate buffers": "auto_theta.py:94 - mg.check_state(3*len(y)*8)",
+    "candidates": "auto_theta.py:168/175 - cands list (bounded)"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "docs-only: bounded_by_domain n<=1e6, formula from cadw/ts/auto_theta.py:284 and guard at :94.",
+   "references": [
+    "DEC-011",
+    "DEC-014",
+    "tests/test_auto_theta.py"
+   ]
+  },
+  {
+   "id": "22",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "SARIMA",
+   "cadw_function": "SARIMAForecaster",
+   "cadw_module": "cadw.ts.models",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "tier1_core_exception",
+   "priority": "low",
+   "confidence": "medium",
+   "blocking_items": [
+    "O(n) retained series + O(n*p) design matrix - models.py:334/366/494-502",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "DEC-011: `tier1_core_exception` -> `bounded_by_domain`",
+    "No dedicated `tests/test_sarima.py` (only test_models*.py)"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [
+    "**AP1** at `cadw/ts/models.py:334/366` - `np.empty((n-p, p))` full design matrix for Hannan-Rissanen OLS"
+   ],
+   "ram_formula_hypothesis": "n*f64*2 + (n-p)*p*f64 + 256",
+   "formula_evidence_hypothesis": {
+    "y_raw_": "models.py:494 - self.y_raw_ = y.copy() (O(n))",
+    "centered": "models.py:502 - self._y_centered_ = y - mean (O(n))",
+    "design matrix": "models.py:334/366 - X = np.empty((n-p, p)) Hannan-Rissanen OLS",
+    "extract": "models.py:47-110 - _extract_series with batch_size=_BATCH (streamed)"
+   },
+   "ooc": {
+    "n": "PARTIAL",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "docs-only: bounded_by_domain n<=1e6 + formula from models.py:334/494; add tests/test_sarima.py.",
+   "references": [
+    "DEC-011",
+    "DEC-014",
+    "tests/test_models.py"
+   ]
+  },
+  {
+   "id": "23",
+   "yaml_file": "docs/ml_tools/D_time_series.yaml",
+   "card_name": "NaiveForecaster",
+   "cadw_function": "NaiveForecaster",
+   "cadw_module": "cadw.ts.models",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "high",
+   "confidence": "high",
+   "blocking_items": [
+    "YAML says O(1) but code is O(n) - models.py:220",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "No verification test"
+   ],
+   "yaml_lies": [
+    "**state_class / bounded_state / n_scalability / bounded_state_dims** claim O(1)/true/constant/{}, code stores full series at cadw/ts/models.py:220"
+   ],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "n*f64 + 256",
+   "formula_evidence_hypothesis": {
+    "y_": "models.py:220 - self.y_ = y (full series retained)",
+    "docstring": "models.py:187-190 - docstring itself says \"RAM: O(N) for storing the training series\"",
+    "predict O(1)": "models.py:227 - np.full(steps, base) at predict"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "N/A",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "needs-patch: change state_class to `O(n)`, bounded_state to false, add bounded_by_domain n<=1e6, formula n*f64+256 from models.py:220; then flip.",
+   "references": [
+    "DEC-011",
+    "DEC-014",
+    "tests/test_models.py"
+   ]
+  },
+  {
+   "id": "24",
+   "yaml_file": "docs/ml_tools/F_recsys.yaml",
+   "card_name": "ALS",
+   "cadw_function": "fit_als",
+   "cadw_module": "cadw.ml.als",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "needs-patch",
+   "priority": "medium",
+   "confidence": "medium",
+   "blocking_items": [
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "`bounded_state_dims {N,d}` uses undefined names (formula names U,I,n_factors)",
+    "No verification test"
+   ],
+   "yaml_lies": [],
+   "aps_detected": [],
+   "ram_formula_hypothesis": "(U+I)*n_factors*f64*2 + 8.0*batch*row_size + dict(U+I entries)",
+   "formula_evidence_hypothesis": {
+    "(U+I)*k*8": "als.py:183 - mg.check_state((U+I)*n_factors*8)",
+    "X,Y factors": "als.py:194-195 - rng.uniform size=(U,k) and (I,k)",
+    "8.0*batch*row_size": "als.py:174 - mg.check_batch(extra_factor=8.0)",
+    "sets/dicts": "als.py:170-189 - u_set/i_set/u_pos/i_pos O(U+I)"
+   },
+   "ooc": {
+    "n": "YES",
+    "d": "N/A",
+    "K": "PARTIAL",
+    "n_groups": "YES"
+   },
+   "next_action": "cheap flip: formula (U+I)*n_factors*f64*2 + 8.0*batch*row_size, fix bounded_state_dims to {U, I, n_factors}, add component-wise test.",
+   "references": [
+    "tests/test_als.py",
+    "tests/test_iforest_verification.py (template)"
+   ]
+  },
+  {
+   "id": "25",
+   "yaml_file": "docs/ml_tools/H_causal.yaml",
+   "card_name": "T_learner",
+   "cadw_function": "fit_meta_learner",
+   "cadw_module": "cadw.ml.meta_learners",
+   "tier_level": "tier1_core",
+   "current_status": null,
+   "bucket": "draft",
+   "priority": "medium",
+   "confidence": "high",
+   "blocking_items": [
+    "AP2 O(n*d) materialization in `_collect` - meta_learners.py:137-144",
+    "`implementation_status.status` missing",
+    "`ram_formula`/`formula_evidence`/`measurement` missing",
+    "No verification test"
+   ],
+   "yaml_lies": [
+    "**bounded_state / n_scalability** claim true/constant, _collect materializes all rows at cadw/ml/meta_learners.py:137-144"
+   ],
+   "aps_detected": [
+    "**AP2** at `cadw/ml/meta_learners.py:137-144` - list.append in batch loop + np.vstack/np.concatenate -> O(n*d)"
+   ],
+   "ram_formula_hypothesis": "UNDERIVABLE - reason: `_collect` at meta_learners.py:131-144 appends every batch to Xs/ts/ys and then np.vstack/np.concatenate -> O(n*d) materialized matrix; peak depends on total n, not batch.",
+   "formula_evidence_hypothesis": {
+    "_collect append": "meta_learners.py:137-138 - Xs.append(_stack_numeric(b, cols)); ts.append(...)",
+    "vstack": "meta_learners.py:144 - return np.vstack(Xs), np.concatenate(ts), np.concatenate(ys)",
+    "guard": "meta_learners.py:136 - mg.check_state(n*(len(cols)*8+16))"
+   },
+   "ooc": {
+    "n": "NO",
+    "d": "NO",
+    "K": "N/A",
+    "n_groups": "N/A"
+   },
+   "next_action": "draft_reason: AP2 O(n*d) collect at meta_learners.py:137-144; needs streaming two-pass refactor + SpillDir before formula. Code: cadw/ml/meta_learners.py:125-150.",
+   "references": [
+    "tests/test_meta_learners.py",
+    "DEC-012 (same AP2 class)"
+   ]
+  }
+ ],
+ "roadmap_yaml_drift": [
+  {
+   "roadmap_says": "fit_pca",
+   "yaml_reality": "no card",
+   "recommendation": "add card or remove from ROADMAP"
+  },
+  {
+   "roadmap_says": "fit_kmeans",
+   "yaml_reality": "no card",
+   "recommendation": "add card or remove from ROADMAP"
+  },
+  {
+   "roadmap_says": "fit_tfidf",
+   "yaml_reality": "status=draft",
+   "recommendation": "audit draft separately"
+  }
+ ],
+ "summary": {
+  "total": 25,
+  "verified_ready": 0,
+  "needs_patch": 14,
+  "draft": 6,
+  "tier1_core_exception": 5,
+  "yaml_lies_total": 7,
+  "aps_total": 7
+ }
+}

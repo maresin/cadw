@@ -1,5 +1,50 @@
 ## [Unreleased]
 
+### v0.9.126 (2026-11-06) — cleanup: weak-machine, no framework cards, P->B/Q->C
+
+**Weak machine = no GPU, 8-16 GB RAM** (2.8 GB in DEC-048 was a snapshot,
+not a budget). Card admissibility rule updated: tabular + OOC-by-design +
+weak-machine fit + implementable-or-importable.
+
+**Removed (21 cards + 1 section):**
+- K_vision.yaml (4 cards) — non-tabular (images)
+- L_graph.yaml (4 cards) — non-tabular (graphs)
+- U_automl.yaml (whole section, 3 framework cards) — framework != model
+- D_time_series: Chronos-Bolt-Small, Chronos-Bolt-Base (negative scaling),
+  Timer-S1 (1B+, GPU-only), t0-beta (GPU-only), AutoGluon-TS (framework)
+- J_nlp: BERT (MiniLM 99% quality at 10% RAM), BERTopic (needs BERT)
+- N_density: NormalizingFlow (torch-only; GMM/KDE cover density)
+- A_classification: TabPFN (16 GB CPU min; attention O(n^2); n<=1K CPU
+  — architecturally non-OOC, not "not yet optimized")
+
+**Renamed (duplicate with ML_TASKS_TAXONOMY B1/C1):**
+- P_clustering.yaml -> B_clustering.yaml (subtype P1..P6 -> B1..B6)
+- Q_dim_reduction.yaml -> C_dim_reduction.yaml (Q1..Q4 -> C1..C4)
+
+**Card status updates:**
+- 4 inference-only (Chronos-Bolt-Tiny/Mini/Chronos-2-small,
+  SentenceTransformer): purpose += "Requires torch; inference-only."
+- 2 draft-target (DeepSurv, DeepHit): purpose += "Optional numpy
+  draft-target (2-3 sessions); marginal over RSF; v0.9.128+."
+- 5 S_generative (TVAE/CTGAN/CTAB-GAN+/TabDDPM/TabSyn): purpose +=
+  "Last priority (v0.9.130+); CPU-feasible but training is hours-days."
+
+**Cross-refs updated** in ROADMAP.md, ML_TASKS_TAXONOMY.md,
+test_ml_tools_schema.py. DEC-049 historical refs preserved as-is
+(append-only log). DEC-050 records rationale.
+
+**Levels clarified (DEC-050 §A3):**
+- `ensemble_recommendation` (subtype YAML) = diverse-role list
+- `tier: ensemble` card = named recipe (D1.EnsembleForecaster already
+  exists v0.9.82)
+- `fit_stacking(df, base_models, meta_learner)` = v0.9.127+ infrastructure
+  function, not a card
+- AutoML framework = selection + HPO + stacking + pipeline search
+  — deleted; if CADW needs stacking, that's fit_stacking
+
+**16 sections remain** (A-H, I, J, M, N, O, R, S, T, V, W; K/L/U deleted;
+P/Q renamed to B/C). 18 YAML + 3 support = 21 total.
+
 ### v0.9.125 (2026-11-06) — R/S/T/U/V/W sections (27 described_only cards)
 
 **No verified-fn changes** (32 fns / 48 verified / 10 draft / 13 draft

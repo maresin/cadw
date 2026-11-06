@@ -1,0 +1,50 @@
+{
+ "inv": {
+  "state_class": "O(batch)",
+  "state_type": "windowed",
+  "bounded_state": true,
+  "n_scalability": "constant",
+  "bounded_state_dims": {
+   "batch": 1
+  },
+  "streaming_strategy": {
+   "fit": "per-batch extended iforest on strided windows (fix1b).",
+   "predict": "per-batch path-length scoring."
+  },
+  "primitive_reuse": [
+   "strided_view",
+   "reduce"
+  ],
+  "ram_formula": null,
+  "formula_evidence": null,
+  "measurement": null,
+  "bounded_by_domain": null,
+  "tier1_core_exception": null,
+  "model_class": "ml",
+  "learning_mode": "unsupervised",
+  "anomaly_type": "point",
+  "data_modality": "both",
+  "source_library": "native",
+  "evaluation_scope": "synthetic",
+  "purpose": "Extended Isolation Forest with random hyperplane splits (Gaussian normal vector) instead of axis-parallel; windowed multivariate series.",
+  "tier_level": "tier1_core",
+  "config": {},
+  "cadw_function": "fit_eif",
+  "cadw_module": "cadw.ml.eif",
+  "implementation_status": {
+   "verified_in_cadw": true,
+   "verified_by_agent": false
+  }
+ },
+ "facts": {
+  "modfile": "cadw/ml/eif.py",
+  "exists": true,
+  "lines": 486,
+  "fn_def": "",
+  "git": [
+   "f79c323 v0.9.91-S6b-eif: chunked fit (OOC; not bit-identical to pre-refactor)",
+   "e10cf73 v0.9.87-fix1b: guard fixes for 4 windowed TS anomaly modules (audit HIGH-1)",
+   "4136a36 v0.9.55: EIF implementation (tier1_core, Phase C.4)"
+  ]
+ }
+}

@@ -65,7 +65,7 @@
 **Roles:** representation, nonlinear_interactions
 **Status:** export
 
-**Purpose:** Reimers & Gurevych 2019 - siamese BERT fine-tuned contrastively to produce sentence embeddings directly. Inductive bias: contextual, order-aware semantics from large corpora; SOTA on STS/MTEB, torch-only via to_batches(format='torch').
+**Purpose:** Reimers & Gurevych 2019 - siamese BERT fine-tuned contrastively to produce sentence embeddings directly. Inductive bias: contextual, order-aware semantics from large corpora; SOTA on STS/MTEB, torch-only via to_batches(format='torch'). Requires torch; inference-only (fit not in CADW).
 
 **Use cases:**
 - Semantic search / RAG retrieval

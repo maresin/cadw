@@ -1061,6 +1061,93 @@ markdown-комментарий `# cross-ref: <home>.<card>` в дублирую
 
 ---
 
+## DEC-050 (2026-11-06, v0.9.126) — cleanup: weak-machine 8-16 GB, no framework cards, rename P->B/Q->C
+
+**Q1 (user, from DEC-048):** 2.8 GB budget vs weak machine?
+
+**A1:** 2.8 GB was a **snapshot of available RAM at one moment**, not a budget.
+Correct target: **weak machine = no GPU, 8-16 GB RAM**. All prior card
+classifications re-evaluated under this.
+
+**Card admissibility rule (canonical, replaces DEC-048 §"reference policy"):**
+
+1. **Tabular data** — Arrow columns (numeric/string), not image/graph/raw
+   text tensors as primary input.
+2. **OOC by design** — batch-iterable (`_iter_filtered_batches`), state
+   bounded in n (`O(model)` or `O(batch)`), no full-context-in-RAM
+   requirement (attention over all training rows = non-OOC by construction).
+3. **Weak-machine fit** — fits in 8-16 GB CPU. GPU not required for fit.
+4. **Implementable or importable**: either numpy/scipy/cadw-primitive
+   implementable (draft-target), or pretrained-torch inference-only via
+   `to_batches` export (`requires_torch: true` + purpose note).
+
+Model that fails (2) **architecturally** (not "not yet optimized") → **not
+a card**, even if SOTA. SOTA horizon without implementation belongs in
+README/docs, not schema-validated YAML.
+
+**Q2 (probe): what to delete?**
+
+**A2:** Removed 21 cards + 1 section:
+- **K_vision.yaml** (4) — non-tabular (images)
+- **L_graph.yaml** (4) — non-tabular (graphs)
+- **D_time_series**: Chronos-Bolt-Small/Base (negative scaling), Timer-S1
+  (1B+, GPU-only), t0-beta (GPU-only), AutoGluon-TS (framework not model)
+- **J_nlp**: BERT (MiniLM 99% quality at 10% RAM), BERTopic (needs BERT)
+- **N_density**: NormalizingFlow (torch-only, GMM/KDE cover density)
+- **A_classification**: TabPFN (16 GB CPU minimum, attention O(n^2), n<=1K
+  CPU — architecturally non-OOC, not "not yet optimized")
+- **U_automl.yaml** (whole section) — 3 frameworks (Auto-sklearn, H2O,
+  AutoGluon), framework != model. Or: implement `fit_stacking` as
+  **infrastructure function** (v0.9.127+), not as cards.
+- **P_clustering → B_clustering** (rename): ML_TASKS_TAXONOMY had B1
+  "Flat clustering" (v0.9.44); P was duplicative.
+- **Q_dim_reduction → C_dim_reduction** (rename): same rationale (C1).
+- Historical refs in DEC-049 preserved as-is (append-only log).
+
+**KEEP as `requires_torch: true, inference-only` (purpose note):**
+- D1 Chronos-Bolt-Tiny (9M, ~35 MB CPU), Chronos-Bolt-Mini (21M, ~85 MB),
+  Chronos-2-small (28M, ~112 MB) — pretrained foundation, cannot retrain,
+  inference feasible on weak machine.
+- J2 SentenceTransformer (MiniLM ~90 MB) — pretrained embeddings.
+
+**KEEP as `described_only` draft-target (numpy implementable):**
+- I1 DeepSurv, DeepHit — MLP on tabular survival, marginal over RSF
+  (C-index +0.05), optional v0.9.128+.
+- S1-S2 TVAE/CTGAN/CTAB-GAN+/TabDDPM/TabSyn — `Last priority (v0.9.130+)`
+  in purpose. CPU-feasible but training is hours-days; implement after
+  verified CADW core.
+
+**KEEP as-is (implementable, existing or planned):** E1, F1, H1,
+I1.RandomSurvivalForest, M1.NeuralUCB (numpy MLP), T1-T2, V1-V2, W1-W2,
+R1-R2, B/C all, O (YDataProfiling/SMOTE/TPE/SHAP/Fairlearn/Evidently).
+
+**Q3: ensemble vs stacking vs AutoML?**
+
+**A3:** Three distinct levels:
+1. **`ensemble_recommendation`** (subtype YAML) — list of diverse-role
+   models to combine (recommendation, not enforcement).
+2. **`tier: ensemble` card** (one per subtype) — named recipe: models +
+   fusion rule + validation. `D1.EnsembleForecaster` already exists
+   (v0.9.82, verified) — canonical example. v0.9.127+ adds per-subtype
+   ensemble cards.
+3. **`fit_stacking(df, base_models, meta_learner)`** (v0.9.127+) —
+   infrastructure function (like `fit_ab_test`), not a card. Reused by
+   all ensemble cards.
+
+AutoML frameworks (AutoGluon/H2O/Auto-sklearn) are **selection + HPO +
+stacking + bagging + pipeline search** — orchestration, not models.
+Delete; if CADW needs stacking, that's `fit_stacking`, not a framework.
+
+**Files touched:**
+- `docs/ml_tools/{B,C,D,J,N,A}_*.yaml` (renames + card removals)
+- `docs/ml_tools/{K_vision,L_graph,U_automl}.yaml` (deleted)
+- `docs/tasks/{PP,QQ,UU}*.md` (deleted, regenerated as BB/CC)
+- `tests/test_ml_tools_schema.py` (cross-refs in comments)
+- ROADMAP, ML_TASKS_TAXONOMY.md (cross-refs)
+- DEC-050 (this)
+
+---
+
 <!-- future entries appended here -->
 
 

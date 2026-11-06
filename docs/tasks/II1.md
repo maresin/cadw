@@ -121,7 +121,7 @@
 **Roles:** nonlinear_interactions, representation
 **Status:** export
 
-**Purpose:** Katzman 2018 — Cox proportional hazards with an MLP as the log-risk function. Inductive bias: learned nonlinear covariate representation feeding the Cox partial likelihood; torch-only, reachable only via to_batches(format='torch').
+**Purpose:** Katzman 2018 — Cox proportional hazards with an MLP as the log-risk function. Inductive bias: learned nonlinear covariate representation feeding the Cox partial likelihood; torch-only, reachable only via to_batches(format='torch'). Optional numpy draft-target (2-3 sessions); marginal over RSF (C-index +0.05); v0.9.128+ revisit.
 
 **Use cases:**
 - Large-cohort clinical risk
@@ -142,7 +142,7 @@
 **Roles:** nonlinear_interactions, representation
 **Status:** export
 
-**Purpose:** Lee 2018 — deep network predicting a discrete-time cause-specific hazard distribution directly, no PH assumption. Inductive bias: fully nonparametric hazard curve learned by NN + ranking loss; SOTA when hazards cross, torch-only.
+**Purpose:** Lee 2018 — deep network predicting a discrete-time cause-specific hazard distribution directly, no PH assumption. Inductive bias: fully nonparametric hazard curve learned by NN + ranking loss; SOTA when hazards cross, torch-only. Optional numpy draft-target (2-3 sessions); marginal over RSF (C-index +0.05); v0.9.128+ revisit.
 
 **Use cases:**
 - Competing-risks clinical survival

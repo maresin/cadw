@@ -806,9 +806,9 @@ def test_R9_cadw_function_importable():
 # Uncased public fit_* in cadw.ml.__all__ that have no YAML card yet.
 # See DEC-047 (v0.9.121) for rationale + target version.
 UNCARDED_WHITELIST = {
-    # v0.9.123: fit_kmeans -> P_clustering.P1.KMeans (draft);
-    # fit_minibatch_kmeans -> P_clustering.P1.MiniBatchKMeans (draft);
-    # fit_pca -> Q_dim_reduction.Q1.PCA (draft).
+    # v0.9.123: fit_kmeans -> B_clustering.B1.KMeans (draft);
+    # fit_minibatch_kmeans -> B_clustering.B1.MiniBatchKMeans (draft);
+    # fit_pca -> C_dim_reduction.C1.PCA (draft).
     # No uncarded public fit_* remain.
 }
 

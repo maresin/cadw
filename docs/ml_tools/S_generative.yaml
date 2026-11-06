@@ -20,7 +20,7 @@ subtypes:
           described_only: true
           not_implemented_in_cadw: true
         roles: [probabilistic, representation]
-        purpose: "Xu et al. 2019: tabular VAE (CTGAN paper). Encoder-decoder with mode-specific normalization for continuous + categorical. Baseline neural synthesizer."
+        purpose: "Xu et al. 2019: tabular VAE (CTGAN paper). Encoder-decoder with mode-specific normalization for continuous + categorical. Baseline neural synthesizer. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
         real_life_examples: ["Synthetic tabular data", "Imbalance oversampling"]
         config: {epochs: int, latent_dim: int, batch_size: int}
         benchmark_results:
@@ -33,7 +33,7 @@ subtypes:
           described_only: true
           not_implemented_in_cadw: true
         roles: [probabilistic, representation]
-        purpose: "Xu et al. 2019: conditional tabular GAN with mode-specific normalization and training-by-sampling. Handles multimodal + imbalanced columns."
+        purpose: "Xu et al. 2019: conditional tabular GAN with mode-specific normalization and training-by-sampling. Handles multimodal + imbalanced columns. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
         real_life_examples: ["Synthetic tabular data", "Imbalanced categorical columns"]
         config: {epochs: int, generator_dim: tuple, discriminator_dim: tuple}
         benchmark_results:
@@ -46,7 +46,7 @@ subtypes:
           described_only: true
           not_implemented_in_cadw: true
         roles: [probabilistic, representation]
-        purpose: "Zhao et al. 2022: improved CTGAN with auxiliary classifier, information loss, and conditional vectors. Better for downstream ML utility."
+        purpose: "Zhao et al. 2022: improved CTGAN with auxiliary classifier, information loss, and conditional vectors. Better for downstream ML utility. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
         real_life_examples: ["ML utility-focused synthesis", "Mixed-type tabular"]
         config: {epochs: int, pac: int}
         benchmark_results:
@@ -69,7 +69,7 @@ subtypes:
           described_only: true
           not_implemented_in_cadw: true
         roles: [probabilistic]
-        purpose: "Kotelnikov et al. 2022: diffusion for tabular data. Gaussian for continuous, multinomial diffusion for categorical. Best quality on many benchmarks."
+        purpose: "Kotelnikov et al. 2022: diffusion for tabular data. Gaussian for continuous, multinomial diffusion for categorical. Best quality on many benchmarks. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
         real_life_examples: ["Synthetic tabular data", "Privacy-preserving synthesis"]
         config: {timesteps: int, epochs: int, batch_size: int}
         benchmark_results:
@@ -82,7 +82,7 @@ subtypes:
           described_only: true
           not_implemented_in_cadw: true
         roles: [probabilistic, representation]
-        purpose: "Zhang et al. 2023: diffusion in latent space of a VAE. Combines VAE compression with diffusion generation; better efficiency."
+        purpose: "Zhang et al. 2023: diffusion in latent space of a VAE. Combines VAE compression with diffusion generation; better efficiency. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
         real_life_examples: ["Efficient synthetic data", "High-quality tabular"]
         config: {latent_dim: int, timesteps: int, epochs: int}
         benchmark_results:

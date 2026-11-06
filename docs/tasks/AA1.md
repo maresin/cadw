@@ -103,25 +103,6 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.MultinomialNB.html
   - note: [v0.9.105 DEC-012: card created to unblock fit_multinomial_nb]
 
-### TabPFN — sota / tier3_export
-
-**Roles:** nonlinear_interactions
-**Status:** desc, export
-
-**Purpose:** Prior-fitted transformer for small tabular datasets; SOTA on AMLB small-N.
-
-**Use cases:**
-- Medical tabular prediction (n<2000)
-
-**Config:** `{'n_estimators': 'int'}`
-
-**Benchmarks:**
-- **[literature]** AMLB → roc_auc=0.85
-  - algorithm: `TabPFN` (paper)
-  - number: https://openml.github.io/automlbenchmark/
-  - code/paper: https://arxiv.org/abs/2207.01848
-  - note: Top of AMLB small-N subset; export via to_batches(format='torch') [legacy v0.9.44, migrated v0.9.50]
-
 ## Metrics
 - **roc_auc** (anchor, higher)
   - Threshold-invariant discrimination.

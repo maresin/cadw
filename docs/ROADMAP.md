@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-04 (after v0.9.114).
 
-## Current: v0.9.125
+## Current: v0.9.126
 
 **32 verified fns / 48 verified cards / 10 draft fns / 13 draft cards /
 24 pending fns / 30 pending cards / 62 no-fn. +19 described_only in P/Q.**
@@ -42,6 +42,21 @@ v0.9.116-v0.9.118 (since v0.9.115):
 - DEC-045 (P6'-P9' validation + YAML coverage gap: fit_kmeans/fit_pca),
   DEC-046 (calibrate_throughput design; per-model time -> v0.9.121+).
 
+**v0.9.126 (since v0.9.125):**
+- Weak machine = no GPU, 8-16 GB RAM (DEC-050; 2.8 GB was snapshot).
+- Deleted 21 cards + 1 section: K_vision, L_graph (non-tabular);
+  U_automl (framework != model); D Small/Base/Timer/t0/AutoGluon-TS;
+  J BERT/BERTopic; N NormalizingFlow; A TabPFN (architecturally non-OOC).
+- Renamed P_clustering -> B_clustering, Q_dim_reduction -> C_dim_reduction
+  (ML_TASKS_TAXONOMY B1/C1 had those; P/Q duplicative).
+- Status: 4 inference-only purpose notes (Chronos x3, SentenceTransformer);
+  2 draft-target (DeepSurv/DeepHit); 5 S_generative last-priority v0.9.130+.
+- Level clarification: ensemble_recommendation (list) vs tier:ensemble
+  (recipe card) vs fit_stacking (infrastructure, v0.9.127+) vs AutoML
+  framework (deleted, not model).
+- 16 sections (A-H, I, J, M, N, O, R, S, T, V, W; K/L/U deleted;
+  P/Q renamed B/C). 21 YAML + 3 support files.
+
 **v0.9.125 (since v0.9.124):**
 - R_association.yaml (5 cards), S_generative.yaml (5), T_optimization.yaml
   (5), U_automl.yaml (3), V_uncertainty.yaml (5), W_probabilistic.yaml (4)
@@ -70,9 +85,9 @@ v0.9.116-v0.9.118 (since v0.9.115):
   -> v0.9.126+ (sandbox .pingis/impl/ not in cadw/ml/).
 
 **v0.9.123 (since v0.9.122):**
-- P_clustering.yaml (new, 13 cards): 2 draft (KMeans, MiniBatchKMeans;
+- B_clustering.yaml (new, 13 cards): 2 draft (KMeans, MiniBatchKMeans;
   formula from code) + 11 described_only. Subtypes P1-P6.
-- Q_dim_reduction.yaml (new, 9 cards): 1 draft (PCA; formula from
+- C_dim_reduction.yaml (new, 9 cards): 1 draft (PCA; formula from
   code) + 8 described_only. Subtypes Q1-Q4.
 - Cross-ref policy (DEC-049): canonical home + markdown comment.
 - R10 whitelist empty: fit_kmeans/fit_minibatch_kmeans/fit_pca in cards.
@@ -107,7 +122,7 @@ v0.9.116-v0.9.118 (since v0.9.115):
 CW-5 (test_guard_refuses_at_domain_bound) mandatory for bounded_by_domain fns.
 Component-wise (DEC-033) + DEC-034 escalation (tolerance widen on RSS drift).
 
-Next: v0.9.126 expansion_factor migration + YAML coverage sweep +
+Next: v0.9.127 expansion_factor migration + YAML coverage sweep +
 ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Progress (v0.9.105 - v0.9.110g)
@@ -187,7 +202,7 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
 
 ## Next 3 sessions
 
-### v0.9.126 — expansion_factor migration + cross_ref schema + promotion
+### v0.9.127 — expansion_factor migration + cross_ref schema + fit_stacking
 
 - **Migration of 18 `expansion_factor` call sites** (6 via
   `derive_batch_size` + 12 direct `get_batch_rows`), 14 models (linucb,
@@ -205,14 +220,14 @@ ML_COVERAGE_MATRIX (baseline/SOTA/ensemble audit).
   verified model (epochs x n_rows). ~0.5 session.
 - **ML_COVERAGE_MATRIX.md**: section x subtype x {baseline, SOTA, ensemble}.
 
-### v0.9.127 — pending fns (A_classification + O_eda)
+### v0.9.128 — pending fns (A_classification + O_eda)
 
 - A_classification x8 pending: component-wise verify (some have `status: None`
   legacy cards — normalize to `draft`/`verified`).
 - O_eda x16 pending: same.
 - AP2 sweep (grep `column_stack|vstack|concatenate` in cadw/ml/).
 
-### v0.9.127+ — 30+ verified / 35+ verified tags
+### v0.9.128+ — 30+ verified / 35+ verified tags
 
 Re-check do-not-re-solve per DEC-033/034/035. Tag v0.9.122/123 when
 appropriate.

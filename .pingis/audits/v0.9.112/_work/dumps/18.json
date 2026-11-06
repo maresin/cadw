@@ -1,0 +1,52 @@
+{
+ "inv": {
+  "state_class": "O(n)",
+  "state_type": "iterative",
+  "bounded_state": false,
+  "n_scalability": "linear",
+  "bounded_state_dims": {
+   "n": 1
+  },
+  "streaming_strategy": {
+   "fit": "load full series; decomposition + Nelder-Mead grid search (bounded grid).",
+   "predict": "closed-form recurrence + analytic Gaussian prediction intervals."
+  },
+  "primitive_reuse": [],
+  "ram_formula": null,
+  "formula_evidence": null,
+  "measurement": null,
+  "bounded_by_domain": null,
+  "tier1_core_exception": "Single-series forecasting; n<=1e6 typical; Holt-Winters fit needs full series for classical decomposition + bounded Nelder-Mead over (alpha,beta,gamma,phi). Grid cost O(n*grid_size); not a fit-matrix model.",
+  "model_class": "non_learning",
+  "learning_mode": "unsupervised",
+  "anomaly_type": "none",
+  "data_modality": "uni",
+  "source_library": "native",
+  "evaluation_scope": "both",
+  "purpose": "Holt-Winters exponential smoothing (additive-error, additive/multiplicative seasonality, damped trend). Classical decomposition init + bounded Nelder-Mead grid search over (alpha, beta, gamma, phi); analytic Gaussian prediction intervals. Reference: Hyndman et al. 2002.",
+  "tier_level": "tier1_core",
+  "config": {
+   "seasonal_period": "int",
+   "seasonal": "str",
+   "trend": "bool",
+   "damped": "bool"
+  },
+  "cadw_function": "ETSForecaster",
+  "cadw_module": "cadw.ts.ets",
+  "implementation_status": {
+   "verified_in_cadw": true,
+   "verified_by_agent": true,
+   "described_only": false
+  }
+ },
+ "facts": {
+  "modfile": "cadw/ts/ets.py",
+  "exists": true,
+  "lines": 200,
+  "fn_def": "",
+  "git": [
+   "ae85c5f v0.9.80: AutoForecastPipeline + capability flags on native handlers",
+   "4b243c4 v0.9.38: Phase D group 4/7 - PELT (D.4.2), ETS (D.4.3), Theta (D.4.4), VAR (D.4.5)"
+  ]
+ }
+}

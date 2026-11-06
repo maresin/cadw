@@ -1,0 +1,49 @@
+{
+ "inv": {
+  "state_class": "O(n)",
+  "state_type": "iterative",
+  "bounded_state": false,
+  "n_scalability": "linear",
+  "bounded_state_dims": {
+   "n": 1
+  },
+  "streaming_strategy": {
+   "fit": "STL decomposition + theta smoothing on full series.",
+   "predict": "extend theta lines, add seasonal component."
+  },
+  "primitive_reuse": [],
+  "ram_formula": null,
+  "formula_evidence": null,
+  "measurement": null,
+  "bounded_by_domain": null,
+  "tier1_core_exception": "Single-series forecasting; n<=1e6 typical; STM on STL requires full-series seasonal decomposition. Not a fit-matrix model.",
+  "model_class": "non_learning",
+  "learning_mode": "unsupervised",
+  "anomaly_type": "none",
+  "data_modality": "uni",
+  "source_library": "native",
+  "evaluation_scope": "synthetic",
+  "purpose": "Theta method (STM variant): STL decomposition -> OLS theta_0 (trend) + SES theta_2 (curvature) -> 0.5/0.5 combine -> reseasonalize. Capability flags: handles_trend=True, handles_seasonality=True. KNOWN LIMITATION: STM underperforms on trend-dominated series (MASE 1.4 vs AutoETS 0.5 on synthetic trend=0.3,season_amp=3) \u2014 SES on theta_2 lags behind trend by (1-alpha)/alpha*slope per step; STL fixes decomposition leak but not SES lag. This is the STM baseline; OTM variant (weight optimisation) in backlog. Use for M3-like series where seasonality dominates trend.",
+  "tier_level": "tier1_core",
+  "config": {
+   "seasonal_period": "int",
+   "n_iter": "int"
+  },
+  "cadw_function": "ThetaForecaster",
+  "cadw_module": "cadw.ts.theta",
+  "implementation_status": {
+   "verified_in_cadw": true,
+   "verified_by_agent": true
+  }
+ },
+ "facts": {
+  "modfile": "cadw/ts/theta.py",
+  "exists": true,
+  "lines": 249,
+  "fn_def": "",
+  "git": [
+   "54e9e21 v0.9.77: STL decomposition + Theta (STM) on STL",
+   "4b243c4 v0.9.38: Phase D group 4/7 - PELT (D.4.2), ETS (D.4.3), Theta (D.4.4), VAR (D.4.5)"
+  ]
+ }
+}

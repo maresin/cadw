@@ -49,7 +49,7 @@
   - code/paper: cadw/ml/lda.py
   - note: CADW-native: fit_s=4.491/21.382/102.892 @n=2k/10k/50k (scripts/bench_lda.py, .pingis/benches/lda.json); std=half-range; hardware-specific.
 
-### NMF — baseline / tier2_wrapper
+### NMF — sota / tier2_wrapper
 
 **Roles:** representation
 **Status:** desc
@@ -69,27 +69,6 @@
   - number: https://scikit-learn.org/stable/datasets/real_world.html
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html
   - note: no_public_benchmark: NMF has no likelihood/perplexity; 20NG has no live public coherence leaderboard either
-
-### BERTopic — sota / tier3_export
-
-**Roles:** representation, nonlinear_interactions
-**Status:** export
-
-**Purpose:** Grootendorst 2022 - pipeline of PLM embeddings + UMAP + HDBSCAN + c-TF-IDF for topic representation. Inductive bias: contextual embeddings + density clustering; SOTA coherence on short texts, but torch-only via to_batches(format='torch').
-
-**Use cases:**
-- Short-text topic discovery (tweets, tickets)
-- Large-scale corpus exploration
-- Dynamic topic modeling over time
-
-**Config:** `{'embedding_model': 'string', 'umap_n_neighbors': 'int', 'min_cluster_size': 'int'}`
-
-**Benchmarks:**
-- **[literature]** 20Newsgroups → coherence_c_v=null
-  - algorithm: `BERTopic (Grootendorst 2022)` (docs)
-  - number: https://scikit-learn.org/stable/datasets/real_world.html
-  - code/paper: https://maartengr.github.io/BERTopic/index.html
-  - note: no_public_benchmark: 20NG has no live public coherence leaderboard; BERTopic paper reports its own c_v on a different corpus subset
 
 ## Metrics
 - **perplexity** (anchor, lower)

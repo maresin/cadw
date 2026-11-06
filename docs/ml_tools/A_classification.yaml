@@ -207,32 +207,6 @@ subtypes:
       fit: 'batch-wise per-class token count + log-prior Reduce.'
       predict: 'per-row multinomial log-score sum.'
     primitive_reuse: [reduce]
-  - name: TabPFN
-    tier: sota
-    tier_level: tier3_export
-    implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
-    roles:
-    - nonlinear_interactions
-    purpose: Prior-fitted transformer for small tabular datasets; SOTA on AMLB small-N.
-    real_life_examples:
-    - Medical tabular prediction (n<2000)
-    config:
-      n_estimators: int
-    benchmark_results:
-    - benchmark: AMLB
-      benchmark_url: https://openml.github.io/automlbenchmark/
-      algorithm: TabPFN
-      algorithm_source_url: https://arxiv.org/abs/2207.01848
-      algorithm_source_kind: paper
-      attribution: literature
-      task_type: binary classification
-      n_datasets: null
-      metric: roc_auc
-      value: 0.85
-      std: null
-      note: Top of AMLB small-N subset; export via to_batches(format='torch') [legacy v0.9.44, migrated v0.9.50]
   metrics:
   - name: roc_auc
     combination: anchor

@@ -1,0 +1,55 @@
+{
+ "yaml": "D_time_series.yaml",
+ "name": "ETS",
+ "fn": "ETSForecaster",
+ "mod": "cadw.ts.ets",
+ "tier": "tier1_core",
+ "cur": null,
+ "bucket": "tier1_core_exception",
+ "prio": "medium",
+ "conf": "high",
+ "formula": "3*n*f64 + 256",
+ "ev": {
+  "3*n*f64": "ets.py:169-172 - state_nbytes = y_.nbytes + fitted_.nbytes + season_.nbytes + 256",
+  "grid search cost": "ets.py:86 - _grid_search over (alpha,beta,gamma,phi), O(n*grid) time not RAM",
+  "binding": "cadw/dataframe/_ml_bindings.py:850-865 - fit_ets -> ETSForecaster(...).fit(...)"
+ },
+ "ooc": [
+  [
+   "n",
+   "NO",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "d",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "K",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "n_groups",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ]
+ ],
+ "lies": [],
+ "aps": [],
+ "blockers": [
+  "`implementation_status.status` missing",
+  "`ram_formula`/`formula_evidence`/`measurement` missing",
+  "DEC-011: `tier1_core_exception` is a wart - replace with `bounded_by_domain` (I_survival/D_time_series YAML)",
+  "n_scalability: linear + bounded_state false is honest, but no `bounded_by_domain` block present",
+  "No verification test `tests/test_ets_verification.py`"
+ ],
+ "rationale": "Holt-Winters needs the full series and returns it as fitted_/season_ state, so O(n) is intrinsic; the card already carries the right tier1_core_exception text. DEC-011 says the correct field is `bounded_by_domain`.",
+ "next_action": "docs-only: replace `tier1_core_exception` with `bounded_by_domain: {axis: n, bound: 1000000, reason: single-series forecasting}` and add formula `3*n*f64 + 256` from cadw/ts/ets.py:169-172. Binding evidence: cadw/dataframe/_ml_bindings.py:850.",
+ "refs": [
+  "DEC-011",
+  "DEC-014",
+  "tests/test_ets.py"
+ ]
+}

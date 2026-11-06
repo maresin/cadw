@@ -1,0 +1,53 @@
+{
+ "yaml": "D_time_series.yaml",
+ "name": "Hampel",
+ "fn": "fit_hampel",
+ "mod": "cadw.ml.hampel",
+ "tier": "tier1_core",
+ "cur": null,
+ "bucket": "draft",
+ "prio": "medium",
+ "conf": "high",
+ "formula": "n*f64*2 + chunk*window_size*f64*2 + n*f64 (labels)",
+ "ev": {
+  "n*8*2": "hampel.py:144-145/165-166 - med,mad np.empty(n_w) and scores = abs(x-med)/sigma",
+  "chunk*window_size*16": "hampel.py:149-151 - guard.check_state(nb*window_size*8*2)",
+  "n labels": "hampel.py:171 - labels = (scores>threshold).astype(int)"
+ },
+ "ooc": [
+  [
+   "n",
+   "NO",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "d",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "K",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "n_groups",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ]
+ ],
+ "lies": [],
+ "aps": [],
+ "blockers": [
+  "DEC-013 predicted this: O(n) output (decision_scores, labels) - blocked until SpillArray",
+  "`implementation_status.status` missing",
+  "`ram_formula`/`formula_evidence`/`measurement` missing",
+  "`bounded_state` true wrong (O(n) output)"
+ ],
+ "rationale": "Same class as ZMS: Hampel produces a score and label per timestep. Chunked median is O(chunk*w) but the returned arrays are O(n).",
+ "next_action": "draft_reason: O(n) output (DEC-013 same class); revisit after SpillArray. Code: cadw/ml/hampel.py:140-178.",
+ "refs": [
+  "DEC-013",
+  "tests/test_hampel.py"
+ ]
+}

@@ -1,0 +1,49 @@
+{
+ "inv": {
+  "state_class": "O(batch)",
+  "state_type": "windowed",
+  "bounded_state": true,
+  "n_scalability": "constant",
+  "bounded_state_dims": {
+   "batch": 1
+  },
+  "streaming_strategy": {
+   "fit": "per-batch windowed reconstructions; gradients via minibatch (fix1b2).",
+   "predict": "per-batch reconstruction error."
+  },
+  "primitive_reuse": [
+   "strided_view"
+  ],
+  "ram_formula": null,
+  "formula_evidence": null,
+  "measurement": null,
+  "bounded_by_domain": null,
+  "tier1_core_exception": null,
+  "model_class": "dl_from_scratch",
+  "learning_mode": "unsupervised",
+  "anomaly_type": "point",
+  "data_modality": "uni",
+  "source_library": "native",
+  "evaluation_scope": "synthetic",
+  "purpose": "MLP encoder-decoder on sliding windows; SGD with momentum; per-window MSE reconstruction error.",
+  "tier_level": "tier1_core",
+  "config": {},
+  "cadw_function": "fit_autoencoder",
+  "cadw_module": "cadw.ml.autoencoder",
+  "implementation_status": {
+   "verified_in_cadw": true,
+   "verified_by_agent": false
+  }
+ },
+ "facts": {
+  "modfile": "cadw/ml/autoencoder.py",
+  "exists": true,
+  "lines": 410,
+  "fn_def": "",
+  "git": [
+   "63c5bb7 v0.9.91-S6d: autoencoder chunked SGD (bit-identical)",
+   "763ee5b v0.9.87-fix1b(2/2): guard fixes for 3 more windowed TS modules",
+   "8e1565c v0.9.73: multi-channel shape support (Level 1)"
+  ]
+ }
+}

@@ -1,0 +1,50 @@
+{
+ "inv": {
+  "state_class": "O(batch)",
+  "state_type": "windowed",
+  "bounded_state": true,
+  "n_scalability": "constant",
+  "bounded_state_dims": {
+   "batch": 1
+  },
+  "streaming_strategy": {
+   "fit": "streaming conv/quantize + dedup (P4c).",
+   "predict": "per-batch sequence-to-grammar score."
+  },
+  "primitive_reuse": [
+   "strided_view",
+   "reduce"
+  ],
+  "ram_formula": null,
+  "formula_evidence": null,
+  "measurement": null,
+  "bounded_by_domain": null,
+  "tier1_core_exception": null,
+  "model_class": "non_learning",
+  "learning_mode": "unsupervised",
+  "anomaly_type": "shape",
+  "data_modality": "uni",
+  "source_library": "native",
+  "evaluation_scope": "synthetic",
+  "purpose": "Series2Graph: local convolution plus PCA 3D plus rotation plus angle nodes plus transition graph plus path normalcy (paper faithful).",
+  "tier_level": "tier1_core",
+  "config": {},
+  "cadw_function": "fit_s2g",
+  "cadw_module": "cadw.ml.s2g",
+  "implementation_status": {
+   "verified_in_cadw": true,
+   "verified_by_agent": false
+  }
+ },
+ "facts": {
+  "modfile": "cadw/ml/s2g.py",
+  "exists": true,
+  "lines": 502,
+  "fn_def": "",
+  "git": [
+   "f464656 v0.9.87-P4c: s2g streaming + dedup (audit HIGH-1)",
+   "e10cf73 v0.9.87-fix1b: guard fixes for 4 windowed TS anomaly modules (audit HIGH-1)",
+   "c25865b v0.9.60: S2G (Series2Graph) \u2014 paper-faithful implementation (Phase C.8)"
+  ]
+ }
+}

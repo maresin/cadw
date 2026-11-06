@@ -329,12 +329,12 @@ All `task_type` values in YAML today live inside `benchmark_results[]`
 
 | task_type | Home section (new) | Baseline / SOTA / Ensemble |
 |---|---|---|
-| `clustering` | P_clustering | KMeans / HDBSCAN / KMeans+BIRCH |
-| `dimensionality_reduction` | Q_dim_reduction | PCA / randSVD / PCA+randSVD |
-| `matrix_factorization` | Q_dim_reduction | NMF / ALS / NMF+ALS |
-| `feature_selection` | Q_dim_reduction | Filter / Embedded (GBDT gain) |
-| `manifold_learning` | Q_dim_reduction | Isomap / UMAP / t-SNE+Isomap |
-| `biclustering` | P_clustering | Spectral biclustering / — |
+| `clustering` | B_clustering | KMeans / HDBSCAN / KMeans+BIRCH |
+| `dimensionality_reduction` | C_dim_reduction | PCA / randSVD / PCA+randSVD |
+| `matrix_factorization` | C_dim_reduction | NMF / ALS / NMF+ALS |
+| `feature_selection` | C_dim_reduction | Filter / Embedded (GBDT gain) |
+| `manifold_learning` | C_dim_reduction | Isomap / UMAP / t-SNE+Isomap |
+| `biclustering` | B_clustering | Spectral biclustering / — |
 | `association_rules` | R_association | Apriori / FP-growth |
 | `generative_modelling` | S_generative | TVAE / CTGAN/CTAB-GAN+ / TabDDPM |
 | `structured_prediction` | A_classification | (already multilabel) |

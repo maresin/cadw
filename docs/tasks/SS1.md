@@ -19,7 +19,7 @@
 **Roles:** probabilistic, representation
 **Status:** desc, export
 
-**Purpose:** Xu et al. 2019: tabular VAE (CTGAN paper). Encoder-decoder with mode-specific normalization for continuous + categorical. Baseline neural synthesizer.
+**Purpose:** Xu et al. 2019: tabular VAE (CTGAN paper). Encoder-decoder with mode-specific normalization for continuous + categorical. Baseline neural synthesizer. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.
 
 **Use cases:**
 - Synthetic tabular data
@@ -39,7 +39,7 @@
 **Roles:** probabilistic, representation
 **Status:** desc, export
 
-**Purpose:** Xu et al. 2019: conditional tabular GAN with mode-specific normalization and training-by-sampling. Handles multimodal + imbalanced columns.
+**Purpose:** Xu et al. 2019: conditional tabular GAN with mode-specific normalization and training-by-sampling. Handles multimodal + imbalanced columns. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.
 
 **Use cases:**
 - Synthetic tabular data
@@ -59,7 +59,7 @@
 **Roles:** probabilistic, representation
 **Status:** desc, export
 
-**Purpose:** Zhao et al. 2022: improved CTGAN with auxiliary classifier, information loss, and conditional vectors. Better for downstream ML utility.
+**Purpose:** Zhao et al. 2022: improved CTGAN with auxiliary classifier, information loss, and conditional vectors. Better for downstream ML utility. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.
 
 **Use cases:**
 - ML utility-focused synthesis

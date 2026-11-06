@@ -1,0 +1,54 @@
+{
+ "yaml": "D_time_series.yaml",
+ "name": "Autoencoder",
+ "fn": "fit_autoencoder",
+ "mod": "cadw.ml.autoencoder",
+ "tier": "tier1_core",
+ "cur": null,
+ "bucket": "needs-patch",
+ "prio": "medium",
+ "conf": "medium",
+ "formula": "16*n_w + batch_size*d*f64*6 + 2*f64*(d*h + h + h*lat + lat + lat*h + h + h*d + d)",
+ "ev": {
+  "16*n_w": "autoencoder.py:322-324 - permutation (8n_w) + scores (8n_w)",
+  "batch*d*8*6": "autoencoder.py:324 - batch buffer forward+backward temps",
+  "params+velocities": "autoencoder.py:324-327 - (d*h+h+h*lat+...) * 8 * 2"
+ },
+ "ooc": [
+  [
+   "n",
+   "YES",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "d",
+   "PARTIAL",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "K",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ],
+  [
+   "n_groups",
+   "N/A",
+   "see formula/evidence above; assessed by code inspection"
+  ]
+ ],
+ "lies": [],
+ "aps": [],
+ "blockers": [
+  "O(n_w) output `window_scores` + permutation - autoencoder.py:322-323, 368 (DEC-013 class)",
+  "`implementation_status.status` missing",
+  "`ram_formula`/`formula_evidence`/`measurement` missing",
+  "No verification test"
+ ],
+ "rationale": "Chunked SGD with an explicit in-code estimator at autoencoder.py:322-327; n is OOC via chunked windows, but permutation+scores are O(n_w).",
+ "next_action": "needs-patch: write formula from autoencoder.py:322-327, record O(n_w) output as bounded_by_domain modifier, run component-wise test.",
+ "refs": [
+  "tests/test_autoencoder.py",
+  "DEC-013",
+  "tests/test_iforest_verification.py (template)"
+ ]
+}

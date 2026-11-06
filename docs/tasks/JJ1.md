@@ -70,7 +70,7 @@
   - code/paper: https://scikit-learn.org/stable/modules/naive_bayes.html
   - note: no_public_benchmark: SST-2 GLUE live LB not fetchable; ComplementNB has no public SST-2 row
 
-### LinearSVC — baseline / tier2_wrapper
+### LinearSVC — sota / tier2_wrapper
 
 **Roles:** linear_signal
 **Status:** ✓ agent, desc
@@ -90,27 +90,6 @@
   - number: https://scikit-learn.org/stable/datasets/real_world.html
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html
   - note: no_public_benchmark: no live 20NG leaderboard; sklearn dataset page has splits but no per-model accuracies
-
-### BERT — sota / tier3_export
-
-**Roles:** representation, nonlinear_interactions
-**Status:** export
-
-**Purpose:** Devlin 2019 - bidirectional transformer pre-trained with masked LM, fine-tuned per task. Inductive bias: contextual token representations with self-attention over the full sequence - SOTA on SST-2/GLUE; torch-only, reached via to_batches(format='torch').
-
-**Use cases:**
-- GLUE benchmark fine-tuning
-- Review sentiment at scale
-- Multi-lingual intent detection
-
-**Config:** `{'model_size': 'string', 'max_len': 'int', 'lr': 'float'}`
-
-**Benchmarks:**
-- **[literature]** SST-2 → accuracy=null
-  - algorithm: `BERT (Devlin et al. 2019)` (paper)
-  - number: https://huggingface.co/datasets/nyu-mll/glue
-  - code/paper: https://arxiv.org/abs/1810.04805
-  - note: no_public_benchmark: SST-2 GLUE live LB not fetchable (PWC redirect, gluebenchmark.com unreachable); paper numbers are not a live LB
 
 ## Metrics
 - **accuracy** (anchor, higher)

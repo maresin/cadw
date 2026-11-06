@@ -136,7 +136,7 @@ subtypes:
       value: null
       note: 'no_public_benchmark: SST-2 GLUE live LB not fetchable; ComplementNB has no public SST-2 row'
   - name: LinearSVC
-    tier: baseline
+    tier: sota
     tier_level: tier2_wrapper
     implementation_status:
       verified_by_agent: true
@@ -163,37 +163,6 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: no live 20NG leaderboard; sklearn dataset page has splits but no per-model accuracies'
-  - name: BERT
-    tier: sota
-    tier_level: tier3_export
-    implementation_status:
-      described_only: false
-      not_implemented_in_cadw: true
-      requires_torch: true
-    roles:
-    - representation
-    - nonlinear_interactions
-    purpose: 'Devlin 2019 - bidirectional transformer pre-trained with masked LM, fine-tuned per task. Inductive bias: contextual token representations with self-attention over the full sequence - SOTA on SST-2/GLUE; torch-only, reached via to_batches(format=''torch'').'
-    real_life_examples:
-    - GLUE benchmark fine-tuning
-    - Review sentiment at scale
-    - Multi-lingual intent detection
-    config:
-      model_size: string
-      max_len: int
-      lr: float
-    benchmark_results:
-    - benchmark: SST-2
-      benchmark_url: https://huggingface.co/datasets/nyu-mll/glue
-      algorithm: BERT (Devlin et al. 2019)
-      algorithm_source_url: https://arxiv.org/abs/1810.04805
-      algorithm_source_kind: paper
-      attribution: literature
-      task_type: text classification
-      n_datasets: null
-      metric: accuracy
-      value: null
-      note: 'no_public_benchmark: SST-2 GLUE live LB not fetchable (PWC redirect, gluebenchmark.com unreachable); paper numbers are not a live LB'
   metrics:
   - name: accuracy
     combination: anchor
@@ -333,7 +302,7 @@ subtypes:
     roles:
     - representation
     - nonlinear_interactions
-    purpose: 'Reimers & Gurevych 2019 - siamese BERT fine-tuned contrastively to produce sentence embeddings directly. Inductive bias: contextual, order-aware semantics from large corpora; SOTA on STS/MTEB, torch-only via to_batches(format=''torch'').'
+    purpose: 'Reimers & Gurevych 2019 - siamese BERT fine-tuned contrastively to produce sentence embeddings directly. Inductive bias: contextual, order-aware semantics from large corpora; SOTA on STS/MTEB, torch-only via to_batches(format=''torch''). Requires torch; inference-only (fit not in CADW).'
     real_life_examples:
     - Semantic search / RAG retrieval
     - Duplicate question detection
@@ -507,7 +476,7 @@ subtypes:
       predict: 'per-batch sparse E-step gamma.'
     primitive_reuse: [reduce, spill_dir]
   - name: NMF
-    tier: baseline
+    tier: sota
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -535,37 +504,6 @@ subtypes:
       metric: perplexity
       value: null
       note: 'no_public_benchmark: NMF has no likelihood/perplexity; 20NG has no live public coherence leaderboard either'
-  - name: BERTopic
-    tier: sota
-    tier_level: tier3_export
-    implementation_status:
-      described_only: false
-      not_implemented_in_cadw: true
-      requires_torch: true
-    roles:
-    - representation
-    - nonlinear_interactions
-    purpose: 'Grootendorst 2022 - pipeline of PLM embeddings + UMAP + HDBSCAN + c-TF-IDF for topic representation. Inductive bias: contextual embeddings + density clustering; SOTA coherence on short texts, but torch-only via to_batches(format=''torch'').'
-    real_life_examples:
-    - Short-text topic discovery (tweets, tickets)
-    - Large-scale corpus exploration
-    - Dynamic topic modeling over time
-    config:
-      embedding_model: string
-      umap_n_neighbors: int
-      min_cluster_size: int
-    benchmark_results:
-    - benchmark: 20Newsgroups
-      benchmark_url: https://scikit-learn.org/stable/datasets/real_world.html
-      algorithm: BERTopic (Grootendorst 2022)
-      algorithm_source_url: https://maartengr.github.io/BERTopic/index.html
-      algorithm_source_kind: docs
-      attribution: literature
-      task_type: topic modeling
-      n_datasets: null
-      metric: coherence_c_v
-      value: null
-      note: 'no_public_benchmark: 20NG has no live public coherence leaderboard; BERTopic paper reports its own c_v on a different corpus subset'
   metrics:
   - name: perplexity
     combination: anchor
