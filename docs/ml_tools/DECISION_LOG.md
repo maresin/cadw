@@ -1148,6 +1148,62 @@ Delete; if CADW needs stacking, that's `fit_stacking`, not a framework.
 
 ---
 
+## DEC-051 (2026-11-06, v0.9.127) — cadw.ts coverage gap: 5 forecasters
+
+**Q (user):** "Мы все карточки моделей, которые будем реализовывать,
+добавили?"
+
+**A:** Нет. Probe v0.9.127 (audit-card-coverage) обнаружил **5 uncarded
+моделей в `cadw.ts`**:
+- `EnsembleForecaster` — v0.9.82 verified (CHANGELOG), карточки нет
+- `OTMThetaForecaster` — v0.9.78 verified
+- `TemporalHierarchy` — v0.9.89 verified
+- `TransformedTargetForecaster` — v0.9.79a verified
+- `backtest_forecaster` — утилита, не модель
+
+**Root cause:** R10 (`test_R10_public_fit_covered`, v0.9.121) проверял
+только `cadw.ml.__all__`, не `cadw.ts`. `cadw.ts.__all__` содержит 12
+fit-like имён, из них 5 — без карточек.
+
+**Fix (Patch A+B):**
+1. **5 карточек** в `D_time_series.yaml` subtype D1:
+   - 4 `status: draft` (verified_in_cadw: true, `ram_formula` pending
+     v0.9.128) — `draft_reason` явно: "verified in cadw.ts vX; YAML
+     ram_formula pending v0.9.128". Честно: реализация есть,
+     формула для planner'а — нет.
+   - 1 `status: described_only` (`backtest_forecaster`, utility) —
+     `not_implemented_in_cadw: true` + `purpose: 'Utility, not a model.'`.
+2. **R10 extension** (`tests/test_ml_tools_schema.py`):
+   - Новый `test_R10_cadw_ts_covered` — проверяет все public
+     `*Forecaster`, `fit_*`, `TemporalHierarchy`, `backtest_forecaster`
+     из `cadw.ts`.
+   - `TS_UTILITY_WHITELIST` — base class + factory + alias-cases
+     (`ETSForecaster` -> card `ETS`, etc.; 5 aliases).
+   - `_ts_fit_like_names()` helper.
+
+**Verified state (v0.9.127):**
+- `cadw.ml` public `fit_*` (14): все carded.
+- `cadw.ts` public fit-like (12): все carded (5 новых + 7 existing
+  as `ETS`/`Theta`/`AutoETS`/`AutoTheta`/`NaiveForecaster`/`SARIMA`/
+  `GBDTForecaster`).
+- `.pingis/impl/` models (11): все carded (v0.9.124 sync).
+- Dangling `cadw_function` (real, R9): 0. (Naive probe v0.9.126 дал 37
+  false-positive — `_load_cards` индексирует по 3 ключам включая
+  `name`, а мой `importable()` не знал про подмодули `cadw.ml.*`.)
+
+**Open (v0.9.128):** 4 `draft` карточки -> `verified` через probe кода
++ `ram_formula` + `formula_evidence` (AP23) + measurement (DEC-033).
+Не сделано в v0.9.127: formulas для EnsembleForecaster /
+OTMThetaForecaster / TemporalHierarchy / TransformedTargetForecaster —
+каждый требует чтения кода (state_nbytes + batch memory factor), это
+отдельная сессия.
+
+**Files:** `docs/ml_tools/D_time_series.yaml` (+5 cards, 209 lines),
+`tests/test_ml_tools_schema.py` (+55, new test + whitelist),
+`DECISION_LOG.md` (this DEC).
+
+---
+
 <!-- future entries appended here -->
 
 

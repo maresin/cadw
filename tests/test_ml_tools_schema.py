@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import yaml
 from pathlib import Path
 
 import pytest
@@ -859,3 +860,57 @@ def test_R10_GBDT_multiclass_function_matches():
                 return
     import pytest
     pytest.fail("GBDT_multiclass card not found in A_classification.yaml")
+
+# ============================================================
+# v0.9.127: R10 extension — cadw.ts public fit-like coverage
+# ============================================================
+
+TS_UTILITY_WHITELIST = {
+    "ForecasterBase": "base class, not a model",
+    "get_forecaster": "factory utility, not a model",
+    # class name differs from card name (alias):
+    "ETSForecaster": "card name 'ETS'",
+    "AutoETSForecaster": "card name 'AutoETS'",
+    "ThetaForecaster": "card name 'Theta'",
+    "AutoThetaForecaster": "card name 'AutoTheta'",
+    "SARIMAForecaster": "card name 'SARIMA'",
+}
+
+
+def _ts_fit_like_names():
+    import cadw.ts as ts
+    out = []
+    explicit = ("TemporalHierarchy", "backtest_forecaster")
+    for n in dir(ts):
+        if n.startswith("_"):
+            continue
+        if n.endswith("Forecaster") or n.startswith("fit_") or n in explicit:
+            out.append(n)
+    return sorted(set(out))
+
+
+def test_R10_cadw_ts_covered():
+    """R10 extension (v0.9.127): every public cadw.ts *Forecaster /
+    TemporalHierarchy / backtest_forecaster has a card (matched by
+    card `name` or `cadw_function`) OR is whitelisted."""
+    all_cards = []
+    for yp in sorted(ML_TOOLS.glob("[A-Z]_*.yaml")):
+        try:
+            data = yaml.safe_load(yp.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for st in data.get("subtypes", []):
+            for m in st.get("models", []):
+                all_cards.append(m)
+    card_names = {m.get("name") for m in all_cards if m.get("name")}
+    card_fns = {m.get("cadw_function") for m in all_cards if m.get("cadw_function")}
+
+    ts_fits = _ts_fit_like_names()
+    missing = [n for n in ts_fits
+               if n not in card_names and n not in card_fns
+               and n not in TS_UTILITY_WHITELIST]
+    assert not missing, (
+        "Uncarded cadw.ts public fit-like (add YAML card or whitelist):\n"
+        + "\n".join(f"  {n}" for n in missing)
+    )
+

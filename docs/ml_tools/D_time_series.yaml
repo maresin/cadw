@@ -439,6 +439,215 @@ subtypes:
     - reduce
     - spill_dir
     - codes_bin
+  - name: EnsembleForecaster
+    tier: ensemble
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: draft
+      draft_reason: "verified in cadw.ts v0.9.82; YAML ram_formula pending v0.9.128"
+    roles:
+    - temporal_dynamics
+    - nonlinear_interactions
+    - probabilistic
+    purpose: 'Weighted ensemble of heterogeneous forecasters (ETS/Theta/GBDT/Naive),
+      per-member pipelines. Different inductive biases -> decorrelated errors.
+      v0.9.82 (verified). Weight learning: inverse-MASE on rolling holdout.'
+    real_life_examples:
+    - Robust forecasts across regimes
+    - Automated model combination
+    config:
+      members: list[ForecasterBase]
+      weighting: 'uniform | inverse_mase | optimized'
+    cadw_module: cadw.ts
+    cadw_function: EnsembleForecaster
+    input_api: df
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/ensemble.json
+      algorithm: cadw.ts.ensemble.EnsembleForecaster
+      algorithm_source_url: cadw/ts/ensemble.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: univariate forecasting
+      n_datasets: 3
+      metric: mase
+      value: null
+      note: 'CADW-native ensemble; see .pingis/benches/ensemble.json (v0.9.82).'
+    state_class: O(model)
+    bounded_state_dims: {n_members: 1}
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'per-member fit + weight learning on holdout; O(sum(state_i)).'
+      predict: 'weighted average of per-member predict().'
+    primitive_reuse: [reduce]
+
+  - name: OTMThetaForecaster
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: draft
+      draft_reason: "verified in cadw.ts v0.9.78; YAML ram_formula pending v0.9.128"
+    roles:
+    - temporal_dynamics
+    purpose: 'OTM: optimized theta method (theta=2 fixed, (w2, alpha) optimized by
+      MLE). v0.9.78 (verified). Better than STM on trend-dominated series.'
+    real_life_examples:
+    - Trend-dominated forecast
+    - M3/M4-style univariate tasks
+    config:
+      seasonal_period: int
+    cadw_module: cadw.ts
+    cadw_function: OTMThetaForecaster
+    input_api: df
+    benchmark_results:
+    - benchmark: M3
+      benchmark_url: https://forecasters.org/resources/time-series-data/m3-competition/
+      algorithm: OTM (Optimized Theta Method)
+      algorithm_source_url: https://arxiv.org/abs/1505.03004
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: univariate forecasting
+      n_datasets: null
+      metric: mase
+      value: null
+      note: 'M3 winner family (Makridakis 2000); OTM weights optimized per series.'
+    state_class: O(1)
+    bounded_state_dims: {}
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'single-series fit; O(1) parameters (w2, alpha).'
+      predict: 'closed-form theta extrapolation.'
+    primitive_reuse: [reduce]
+
+  - name: TemporalHierarchy
+    tier: sota
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: draft
+      draft_reason: "verified in cadw.ts v0.9.89; YAML ram_formula pending v0.9.128"
+    roles:
+    - temporal_dynamics
+    - calibration
+    purpose: 'Temporal Hierarchical Forecasting: aggregate base series to K
+      temporal levels, fit forecaster per level, reconcile (bottom-up /
+      top-down / optimal-OLS / MinT-WLS). v0.9.89 (verified).'
+    real_life_examples:
+    - Multi-level demand forecasting (day/week/month)
+    - Hierarchy-consistent forecasts
+    config:
+      levels: list[int]
+      reconciliation: 'bu | td | optimal_ols | optimal_wls'
+    cadw_module: cadw.ts
+    cadw_function: TemporalHierarchy
+    input_api: df
+    benchmark_results:
+    - benchmark: M5
+      benchmark_url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
+      algorithm: MinT-WLS temporal reconciliation
+      algorithm_source_url: https://robjhyndman.com/papers/mint.pdf
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: univariate forecasting
+      n_datasets: null
+      metric: mase
+      value: null
+      note: 'MinT (Wickramasuriya 2019); temporal aggregation + reconciliation.'
+    state_class: O(model)
+    bounded_state_dims: {levels: 1, n_series: 1}
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'K per-level forecasters + K*K residual covariance; O(K*state).'
+      predict: 'per-level predict + reconciliation matrix @ forecasts.'
+    primitive_reuse: [reduce, sort]
+
+  - name: TransformedTargetForecaster
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: draft
+      draft_reason: "verified in cadw.ts v0.9.79a; YAML ram_formula pending v0.9.128"
+    roles:
+    - temporal_dynamics
+    - representation
+    purpose: 'Pipeline: transformers (in order) then forecaster. At fit: y ->
+      t1 -> ... -> tN -> base.fit; at predict: base.predict -> tN.inverse -> ... .
+      v0.9.79a (verified). Canonical composition wrapper for AutoForecastPipeline.'
+    real_life_examples:
+    - Detrend + forecast + inverse
+    - STL-deseasonalize + forecast
+    config:
+      transformers: list
+      forecaster: ForecasterBase
+    cadw_module: cadw.ts
+    cadw_function: TransformedTargetForecaster
+    input_api: df
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/transforms.json
+      algorithm: cadw.ts.transforms.TransformedTargetForecaster
+      algorithm_source_url: cadw/ts/transforms.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: univariate forecasting
+      n_datasets: null
+      metric: mase
+      value: null
+      note: 'CADW-native pipeline; see .pingis/benches/transforms.json (v0.9.79).'
+    state_class: O(model)
+    bounded_state_dims: {n_transformers: 1}
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy:
+      fit: 'transform y (streaming) then fit base forecaster; O(sum(transformer state)).'
+      predict: 'base.predict then inverse transforms.'
+    primitive_reuse: [reduce]
+
+  - name: backtest_forecaster
+    tier: baseline
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    purpose: 'Utility, not a model. Expanding/sliding-window CV for forecasters
+      (MAE/RMSE/MAPE/sMAPE/MASE, optional pinball). Clones forecaster per fold.
+      Canonical reference for forecast-quality evaluation.'
+    real_life_examples:
+    - Rolling-origin CV for forecast comparison
+    - Hyperparameter selection for forecasters
+    config:
+      horizon: int
+      n_folds: int
+      strategy: 'expanding | sliding'
+      metrics: list[str]
+    cadw_module: cadw.ts
+    cadw_function: backtest_forecaster
+    input_api: df
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: cadw/ts/backtest.py
+      algorithm: cadw.ts.backtest.backtest_forecaster
+      algorithm_source_url: cadw/ts/backtest.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: univariate forecasting
+      n_datasets: null
+      metric: mase
+      value: null
+      note: 'Utility (not a model); provides CV-based MASE for other forecasters.'
+
   - name: Chronos-Bolt-Tiny
     tier: sota
     tier_level: tier3_export

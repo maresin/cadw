@@ -57,6 +57,11 @@ Legend: **✓ cadw** = verified_in_cadw, **✓ agent** = verified_by_agent,
 | D | D1 Univariate forecasting | AutoTheta | sota | tier1_core | temporal_dynamics, probabilistic | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | SARIMA | sota | tier1_core | temporal_dynamics | ✓ cadw, ✓ agent | mase |
 | D | D1 Univariate forecasting | GBDTForecaster | sota | tier1_core | nonlinear_interactions | ✓ cadw, ✓ agent | mase |
+| D | D1 Univariate forecasting | EnsembleForecaster | ensemble | tier1_core | temporal_dynamics, nonlinear_interactions, probabilistic | ✓ cadw | mase |
+| D | D1 Univariate forecasting | OTMThetaForecaster | sota | tier1_core | temporal_dynamics | ✓ cadw | mase |
+| D | D1 Univariate forecasting | TemporalHierarchy | sota | tier1_core | temporal_dynamics, calibration | ✓ cadw | mase |
+| D | D1 Univariate forecasting | TransformedTargetForecaster | baseline | tier1_core | temporal_dynamics, representation | ✓ cadw | mase |
+| D | D1 Univariate forecasting | backtest_forecaster | baseline | tier2_wrapper | calibration | desc, export | mase |
 | D | D1 Univariate forecasting | Chronos-Bolt-Tiny | sota | tier3_export | temporal_dynamics, representation | export | mase |
 | D | D1 Univariate forecasting | Chronos-Bolt-Mini | sota | tier3_export | temporal_dynamics, representation | export | mase |
 | D | D1 Univariate forecasting | Chronos-2-small | sota | tier3_export | temporal_dynamics, representation, nonlinear_interactions | export | mase |

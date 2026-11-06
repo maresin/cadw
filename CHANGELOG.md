@@ -1,5 +1,43 @@
 ## [Unreleased]
 
+### v0.9.127 (2026-11-06) — cadw.ts coverage gap: 5 forecasters + R10 extension
+
+**No verified-fn count change** (32 fns / 48 verified unchanged; draft
+fns 10 -> 14, draft cards 13 -> 17 — 4 ts models as `draft`).
+
+Probe (audit-card-coverage) found 5 uncarded `cadw.ts` models, R10
+(v0.9.121) covered only `cadw.ml`:
+
+**Added (5 cards in D_time_series.yaml subtype D1):**
+- `EnsembleForecaster` — v0.9.82 verified, status: draft
+  (`ram_formula` pending v0.9.128)
+- `OTMThetaForecaster` — v0.9.78 verified, status: draft
+- `TemporalHierarchy` — v0.9.89 verified, status: draft
+- `TransformedTargetForecaster` — v0.9.79a verified, status: draft
+- `backtest_forecaster` — utility (not model), status: described_only
+
+**R10 extension (tests/test_ml_tools_schema.py):**
+- `test_R10_cadw_ts_covered`: all public `cadw.ts` fit-like
+  (`*Forecaster` / `fit_*` / `TemporalHierarchy` / `backtest_forecaster`)
+  must be carded or whitelisted
+- `TS_UTILITY_WHITELIST`: base class (`ForecasterBase`), factory
+  (`get_forecaster`), + 5 alias-cases where class name != card name
+  (`ETSForecaster` -> card `ETS`, `ThetaForecaster` -> card `Theta`,
+  `AutoETSForecaster` -> `AutoETS`, `AutoThetaForecaster` -> `AutoTheta`,
+  `SARIMAForecaster` -> `SARIMA`)
+
+**Audit confirmed (v0.9.127):**
+- `cadw.ml` public `fit_*` (14): all carded
+- `cadw.ts` public fit-like (12): all carded
+- `.pingis/impl/` models (11): all carded (v0.9.124 sync)
+- Dangling `cadw_function` (R9): 0
+
+**Open (v0.9.128):** 4 ts drafts -> verified requires per-model
+formula-from-code (AP23) + measurement (DEC-033). Separate session.
+
+**Status update:** `test_ml_tools_schema.py` 107 -> 108 (new
+test_R10_cadw_ts_covered). Version bump 0.9.126 -> 0.9.127.
+
 ### v0.9.126 (2026-11-06) — cleanup: weak-machine, no framework cards, P->B/Q->C
 
 **Weak machine = no GPU, 8-16 GB RAM** (2.8 GB in DEC-048 was a snapshot,

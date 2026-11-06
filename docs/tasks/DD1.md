@@ -175,6 +175,116 @@
   - code/paper: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html
   - note: [legacy v0.9.44, migrated v0.9.50]
 
+### EnsembleForecaster — ensemble / tier1_core
+
+**Roles:** temporal_dynamics, nonlinear_interactions, probabilistic
+**Status:** ✓ cadw
+
+**Purpose:** Weighted ensemble of heterogeneous forecasters (ETS/Theta/GBDT/Naive), per-member pipelines. Different inductive biases -> decorrelated errors. v0.9.82 (verified). Weight learning: inverse-MASE on rolling holdout.
+
+**Use cases:**
+- Robust forecasts across regimes
+- Automated model combination
+
+**Config:** `{'members': 'list[ForecasterBase]', 'weighting': 'uniform | inverse_mase | optimized'}`
+
+**CADW:** `cadw.ts.EnsembleForecaster`
+
+**Benchmarks:**
+- **[cadw_measured]** cadw_internal → mase=null (n=3)
+  - algorithm: `cadw.ts.ensemble.EnsembleForecaster` (code)
+  - number: .pingis/benches/ensemble.json
+  - code/paper: cadw/ts/ensemble.py
+  - note: CADW-native ensemble; see .pingis/benches/ensemble.json (v0.9.82).
+
+### OTMThetaForecaster — sota / tier1_core
+
+**Roles:** temporal_dynamics
+**Status:** ✓ cadw
+
+**Purpose:** OTM: optimized theta method (theta=2 fixed, (w2, alpha) optimized by MLE). v0.9.78 (verified). Better than STM on trend-dominated series.
+
+**Use cases:**
+- Trend-dominated forecast
+- M3/M4-style univariate tasks
+
+**Config:** `{'seasonal_period': 'int'}`
+
+**CADW:** `cadw.ts.OTMThetaForecaster`
+
+**Benchmarks:**
+- **[literature]** M3 → mase=null
+  - algorithm: `OTM (Optimized Theta Method)` (paper)
+  - number: https://forecasters.org/resources/time-series-data/m3-competition/
+  - code/paper: https://arxiv.org/abs/1505.03004
+  - note: M3 winner family (Makridakis 2000); OTM weights optimized per series.
+
+### TemporalHierarchy — sota / tier1_core
+
+**Roles:** temporal_dynamics, calibration
+**Status:** ✓ cadw
+
+**Purpose:** Temporal Hierarchical Forecasting: aggregate base series to K temporal levels, fit forecaster per level, reconcile (bottom-up / top-down / optimal-OLS / MinT-WLS). v0.9.89 (verified).
+
+**Use cases:**
+- Multi-level demand forecasting (day/week/month)
+- Hierarchy-consistent forecasts
+
+**Config:** `{'levels': 'list[int]', 'reconciliation': 'bu | td | optimal_ols | optimal_wls'}`
+
+**CADW:** `cadw.ts.TemporalHierarchy`
+
+**Benchmarks:**
+- **[literature]** M5 → mase=null
+  - algorithm: `MinT-WLS temporal reconciliation` (paper)
+  - number: https://www.kaggle.com/competitions/m5-forecasting-accuracy
+  - code/paper: https://robjhyndman.com/papers/mint.pdf
+  - note: MinT (Wickramasuriya 2019); temporal aggregation + reconciliation.
+
+### TransformedTargetForecaster — baseline / tier1_core
+
+**Roles:** temporal_dynamics, representation
+**Status:** ✓ cadw
+
+**Purpose:** Pipeline: transformers (in order) then forecaster. At fit: y -> t1 -> ... -> tN -> base.fit; at predict: base.predict -> tN.inverse -> ... . v0.9.79a (verified). Canonical composition wrapper for AutoForecastPipeline.
+
+**Use cases:**
+- Detrend + forecast + inverse
+- STL-deseasonalize + forecast
+
+**Config:** `{'transformers': 'list', 'forecaster': 'ForecasterBase'}`
+
+**CADW:** `cadw.ts.TransformedTargetForecaster`
+
+**Benchmarks:**
+- **[cadw_measured]** cadw_internal → mase=null
+  - algorithm: `cadw.ts.transforms.TransformedTargetForecaster` (code)
+  - number: .pingis/benches/transforms.json
+  - code/paper: cadw/ts/transforms.py
+  - note: CADW-native pipeline; see .pingis/benches/transforms.json (v0.9.79).
+
+### backtest_forecaster — baseline / tier2_wrapper
+
+**Roles:** calibration
+**Status:** desc, export
+
+**Purpose:** Utility, not a model. Expanding/sliding-window CV for forecasters (MAE/RMSE/MAPE/sMAPE/MASE, optional pinball). Clones forecaster per fold. Canonical reference for forecast-quality evaluation.
+
+**Use cases:**
+- Rolling-origin CV for forecast comparison
+- Hyperparameter selection for forecasters
+
+**Config:** `{'horizon': 'int', 'n_folds': 'int', 'strategy': 'expanding | sliding', 'metrics': 'list[str]'}`
+
+**CADW:** `cadw.ts.backtest_forecaster`
+
+**Benchmarks:**
+- **[cadw_measured]** cadw_internal → mase=null
+  - algorithm: `cadw.ts.backtest.backtest_forecaster` (code)
+  - number: cadw/ts/backtest.py
+  - code/paper: cadw/ts/backtest.py
+  - note: Utility (not a model); provides CV-based MASE for other forecasters.
+
 ### Chronos-Bolt-Tiny — sota / tier3_export
 
 **Roles:** temporal_dynamics, representation
