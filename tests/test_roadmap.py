@@ -89,8 +89,11 @@ def test_roadmap_md_structure():
     #   3. Every Next-version is strictly greater than Current.
     import re as _re
     # v0.9.111: allow subpatch suffix (v0.9.110g, v0.9.93-logistic).
+    # v0.9.128: allow suffix after version (e.g., "v0.9.128 — TAXONOMY FROZEN").
+    # Same class as v0.9.110g fix: test must be tolerant to project's
+    # version format (suffix text is legitimate).
     current_m = _re.search(
-        r"^## Current:\s*(v\d+\.\d+\.\d+[a-z]?(?:[-+]\w+)?)\s*$",
+        r"^## Current:\s*(v\d+\.\d+\.\d+[a-z]?(?:[-+]\w+)?)(?:\s+[\u2014\u2013\-].*)?\s*$",
         text, flags=_re.MULTILINE,
     )
     assert current_m, (
