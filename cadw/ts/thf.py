@@ -134,6 +134,8 @@ class TemporalHierarchy:
     def fit(self, df, target_col, *, time_col=None, group_col=None):
         # v0.9.90-S5b: store guard for _fit_one (base path only).
         self._mg = getattr(df, "_memory_guard", None)
+        # v0.9.129: reset cumulative estimate for multi-group check.
+        self._cumulative_est = 0
         if group_col is not None:
             if group_col not in df._columns:
                 raise KeyError(
@@ -175,11 +177,14 @@ class TemporalHierarchy:
                 f"TemporalHierarchy: need at least "
                 f"{max(self.levels) * 2} observations; got {len(y)}"
             )
-        # v0.9.90-S5b: guard before O(n) y_per_level + y_base copies.
-        # Peak = n*(1 + sum(1/m_k)) * 8 (y_base + per-level aggregates).
-        if group is None and getattr(self, "_mg", None) is not None:
+        # v0.9.129: cumulative check across groups (single + multi).
+        # Per-group peak = n*(1 + sum(1/m))*8. Cumulative bounded
+        # by n_total <= 1e6.
+        if getattr(self, "_mg", None) is not None:
             est = int(len(y) * (1.0 + sum(1.0 / m for m in self.levels))) * 8
-            self._mg.check_state(est, name="thf.fit_one")
+            cumulative = getattr(self, "_cumulative_est", 0)
+            self._mg.check_state(cumulative + est, name="thf.fit_one")
+            self._cumulative_est = cumulative + est
         y_per_level = [_aggregate(y, m, self.agg) for m in self.levels]
         models = []
         resid_var = []
@@ -248,6 +253,50 @@ class TemporalHierarchy:
             self.models_ = models
             self.top_down_probs_ = td_probs
             self._resid_var_ = resid_var
+
+    def state_nbytes(self) -> int:
+        """Persistent state bytes after fit.
+
+        Single-group: y_base_(n*f64) + sum(y_per_level)(n*f64/m) +
+        sum(forecaster.state_nbytes()) + td_probs + resid_var + 256.
+        O(n_total) intrinsic — single-series architecture (like
+        VAR/VECM). bounded_by_domain: n_total <= 1e6.
+        """
+        if not self._is_fitted:
+            return 0
+        total = 256
+
+        def _model_state(m):
+            return (m.state_nbytes() if hasattr(m, "state_nbytes")
+                    else 4096)
+
+        def _level_state(y_l, models, td, rv):
+            s = sum(yk.nbytes for yk in y_l)
+            s += sum(_model_state(m) for m in models)
+            if td is not None:
+                s += td.nbytes
+            if rv is not None:
+                s += len(rv) * 8
+            return int(s)
+
+        if self._is_multi:
+            rv_map = getattr(self, "_group_resid_var", {})
+            for g in self._group_y_base:
+                total += self._group_y_base[g].nbytes
+                total += _level_state(
+                    self._group_y_level[g],
+                    self._group_models[g],
+                    self._group_td_probs.get(g),
+                    rv_map.get(g),
+                )
+        else:
+            total += self.y_base_.nbytes
+            total += _level_state(
+                self.y_per_level_, self.models_,
+                self.top_down_probs_,
+                getattr(self, "_resid_var_", None),
+            )
+        return int(total)
 
     def _build_S(self, steps):
         n_ks = [(steps + m - 1) // m for m in self.levels]

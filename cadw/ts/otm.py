@@ -136,6 +136,13 @@ class OTMThetaForecaster(ForecasterBase):
                 f"OTMThetaForecaster: need at least 2*seasonal_period="
                 f"{2*s} obs for seasonal mode")
 
+        # v0.9.129: guard before O(n) transients (G2, AP4).
+        # Peak = 31*n*8 + 256 (grid search: 19 SES fitted arrays +
+        # temporaries). bounded_by_domain: n<=1e6 -> peak<=248 MB.
+        _mg = getattr(df, "_memory_guard", None)
+        if _mg is not None:
+            _mg.check_state(31 * y.size * 8 + 256, name="otm.fit")
+
         # 1. Decompose
         if s > 1:
             decomp = stl_decompose(y, period=s, n_iter=self.n_iter)

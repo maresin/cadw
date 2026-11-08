@@ -489,8 +489,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "verified in cadw.ts v0.9.78; YAML ram_formula pending v0.9.128"
+      verified_by_agent: true
+      status: verified
     roles:
     - temporal_dynamics
     purpose: 'OTM: optimized theta method (theta=2 fixed, (w2, alpha) optimized by
@@ -515,23 +515,46 @@ subtypes:
       metric: mase
       value: null
       note: 'M3 winner family (Makridakis 2000); OTM weights optimized per series.'
-    state_class: O(1)
-    bounded_state_dims: {}
+    ram_formula: "31 * n * f64 + 256"
+    formula_evidence:
+      persistent_state: "otm.py:228-231 state_nbytes: y_.nbytes + fitted_.nbytes + 256 = 2*n*f64 + 256"
+      grid_ses_fits: "otm.py:153-158 ses_fits = {alpha: _ses(theta_2, alpha)} -- 19 arrays (ALPHA_GRID len 19) of n*f64"
+      theta_transients: "otm.py:143-146 x (arange n) + theta_0 (n) + theta_2 (n) = 3*n*f64"
+      decompose_transient: "otm.py:140-142 stl_decompose seasonal (n*f64) + y_ds (n*f64)"
+      fit_ds_iter: "otm.py:167 fit_ds (n*f64) + mean((y_ds-fit_ds)**2) diff-tensor (n*f64)"
+      finalize: "otm.py:184-188 fitted (n*f64) + resid (n*f64)"
+      guard: "otm.py:141 check_state(31*n*8 + 256, name='otm.fit') -- matches formula"
+      header: "otm.py:231 +256"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: 2*n*8 + 256, parametrized n=[100,500,2000]"
+      state_ooc: "test_state_ratio_linear: 4x n -> ~4x state (3.0-5.5)"
+      peak_growth: "test_peak_grows_linearly_with_n: n=5000/n=500 ratio < 20"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
+      cells_passed: "5/5"
+      runtime_sec: "~1"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "Single-series Theta forecast; state = y_ + fitted_ = 2n*f64. n=1e6 is 2740 years of daily data. Grid search peak = 31n*f64 + 256 = 248MB, fits 8-16GB weak machine."
+    state_class: O(n)
+    bounded_state_dims: {n: 1}
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Single-series TS (like ETS/Theta/VAR/VECM); state = O(n) for series storage. Guard refuses at state_limit. bounded_by_domain n<=1e6 (peak<=248MB).'
     streaming_strategy:
-      fit: 'single-series fit; O(1) parameters (w2, alpha).'
-      predict: 'closed-form theta extrapolation.'
-    primitive_reuse: [reduce]
+      fit: 'y_ + fitted_ = O(n) persistent. Grid search holds 19 SES fitted arrays (19n) + theta/transient (~12n) = peak 31n*f64 + 256. Guard refuses at state_limit.'
+      predict: 'closed-form theta extrapolation; O(1) RAM.'
+    primitive_reuse: [reduce, stl_decompose]
 
   - name: TemporalHierarchy
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "verified in cadw.ts v0.9.89; YAML ram_formula pending v0.9.128"
+      verified_by_agent: true
+      status: verified
     roles:
     - temporal_dynamics
     - calibration
@@ -559,14 +582,37 @@ subtypes:
       metric: mase
       value: null
       note: 'MinT (Wickramasuriya 2019); temporal aggregation + reconciliation.'
-    state_class: O(model)
-    bounded_state_dims: {levels: 1, n_series: 1}
+    ram_formula: "n * (1 + levels) * f64 + levels * 4096 + 256"
+    formula_evidence:
+      y_base: "thf.py:239 y_base = y.copy() -- n*f64"
+      y_per_level: "thf.py:199 y_per_level = [_aggregate(y, m, agg) for m in levels] -- sum(n/m_k)*f64; m_k>=1 so sum<=K (conservative bound)"
+      per_level_models: "thf.py:200-205 per-level forecaster state; NaiveForecaster no state_nbytes -> 4096 fallback"
+      td_probs: "thf.py:224-242 top_down probs (m_top*f64) -- opt-in"
+      resid_var: "thf.py:225-230 per-level residual variance scalars -- K*8 bytes"
+      guard: "thf.py:182-186 check_state(n*(1+sum1/m_k)*8, name='thf.fit_one') -- cumulative across groups"
+      formula_bound: "sum(1/m_k) <= levels; [1,7,30] exact 1.18n, bound 4n"
+      header: "thf.py:208-209 +256 (implicit)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_lower_bound: n*8 + n*(1+sum1/m)*8 <= state <= 3x upper (K=3, Naive fallback)"
+      state_ooc: "test_state_ratio_linear: 4x n -> ~3.4x state (2.5-5.5; 12KB fallback offsets sublinearity)"
+      peak_growth: "test_peak_grows_linearly_with_n: n=20000/n=2000 ratio < 15"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
+      cells_passed: "5/5"
+      runtime_sec: "~2"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "Single-series temporal hierarchy; state = y_base(n) + per-level aggregates + forecaster states = O(n_total). n=1e6 statistically meaningless for single series."
+    state_class: O(n)
+    bounded_state_dims: {n: 1, levels: 1}
     state_type: iterative
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Single-series temporal hierarchy; state = O(n) for y_base + per-level aggregates. Guard refuses at state_limit. bounded_by_domain n<=1e6.'
     streaming_strategy:
-      fit: 'K per-level forecasters + K*K residual covariance; O(K*state).'
-      predict: 'per-level predict + reconciliation matrix @ forecasts.'
+      fit: 'y_base (n*f64) + K per-level aggregates (sum n/m_k * f64) + K forecaster states. Cumulative across groups. Guard refuses at state_limit.'
+      predict: 'per-level predict + reconciliation matrix @ forecasts. O(sum(n_k) + K^2).'
     primitive_reuse: [reduce, sort]
 
   - name: TransformedTargetForecaster
@@ -574,8 +620,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "verified in cadw.ts v0.9.79a; YAML ram_formula pending v0.9.128"
+      verified_by_agent: true
+      status: verified
     roles:
     - temporal_dynamics
     - representation
@@ -603,15 +649,38 @@ subtypes:
       metric: mase
       value: null
       note: 'CADW-native pipeline; see .pingis/benches/transforms.json (v0.9.79).'
-    state_class: O(model)
-    bounded_state_dims: {n_transformers: 1}
+    ram_formula: "(3 + 8 * n_transformers) * n * f64 + 4096 + 256"
+    formula_evidence:
+      y_extract: "transforms.py:296 y = _extract_series(...) -- n*f64"
+      y_current: "transforms.py:297 y_current = y.copy() -- n*f64"
+      transformer_states: "transforms.py:298-301 t.fit(y_current); t.transform(y_current) -- sum(transformer.state_nbytes()); Differencer~16B, STL~3n*f64, MSTL~(1+k)*n*f64"
+      stl_transient: "transforms.py:389 stl_decompose -- internal ~8n*f64 transient per _decomposition.py:205 guard; dominates STL transformer fit"
+      base_fit: "transforms.py:305-307 forecaster.fit(transformed_df) -- base state O(n) for Naive/OTM"
+      guard: "transforms.py:299-303 check_state((3 + 8*K)*n*8 + 4096, name='ttf.fit')"
+      formula_bound: "8x per-transformer is conservative: Differencer actual ~2n, STL ~10n; bound never underestimates. Peak = (3+8*n_transformers)*n*f64+4096."
+      header: "transforms.py:345 +256"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_differencer_state_exact + test_stl_transformer_state_exact + test_mstl_transformer_state_exact + test_autostationarizer_state_exact + test_ttf_state_composition"
+      state_ooc: "test_state_ratio_linear: 4x n -> ~4x state (3.0-5.5; STL 3n + Naive n)"
+      peak_growth: "test_peak_grows_linearly_with_n: n=20000/n=2000 ratio < 15"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
+      cells_passed: "5/5"
+      runtime_sec: "~2"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "Pipeline state = base forecaster + sum(transformer state). STL transformer O(n) (3n arrays); Differencer O(1). n>1e6 = 2740 years of daily data. Guard refuses at state_limit."
+    state_class: O(n)
+    bounded_state_dims: {n: 1, n_transformers: 1}
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: 'Pipeline of transformers + base forecaster; state = O(n) via STL/MSTL and O(n) base forecaster (Naive/OTM). Guard refuses at state_limit. bounded_by_domain n<=1e6.'
     streaming_strategy:
-      fit: 'transform y (streaming) then fit base forecaster; O(sum(transformer state)).'
-      predict: 'base.predict then inverse transforms.'
-    primitive_reuse: [reduce]
+      fit: 'y(n) + y_current(n) + sum(transformer state) + base state. Peak = (3+8K)*n*f64 + 4096. Guard refuses at state_limit.'
+      predict: 'base.predict then inverse transforms. O(n + sum(transformer state)).'
+    primitive_reuse: [reduce, stl_decompose]
 
   - name: backtest_forecaster
     tier: baseline

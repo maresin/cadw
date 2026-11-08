@@ -84,6 +84,11 @@ class BaseTransformer(ABC):
         `lags` values of original series); if None, uses state from fit.
         """
 
+    def state_nbytes(self) -> int:
+        """Persistent-state RAM after fit (bytes). Override in
+        subclasses. Base returns 256 (header)."""
+        return 256
+
     def get_params(self) -> dict:
         return {}
 
@@ -138,6 +143,14 @@ class Differencer(BaseTransformer):
         self.tail_regular_ = None   # last `lags` values of y before diff
         self.tail_seasonal_ = None  # last `D*s` values of Δ^d y before seasonal diff
         self.n_obs_used_ = 0
+
+    def state_nbytes(self) -> int:
+        total = 256
+        if self.tail_regular_ is not None:
+            total += int(self.tail_regular_.nbytes)
+        if self.tail_seasonal_ is not None:
+            total += int(self.tail_seasonal_.nbytes)
+        return total
 
     def fit(self, y: np.ndarray) -> "Differencer":
         y = np.asarray(y, dtype=np.float64).ravel()
@@ -297,6 +310,15 @@ class TransformedTargetForecaster(ForecasterBase):
     def fit(self, df, target_col, *, time_col=None, group_col=None):
         _check_df(df, target_col, time_col, group_col)
         y = _extract_series(df, target_col, time_col=time_col)
+        # v0.9.129: guard before O(n) transforms + base forecaster fit.
+        # Peak = (3 + n_transformers) * n * 8 + 4096. bounded_by_domain
+        # n <= 1e6.
+        _mg = getattr(df, "_memory_guard", None)
+        if _mg is not None:
+            _mg.check_state(
+                (3 + 8 * len(self.transformers)) * y.size * 8 + 4096,
+                name="ttf.fit",
+            )
         y_current = y.copy()
         for t in self.transformers:
             t.fit(y_current)
@@ -342,11 +364,13 @@ class TransformedTargetForecaster(ForecasterBase):
         return lo, hi
 
     def state_nbytes(self):
-        base = self.forecaster.state_nbytes()
+        # v0.9.129: per-transformer exact state (AP22 fix: was 1024
+        # invented constant).
+        base = (self.forecaster.state_nbytes()
+                if hasattr(self.forecaster, "state_nbytes") else 4096)
         for t in self.transformers:
-            # Conservative: no exact size available
-            base += 1024
-        return int(base)
+            base += t.state_nbytes()
+        return int(base + 256)
 
     def get_params(self) -> dict:
         return {
@@ -379,6 +403,12 @@ class STLTransformer(BaseTransformer):
         self.seasonal_ = None
         self.trend_ = None
         self.remainder_ = None
+
+    def state_nbytes(self) -> int:
+        if self.seasonal_ is None:
+            return 256
+        return int(self.seasonal_.nbytes + self.trend_.nbytes
+                   + self.remainder_.nbytes + 256)
 
     def fit(self, y: np.ndarray) -> "STLTransformer":
         y = np.asarray(y, dtype=np.float64).ravel()
@@ -453,6 +483,14 @@ class MSTLTransformer(BaseTransformer):
         self.n_iter = int(n_iter)
         self.seasonals_ = None
         self.deseasonalized_ = None
+
+    def state_nbytes(self) -> int:
+        if self.seasonals_ is None:
+            return 256
+        total = 256 + int(self.deseasonalized_.nbytes)
+        for s in self.seasonals_:
+            total += int(s.nbytes)
+        return total
 
     def fit(self, y: np.ndarray) -> "MSTLTransformer":
         y = np.asarray(y, dtype=np.float64).ravel()
@@ -551,6 +589,9 @@ class AutoStationarizer(Differencer):
         self.chosen_d_ = 0
         self.chosen_D_ = 0
         self.seasonal_strength_ = None
+
+    def state_nbytes(self) -> int:
+        return super().state_nbytes() + 8  # seasonal_strength_ scalar
 
     def _acf(self, y: np.ndarray, lag: int) -> float:
         n = y.size
