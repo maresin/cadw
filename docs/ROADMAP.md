@@ -332,6 +332,21 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.157 (legacy TS batch 1: 5 naive forecasters):**
+- Flipped 5 single-series TS cards from status:None to verified
+  via DEC-011 bounded_by_domain (n<=1e6): NaiveForecaster, ETS,
+  AutoETS, Theta, AutoTheta.
+- Added NaiveForecaster.state_nbytes() (was inherited 0) ->
+  n*f64 + 256.
+- ram_formula per card from state_nbytes body (exact, not peak):
+  Naive n*f64+256, ETS 3n*f64+256, AutoETS 3n*f64+256 (delegated),
+  Theta 2n*f64+256, AutoTheta 2n*f64+256 (delegated).
+- Tests: 13 passed (exact formula; state grows linearly;
+  guard refuses at n=500k + 2MB for all 5).
+- Remaining TS legacy: SARIMA (needs state_nbytes), VAR (verify
+  check), GBDTForecaster/GBDT_multiseries (NOT DEC-011,
+  real CW-1..5 in v0.9.159+).
+
 **v0.9.156 (P1 L14: grid_search + random_search):**
 - Extended `cadw/ops/optim.py`: grid_search (exhaustive cartesian)
   + random_search (uniform / categorical / callable distributions,

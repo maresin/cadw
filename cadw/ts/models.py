@@ -219,6 +219,11 @@ class NaiveForecaster(ForecasterBase):
         self._is_fitted = True
         return self
 
+    def state_nbytes(self):
+        if self.y_ is None:
+            return 0
+        return int(self.y_.nbytes + 256)
+
     def _predict(self, steps):
         y = self.y_
         T = len(y)

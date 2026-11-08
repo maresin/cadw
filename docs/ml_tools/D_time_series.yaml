@@ -27,9 +27,43 @@ subtypes:
     - mase
   models:
   - name: NaiveForecaster
+    cadw_module: cadw.ts.models
+    cadw_function: NaiveForecaster
+    input_api: df
+    fit_batched: false
+    predict_batched: false
+    depends_on: []
+    ram_formula: "n * f64 + 256"
+    formula_evidence:
+      state: "models.py:211 -- NaiveForecaster.y_ = y (np.ndarray, n*f64)"
+      header: "models.py -- +256 model header"
+      guard: "models.py:218 -- _check(df._memory_guard, batch, ...)"
+    measurement:
+      verification_mode: "bounded_by_domain (DEC-011)"
+      state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
+      state_ooc: "test_state_nbytes_grows_linearly: 4x n -> ratio [3.0, 5.5]"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
+      cells_passed: "3/3"
+      runtime_sec: "~2"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "Single-series naive baseline; state = y_ = n*f64. n=1e6 = 8 MB."
+    state_class: O(n)
+    bounded_state_dims: {n: 1}
+    state_type: aggregation
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: "Single-series TS; no multi-pass; single extract. Guard refuses at state_limit. bounded_by_domain n<=1e6."
+    streaming_strategy:
+      fit: "batched extract_series (O(batch) streaming) + full-series fit. no multi-pass; single extract."
+      predict: "closed-form extrapolation; O(1) RAM."
+    primitive_reuse: [reduce]
     tier: baseline
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - temporal_dynamics
@@ -39,10 +73,6 @@ subtypes:
     config:
       strategy: str
       period: int
-    cadw_module: cadw.ts.models
-    cadw_function: NaiveForecaster
-    input_api: df
-    depends_on: []
     depends_on_status: implemented
     benchmark_results:
     - benchmark: M4
@@ -57,22 +87,46 @@ subtypes:
       value: 14.35
       std: null
       note: naive2 M4 benchmark [legacy v0.9.44, migrated v0.9.50]
-    state_class: O(1)
-    bounded_state_dims: {}
     transient_factor: 1.0
-    state_type: elementwise
-    bounded_state: true
-    n_scalability: constant
-    streaming_strategy:
-      fit: 'keep last value + seasonal window (period ticks).'
-      predict: 'repeat last / seasonal / drift step.'
-    primitive_reuse: [reduce]
   - name: ETS
+    cadw_module: cadw.ts.ets
+    cadw_function: ETSForecaster
+    input_api: df
+    fit_batched: false
+    predict_batched: false
+    depends_on: []
+    ram_formula: "3 * n * f64 + 256"
+    formula_evidence:
+      state: "ets.py:170-172 -- y_.nbytes + fitted_.nbytes + season_.nbytes + 256"
+      header: "ets.py:172 -- +256"
+      guard: "ets.py:fit -- extract_series guards per batch"
+    measurement:
+      verification_mode: "bounded_by_domain (DEC-011)"
+      state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
+      state_ooc: "test_state_nbytes_grows_linearly: 4x n -> ratio [3.0, 5.5]"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
+      cells_passed: "3/3"
+      runtime_sec: "~2"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "Single-series Holt-Winters; state ~3n*f64 (seasonal)."
+    state_class: O(n)
+    bounded_state_dims: {n: 1}
+    state_type: aggregation
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: "Single-series TS; Nelder-Mead grid transient. Guard refuses at state_limit. bounded_by_domain n<=1e6."
+    streaming_strategy:
+      fit: "batched extract_series (O(batch) streaming) + full-series fit. Nelder-Mead grid transient."
+      predict: "closed-form extrapolation; O(1) RAM."
+    primitive_reuse: [reduce]
     tier: baseline
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      described_only: false
+      status: verified
+      verified_in_cadw: true
     roles:
     - temporal_dynamics
     - probabilistic
@@ -85,10 +139,6 @@ subtypes:
       seasonal: str
       trend: bool
       damped: bool
-    cadw_module: cadw.ts.ets
-    cadw_function: ETSForecaster
-    input_api: df
-    depends_on: []
     depends_on_status: implemented
     benchmark_results:
     - benchmark: M4
@@ -130,21 +180,45 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+    transient_factor: 1.0
+  - name: AutoETS
+    cadw_module: cadw.ts.auto_ets
+    cadw_function: AutoETSForecaster
+    input_api: df
+    fit_batched: false
+    predict_batched: false
+    depends_on: []
+    ram_formula: "3 * n * f64 + 256"
+    formula_evidence:
+      state: "auto_ets.py:284 -- best_model_.state_nbytes() (delegated)"
+      header: "auto_ets.py:284 -- delegated +256"
+      guard: "auto_ets.fit -- extract_series guards per batch"
+    measurement:
+      verification_mode: "bounded_by_domain (DEC-011)"
+      state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
+      state_ooc: "test_state_nbytes_grows_linearly: 4x n -> ratio [3.0, 5.5]"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
+      cells_passed: "3/3"
+      runtime_sec: "~2"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "AICc best of 9 ETS fits; only best_model_ retained."
     state_class: O(n)
     bounded_state_dims: {n: 1}
-    transient_factor: 1.0
-    state_type: iterative
+    state_type: aggregation
     bounded_state: false
     n_scalability: linear
-    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; Holt-Winters fit needs full series for classical decomposition + bounded Nelder-Mead over (alpha,beta,gamma,phi). Grid cost O(n*grid_size); not a fit-matrix model.'
+    tier1_core_exception: "Single-series TS; up to 9 sequential ETS fits. Guard refuses at state_limit. bounded_by_domain n<=1e6."
     streaming_strategy:
-      fit: 'load full series; decomposition + Nelder-Mead grid search (bounded grid).'
-      predict: 'closed-form recurrence + analytic Gaussian prediction intervals.'
-    primitive_reuse: []
-  - name: AutoETS
+      fit: "batched extract_series (O(batch) streaming) + full-series fit. up to 9 sequential ETS fits."
+      predict: "closed-form extrapolation; O(1) RAM."
+    primitive_reuse: [reduce]
     tier: sota
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - temporal_dynamics
@@ -162,10 +236,6 @@ subtypes:
       seasonal_period: int
       warn_slow_fit: bool
       slow_fit_threshold_s: float
-    cadw_module: cadw.ts.auto_ets
-    cadw_function: AutoETSForecaster
-    input_api: df
-    depends_on: []
     depends_on_status: implemented
     benchmark_results:
     - benchmark: cadw_internal
@@ -201,21 +271,45 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+    transient_factor: 1.0
+  - name: Theta
+    cadw_module: cadw.ts.theta
+    cadw_function: ThetaForecaster
+    input_api: df
+    fit_batched: false
+    predict_batched: false
+    depends_on: []
+    ram_formula: "2 * n * f64 + 256"
+    formula_evidence:
+      state: "theta.py:221-223 -- y_.nbytes + fitted_.nbytes + 256"
+      header: "theta.py:223 -- +256"
+      guard: "theta.fit -- extract_series + stl_decompose guard"
+    measurement:
+      verification_mode: "bounded_by_domain (DEC-011)"
+      state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
+      state_ooc: "test_state_nbytes_grows_linearly: 4x n -> ratio [3.0, 5.5]"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
+      cells_passed: "3/3"
+      runtime_sec: "~2"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "Single-series Theta (STM); state = y_ + fitted_ = 2n*f64."
     state_class: O(n)
     bounded_state_dims: {n: 1}
-    transient_factor: 1.0
-    state_type: iterative
+    state_type: aggregation
     bounded_state: false
     n_scalability: linear
-    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; AICc selection runs up to 9 ETS fits, each needs full series. Not a fit-matrix model.'
+    tier1_core_exception: "Single-series TS; STL decompose + SES transient. Guard refuses at state_limit. bounded_by_domain n<=1e6."
     streaming_strategy:
-      fit: 'load full series; <=9 configs, each ETS fit, pick min AICc.'
-      predict: 'delegate to selected ETSForecaster; analytic PI.'
-    primitive_reuse: []
-  - name: Theta
+      fit: "batched extract_series (O(batch) streaming) + full-series fit. STL decompose + SES transient."
+      predict: "closed-form extrapolation; O(1) RAM."
+    primitive_reuse: [reduce]
     tier: baseline
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - temporal_dynamics
@@ -227,13 +321,6 @@ subtypes:
     config:
       seasonal_period: int
       n_iter: int
-    cadw_module: cadw.ts.theta
-    cadw_function: ThetaForecaster
-    input_api: df
-    depends_on:
-    - cadw.ops.linalg.ols_fit
-    - cadw.ops.numeric.erfinv
-    - cadw.ts._decomposition.stl_decompose
     depends_on_status: implemented
     benchmark_results:
     - benchmark: cadw_internal
@@ -263,21 +350,45 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
+    transient_factor: 1.0
+  - name: AutoTheta
+    cadw_module: cadw.ts.auto_theta
+    cadw_function: AutoThetaForecaster
+    input_api: df
+    fit_batched: false
+    predict_batched: false
+    depends_on: []
+    ram_formula: "2 * n * f64 + 256"
+    formula_evidence:
+      state: "auto_theta.py:284-286 -- best_model_.state_nbytes() (delegated)"
+      header: "auto_theta.py:286 -- delegated +256"
+      guard: "auto_theta.fit -- extract_series guards per batch"
+    measurement:
+      verification_mode: "bounded_by_domain (DEC-011)"
+      state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
+      state_ooc: "test_state_nbytes_grows_linearly: 4x n -> ratio [3.0, 5.5]"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
+      cells_passed: "3/3"
+      runtime_sec: "~2"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "CV-selected STM vs OTM; only best_model_ retained."
     state_class: O(n)
     bounded_state_dims: {n: 1}
-    transient_factor: 1.0
-    state_type: iterative
+    state_type: aggregation
     bounded_state: false
     n_scalability: linear
-    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; STM on STL requires full-series seasonal decomposition. Not a fit-matrix model.'
+    tier1_core_exception: "Single-series TS; CV folds sequential. Guard refuses at state_limit. bounded_by_domain n<=1e6."
     streaming_strategy:
-      fit: 'STL decomposition + theta smoothing on full series.'
-      predict: 'extend theta lines, add seasonal component.'
-    primitive_reuse: []
-  - name: AutoTheta
+      fit: "batched extract_series (O(batch) streaming) + full-series fit. CV folds sequential."
+      predict: "closed-form extrapolation; O(1) RAM."
+    primitive_reuse: [reduce]
     tier: sota
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - temporal_dynamics
@@ -296,11 +407,6 @@ subtypes:
       seasonal_period: int
       val_steps: int
       n_iter: int
-    cadw_module: cadw.ts.auto_theta
-    cadw_function: AutoThetaForecaster
-    input_api: df
-    depends_on:
-    - cadw.ts._decomposition.stl_decompose
     depends_on_status: implemented
     benchmark_results:
     - benchmark: cadw_internal
@@ -342,17 +448,7 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
-    state_class: O(n)
-    bounded_state_dims: {n: 1}
     transient_factor: 1.0
-    state_type: iterative
-    bounded_state: false
-    n_scalability: linear
-    tier1_core_exception: 'Single-series forecasting; n<=1e6 typical; CV-selected STM/OTM needs multiple full-series fits. Not a fit-matrix model.'
-    streaming_strategy:
-      fit: 'CV over (STM, OTM) on full series, pick best.'
-      predict: 'delegate to selected Theta/OTM forecaster.'
-    primitive_reuse: []
   - name: SARIMA
     tier: sota
     tier_level: tier1_core
