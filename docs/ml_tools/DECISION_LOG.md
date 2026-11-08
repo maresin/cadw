@@ -1815,3 +1815,171 @@ stats).
 ---
 
 <!-- end DEC-054..056 -->
+
+
+---
+
+## DEC-057 (2026-11-08, v0.9.136 audit; v0.9.137 impl) — OOC-batch audit
+
+**Q:** Are all CADW models batched (fit OOC over n)? If yes, is YAML
+honest? If no, which are non-batched and is that documented?
+
+**A:** Audit result: no "lies in YAML" found, but two real defects
+(metric + schema completeness) and several optimization opportunities.
+
+### Method (what was probed)
+
+1. Static AST scan of `cadw/ml/*.py` + `cadw/ts/*.py`: per fit_*,
+   direct calls (`_iter_filtered_batches`, `reduce`, `external_sort`),
+   chunk helpers (`_iter_window_chunks`, `_resolve_chunk_nw`), known
+   delegates (`fit_linear`, `_collect`, `_fit_autoencoder_df`, `_fit_zms_df`).
+2. Runtime measurement (2 real fits + state) of 3 representative
+   batched models (linear, logistic, gaussian_nb) + 2 TS (BVAR, VAR)
+   at n=1e4/1e5.
+3. YAML cross-check: 39 cards claim `bounded_state: true`; 66
+   verified+draft cards total.
+
+### Findings
+
+**F1. `test_fit_ooc_v106.py` uses `py_bytes` (tracemalloc) — wrong metric.**
+
+`measure_peak(fit_fn, ...)["py_bytes"]` counts Python objects only.
+Numpy arrays allocated via `np.empty(n)` use malloc, not PyMem, so
+they are NOT visible to tracemalloc. This is a false-negative metric:
+an unbatchy numpy fit (allocate Y (n,k), do lstsq) shows
+`py_bytes ≈ const` at any n and passes the test.
+
+**Verified by runtime:** for `linear`/`logistic`/`gaussian_nb`, both
+`py_bytes` AND `rss_bytes` are flat (ratio 1.00 at 1e5 vs 1e6) — these
+3 models ARE genuinely batched. But the metric would NOT catch a
+non-batched model. VAR (full-read by design) shows `rss` flat for small
+data (allocator reuse) but `state_nbytes` grows 0.08→0.80 MB across
+1e4→1e5 (ratio ~10, order n·k·8) — correct per YAML `bounded_state:
+false, state_class: O(N·d)`.
+
+**Fix (v0.9.137):** replace `["py_bytes"]` with `["rss_bytes"]` (or
+`measure_peak_traced` from v0.9.110/DEC-033). Same assertion form,
+correct metric.
+
+**F2. YAML has no explicit `fit_batched` / `predict_batched` field.**
+
+Fields that look batch-related (`bounded_state`, `n_scalability`,
+`state_class`, `state_type`) describe **state** (persistent memory
+across iterations), not **fit-transient**. Two models can have:
+
+- `bounded_state: true`, `fit_transient_ooc: false` (VAR-like:
+  no n-sized state, but transient Y is n-sized) — logically impossible
+  but a hypothetical combination.
+- `bounded_state: false`, `fit_transient_ooc: true` (BVAR/VECM: fit
+  is streaming O(k²), but state contains k×p coefficients and last-p
+  buffer; formally O(k·p·...), not O(1)).
+
+Actually audited reality:
+- **BVAR/VECM:** `bounded_state: true` + fit IS batched (`for batch in
+  _iter_filtered_batches`, `check_batch(extra_factor=2.0)`, rolling
+  `buf = last p rows`). Honest.
+- **VAR:** `bounded_state: false` + `state_class: O(N·d)` + fit NOT
+  batched (`_extract_series` per col + `np.column_stack`). Honest.
+- **Single-series TS** (ETS/Theta/OTM/THF/TTF/AutoETS/AutoTheta/SARIMA/
+  Naive): `bounded_by_domain n<=1e6`, `_extract_series` full read.
+  Honest (documented as `tier1_core_exception`).
+- **binseg/stray:** `refuse_at_guard`, intrinsic O(n)/O(n²). Honest.
+
+So the field gap is **language**, not data: the model card does not
+answer "is this model batch-streaming?" directly. Consumers reading
+YAML for OOC-guarantee must infer from `state_type` + `state_class`
++ code reading.
+
+**Fix (v0.9.137):** add `ModelCard.fit_batched: bool | None` and
+`predict_batched: bool | None`. Optional (None = legacy).
+
+- `fit_batched: true` = fit streams `_iter_filtered_batches` (may
+  delegate through `_collect`/`_fit_*_df`/chunked helper).
+- `fit_batched: false` = full-read (`_extract_series` or intrinsic
+  O(n)), requires either `bounded_by_domain` OR `refuse_at_guard`
+  rational in `streaming_strategy` or `tier1_core_exception`.
+- Same for `predict_batched`.
+- Schema test **R13**: `bounded_state: true` + `fit_batched: false`
+  is allowed (BVAR pattern) but requires `streaming_strategy.fit`
+  containing "batched" OR "streaming" keyword — prevents silent
+  mismatch.
+
+**F3. VAR could be batched (optimization, not bug).**
+
+`VARModel.fit` reads each column fully (`_extract_series`) and then
+`np.column_stack` → O(n·k) transient. BVAR/VECM already show the
+streaming alternative: `for batch`, `check_batch`, `XTX += X.T @ X`,
+`buf = last p rows`. Migrating VAR to the same pattern would change
+YAML: `bounded_state: false` → `true`, `state_class: O(N·d)` →
+`O(k²p²)`. But `bounded_state: false` is honest — so this is
+optimization opportunity, not YAML lie.
+
+**Deferred to v0.9.140+** (after P1 primitives land): rewrite VAR fit
+as streaming. Not urgent (VAR is rarely n>1M in practice; docs claim
+`state_class: O(N·d)` which is honest).
+
+**F4. AST scan without delegate resolution gives false negatives.**
+
+Initial AST scan (only direct `_iter_filtered_batches` in body) flagged
+15 models as NO-BATCH that are actually batched via:
+- delegate `fit_linear` (lasso, elasticnet)
+- delegate `_fit_autoencoder_df` / `_fit_kshape_df` / `_fit_zms_df`
+- delegate `_collect` / `_collect_cls` (chains, meta_learners, ordinal,
+  uplift, feature_select)
+- chunked helpers (`_iter_window_chunks` etc.)
+
+Second-pass AST with DELEG_FNS resolved — correct classification.
+Also: `cadw/ts/` was not scanned in first pass; BVAR/VECM look like
+"NO-BATCH" from a `cadw/ml`-only view but both call
+`df._iter_filtered_batches()`.
+
+**Fix for future audits:** AST helper must have (a) explicit delegate
+list, (b) trans-module scan, (c) 3rd pass over `cadw.ts.*`. Or just
+runtime measurement — which is what v0.9.137 R13 test will do.
+
+### Verdict
+
+- **No "silent unbatched" model exists.** Every verified model either
+  is batched, or is honestly documented as `bounded_by_domain` /
+  `refuse_at_guard` / `tier1_core_exception`.
+- **No YAML lie found.**
+- **Two real defects:** test metric (`py_bytes`), schema language
+  (`fit_batched`/`predict_batched` absent).
+- **One optimization:** VAR could be made streaming (honest as-is).
+
+### v0.9.137 plan (immediate next)
+
+1. Fix `test_fit_ooc_v106.py`: `["py_bytes"]` → `["rss_bytes"]`.
+2. Schema: `ModelCard.fit_batched` + `predict_batched` + `_parse_model`.
+3. R13 test: `bounded_state: true` + `fit_batched: false` requires
+   "batched|streaming" keyword in `streaming_strategy.fit`.
+4. Migration 66 cards (verified+draft) via 2-pass AST with delegate
+   list + `cadw/ts/` scan. Expected:
+   - ~54 `fit_batched: true` (streaming / chunked / delegate)
+   - ~9 `fit_batched: false` (single-series TS, VAR)
+   - 2 `fit_batched: false` (binseg, stray)
+   - `predict_batched` follows: SpillArray-based → true; single-series
+     → false; concat-based → false.
+5. `test_fit_ooc_v106.py` extension: 6 → 12 representative models
+   (linear, logistic, NB×3, kmeans, pca, gbdt_binary, iforest, als,
+   coxph, minibatch_kmeans, tfidf) with `rss_bytes` metric.
+6. No model code changes (F3 optimization → v0.9.140+).
+
+### Files (planned, v0.9.137)
+
+- `tests/test_fit_ooc_v106.py` — metric fix + extension.
+- `docs/ml_tools/schema.py` — 2 fields + `_parse_model`.
+- `tests/test_ml_tools_schema.py` — R13.
+- All 66 YAML cards — add `fit_batched`/`predict_batched`.
+- `docs/ROADMAP.md` — mark v0.9.137 in Next sessions.
+
+### Non-goals
+
+- Rewriting VAR as streaming (deferred v0.9.140+, honest as-is).
+- Rewriting single-series TS (ETS/Theta/etc.) — architecturally
+  single-series, `bounded_by_domain` correct.
+- Rewriting chunked helpers — chunked is already correct.
+
+---
+
+<!-- end DEC-057 -->

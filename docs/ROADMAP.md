@@ -119,23 +119,38 @@ All **implementation**, not card-filling:
 
 ## Next 3 sessions
 
-### v0.9.137 — P1 group A: distances + kernels
+### v0.9.137 — DEC-057 impl: fit_batched/predict_batched + test fix
+
+**Part A (~30 min):** `test_fit_ooc_v106.py`: `["py_bytes"]` ->
+`["rss_bytes"]`. Extend 6 -> 12 representative models.
+
+**Part B (~30 min):** schema `ModelCard.fit_batched` +
+`predict_batched` + `_parse_model`.
+
+**Part C (~30 min):** R13 test (bounded_state=true + fit_batched=false
+requires streaming keyword).
+
+**Part D (~30 min):** migration 66 cards (2-pass AST with delegate
+list + cadw/ts scan). Expect ~54 true / ~12 false with bounded_by_domain
+or refuse_at_guard.
+
+### v0.9.138 — P1 group A: distances + kernels
 L1 `_knn_query`, L2 `_core_distances`, L3 `_rbf_kernel`, L4 `_chol_solve`.
 Unblocks: LOF, DBSCAN, HDBSCAN, SMOTE, GPR, GP forecaster, spectral
 (pending L6), GPLVM, KernelPCA, GP-EI, BayesianOpt, KNNImputer.
 
-### v0.9.138 — P1 group B: graph
+### v0.9.139 — P1 group B: graph
 L5 `_mst`, L6 `_graph_laplacian` + `_eigsh_topk`, L19 `_eigen_decomp_topk`.
 Unblocks: HDBSCAN dendrogram, Agglomerative single, Spectral x3, Consensus x3.
 
-### v0.9.139 — P1 group C: factorization + itemset
+### v0.9.140 — P1 group C: factorization + itemset
 L7 `_nmf_mu`, L8 `_itemset_mining` (Apriori/FP-tree/Eclat).
 
-### v0.9.140 — P1 group D: losses + stats
+### v0.9.141 — P1 group D: losses + stats
 L9-L20: pinball, survival logrank, DR score, LTR gradients, grid_search,
 arm_stats, adaboost, ks_stat, cumulative_logit.
 
-### v0.9.134 — home-correction + DEC-054 tail (DONE)
+#### v0.9.134 — home-correction + DEC-054 tail (DONE, see CHANGELOG)
 
 **Part A (~1 h): home fixes.**
 - `sigmoid` -> `cadw/ops/numeric.py` (from `optim.py`: SGD there, sigmoid
@@ -156,7 +171,7 @@ prospective consumers).**
 **Part C (~30 min): update DEC-054 with scope actually applied vs
 deferred.**
 
-### v0.9.135 — schema `depends_on` + card migration
+#### v0.9.135 — schema `depends_on` + card migration (DONE)
 
 **Part A (~1.5 h): schema extension.**
 - `ModelCard.depends_on: list[str] | None` in `schema.py`.
@@ -172,7 +187,7 @@ deferred.**
 - Add `depends_on` field with explicit list.
 - described_only cards: `depends_on: []` (nothing to import yet).
 
-### v0.9.136 — PRIMITIVES_BACKLOG.md (forward scan)
+#### v0.9.136 — PRIMITIVES_BACKLOG.md (forward scan) (DONE)
 
 **Scan all 302 cards** (48 verified + 14 draft + 61 described_only +
 6 inference-only + 5 last-priority + 42 new candidates + 42 not-impl).
@@ -353,6 +368,11 @@ Per STREAMING §6.1 — won't-fix with rationale:
   3rd/4th real caller demands shared signature (AP22).
 - **`_grid_search` parameterized helper**: `grid_search(param_grid,
   scorer, refine_axes=None)` for OTM/ETS/SARIMA — v0.9.135+.
+- **VAR streaming rewrite** (DEC-057 F3): could use BVAR/VECM
+  pattern (`XTX += X.T@X` + rolling buf). Deferred v0.9.140+.
+  Honest as-is (`bounded_state: false, state_class: O(N·d)`).
+- **AST audit helper** (DEC-057 F4): delegate resolution + trans-
+  module + cadw/ts scan. One-off script for future OOC audits.
 - **`fit_meta_learner` AP2 refactor**: T/S learner verify requires
   removing `_collect + vstack` (DEC-012 pattern).
 - **Pre-commit hook for `render_matrix.py`**: `--check` flag prevents
