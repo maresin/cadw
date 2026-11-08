@@ -20,6 +20,8 @@ from .naive_bayes import (
     BernoulliNB, fit_bernoulli_nb,
 )
 
+from cadw.ml.weibull_aft import WeibullAFTModel, fit_weibull_aft  # noqa: E402
+from cadw.ml.kaplan_meier import KaplanMeierModel, fit_kaplan_meier  # noqa: E402
 from cadw.ml.nmf import NMFModel, fit_nmf  # noqa: E402
 from cadw.ml.bandits import (
     EpsilonGreedyPolicy, UCB1Policy, ThompsonSamplingPolicy,

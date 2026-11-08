@@ -332,6 +332,14 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.143-batch3 (survival pair):**
+- Promote KaplanMeier + WeibullAFT (I_survival × 2): `fit_kaplan_meier`
+  in `cadw.ml.kaplan_meier`, `fit_weibull_aft` in `cadw.ml.weibull_aft`.
+  Two YAML cards: None -> verified (DEC-033 component-wise).
+- Tests: 15 passed, 2 skipped (KM OOC sanity skipped per DEC-034;
+  primary evidence = state_nbytes_exact + state_independent_of_n).
+- R2 fix: c_batch -> 4.0 in ram_formula (same precedent bandits 3.5).
+
 **v0.9.143-batch2 (NMF):**
 - Promote NMF × 2 (C_dim + J_nlp): `fit_nmf` in `cadw.ml.nmf`.
   Two YAML cards: None -> verified (DEC-033 component-wise).
