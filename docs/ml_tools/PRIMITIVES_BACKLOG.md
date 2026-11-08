@@ -78,6 +78,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `eigsh_topk` | `cadw.ops.graph` (v0.9.147) | Spectral ×5 | +0 (implemented, wraps eigh_topk) |
 | `mst` | `cadw.ops.graph` (v0.9.147) | HDBSCAN ×2, Agglomerative single | +1 (STRAY) |
 | `normalize_weights` | `cadw.ops.stats` (v0.9.148) | ML-kNN, SMOTE, WeightedSample, +1 | +0 (implemented) |
+| `apriori` + `eclat` + `support_count` + `candidate_generation` | `cadw.ops.itemset` (v0.9.149) | Apriori, Eclat | fp_growth/prefix_span/gsp pending v0.9.150 |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -87,12 +88,12 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 
 ## P1 — 3+ prospective consumers (implement first)
 
-### L8. `_itemset_mining` (Apriori / FP-tree / Eclat shared core)
-- **Consumers**: Apriori, FP-growth, Eclat (R1)
-- **Home**: `cadw.ops.itemset.support_count(transactions, itemset)` +
-  `candidate_generation(F_k, k)` + `vertical_tidset(intersect)`.
-  Separate algorithm classes but shared support/candidate primitives.
-- **Effort**: 2 sessions.
+### L8 (partially implemented)
+- **Done (v0.9.149):** apriori + eclat + support_count +
+  candidate_generation in `cadw.ops.itemset`.
+- **Pending (v0.9.150):** fp_growth, prefix_span, gsp.
+- Consumers done: Apriori (R_association), Eclat (R_association).
+- Consumers pending: FP-growth, PrefixSpan, GSP.
 
 ### L9. `_pinball_loss` + `_quantile_grad`
 - **Consumers**: LinearQuantReg, GBDT_pinball, CQR

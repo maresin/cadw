@@ -332,6 +332,19 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.149 (P1 L8: itemset apriori + eclat):**
+- New `cadw/ops/itemset.py`: support_count + candidate_generation
+  + apriori + eclat. L8 was a single dispatcher (itemset_mining)
+  in PRIMITIVES_BACKLOG; split into specific functions because
+  a monolithic dispatcher with NotImplementedError branches would
+  dishonestly flip FP-growth card (R11 static check can't see
+  runtime raise).
+- FP-growth, PrefixSpan, GSP -> v0.9.150 (specific functions).
+- Tests: 16 passed (support/candidate classic; apriori=eclat
+  cross-check on random data; guard refuses).
+- YAML: 2 cards flipped (Apriori, Eclat) with deps rewritten
+  from itemset_mining to specific functions.
+
 **v0.9.148 (P1 L17: normalize_weights):**
 - Extract `normalize_weights` to `cadw.ops.stats` (P1 L17).
   4 consumers: ML-kNN, SMOTE, WeightedSample, +1.
