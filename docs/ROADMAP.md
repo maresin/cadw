@@ -332,6 +332,20 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.160 (GBDT family batch 2: 2 TS cards):**
+- Fixed `_NumpyReg.state_nbytes()` (was missing -> inherited 0
+  -> GBDTForecaster total was just 256 header). Delegates to
+  `.model.state_nbytes()` (GBDTRegressor).
+- Flipped 2 cards: GBDTForecaster, GBDT_multiseries
+  (D_time_series; both same class, multiseries adds group_col).
+- ram_formula (upper bound, iforest precedent):
+  n_horizons * n_estimators * (2**(max_depth+1)-1) * 500
+  + 2*d*f64 + 256
+- Tests: 6 passed (CW-1 [0.20, 1.0]; CW-2 ratio <=3.0;
+  lazy fit(horizons=None)->state=0; eager fit(horizons=N)->state>0;
+  guard-refuse; recursive eager).
+- **D_time_series section complete**: 9/9 TS cards verified.
+
 **v0.9.159 (GBDT family batch 1: 5 cards):**
 - Added state_nbytes() to GBDTRegressor, GBDTClassifier,
   GBDTMulticlassClassifier (was missing): exact tree byte count

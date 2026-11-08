@@ -512,9 +512,41 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
   - name: GBDTForecaster
+    cadw_module: cadw.ts.models
+    cadw_function: GBDTForecaster
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    depends_on: []
+    ram_formula: "n_horizons * n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    formula_evidence:
+      trees: "cadw.ts.models:_NumpyReg (GBDTRegressor per horizon) -- state_nbytes per tree _deep_nbytes"
+      forecaster: "cadw.ts.models:GBDTForecaster.state_nbytes -- sum over self._models"
+      header: "cadw.ts.models:GBDTForecaster.state_nbytes -- +256"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
+      state_ooc: "test_state_independent_of_n: n=500 vs n=5000 -> ratio <=3.0"
+      lazy: "test_state_zero_before_predict_horizons_none: Lazy: state=0 until predict() or fit(horizons=N)."
+      eager: "test_state_after_eager_fit: horizons=3 -> state>0"
+      guard_refuse: "test_guard_refuses_during_fit: n=200 + horizons=20 + 0.001 MB -> MemoryLimitExceeded"
+      cells_passed: "3/3"
+      runtime_sec: "~4"
+    bounded_state: true
+    bounded_state_dims: {n_estimators: 1, max_depth: 1, n_horizons: 1, d: 1}
+    state_class: O(model)
+    state_type: iterative
+    n_scalability: constant
+    tier1_core_exception: "Tree-ensemble state bounded by {n_estimators: 1, max_depth: 1, n_horizons: 1, d: 1}; per-horizon training: lag matrix build (n, d) + GBDT per-tree hist reduce. n-independent."
+    streaming_strategy:
+      fit: "extract_series (O(batch)) -> lag matrix build. Per-horizon GBDT: per-tree Reduce on histograms. per-horizon training: lag matrix build (n, d) + GBDT per-tree hist reduce."
+      predict: "per-horizon single-row tail_features -> GBDT descend; O(steps × trees). Full _extract_series at fit-time only."
+    primitive_reuse: [reduce]
     tier: sota
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - nonlinear_interactions
@@ -529,11 +561,6 @@ subtypes:
     config:
       lags: tuple
       mode: str
-    cadw_module: cadw.ts.models
-    cadw_function: GBDTForecaster
-    input_api: df
-    depends_on: []
-    depends_on_status: implemented
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -553,19 +580,7 @@ subtypes:
   # Rationale: without these, D1 matrix has no view of the 2025/2026 SOTA.
   # All cards documented_only; excluded from ensemble_recommendation (rule).
   # ==========================================================================
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
     transient_factor: 1.0
-    state_type: iterative
-    bounded_state: true
-    n_scalability: constant
-    streaming_strategy:
-      fit: 'binning + codes ReduceOps via SpillDir (P1a path); per-horizon models trained on batches.'
-      predict: 'deferred per-horizon tree recursion on batch.'
-    primitive_reuse:
-    - reduce
-    - spill_dir
-    - codes_bin
   - name: EnsembleForecaster
     tier: ensemble
     tier_level: tier1_core
@@ -1172,9 +1187,41 @@ subtypes:
       note: 'M2 parity on synthetic_m4_like_multivariate DGP: RMSE(cadw_forecast, statsmodels_forecast)=0.0 (5.8e-18 round-off); verdict=consistent'
     transient_factor: 1.0
   - name: GBDT_multiseries
+    cadw_module: cadw.ts.models
+    cadw_function: GBDTForecaster
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    depends_on: []
+    ram_formula: "n_horizons * n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    formula_evidence:
+      trees: "cadw.ts.models:_NumpyReg per horizon × per group -- state_nbytes"
+      forecaster: "cadw.ts.models:GBDTForecaster.state_nbytes -- sum"
+      header: "cadw.ts.models:GBDTForecaster.state_nbytes -- +256"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
+      state_ooc: "test_state_independent_of_n: n=500 vs n=5000 -> ratio <=3.0"
+      lazy: "test_state_zero_before_predict_horizons_none: Lazy; group_col variant. Same class as GBDTForecaster."
+      eager: "test_state_after_eager_fit: horizons=3 -> state>0"
+      guard_refuse: "test_guard_refuses_during_fit: n=200 + horizons=20 + 0.001 MB -> MemoryLimitExceeded"
+      cells_passed: "3/3"
+      runtime_sec: "~4"
+    bounded_state: true
+    bounded_state_dims: {n_estimators: 1, max_depth: 1, n_horizons: 1, d: 1}
+    state_class: O(model)
+    state_type: iterative
+    n_scalability: constant
+    tier1_core_exception: "Tree-ensemble state bounded by {n_estimators: 1, max_depth: 1, n_horizons: 1, d: 1}; per-group per-horizon training: lag matrix per group; GBDT hist. n-independent."
+    streaming_strategy:
+      fit: "extract_series (O(batch)) -> lag matrix build. Per-horizon GBDT: per-tree Reduce on histograms. per-group per-horizon training: lag matrix per group; GBDT hist."
+      predict: "per-horizon single-row tail_features -> GBDT descend; O(steps × trees). Full _extract_series at fit-time only."
+    primitive_reuse: [reduce]
     tier: sota
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - nonlinear_interactions
@@ -1185,11 +1232,6 @@ subtypes:
     config:
       lags: tuple
       group_col: str
-    cadw_module: cadw.ts.models
-    cadw_function: GBDTForecaster
-    input_api: df
-    depends_on: []
-    depends_on_status: implemented
     benchmark_results:
     - benchmark: M5
       benchmark_url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
@@ -1203,19 +1245,7 @@ subtypes:
       value: 12.8
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
     transient_factor: 1.0
-    state_type: iterative
-    bounded_state: true
-    n_scalability: constant
-    streaming_strategy:
-      fit: 'per-series binning + codes ReduceOps via SpillDir.'
-      predict: 'per-series tree recursion on batch.'
-    primitive_reuse:
-    - reduce
-    - spill_dir
-    - codes_bin
   - name: BVAR
     tier: sota
     tier_level: tier1_core

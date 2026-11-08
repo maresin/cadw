@@ -750,6 +750,14 @@ class _NumpyReg:
         self.feature_names = list(feature_names)
         return self
 
+    def state_nbytes(self) -> int:
+        """Delegate to wrapped GBDTRegressor (self.model)."""
+        if self.model is None:
+            return 0
+        if hasattr(self.model, "state_nbytes"):
+            return int(self.model.state_nbytes())
+        return 0
+
     def predict(self, X):
         # GBDTRegressor.predict expects X numpy (n, d).
         return self.model.predict(X)
