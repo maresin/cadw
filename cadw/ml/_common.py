@@ -54,3 +54,32 @@ def _stack_numeric(
     """
     parts = [_column_to_f64(batch.column(c)) for c in cols]
     return np.column_stack(parts)
+
+
+
+def _xavier_init(
+    fan_in: int, fan_out: int, rng: np.random.Generator,
+) -> np.ndarray:
+    """Xavier/Glorot uniform weight init: U(-sqrt(6/(fan_in+fan_out)),
+    sqrt(6/(fan_in+fan_out))). Prior to v0.9.133 had 2 identical
+    copies (autoencoder + patch_memory_ad)."""
+    limit = np.sqrt(6.0 / (fan_in + fan_out))
+    return rng.uniform(-limit, limit, size=(fan_in, fan_out))
+
+
+
+def _to_df_causal(
+    X: np.ndarray, t: np.ndarray, y: np.ndarray, cols: list,
+):
+    """Build a CadwDataFrame from (X, t, y) arrays for causal T/S-learners.
+
+    Columns: `cols` (X), `__t` (treatment), `__y` (outcome). Prior to
+    v0.9.133 had 2 identical copies (meta_learners + uplift).
+    CadwDataFrame imported locally to avoid circular import with
+    cadw.dataframe._ml_bindings.
+    """
+    from cadw import CadwDataFrame
+    d = {c: pa.array(X[:, j]) for j, c in enumerate(cols)}
+    d["__t"] = pa.array(t, type=pa.float64())
+    d["__y"] = pa.array(y, type=pa.float64())
+    return CadwDataFrame.from_table(pa.table(d))

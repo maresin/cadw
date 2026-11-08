@@ -60,6 +60,11 @@ import pyarrow as pa
 
 from .sub_pca import _map_max, _map_mean
 
+# v0.9.133 (DEC-054): _znormalize_rows -> cadw.ops.numeric;
+#                    _xavier_init -> cadw.ml._common.
+from cadw.ops.numeric import znormalize_rows as _znormalize_rows
+from cadw.ml._common import _xavier_init
+
 
 @dataclass
 class PatchMemoryADResult:
@@ -186,10 +191,6 @@ def _encode_backward(dz: np.ndarray, X: np.ndarray, h: np.ndarray,
     return dW1, db1, dW2, db2
 
 
-def _xavier_init(fan_in: int, fan_out: int,
-                 rng: np.random.Generator) -> np.ndarray:
-    limit = np.sqrt(6.0 / (fan_in + fan_out))
-    return rng.uniform(-limit, limit, size=(fan_in, fan_out))
 
 
 def _sq_dists(z: np.ndarray, mem: np.ndarray) -> np.ndarray:
@@ -200,11 +201,6 @@ def _sq_dists(z: np.ndarray, mem: np.ndarray) -> np.ndarray:
     return z_sq[:, None] - 2.0 * (z @ mem.T) + m_sq[None, :]
 
 
-def _znormalize_rows(X: np.ndarray) -> np.ndarray:
-    mu = X.mean(axis=1, keepdims=True)
-    sd = X.std(axis=1, keepdims=True)
-    sd = np.where(sd < 1e-12, 1.0, sd)
-    return (X - mu) / sd
 
 
 

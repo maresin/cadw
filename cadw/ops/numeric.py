@@ -55,3 +55,17 @@ def erfinv(x: float) -> float:
         d = 2.0 / math.sqrt(math.pi) * math.exp(-g * g)
         g -= err / d
     return g
+
+
+
+def znormalize_rows(X: np.ndarray) -> np.ndarray:
+    """Per-row z-normalization with zero-std guard.
+
+    Each row is independently standardized: mu and sd computed per row.
+    Rows with sd < 1e-12 → sd forced to 1 (output = X - mu, i.e. zeros).
+    Prior to v0.9.133 had 2 identical copies (autoencoder + patch_memory_ad).
+    """
+    mu = X.mean(axis=1, keepdims=True)
+    sd = X.std(axis=1, keepdims=True)
+    sd = np.where(sd < 1e-12, 1.0, sd)
+    return (X - mu) / sd

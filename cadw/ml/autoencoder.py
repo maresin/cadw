@@ -26,6 +26,11 @@ import pyarrow as pa
 
 from .sub_pca import _map_max, _map_mean, _prepare_windows
 
+# v0.9.133 (DEC-054): _znormalize_rows -> cadw.ops.numeric;
+#                    _xavier_init -> cadw.ml._common.
+from cadw.ops.numeric import znormalize_rows as _znormalize_rows
+from cadw.ml._common import _xavier_init
+
 
 @dataclass
 class AutoencoderResult:
@@ -76,10 +81,6 @@ class AutoencoderResult:
 from cadw.core.memory_guard import probe_limit_mb as _probe_memory_limit_mb
 
 
-def _xavier_init(fan_in: int, fan_out: int,
-                 rng: np.random.Generator) -> np.ndarray:
-    limit = np.sqrt(6.0 / (fan_in + fan_out))
-    return rng.uniform(-limit, limit, size=(fan_in, fan_out))
 
 
 def _forward(X: np.ndarray, W1, b1, W2, b2, W3, b3, W4, b4):
@@ -110,12 +111,6 @@ def _backward(X, x_hat, cache, W1, W2, W3, W4):
     return dW1, db1, dW2, db2, dW3, db3, dW4, db4
 
 
-def _znormalize_rows(X: np.ndarray) -> np.ndarray:
-    """Per-row (window) z-normalization with zero-std guard."""
-    mu = X.mean(axis=1, keepdims=True)
-    sd = X.std(axis=1, keepdims=True)
-    sd = np.where(sd < 1e-12, 1.0, sd)
-    return (X - mu) / sd
 
 
 def _resolve_chunk_nw_ae(d: int, batch_size: int, guard=None) -> int:

@@ -15,6 +15,8 @@ import numpy as np
 
 from cadw.viz import _aggregate
 
+from cadw.viz._lazy import lazy_plt
+
 
 def _sns():
     try:
@@ -28,14 +30,7 @@ def _sns():
 
 
 def _plt():
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError as e:
-        raise ImportError(
-            "matplotlib is required for cadw.viz.seaborn_adapter; "
-            "install with: uv sync --group viz"
-        ) from e
-    return plt
+    return lazy_plt("cadw.viz.seaborn_adapter")
 
 
 def _sample_to_pandas(df, cols, n: int = 1000):

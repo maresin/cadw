@@ -30,6 +30,9 @@ from cadw.dataset import Dataset
 from cadw.dataframe import CadwDataFrame
 from cadw.ml._logging import log_fit
 
+# v0.9.133 (DEC-054): _to_df -> cadw.ml._common._to_df_causal.
+from cadw.ml._common import _to_df_causal as _to_df
+
 
 def _predict_np(model, df, cols, mg, name):
     """Per-batch numpy prediction through a fitted GBDT regressor."""
@@ -144,11 +147,6 @@ def _collect(df, cols, t_col, y_col, mg):
     return np.vstack(Xs), np.concatenate(ts), np.concatenate(ys)
 
 
-def _to_df(X, t, y, cols):
-    d = {c: pa.array(X[:, j]) for j, c in enumerate(cols)}
-    d["__t"] = pa.array(t, type=pa.float64())
-    d["__y"] = pa.array(y, type=pa.float64())
-    return CadwDataFrame.from_table(pa.table(d))
 
 
 def fit_meta_learner(df, X_cols, treatment_col, y_col, *, kind="t",
