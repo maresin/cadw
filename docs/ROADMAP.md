@@ -1,8 +1,59 @@
 # CADW Roadmap
 
-Last updated: 2026-11-06 (after v0.9.128).
+Last updated: 2026-11-08 (after v0.9.133).
 
-## Current: v0.9.128 — TAXONOMY FROZEN
+## Current: v0.9.133 — DEC-054 dedup pass (K1, K2, K3a, K5c, K6, K10, K12)
+
+**5 releases since v0.9.128.** v0.9.129 = verify 3 ts drafts;
+v0.9.130-133 = DEC-054 dedup pass (7 clusters). 30 files touched,
+~600 lines removed via AST-based extraction.
+
+### v0.9.129 — 3 ts drafts -> verified
+- `OTMThetaForecaster`, `TemporalHierarchy`, `TransformedTargetForecaster`
+  `draft -> verified` with `ram_formula` + `formula_evidence` +
+  `measurement: component-wise (DEC-033)` + `bounded_by_domain n<=1e6`.
+- New tests: `test_otm_verification.py`, `test_thf_verification.py`,
+  `test_transforms_verification.py` (27 tests, CW-1..5).
+- Code fixes: OTM `check_state(31*n*8+256)` before grid search;
+  THF `state_nbytes()` + cumulative multi-group check_state;
+  TTF `state_nbytes()` on all 4 transformers + `(3+8K)*n*8+4096`
+  check_state (replaced invented 1024/transformer with exact sum, AP22).
+
+### v0.9.130 — K1: `_probe_memory_limit_mb` 16 -> 1
+- Canonical: `cadw.core.memory_guard.probe_limit_mb`.
+- AST-based migration (regex ate `@dataclass` -> 65 failures; fixed
+  via `ast.FunctionDef.end_lineno`).
+
+### v0.9.131 — K2: `_sigmoid` 4 -> 1 (+ numerical stability fix)
+- Canonical: `cadw.ops.optim.sigmoid` (pos/neg branch, no overflow).
+- Correctness fix: `calibration.py` + `ordinal.py` clipped |z| to 50
+  -> wrong probabilities for z=-1000. New impl gives 0/1 exactly.
+
+### v0.9.132 — K3a: `_ols_fit` 2 -> 1, `_erfinv` 2 -> 1
+- New: `cadw.ops.numeric.py` (pure math, no Arrow, no I/O).
+- `_ses` NOT unified: 3 different algorithms (SES / theta-variant /
+  Holt-Winters), AP22.
+- `_acf` NOT extracted: 1 use site (AP10); `_grid_search` deferred.
+
+### v0.9.133 — K5c+K6+K10+K12 (4 clusters)
+- K5c `znormalize_rows` 2 -> 1 (`cadw.ops.numeric`).
+- K6 `_to_df` 2 -> 1 (`cadw.ml._common._to_df_causal`).
+- K10 `_xavier_init` 2 -> 1 (`cadw.ml._common`).
+- K12 `_plt` 2 -> 1 (`cadw.viz._lazy.lazy_plt`).
+
+**Counts:** 35 verified fns / 51 verified cards (was 32/48). Draft
+fns unchanged (14) / draft cards 17 -> 14 (3 ts drafts -> verified).
+described_only unchanged (61).
+
+**Known gaps (v0.9.134+):** home-correction (`sigmoid` -> `numeric`,
+`znormalize` -> `stats`, new `cadw/ops/linalg.py`, `cadw/ops/stats.py`,
+`cadw/ml/_nn_init.py`); forward-looking extraction (`_sq_dists`,
+`_acf` with prospective consumers); schema `depends_on` field;
+PRIMITIVES_BACKLOG.md scan across all 302 cards.
+
+---
+
+## Historical: v0.9.128 — TAXONOMY FROZEN
 
 **Freeze declaration** (DEC-052, AI_CONSTITUTION §5.3): **58/58 subtypes**
 have ≥3 diverse candidates or explicit `# NOT-ENSEMBLE: <reason>`.
@@ -48,7 +99,82 @@ All **implementation**, not card-filling:
 
 ## Next 3 sessions
 
-### v0.9.129 — verify 4 ts drafts + fit_stacking pilot
+### v0.9.134 — home-correction + DEC-054 tail
+
+**Part A (~1 h): home fixes.**
+- `sigmoid` -> `cadw/ops/numeric.py` (from `optim.py`: SGD there, sigmoid
+  is elementwise numeric, not optimization).
+- `znormalize_rows` -> `cadw/ops/stats.py` (new; mean/std = statistics).
+- `ols_fit` -> `cadw/ops/linalg.py` (new; or keep in numeric with note).
+- `_xavier_init` -> `cadw/ml/_nn_init.py` (new; NN-specific).
+- Update all importers (`gbdt`, `calibration`, `ordinal`, `autoencoder`,
+  `patch_memory_ad`).
+
+**Part B (~1 h): forward-looking extraction (AP10 exception for >=2
+prospective consumers).**
+- `_sq_dists` -> `cadw/ops/linalg.py` (prospective: kmeans_ad, kshape,
+  tspq, iforest, eif, HDBSCAN, DBSCAN, minibatch_kmeans — 8+).
+- `_acf` -> `cadw/ops/stats.py` (prospective: binseg, pelt, bocpd,
+  matrix_profile, stray — 5+).
+
+**Part C (~30 min): update DEC-054 with scope actually applied vs
+deferred.**
+
+### v0.9.135 — schema `depends_on` + card migration
+
+**Part A (~1.5 h): schema extension.**
+- `ModelCard.depends_on: list[str] | None` in `schema.py`.
+- `test_R11_depends_on_importable`: every dotted path in `depends_on`
+  must resolve via `importlib`.
+- `test_R12_depends_on_matches_code`: AST scan of `cadw_module`,
+  every top-level `from ... import ...` of a helper in `cadw.ops.*` /
+  `cadw.ts._*` / `cadw.ml._*` must appear in `depends_on` (or whitelisted
+  as stdlib/np/pa).
+
+**Part B (~1 h): migration.**
+- AST-extract imports for 51 verified + 14 draft cards.
+- Add `depends_on` field with explicit list.
+- described_only cards: `depends_on: []` (nothing to import yet).
+
+### v0.9.136 — PRIMITIVES_BACKLOG.md (forward scan)
+
+**Scan all 302 cards** (48 verified + 14 draft + 61 described_only +
+6 inference-only + 5 last-priority + 42 new candidates + 42 not-impl).
+
+For each described_only card: read `purpose` + `algorithm_source_url`,
+infer which primitives would be needed. Cluster by primitive:
+
+- `_sq_dists` (Euclidean pairwise) — needs: kmeans, kmeans_ad, kshape,
+  tspq, iforest, eif, DBSCAN, HDBSCAN, LOF, bisecting, minibatch,
+  spectral — **12+**.
+- `_rbf_kernel` — spectral, GP, kernel PCA, kernel k-means, MMD — **5+**.
+- `_cholesky_solve` / `_gp_predict` — GP regression, GP forecaster,
+  GP-EI, BayesianOpt — **4+**.
+- `_mutual_reachability` + `_mst` — HDBSCAN, OPTICS, single-linkage — **3+**.
+- `_itemset_count` + `_fp_tree` — Apriori, FP-growth, Eclat — **3+**.
+- `_leapfrog` + `_hmc_accept` — NUTS, Metropolis, HMC — **3+**.
+- `_sparse_coding` / `_nmf_mu` — NMF, SparsePCA, LDA — **3+**.
+- `_softmax_ce_grad` — ListNet, LambdaMART, GBDT-multiclass — **3+**.
+- `_fft` (numpy alias) — kshape, miniRocket, ROCKET, matrix_profile — **4+**.
+- ~20-30 more clusters.
+
+**Deliverable:** `docs/ml_tools/PRIMITIVES_BACKLOG.md` with:
+- cluster table (primitive, consumers, tier priority: 3+ = P1, 2 = P2,
+  1 = P3 with prospective notes).
+- estimated effort per primitive.
+- home module per primitive.
+
+**End of "Next 3 sessions" — v0.9.137+ = implement primitives by tier,
+then verify remaining draft models (BVAR, VECM, PELT, T2Q, STRAY).
+
+---
+
+## Deferred (prior session plan, NOT executed)
+
+**Note:** v0.9.129 actually did 3 ts drafts (not 4 — EnsembleForecaster
+excluded); DEC-054 dedup (v0.9.130-133) took priority over the planned
+`fit_stacking` / `expansion_factor` migration / `.pingis/impl`
+promotion. These remain deferred to v0.9.137+. Original plan text below.
 
 **Part A (~1-1.5 h): verify 4 ts drafts.**
 Probe `cadw/ts/{ensemble,otm,thf,transforms}.py` for state_nbytes +
@@ -90,7 +216,14 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
-**v0.9.119-128 (this session, 10 releases):**
+**v0.9.129-133 (this session, 5 releases):**
+- v0.9.129: verify 3 ts drafts (OTM/THF/TTF) — 27 new tests + 3 YAML.
+- v0.9.130: K1 `_probe_memory_limit_mb` 16 -> 1 (AST migration).
+- v0.9.131: K2 `_sigmoid` 4 -> 1 (+ numerical stability fix).
+- v0.9.132: K3a `_ols_fit`+`_erfinv` 2+2 -> 1+1 (`cadw/ops/numeric.py`).
+- v0.9.133: K5c/K6/K10/K12 — 4 clusters (8 files, 89+/45-).
+
+**v0.9.119-128 (prior session, 10 releases):**
 - v0.9.119: pipeline planner v2 + `solve_batch` (DEC-044) + `fit_ab_test` ×3 verified.
 - v0.9.120: P6'–P9' real pipelines + `calibrate_throughput.py` (DEC-046).
 - v0.9.121: R10 gate (public `fit_*` coverage) + GBDT_multiclass fix (DEC-047).
@@ -179,7 +312,13 @@ Per STREAMING §6.1 — won't-fix with rationale:
 
 - **`fit_stacking` generalization**: CatBoost-style ordered boosting when
   base models are GBDT. Marginal over existing.
-- **`_probe_memory_limit_mb` refactor**: 15 copies → `MemoryGuard` method.
+- **`_probe_memory_limit_mb` refactor**: DONE v0.9.130 (K1).
+- **`_ses` parameterized unification**: 3 signatures, defer until
+  3rd/4th real caller demands shared signature (AP22).
+- **`_grid_search` parameterized helper**: `grid_search(param_grid,
+  scorer, refine_axes=None)` for OTM/ETS/SARIMA — v0.9.135+.
+- **`fit_meta_learner` AP2 refactor**: T/S learner verify requires
+  removing `_collect + vstack` (DEC-012 pattern).
 - **Pre-commit hook for `render_matrix.py`**: `--check` flag prevents
   doc-sync drift (past: 12 versions drift).
 - **`bounded_by_domain` on more cards**: currently 5 (coxph, pelt×2, others);

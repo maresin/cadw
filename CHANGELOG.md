@@ -1,5 +1,135 @@
 ## [Unreleased]
 
+### v0.9.133 (2026-11-08) — K5c+K6+K10+K12 dedup (4 clusters)
+
+**Counts:** verified fns 35 / verified cards 51 (unchanged from v0.9.129).
+No YAML changes. 9 files touched.
+
+**Dedup (DEC-054):**
+- K5c `znormalize_rows` (autoencoder + patch_memory_ad) ->
+  `cadw.ops.numeric.znormalize_rows`.
+- K6 `_to_df` (meta_learners + uplift) -> `cadw.ml._common._to_df_causal`.
+- K10 `_xavier_init` (autoencoder + patch_memory_ad) ->
+  `cadw.ml._common._xavier_init`.
+- K12 `_plt` (seaborn_adapter + matplotlib_adapter) ->
+  new `cadw.viz._lazy.lazy_plt(module_name)` (parameterized error message).
+
+**Not touched (documented in DEC-054):**
+- `kshape._znormalize` — different semantics (1D scalar std, not per-row).
+- `_sq_dists` — 1 file, 2 sites (AP10).
+- `_mahalanobis_distances` vs `_stream_mahalanobis` — different algorithms
+  (reference oracle vs streaming production).
+- `_collect` — 5 different signatures (AP22).
+
+**Migration:** AST-based (`ast.FunctionDef.end_lineno` + `ast.ImportFrom`
+injection). v0.9.130 lesson — regex eats decorators/statements between
+functions.
+
+**Tests:** 210 passed (autoencoder, patch_memory_ad, meta_learners,
+uplift, viz_matplotlib, viz_seaborn, both *_verification, schema).
+
+### v0.9.132 (2026-11-08) — K3a: ols_fit + erfinv dedup (2+2 -> 1+1)
+
+**New:** `cadw/ops/numeric.py` (pure math primitives; no Arrow, no I/O).
+
+**Before:** `_ols_fit` 2 copies (otm.py:44, theta.py:55 identical
+semantics); `_erfinv` 2 copies (otm.py:71, theta.py:105 identical
+Newton-3 body).
+
+**After:** both modules `from cadw.ops.numeric import ols_fit as
+_ols_fit, erfinv as _erfinv`. 6 call sites unchanged.
+
+**Scope discipline:**
+- `_ses` NOT unified: otm `(lvl, fitted)`, theta `_ses_fit -> (_, _, sse)`,
+  ets Holt-Winters `(a,b,g,p)` — 3 different algorithms (AP22).
+- `_acf` NOT extracted: single use site (`transforms.py:596`, AP10).
+- `_grid_search` NOT unified: ETS coordinate refinement vs OTM inline
+  grid — different scorers, defer to v0.9.135+.
+
+**Tests:** 219 passed (test_otm, test_theta, test_auto_theta,
+test_ts_models, test_ts_backtest, test_otm_verification, schema).
+
+### v0.9.131 (2026-11-08) — K2: sigmoid dedup (4 -> 1) + numerical stability fix
+
+**Single source of truth:** `cadw.ops.optim.sigmoid` (public).
+
+**Before:** `_sigmoid` copy-pasted in 4 modules:
+- `optim.py:24` — numerically stable (pos/neg branch, no overflow)
+- `gbdt.py:130` — `0.5*(1+tanh(0.5z))` — stable but different impl
+- `calibration.py:47` — `1/(1+exp(-clip(z,-50,50)))` — clipping hack
+- `ordinal.py:30` — same clipping hack
+
+**After:** gbdt/calibration/ordinal `from cadw.ops.optim import sigmoid
+as _sigmoid`. `optim._sigmoid -> optim.sigmoid` (public).
+
+**Correctness fix, not just dedup:** calibration+ordinal clipped |z| to
+50, producing wrong probabilities for strongly-regularized logistic and
+extreme ordinal thresholds (`p=1/(1+e^-50)≈1` instead of `~0` for
+`z=-1000`). New stable impl uses pos/neg branch (no clipping).
+
+**Smoke:** `sigmoid([-1000,-50,-1,0,1,50,1000]) → [0.0,...,1.0]` with
+`warnings.simplefilter('error')` — no overflow warnings. All 4 impls
+(`np.allclose`) agree to `1e-15`.
+
+**Regression:** `is_dataclass(LinearModel)` still True; `gbdt._LOSSES`
+present (decorator/statement adjacent to removed `_sigmoid` was
+untouched — AST migration, not regex).
+
+**Tests:** 319 passed.
+
+### v0.9.130 (2026-11-08) — K1: `_probe_memory_limit_mb` dedup (16 -> 1)
+
+**Single source of truth:** `cadw.core.memory_guard.probe_limit_mb`.
+
+**Before:** identical `_probe_memory_limit_mb` body copy-pasted in 16
+modules: autoencoder, binseg, hampel, zms, stray, bocpd, sub_pca, eif,
+tspq, s2g, patch_memory_ad, cusum, kmeans_ad, kshape, dwt_mlead, linear.
+
+**After:** each module `from cadw.core.memory_guard import probe_limit_mb
+as _probe_memory_limit_mb` (back-compat alias, 2 call sites per file
+unchanged).
+
+**AST-based migration (not regex).** First attempt used regex
+`(?:.*\n)*?` + lookahead for `^def |^class `, which ate decorators/
+statements between `_probe_memory_limit_mb` and the next def:
+- `linear.py` lost `@dataclass` above `LinearModel` -> TypeError
+- `gbdt.py` lost `_LOSSES = (...)` line -> NameError in 65 tests
+Fix: `ast.FunctionDef.end_lineno` gives exact boundary; decorators above
+and code below untouched. Verified `is_dataclass(LinearModel)` True.
+
+**Tests:** 327 passed, 4 skipped.
+
+**Lint:** 502 deleted lines (-16 copies x~30) replaced with 102 lines
+(1 canonical fn + 16 aliases).
+
+### v0.9.129 (2026-11-08) — verify 3 ts drafts (OTM, THF, TTF)
+
+**Counts:** 32 -> 35 verified fns; 48 -> 51 verified cards. Draft fns
+unchanged (14); draft cards 17 -> 14 (3 ts drafts -> verified).
+
+**OOC fix + component-wise verification (DEC-033) for 3 draft cards:**
+- `OTMThetaForecaster`: `check_state(31*n*8+256)` before grid search;
+  state = `2n*8 + 256`. `bounded_by_domain n<=1e6` (n=1e6 = 2740 years
+  of daily data).
+- `TemporalHierarchy`: `state_nbytes()` added (was missing); cumulative
+  `check_state` across groups (was single-group only).
+- `TransformedTargetForecaster`: `state_nbytes()` on all 4 transformers
+  (Differencer, STLTransformer, MSTLTransformer, AutoStationarizer);
+  `TTF.state_nbytes` replaced invented `1024/transformer` with exact
+  sum (AP22); `check_state((3+8K)*n*8+4096)` added (K=len(transformers);
+  8x is conservative: STL internal ~8n, Differencer ~2n).
+
+**YAML:** 3 cards `draft -> verified` with `ram_formula` +
+`formula_evidence` + `measurement: component-wise (DEC-033)` +
+`bounded_by_domain` + `tier1_core_exception` (single-series architecture,
+like ETS/VAR/VECM).
+
+**Tests:** 27 new (`test_otm_verification.py`,
+`test_thf_verification.py`, `test_transforms_verification.py`, CW-1..5
+per STABILITY_PROTOCOL §4.1.1).
+
+**Schema:** 108 passed. Target gates: 420 passed.
+
 ### v0.9.128 (2026-11-06) — TAXONOMY FROZEN: 42 candidates + 8 NOT-ENSEMBLE
 
 **No verified-fn count change** (32 fns / 48 verified unchanged; 14
