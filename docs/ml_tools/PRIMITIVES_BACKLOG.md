@@ -77,6 +77,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `graph_laplacian` | `cadw.ops.graph` (v0.9.147) | Spectral ×5, LaplacianEigenmaps | +0 (implemented) |
 | `eigsh_topk` | `cadw.ops.graph` (v0.9.147) | Spectral ×5 | +0 (implemented, wraps eigh_topk) |
 | `mst` | `cadw.ops.graph` (v0.9.147) | HDBSCAN ×2, Agglomerative single | +1 (STRAY) |
+| `normalize_weights` | `cadw.ops.stats` (v0.9.148) | ML-kNN, SMOTE, WeightedSample, +1 | +0 (implemented) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -140,12 +141,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
   weights), GBDT_threshold (cumulative-logit variant)
 - **Home**: `cadw.ml._gbdt_common.adaboost_weight(alpha, misclassified)`.
 - **Effort**: 0.3 session.
-
-### L17. `_fuzzy_cluster_weights` (soft membership / class weights)
-- **Consumers**: RUSBoost (sampling weights), GBDT_scale_pos_weight
-  (positive weight), WeightedSample (IPW), SMOTE (interpolation weights)
-- **Home**: `cadw.ops.stats.normalize_weights(w)` — trivial but shared.
-- **Effort**: 0.2 session.
 
 ### L18. `_ks_stat` / `_chi2_stat` / `_psi_stat` (distribution drift)
 - **Consumers**: DriftStats, EvidentlyDrift, ADWIN (partial)

@@ -332,6 +332,14 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.148 (P1 L17: normalize_weights):**
+- Extract `normalize_weights` to `cadw.ops.stats` (P1 L17).
+  4 consumers: ML-kNN, SMOTE, WeightedSample, +1.
+- Tests: 9 passed (sum-to-1, all-zero->zeros, empty, negative
+  raises, 2D shape, single-element, int coerced, tiny-sum eps floor).
+- YAML: 5 cards flipped (ML-kNN, SpectralClustering-dup, SMOTE,
+  WeightedSample, SMAC-dup).
+
 **v0.9.147 (P1 group B: L5+L6):**
 - New `cadw/ops/graph.py`:
   - `graph_laplacian(W, normalized ∈ {none, sym, rw})`

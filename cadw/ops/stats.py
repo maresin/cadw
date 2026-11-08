@@ -12,6 +12,8 @@ History:
   .pingis/impl/M/bandits.py (promoted per DEC-058). Consumers:
   cadw.ml.bandits.fit_epsilon_greedy / fit_ucb1 / fit_thompson_sampling
   (3 -> P1 per PRIMITIVES_BACKLOG L15).
+- v0.9.148: added normalize_weights (L17, P1). Consumers: ML-kNN,
+  SMOTE (weighted sampling), +2 in O_eda.
 """
 from __future__ import annotations
 
@@ -168,3 +170,47 @@ def arm_stats(
     n = counts.astype(np.int64)
     succ_out = None if succ is None else succ.astype(np.int64)
     return q, n, succ_out
+
+
+# ============================================================================
+# Weight normalization (v0.9.148, P1 L17)
+# ============================================================================
+
+def normalize_weights(
+    w: np.ndarray,
+    *,
+    eps: float = 1e-12,
+) -> np.ndarray:
+    """Normalize non-negative weights so that sum(w) == 1.
+
+    Args:
+      w: weights, any shape, non-negative.
+      eps: floor for sum(w); if sum(w) < eps, return zeros (all-zero
+           input maps to all-zero output, not NaN).
+
+    Returns:
+      w / max(sum(w), eps), same shape as input.
+
+    Raises:
+      ValueError: if w has negative entries (invalid for probability /
+                  sampling weights).
+
+    Handles:
+      - All-zero input -> zeros (sum stays 0)
+      - Empty input -> empty
+      - Shape preserved exactly
+
+    Consumers:
+      - ML-kNN (weighted class voting)
+      - SMOTE (interpolation weights between x_i and its kNN)
+    """
+    w = np.asarray(w, dtype=np.float64)
+    if w.size == 0:
+        return w.copy()
+    if (w < 0).any():
+        raise ValueError(
+            "normalize_weights: negative entries not allowed")
+    s = float(w.sum())
+    if s < eps:
+        return np.zeros_like(w)
+    return w / s
