@@ -332,6 +332,18 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.156 (P1 L14: grid_search + random_search):**
+- Extended `cadw/ops/optim.py`: grid_search (exhaustive cartesian)
+  + random_search (uniform / categorical / callable distributions,
+  seeded RNG). Generic; ETS-specific `_grid_search` NOT touched
+  (coordinate α/β/γ/φ refiner, different shape).
+- Tests: 16 passed (best selection maximize/minimize; grid
+  exhaustive; random reproducibility; different seeds differ;
+  callable spec; guard refuses).
+- YAML: 2 cards flipped (GridSearch, RandomizedSearch).
+- **Group D complete** (8/9: L9, L10, L11, L13, L14, L16, L18,
+  L20). HMM remains (model, not primitive).
+
 **v0.9.155 (P1 L10: _survival_common logrank):**
 - New `cadw/ml/_survival_common.py`: logrank (k-sample,
   Peto & Peto 1972 / Mantel-Haenszel).

@@ -11,6 +11,8 @@ XTX=3.2 GB), closed-form is a base-case violation
 
 See docs/ml_tools/METHODOLOGY_ALGORITHM_SELECTION.md §5 (planned
 pattern 4: streaming SGD).
+- v0.9.156: added grid_search + random_search (L14, P1).
+  Consumers: GridSearch, RandomizedSearch (O_eda).
 """
 from __future__ import annotations
 
@@ -176,3 +178,159 @@ def sgd_streaming(
                 # geometrically (rate 1 - lr*lam).
                 W -= lr * grad
     return W
+
+
+# ============================================================================
+# Hyperparameter search (v0.9.156, P1 L14)
+# ============================================================================
+
+def grid_search(
+    param_grid: dict,
+    scorer,
+    *,
+    maximize: bool = True,
+    memory_guard=None,
+) -> dict:
+    """Exhaustive grid search over param combinations.
+
+    Args:
+      param_grid: dict[param_name] -> list of candidate values.
+      scorer: callable(params_dict) -> float. Called once per combination.
+      maximize: True -> pick max(score); False -> min(score).
+      memory_guard: optional; checked before storing results (n_combos *
+                    ~200 B). Very large grids should be chunked by caller.
+
+    Returns:
+      dict with keys:
+        best_params: dict, best combination found
+        best_score:  float
+        results:     list[dict] of {params: dict, score: float}
+                     (ordered lexicographically by param names)
+
+    Raises:
+      ValueError: empty grid, empty value list, or memory limit exceeded.
+
+    Complexity: n_combos = prod(len(v) for v in param_grid.values()).
+    Score computed n_combos times, O(1) state per call.
+    """
+    if not param_grid:
+        raise ValueError("grid_search: param_grid must be non-empty")
+    param_names = sorted(param_grid.keys())
+    for name in param_names:
+        vals = param_grid[name]
+        if not hasattr(vals, "__iter__"):
+            raise ValueError(f"grid_search: {name} values must be iterable")
+        if not list(vals):
+            raise ValueError(f"grid_search: {name} has empty value list")
+
+    # Cartesian product
+    import itertools
+    value_lists = [list(param_grid[n]) for n in param_names]
+    total = 1
+    for vl in value_lists:
+        total *= len(vl)
+
+    if memory_guard is not None:
+        memory_guard.check_state(total * 200 + 256, name="grid_search.results")
+
+    results = []
+    best_params = None
+    best_score = None
+    for combo in itertools.product(*value_lists):
+        params = dict(zip(param_names, combo))
+        score = float(scorer(params))
+        results.append({"params": params, "score": score})
+        if best_score is None or (
+                (maximize and score > best_score)
+                or (not maximize and score < best_score)):
+            best_score = score
+            best_params = params
+
+    return {
+        "best_params": best_params,
+        "best_score": best_score,
+        "results": results,
+    }
+
+
+def random_search(
+    param_dist: dict,
+    scorer,
+    *,
+    n_iter: int = 10,
+    maximize: bool = True,
+    seed: int = 0,
+    memory_guard=None,
+) -> dict:
+    """Random search over param distributions.
+
+    Args:
+      param_dist: dict[param_name] -> distribution spec, one of:
+        - tuple (a, b):  uniform sample. int if both a, b are ints
+                        (rng.integers(a, b+1) inclusive); float otherwise
+                        (rng.uniform(a, b)).
+        - list:          categorical sample via rng.choice.
+        - callable:      rng -> value (advanced custom).
+      scorer: callable(params_dict) -> float.
+      n_iter: number of samples.
+      maximize: True -> pick max(score); False -> min(score).
+      seed: RNG seed (reproducibility).
+      memory_guard: optional; checked before storing results.
+
+    Returns:
+      Same dict schema as grid_search.
+
+    Raises:
+      ValueError: empty param_dist, invalid spec, n_iter < 1.
+    """
+    import numpy as np
+    if not param_dist:
+        raise ValueError("random_search: param_dist must be non-empty")
+    if n_iter < 1:
+        raise ValueError(f"random_search: n_iter must be >= 1; got {n_iter}")
+    if memory_guard is not None:
+        memory_guard.check_state(n_iter * 200 + 256, name="random_search.results")
+
+    rng = np.random.default_rng(seed)
+    param_names = sorted(param_dist.keys())
+    results = []
+    best_params = None
+    best_score = None
+
+    for _ in range(n_iter):
+        params = {}
+        for name in param_names:
+            spec = param_dist[name]
+            if callable(spec):
+                params[name] = spec(rng)
+            elif isinstance(spec, tuple) and len(spec) == 2:
+                a, b = spec
+                if isinstance(a, int) and isinstance(b, int):
+                    params[name] = int(rng.integers(a, b + 1))
+                else:
+                    params[name] = float(rng.uniform(float(a), float(b)))
+            elif isinstance(spec, (list, np.ndarray)):
+                options = list(spec)
+                if not options:
+                    raise ValueError(
+                        f"random_search: {name} has empty value list")
+                idx = int(rng.integers(0, len(options)))
+                params[name] = options[idx]
+            else:
+                raise ValueError(
+                    f"random_search: {name} spec must be tuple(a,b), "
+                    f"list, or callable; got {type(spec).__name__}")
+
+        score = float(scorer(params))
+        results.append({"params": params, "score": score})
+        if best_score is None or (
+                (maximize and score > best_score)
+                or (not maximize and score < best_score)):
+            best_score = score
+            best_params = params
+
+    return {
+        "best_params": best_params,
+        "best_score": best_score,
+        "results": results,
+    }

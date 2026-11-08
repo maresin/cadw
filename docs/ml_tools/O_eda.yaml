@@ -1002,8 +1002,6 @@ subtypes:
     depends_on:
     - cadw.ops.optim.grid_search
     - cadw.ops.optim.random_search
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L14"
-    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -1033,8 +1031,6 @@ subtypes:
     depends_on:
     - cadw.ops.optim.grid_search
     - cadw.ops.optim.random_search
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L14"
-    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true

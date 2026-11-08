@@ -87,6 +87,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `ks_2samp` + `psi` + `chi2_categorical` | `cadw.ops.stats` (v0.9.153) | EvidentlyDrift, ADWIN, SequentialTest | +0 (implemented) |
 | `ranknet_grad` + `listnet_grad` + `lambdarank_grad` | `cadw.ml._ltr_common` (v0.9.154) | PairwiseLogistic, ListNet, LambdaMART | +0 (implemented) |
 | `logrank` | `cadw.ml._survival_common` (v0.9.155) | RandomSurvivalForest | +0 (implemented) |
+| `grid_search` + `random_search` | `cadw.ops.optim` (v0.9.156) | GridSearch, RandomizedSearch | +1 (OTM/ETS/SARIMA migration) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -106,14 +107,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 - **Consumers**: KMeansHDBSCAN_consensus, EvidenceAccumulation, CSPA
 - **Home**: `cadw.ops.linalg.consensus_matrix(labels_list)` (co-association
   matrix from multiple clusterings), then spectral eigendecomp (L6).
-- **Effort**: 1 session.
-
-### L14. `_grid_search` / `_random_search` (parameter search)
-- **Consumers**: GridSearch, RandomizedSearch (O7), OTM (inline,
-  migrate), ETS (inline coordinate, migrate), SARIMA (inline, migrate)
-- **Home**: `cadw.ops.optim.grid_search(param_grid, scorer, *,
-  refine_axes=None)` + `random_search(param_dist, scorer, n_iter, seed)`.
-- **Note**: DEC-054 K4 deferred — this is the extraction target.
 - **Effort**: 1 session.
 
 ### L20. `_cumulative_logit` (proportional-odds / threshold model)
