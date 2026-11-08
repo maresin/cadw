@@ -332,6 +332,16 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.152 (P1 L11: _causal_common dr_score):**
+- New `cadw/ml/_causal_common.py`: dr_score (AIPW doubly robust)
+  + aipw_ate convenience. Robins/Rotnitzky/Zhao 1994 +
+  Chernozhukov et al. 2018 (DML).
+- Tests: 10 passed (exact-models case; DR against biased
+  propensity; DR against biased mu; clipping at e∈{0,1};
+  term decomposition).
+- YAML: 4 cards flipped (DR_learner, CausalForest ×2,
+  DR_learner_uplift).
+
 **v0.9.151 (P1 group D partial: _gbdt_common):**
 - New `cadw/ml/_gbdt_common.py`: pinball_loss, pinball_grad,
   adaboost_weight, cumulative_logit_prob. L9+L16+L20.
