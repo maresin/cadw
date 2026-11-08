@@ -57,14 +57,6 @@ def _stack_numeric(
 
 
 
-def _xavier_init(
-    fan_in: int, fan_out: int, rng: np.random.Generator,
-) -> np.ndarray:
-    """Xavier/Glorot uniform weight init: U(-sqrt(6/(fan_in+fan_out)),
-    sqrt(6/(fan_in+fan_out))). Prior to v0.9.133 had 2 identical
-    copies (autoencoder + patch_memory_ad)."""
-    limit = np.sqrt(6.0 / (fan_in + fan_out))
-    return rng.uniform(-limit, limit, size=(fan_in, fan_out))
 
 
 

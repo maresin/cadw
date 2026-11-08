@@ -28,8 +28,8 @@ from .sub_pca import _map_max, _map_mean, _prepare_windows
 
 # v0.9.133 (DEC-054): _znormalize_rows -> cadw.ops.numeric;
 #                    _xavier_init -> cadw.ml._common.
-from cadw.ops.numeric import znormalize_rows as _znormalize_rows
-from cadw.ml._common import _xavier_init
+from cadw.ops.stats import znormalize_rows as _znormalize_rows
+from cadw.ml._nn_init import _xavier_init
 
 
 @dataclass

@@ -1,5 +1,48 @@
 ## [Unreleased]
 
+### v0.9.134 (2026-11-08) — home-correction + forward extraction
+
+**Counts:** 35 verified fns / 51 verified cards (unchanged).
+
+**Home-correction (DEC-054 addendum):**
+- `sigmoid`: `cadw.ops.optim` -> `cadw.ops.numeric` (optim = SGD;
+  sigmoid = elementwise numeric). `optim.py` re-exports for back-compat.
+- `znormalize_rows`: `cadw.ops.numeric` -> new `cadw.ops.stats`
+  (mean/std = statistics).
+- `ols_fit`: `cadw.ops.numeric` -> new `cadw.ops.linalg`
+  (closed-form regression = linalg).
+- `_xavier_init`: `cadw.ml._common` -> new `cadw.ml._nn_init`
+  (NN-specific; was mixed with Arrow helpers).
+
+**Forward extraction (AP10 exception per DEC-056):**
+- `_sq_dists`: `cadw.ml.patch_memory_ad` -> `cadw.ops.linalg.sq_dists`
+  (12+ prospective consumers: kmeans, kmeans_ad, kshape, tspq, iforest,
+  eif, DBSCAN, HDBSCAN, LOF, bisecting, minibatch, spectral).
+- `_acf`: `AutoStationarizer._acf` (method) -> `cadw.ops.stats.acf`
+  (5+ prospective: binseg, pelt, bocpd, matrix_profile, stray).
+  Method delegates: `return _acf_fn(y, lag)`.
+
+**Migration:** AST-based function removal (`ast.FunctionDef.end_lineno`)
++ method body replacement (`ast.ClassDef` -> `ast.FunctionDef.body[0].lineno`
+.. `end_lineno`). Import updates via `str.replace` on the exact import
+block (v0.9.130 lesson: never `str.replace` whole-file; use AST for
+function boundaries).
+
+**Back-compat:** all import aliases preserved (`_ols_fit`, `_erfinv`,
+`_sigmoid`, `_znormalize_rows`, `_xavier_init`, `_sq_dists`).
+Identity verified (`is` check in smoke): e.g. `cadw.ml.gbdt._sigmoid
+is cadw.ops.numeric.sigmoid`.
+
+**Version note:** `__version__` was still `0.9.128` at v0.9.129-133
+tags (5 tags without bump — historical drift, not retroactively
+fixable without rewriting tags). Bumped directly to `0.9.134` here.
+Future releases: bump `__version__` + `pyproject.toml` + CHANGELOG
+in the same commit as the code (see test_version_consistency.py).
+
+**Tests:** 401 passed (gbdt ×3, calibration, ordinal, autoencoder
+×2, patch_memory_ad ×2, otm ×2, theta, auto_theta, transforms,
+ts_models, schema).
+
 ### v0.9.133 (2026-11-08) — K5c+K6+K10+K12 dedup (4 clusters)
 
 **Counts:** verified fns 35 / verified cards 51 (unchanged from v0.9.129).

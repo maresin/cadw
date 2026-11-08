@@ -29,7 +29,7 @@ from cadw.ml._logging import log_fit
 
 # v0.9.131 (DEC-054): numerically stable sigmoid from
 # cadw.ops.optim (handles overflow for |z|>>0 without RuntimeWarning).
-from cadw.ops.optim import sigmoid as _sigmoid
+from cadw.ops.numeric import sigmoid as _sigmoid
 
 
 

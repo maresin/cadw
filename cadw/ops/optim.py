@@ -19,20 +19,9 @@ from typing import Optional
 import numpy as np
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.ops.numeric import sigmoid
 
 
-def sigmoid(x):
-    """Numerically stable sigmoid: 1 / (1 + exp(-x)).
-
-    Avoids overflow for large |x| by handling positive / negative
-    branches separately. Returns same dtype/shape as input.
-    """
-    out = np.empty_like(x, dtype=np.float64)
-    pos = x >= 0
-    out[pos] = 1.0 / (1.0 + np.exp(-x[pos]))
-    ex = np.exp(x[~pos])
-    out[~pos] = ex / (1.0 + ex)
-    return out
 
 
 def sgd_streaming(

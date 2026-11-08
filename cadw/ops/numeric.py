@@ -1,12 +1,16 @@
-"""Numeric primitives — pure math, no domain (v0.9.132 DEC-054).
+"""Numeric primitives — pure math, no domain (v0.9.134 DEC-054).
 
-Reusable helpers extracted from per-module copies in cadw/ts/*.py.
+Elementwise numeric functions (erfinv, sigmoid). Statistics
+(znormalize_rows) and linear algebra (ols_fit, sq_dists) have their
+own modules per AI_CONSTITUTION §5.1 (one home per concept).
+
+History:
+- v0.9.132: created with ols_fit + erfinv (dedup from otm/theta).
+- v0.9.133: added znormalize_rows (from autoencoder/patch_memory_ad).
+- v0.9.134: home-correction — ols_fit -> linalg, znormalize -> stats,
+  sigmoid <- optim. Now: erfinv, sigmoid only.
+
 No pandas / no Arrow / no I/O; numpy + math only.
-
-Prior to v0.9.132, ols_fit and erfinv each had 2 identical copies
-(otm.py + theta.py). AES / prediction intervals across all Theta-
-family forecasters use erfinv; OLS trend line is shared by OTM and
-STM theta.
 """
 from __future__ import annotations
 
@@ -16,26 +20,6 @@ from typing import Tuple
 import numpy as np
 
 
-def ols_fit(y: np.ndarray) -> Tuple[float, float]:
-    """OLS (intercept, slope) on y[t] vs t.
-
-    Returns (a, b) such that y_hat[t] = a + b*t. Handles n < 2 (returns
-    mean, 0) and degenerate x variance (den < 1e-12 -> mean, 0).
-
-    Pure math; input must be 1D np.ndarray of floats.
-    """
-    n = y.size
-    if n < 2:
-        return float(y.mean()) if n else 0.0, 0.0
-    x = np.arange(n, dtype=np.float64)
-    xm = float(x.mean())
-    ym = float(y.mean())
-    num = float(np.sum((x - xm) * (y - ym)))
-    den = float(np.sum((x - xm) ** 2))
-    if den < 1e-12:
-        return ym, 0.0
-    b = num / den
-    return ym - b * xm, b
 
 
 def erfinv(x: float) -> float:
@@ -57,15 +41,17 @@ def erfinv(x: float) -> float:
     return g
 
 
+def sigmoid(x):
+    """Numerically stable sigmoid: 1 / (1 + exp(-x)).
 
-def znormalize_rows(X: np.ndarray) -> np.ndarray:
-    """Per-row z-normalization with zero-std guard.
-
-    Each row is independently standardized: mu and sd computed per row.
-    Rows with sd < 1e-12 → sd forced to 1 (output = X - mu, i.e. zeros).
-    Prior to v0.9.133 had 2 identical copies (autoencoder + patch_memory_ad).
+    Avoids overflow for large |x| by handling positive / negative
+    branches separately. Returns same dtype/shape as input.
+    Prior to v0.9.134 in cadw.ops.optim (moved here: elementwise
+    numeric, not SGD).
     """
-    mu = X.mean(axis=1, keepdims=True)
-    sd = X.std(axis=1, keepdims=True)
-    sd = np.where(sd < 1e-12, 1.0, sd)
-    return (X - mu) / sd
+    out = np.empty_like(x, dtype=np.float64)
+    pos = x >= 0
+    out[pos] = 1.0 / (1.0 + np.exp(-x[pos]))
+    ex = np.exp(x[~pos])
+    out[~pos] = ex / (1.0 + ex)
+    return out

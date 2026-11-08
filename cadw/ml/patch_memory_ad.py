@@ -62,8 +62,9 @@ from .sub_pca import _map_max, _map_mean
 
 # v0.9.133 (DEC-054): _znormalize_rows -> cadw.ops.numeric;
 #                    _xavier_init -> cadw.ml._common.
-from cadw.ops.numeric import znormalize_rows as _znormalize_rows
-from cadw.ml._common import _xavier_init
+from cadw.ops.stats import znormalize_rows as _znormalize_rows
+from cadw.ops.linalg import sq_dists as _sq_dists
+from cadw.ml._nn_init import _xavier_init
 
 
 @dataclass
@@ -193,12 +194,6 @@ def _encode_backward(dz: np.ndarray, X: np.ndarray, h: np.ndarray,
 
 
 
-def _sq_dists(z: np.ndarray, mem: np.ndarray) -> np.ndarray:
-    """Squared distances (n, M) between z rows and memory slots."""
-    # ||z_i - mem_k||² = z_i·z_i - 2·z_i·mem_k + mem_k·mem_k
-    z_sq = (z * z).sum(axis=1)
-    m_sq = (mem * mem).sum(axis=1)
-    return z_sq[:, None] - 2.0 * (z @ mem.T) + m_sq[None, :]
 
 
 

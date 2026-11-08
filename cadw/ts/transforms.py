@@ -50,6 +50,7 @@ from cadw.ts.models import (
 )
 
 from cadw.ts._decomposition import stl_decompose
+from cadw.ops.stats import acf as _acf_fn
 
 
 # ── Base ──────────────────────────────────────────────────────────
@@ -594,15 +595,7 @@ class AutoStationarizer(Differencer):
         return super().state_nbytes() + 8  # seasonal_strength_ scalar
 
     def _acf(self, y: np.ndarray, lag: int) -> float:
-        n = y.size
-        if n <= lag:
-            return 0.0
-        mean = float(y.mean())
-        c0 = float(((y - mean) ** 2).mean())
-        if c0 < 1e-12:
-            return 0.0
-        c = float(((y[:-lag] - mean) * (y[lag:] - mean)).mean())
-        return c / c0
+        return _acf_fn(y, lag)
 
     def _choose_d(self, y: np.ndarray) -> int:
         cur = y.copy()

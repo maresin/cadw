@@ -39,9 +39,8 @@ from cadw.ts.models import (
 )
 
 # v0.9.132 (DEC-054): _ols_fit + _erfinv -> cadw.ops.numeric
-from cadw.ops.numeric import (
-    ols_fit as _ols_fit, erfinv as _erfinv,
-)
+from cadw.ops.linalg import ols_fit as _ols_fit
+from cadw.ops.numeric import erfinv as _erfinv
 
 
 # ── Helpers ───────────────────────────────────────────────────────
