@@ -1422,6 +1422,8 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(1)
     bounded_state_dims: {}
@@ -1491,6 +1493,8 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(1)
     bounded_state_dims: {k: 1, d: 1}
@@ -1550,6 +1554,8 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(1)
     bounded_state_dims: {d: 2}

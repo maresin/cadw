@@ -462,6 +462,8 @@ subtypes:
     cadw_module: cadw.ts
     cadw_function: EnsembleForecaster
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
@@ -504,6 +506,8 @@ subtypes:
     cadw_module: cadw.ts
     cadw_function: OTMThetaForecaster
     input_api: df
+    fit_batched: false
+    predict_batched: false
     depends_on: []
     benchmark_results:
     - benchmark: M3
@@ -572,6 +576,8 @@ subtypes:
     cadw_module: cadw.ts
     cadw_function: TemporalHierarchy
     input_api: df
+    fit_batched: false
+    predict_batched: false
     depends_on: []
     benchmark_results:
     - benchmark: M5
@@ -640,6 +646,8 @@ subtypes:
     cadw_module: cadw.ts
     cadw_function: TransformedTargetForecaster
     input_api: df
+    fit_batched: false
+    predict_batched: false
     depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
@@ -1074,6 +1082,8 @@ subtypes:
     cadw_module: cadw.ts.bvar
     cadw_function: BVARModel
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(d²)
     bounded_state_dims: {d: 2}
@@ -1108,6 +1118,8 @@ subtypes:
     cadw_module: cadw.ts.vecm
     cadw_function: VECMModel
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(d²)
     bounded_state_dims: {d: 2}
@@ -1195,6 +1207,8 @@ subtypes:
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
     formula_evidence:
@@ -1274,6 +1288,8 @@ subtypes:
     cadw_module: cadw.ml.iforest
     cadw_function: fit_isolation_forest
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: UCR_Anomaly
@@ -1340,6 +1356,8 @@ subtypes:
     cadw_module: cadw.ml.matrix_profile
     cadw_function: fit_matrix_profile
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: UCR_Anomaly
@@ -1411,6 +1429,8 @@ subtypes:
     cadw_module: cadw.ml.dwt_mlead
     cadw_function: fit_dwt_mlead
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
@@ -1486,6 +1506,8 @@ subtypes:
     cadw_module: cadw.ml.sub_pca
     cadw_function: fit_sub_pca
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
@@ -1561,6 +1583,8 @@ subtypes:
     cadw_module: cadw.ml.kshape
     cadw_function: fit_kshape
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
@@ -1623,6 +1647,8 @@ subtypes:
     cadw_module: cadw.ml.eif
     cadw_function: fit_eif
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "3 * n * f64 + 256"
     formula_evidence:
@@ -1714,6 +1740,8 @@ subtypes:
     cadw_module: cadw.ml.hampel
     cadw_function: fit_hampel
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
@@ -1769,6 +1797,8 @@ subtypes:
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
     formula_evidence:
@@ -1841,6 +1871,8 @@ subtypes:
     cadw_module: cadw.ml.stray
     cadw_function: fit_stray
     input_api: series
+    fit_batched: false
+    predict_batched: false
     depends_on: []
     migration_target: v0.9.116
     benchmark_results:
@@ -1914,6 +1946,8 @@ subtypes:
     cadw_module: cadw.ml.autoencoder
     cadw_function: fit_autoencoder
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ml._nn_init._xavier_init
     - cadw.ops.stats.znormalize_rows
@@ -1976,6 +2010,8 @@ subtypes:
     cadw_module: cadw.ml.kmeans_ad
     cadw_function: fit_kmeans_ad
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "n * f64 * 4 + k * d * f64 + 256"
     formula_evidence:
@@ -2066,6 +2102,8 @@ subtypes:
     cadw_module: cadw.ml.patch_memory_ad
     cadw_function: fit_patch_memory_ad
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ml._nn_init._xavier_init
     - cadw.ops.linalg.sq_dists
@@ -2232,6 +2270,8 @@ subtypes:
     cadw_module: cadw.ml.binseg
     cadw_function: fit_binseg
     input_api: series
+    fit_batched: false
+    predict_batched: false
     depends_on: []
     migration_target: v0.9.116
     benchmark_results:
@@ -2300,6 +2340,8 @@ subtypes:
     cadw_module: cadw.ml.bocpd
     cadw_function: fit_bocpd
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "3 * n * f64 + posterior_keep * max_run * f64 + 256"
     formula_evidence:
@@ -2381,6 +2423,8 @@ subtypes:
     cadw_module: cadw.ml.pelt
     cadw_function: fit_pelt
     input_api: df
+    fit_batched: false
+    predict_batched: false
     depends_on: []
     benchmark_results:
     - benchmark: UCR_Anomaly
@@ -2422,6 +2466,8 @@ subtypes:
     cadw_module: cadw.ml.tspq
     cadw_function: fit_t2q
     input_api: series
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     migration_target: v0.9.116
     benchmark_results:
@@ -2479,6 +2525,8 @@ subtypes:
     cadw_module: cadw.ml.cusum
     cadw_function: fit_cusum
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "3 * batch * row_size + 2 * batch * f64 + 256"
     formula_evidence:
@@ -2633,6 +2681,8 @@ subtypes:
     cadw_module: cadw.ml.zms
     cadw_function: fit_zms
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "3 * batch * row_size + 2 * w * f64 + 3 * batch * f64 + 256"
     formula_evidence:
@@ -2717,6 +2767,8 @@ subtypes:
     cadw_module: cadw.ml.matrix_profile
     cadw_function: fit_matrix_profile
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: UCR_Anomaly
@@ -2765,6 +2817,8 @@ subtypes:
     cadw_module: cadw.ml.minirocket
     cadw_function: fit_minirocket
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "num_kernels * (9*f64 + f64) + 1024"
     formula_evidence:
@@ -2822,6 +2876,8 @@ subtypes:
     cadw_module: cadw.ml.eif
     cadw_function: fit_eif
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "3 * n * f64 + 256"
     formula_evidence:
@@ -2926,6 +2982,8 @@ subtypes:
     cadw_module: cadw.ml.sub_pca
     cadw_function: fit_sub_pca
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
@@ -2999,6 +3057,8 @@ subtypes:
     cadw_module: cadw.ml.kmeans_ad
     cadw_function: fit_kmeans_ad
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "n * f64 * 4 + k * d * f64 + 256"
     formula_evidence:
@@ -3104,6 +3164,8 @@ subtypes:
     cadw_module: cadw.ml.autoencoder
     cadw_function: fit_autoencoder
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ml._nn_init._xavier_init
     - cadw.ops.stats.znormalize_rows
@@ -3191,6 +3253,8 @@ subtypes:
     cadw_module: cadw.ml.s2g
     cadw_function: fit_s2g
     input_api: dual
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
@@ -3374,6 +3438,8 @@ subtypes:
     cadw_module: cadw.ml.minirocket
     cadw_function: fit_minirocket
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "num_kernels * (9*f64 + f64) + 1024"
     formula_evidence:
@@ -3490,6 +3556,8 @@ subtypes:
     cadw_module: cadw.ml.binseg
     cadw_function: fit_binseg
     input_api: series
+    fit_batched: false
+    predict_batched: false
     depends_on: []
     migration_target: v0.9.116
     benchmark_results:
@@ -3557,6 +3625,8 @@ subtypes:
     cadw_module: cadw.ml.pelt
     cadw_function: fit_pelt
     input_api: df
+    fit_batched: false
+    predict_batched: false
     depends_on: []
     benchmark_results:
     - benchmark: UCR_Anomaly

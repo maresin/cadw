@@ -76,6 +76,8 @@ subtypes:
     cadw_module: cadw.ml.linucb
     cadw_function: fit_linucb
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(model)
     bounded_state_dims: {k: 1, d: 1}

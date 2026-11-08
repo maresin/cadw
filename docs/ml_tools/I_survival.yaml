@@ -85,6 +85,8 @@ subtypes:
     cadw_module: cadw.ml.coxph
     cadw_function: fit_coxph
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     ram_formula: "d*d*f64 + n_events*2*f64 + 2*d*d*f64 + 3*batch*row_size + 256"
     formula_evidence:

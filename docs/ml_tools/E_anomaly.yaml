@@ -69,6 +69,8 @@ subtypes:
     cadw_module: cadw.ml.iforest
     cadw_function: fit_isolation_forest
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: ODDS
@@ -211,6 +213,8 @@ subtypes:
     cadw_module: cadw.ml.logistic
     cadw_function: fit_logistic
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ops.optim.sgd_streaming
     benchmark_results:

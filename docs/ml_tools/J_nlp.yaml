@@ -97,6 +97,8 @@ subtypes:
     cadw_module: cadw.ml.tfidf
     cadw_function: fit_tfidf
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(d)
     bounded_state_dims: {d: 1, avg_word_len: 1}
@@ -247,6 +249,8 @@ subtypes:
     cadw_module: cadw.ml.randsvd
     cadw_function: fit_randomized_svd
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(d)
     bounded_state_dims: {d: 1, n_components: 1, n_oversamples: 1}
@@ -474,6 +478,8 @@ subtypes:
     cadw_module: cadw.ml.lda
     cadw_function: fit_lda
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     state_class: O(model)
     # v0.9.101: axis is V (raw unique tokens) — _build_vocab peak is

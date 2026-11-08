@@ -29,6 +29,8 @@ subtypes:
         cadw_module: cadw.ml.pca
         cadw_function: fit_pca
         input_api: df
+        fit_batched: true
+        predict_batched: true
         depends_on: []
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.PCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB; measure v0.9.124.'}

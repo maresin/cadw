@@ -130,6 +130,15 @@ class ModelCard:
     # Dotted path "cadw.ops.numeric.ols_fit". Optional; None = legacy.
     # Tracked by test_R11_depends_on_importable (schemas resolvable).
     depends_on: list[str] | None = None
+    # v0.9.137 (DEC-057): fit/predict batching.
+    # True = streams _iter_filtered_batches / chunked helpers / delegates
+    # to batched fit. False = reads full series (single-series TS,
+    # refuse_at_guard). None = legacy (pre-migration; audit prior).
+    # Schema test R13: bounded_state=true + fit_batched=false requires
+    # 'batched|streaming|chunk|O(' keyword in streaming_strategy.fit
+    # (allows BVAR/VECM pattern where state is O(k²) but fit streams).
+    fit_batched: bool | None = None
+    predict_batched: bool | None = None
     # v0.9.97: RAM formula components. {axis: power}; missing axis = 0.
     # est_bytes = sum(val**pow for axis,pow in dims.items()) * 8 * transient_factor
     bounded_state_dims: dict[str, int] | None = None
@@ -317,6 +326,8 @@ def _parse_model(m: dict) -> ModelCard:
         streaming_strategy=m.get("streaming_strategy"),
         primitive_reuse=m.get("primitive_reuse"),
         depends_on=m.get("depends_on"),
+        fit_batched=m.get("fit_batched"),
+        predict_batched=m.get("predict_batched"),
         bounded_state_dims=m.get("bounded_state_dims"),
         bounded_by_domain=m.get("bounded_by_domain"),
         transient_factor=(

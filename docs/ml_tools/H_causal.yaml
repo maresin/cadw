@@ -38,6 +38,8 @@ subtypes:
     cadw_module: cadw.ml.meta_learners
     cadw_function: fit_meta_learner
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: RCT_IHDP
@@ -88,6 +90,8 @@ subtypes:
     cadw_module: cadw.ml.meta_learners
     cadw_function: fit_meta_learner
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: RCT_IHDP

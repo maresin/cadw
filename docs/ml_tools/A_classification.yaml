@@ -45,6 +45,8 @@ subtypes:
     cadw_module: cadw.ml.logistic
     cadw_function: fit_logistic
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ops.optim.sgd_streaming
     benchmark_results:
@@ -137,6 +139,8 @@ subtypes:
     cadw_module: cadw.ml.naive_bayes
     cadw_function: fit_bernoulli_nb
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: AMLB
@@ -183,6 +187,8 @@ subtypes:
     cadw_module: cadw.ml.naive_bayes
     cadw_function: fit_multinomial_nb
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: AMLB
@@ -284,6 +290,8 @@ subtypes:
     cadw_module: cadw.ml.logistic
     cadw_function: fit_logistic
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ops.optim.sgd_streaming
     benchmark_results:
@@ -417,6 +425,8 @@ subtypes:
     cadw_module: cadw.ml.naive_bayes
     cadw_function: fit_gaussian_nb
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: AMLB
@@ -500,6 +510,8 @@ subtypes:
     cadw_module: cadw.ml.linear
     cadw_function: fit_linear
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ops.optim.sgd_streaming
     benchmark_results:
@@ -547,6 +559,8 @@ subtypes:
     cadw_module: cadw.ml.linear
     cadw_function: fit_lasso
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ops.optim.sgd_streaming
     benchmark_results:
@@ -596,6 +610,8 @@ subtypes:
     cadw_module: cadw.ml.linear
     cadw_function: fit_elasticnet
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ops.optim.sgd_streaming
     benchmark_results:
@@ -770,6 +786,8 @@ subtypes:
     cadw_module: cadw.ml.chains
     cadw_function: fit_chains
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: AMLB
@@ -830,6 +848,8 @@ subtypes:
     cadw_module: cadw.ml.chains
     cadw_function: fit_chains
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on: []
     benchmark_results:
     - benchmark: AMLB
@@ -935,6 +955,8 @@ subtypes:
     cadw_module: cadw.ml.ordinal
     cadw_function: fit_ordinal_logit
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ops.numeric.sigmoid
     benchmark_results:
@@ -1052,6 +1074,8 @@ subtypes:
     cadw_module: cadw.ml.logistic
     cadw_function: fit_logistic
     input_api: df
+    fit_batched: true
+    predict_batched: true
     depends_on:
     - cadw.ops.optim.sgd_streaming
     benchmark_results:

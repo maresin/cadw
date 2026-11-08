@@ -521,6 +521,49 @@ def test_R2_verified_requires_ram_formula():
 
 
 
+def test_R13_fit_batched_matches_streaming_strategy():
+    """R13 (DEC-057): bounded_state=true + fit_batched=false requires
+    "batched|streaming|chunk|O(" keyword in streaming_strategy.fit.
+
+    Rationale: bounded_state describes persistent state, not fit
+    transient. BVAR/VECM pattern — state is O(k²·p²), fit streams
+    _iter_filtered_batches. Without keyword the reader cannot tell
+    "state bounded but fit full-read" (logical mismatch) from "fit
+    streams, state bounded" (BVAR).
+
+    R13 is a documentation-consistency gate, not an OOC gate.
+    """
+    from pathlib import Path
+    import yaml
+    KEYWORDS = ("batched", "stream", "chunk", "o(batch)", "o(1)",
+                "o(d", "o(k", "o(model)", "reservoir", "reduce",
+                "hashshuffle", "external_sort")
+    bad = []
+    for path in _section_files():
+        try:
+            data = yaml.safe_load(path.read_text())
+        except Exception:
+            continue
+        for st in data.get("subtypes") or []:
+            for c in st.get("models") or []:
+                bs = c.get("bounded_state")
+                fb = c.get("fit_batched")
+                if bs is not True or fb is not False:
+                    continue
+                ss = c.get("streaming_strategy") or {}
+                fit_text = (
+                    str(ss.get("fit", "")) if isinstance(ss, dict) else str(ss)
+                )
+                fit_lower = fit_text.lower()
+                if not any(k in fit_lower for k in KEYWORDS):
+                    bad.append(
+                        f"{path.name}:{c.get('name')}: bounded_state=true "
+                        f"+ fit_batched=false requires streaming keyword "
+                        f"in streaming_strategy.fit; got {fit_text!r}"
+                    )
+    assert not bad, "\n".join(bad)
+
+
 def test_R11_depends_on_importable():
     """R11 (DEC-055): every dotted path in `depends_on` resolves.
 
