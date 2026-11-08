@@ -74,6 +74,9 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `pairwise_kernel` (rbf/poly/laplacian) | `cadw.ops.linalg` (v0.9.145) | Spectral ×5, KernelPCA, SparsePCA, GPLVM, GP reg/forecaster, GP-EI, BayesianOpt_GP | +0 (implemented) |
 | `chol_solve` | `cadw.ops.linalg` (v0.9.145) | GP reg/forecaster, GP-EI, BayesianOpt_GP, GPLVM | +0 (implemented) |
 | `eigh_topk` | `cadw.ops.linalg` (v0.9.146) | GPR, Spectral ×5, KernelPCA, GPLVM | +4 (randomized_svd, Consensus ×3) |
+| `graph_laplacian` | `cadw.ops.graph` (v0.9.147) | Spectral ×5, LaplacianEigenmaps | +0 (implemented) |
+| `eigsh_topk` | `cadw.ops.graph` (v0.9.147) | Spectral ×5 | +0 (implemented, wraps eigh_topk) |
+| `mst` | `cadw.ops.graph` (v0.9.147) | HDBSCAN ×2, Agglomerative single | +1 (STRAY) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -82,23 +85,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 ---
 
 ## P1 — 3+ prospective consumers (implement first)
-
-### L5. `_mst` (minimum spanning tree)
-- **Consumers**: HDBSCAN (single-linkage dendrogram), Agglomerative
-  single-linkage, `STRAY` (MST-based anomaly detection), OPTICS (opt)
-- **Home**: `cadw.ops.graph.mst(n, edges)` — edges from
-  `_mutual_reachability` or `sq_dists`.
-- **Algorithm**: Prim (O(E log V)) with binary heap or Kruskal + union-find.
-- **Effort**: 1 session.
-
-### L6. `_graph_laplacian` + `_eigsh_topk` (top-k eigenvectors)
-- **Consumers**: SpectralClustering, SpectralCoclustering, SpectralBiclustering,
-  LaplacianEigenmaps (opt), NormalizedCut (opt)
-- **Home**: `cadw.ops.graph.laplacian(W, normalized="sym")` +
-  `cadw.ops.linalg.eigsh_topk(L, k, which="SM")` — wrapper around
-  `scipy.sparse.linalg.eigsh` (avoid scipy in core? Use `numpy.linalg.eigh`
-  for small; `scipy` optional for large — deferred).
-- **Effort**: 1-2 sessions (large-scale mode needs scipy decision).
 
 ### L8. `_itemset_mining` (Apriori / FP-tree / Eclat shared core)
 - **Consumers**: Apriori, FP-growth, Eclat (R1)

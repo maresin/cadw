@@ -332,6 +332,19 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.147 (P1 group B: L5+L6):**
+- New `cadw/ops/graph.py`:
+  - `graph_laplacian(W, normalized ∈ {none, sym, rw})`
+  - `eigsh_topk(L, k, which='SM')` — graph-aware wrapper over eigh_topk
+  - `mst(n, edges)` — Kruskal via scipy.sparse.csgraph
+- Tests: 20 passed (unnorm L row-sums 0; sym L eigenvalues [0,2];
+  rw L row-sums 0; SM λ_0≈0 for connected; mst 3-4 vertex known
+  cases; disconnected -> forest + warning; duplicate edge handling;
+  guard refuses).
+- YAML: 7 cards flipped (SpectralClustering ×3, SpectralCoclustering,
+  SpectralBiclustering, HDBSCAN ×2, SMAC-dup). 4 remain planned in
+  B_clustering (Consensus ×3, LaplacianEigenmaps — outside scope).
+
 **v0.9.146 (P1 L19: eigh_topk):**
 - Extract `eigh_topk` to `cadw.ops.linalg`. 8 direct consumers.
   which ∈ {LA, SA, LM, SM}; n<=2000 dense numpy.eigh; n>2000
