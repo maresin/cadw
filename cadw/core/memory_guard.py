@@ -1375,3 +1375,56 @@ class MemoryGuard:
         """DEPRECATED: будет заменено байтовым лимитом в HashPartitioner."""
         limit = int(self._budget * 0.60)
         return max(1, limit // 80)
+
+
+
+# ---- probe_limit_mb (canonical, v0.9.130 DEC-054) ----
+
+def probe_limit_mb(guard) -> float | None:
+    """Probe memory limit in MB from a duck-typed guard.
+
+    Canonical implementation. Prior to v0.9.130 had 16 duplicate
+    copies in cadw/ml/*.py (autoencoder, binseg, hampel, zms, stray,
+    bocpd, sub_pca, eif, tspq, s2g, patch_memory_ad, cusum,
+    kmeans_ad, kshape, dwt_mlead, linear).
+
+    Returns
+    -------
+    None if guard is None or no limit attribute is found;
+    float MB if guard exposes a positive max_memory_mb / limit_mb /
+    budget_bytes / etc. Checks attribute names first, then
+    guard.__dict__ for any *mb* key matching mem/budget/limit/max.
+    """
+    if guard is None:
+        return None
+
+    def _is_pos(v):
+        return (isinstance(v, (int, float))
+                and not isinstance(v, bool) and v > 0)
+
+    MB = ("max_memory_mb", "_max_memory_mb", "limit_mb", "budget_mb",
+          "_budget_mb", "max_mb", "_max_mb", "memory_limit_mb",
+          "_memory_limit_mb")
+    for a in MB:
+        v = getattr(guard, a, None)
+        if _is_pos(v):
+            return float(v)
+
+    BYTES = ("max_memory_bytes", "_max_memory_bytes", "max_bytes",
+             "_max_bytes", "limit_bytes", "_limit_bytes",
+             "budget_bytes", "_budget_bytes")
+    for a in BYTES:
+        v = getattr(guard, a, None)
+        if _is_pos(v):
+            return float(v) / (1024.0 * 1024.0)
+
+    try:
+        d = guard.__dict__
+    except AttributeError:
+        return None
+    for k, v in d.items():
+        kl = k.lower()
+        if _is_pos(v) and "mb" in kl and any(
+                t in kl for t in ("mem", "budget", "limit", "max")):
+            return float(v)
+    return None

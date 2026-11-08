@@ -113,33 +113,9 @@ class PatchMemoryADResult:
 from cadw.core.spill import SpillDir
 
 
-def _probe_memory_limit_mb(guard) -> float | None:
-    def _is_pos(v):
-        return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
-    MB = ("max_memory_mb", "_max_memory_mb", "limit_mb", "budget_mb",
-          "_budget_mb", "max_mb", "_max_mb", "memory_limit_mb",
-          "_memory_limit_mb")
-    for a in MB:
-        v = getattr(guard, a, None)
-        if _is_pos(v):
-            return float(v)
-    BYTES = ("max_memory_bytes", "_max_memory_bytes", "max_bytes",
-             "_max_bytes", "limit_bytes", "_limit_bytes", "budget_bytes",
-             "_budget_bytes")
-    for a in BYTES:
-        v = getattr(guard, a, None)
-        if _is_pos(v):
-            return float(v) / (1024.0 * 1024.0)
-    try:
-        d = guard.__dict__
-    except AttributeError:
-        return None
-    for k, v in d.items():
-        kl = k.lower()
-        if _is_pos(v) and "mb" in kl and any(
-                t in kl for t in ("mem", "budget", "limit", "max")):
-            return float(v)
-    return None
+# v0.9.130 (DEC-054): _probe_memory_limit_mb -> 
+# cadw.core.memory_guard.probe_limit_mb (single source of truth).
+from cadw.core.memory_guard import probe_limit_mb as _probe_memory_limit_mb
 
 
 # v0.9.87-P4d (audit HIGH-1 full fix): streaming patch_memory_ad.

@@ -220,60 +220,9 @@ def _reverse_window_boolean(flags: np.ndarray, w: int) -> np.ndarray:
     return out
 
 
-def _probe_memory_limit_mb(guard) -> float | None:
-    """Find memory limit (MB) on a MemoryGuard-like object, or None.
-
-    Strategy:
-      1. Try MB-named attrs (max_memory_mb, _max_memory_mb, ...) -> MB direct.
-      2. Try bytes-named attrs (max_memory_bytes, _max_bytes, ...) -> bytes/1024^2.
-      3. Scan __dict__: first MB-named, then bytes-named.
-
-    Returns None if nothing found -> caller skips the check (best-effort;
-    internal MemoryGuard API is not part of our contract).
-    """
-    def _is_positive_num(v):
-        return (isinstance(v, (int, float))
-                and not isinstance(v, bool) and v > 0)
-
-    MB_NAMES = ("max_memory_mb", "_max_memory_mb", "limit_mb",
-                "budget_mb", "_budget_mb", "max_mb", "_max_mb",
-                "memory_limit_mb", "_memory_limit_mb")
-    BYTE_NAMES = ("max_memory_bytes", "_max_memory_bytes", "max_bytes",
-                  "_max_bytes", "limit_bytes", "_limit_bytes",
-                  "budget_bytes", "_budget_bytes", "memory_limit_bytes",
-                  "_memory_limit_bytes", "max_b", "_max_b", "limit_b",
-                  "_limit_b", "budget_b", "_budget_b")
-
-    for attr in MB_NAMES:
-        val = getattr(guard, attr, None)
-        if _is_positive_num(val):
-            return float(val)
-    for attr in BYTE_NAMES:
-        val = getattr(guard, attr, None)
-        if _is_positive_num(val):
-            return float(val) / (1024.0 * 1024.0)
-
-    try:
-        d = guard.__dict__
-    except AttributeError:
-        return None
-    # Pass 1: MB-named
-    for k, v in d.items():
-        kl = k.lower()
-        if not _is_positive_num(v):
-            continue
-        if "mb" in kl and any(t in kl for t in ("mem", "budget", "limit", "max")):
-            return float(v)
-    # Pass 2: bytes-named
-    for k, v in d.items():
-        kl = k.lower()
-        if not _is_positive_num(v):
-            continue
-        if not any(t in kl for t in ("mem", "budget", "limit", "max")):
-            continue
-        if "byte" in kl or kl.endswith("_b"):
-            return float(v) / (1024.0 * 1024.0)
-    return None
+# v0.9.130 (DEC-054): _probe_memory_limit_mb -> 
+# cadw.core.memory_guard.probe_limit_mb (single source of truth).
+from cadw.core.memory_guard import probe_limit_mb as _probe_memory_limit_mb
 
 
 
