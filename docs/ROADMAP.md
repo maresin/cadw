@@ -332,6 +332,15 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.151 (P1 group D partial: _gbdt_common):**
+- New `cadw/ml/_gbdt_common.py`: pinball_loss, pinball_grad,
+  adaboost_weight, cumulative_logit_prob. L9+L16+L20.
+- Tests: 15 passed (loss/grad numeric consistency; weighted
+  up/down AdaBoost; logit sums-to-1 + monotone + numerical
+  stability at |eta|=1000).
+- YAML: 5 cards flipped (OrderedProbitBayesian, RUSBoost,
+  LinearQuantReg, GBDT_pinball, CQR).
+
 **v0.9.150 (P1 L8 complete: fp_growth + prefix_span + gsp):**
 - cadw/ops/itemset.py extended with:
   - fp_growth (projected-DB pattern growth, Han 2000 semantics)

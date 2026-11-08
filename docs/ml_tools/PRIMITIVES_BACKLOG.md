@@ -80,6 +80,9 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `normalize_weights` | `cadw.ops.stats` (v0.9.148) | ML-kNN, SMOTE, WeightedSample, +1 | +0 (implemented) |
 | `apriori` + `eclat` + `support_count` + `candidate_generation` | `cadw.ops.itemset` (v0.9.149) | Apriori, Eclat | +0 (implemented) |
 | `fp_growth` + `prefix_span` + `gsp` | `cadw.ops.itemset` (v0.9.150) | FP-growth, PrefixSpan, GSP | +0 (implemented) |
+| `pinball_loss` + `pinball_grad` | `cadw.ml._gbdt_common` (v0.9.151) | LinearQuantReg, GBDT_pinball, CQR | +0 (implemented) |
+| `adaboost_weight` | `cadw.ml._gbdt_common` (v0.9.151) | RUSBoost | +0 (implemented) |
+| `cumulative_logit_prob` | `cadw.ml._gbdt_common` (v0.9.151) | OrderedProbitBayesian | +0 (implemented) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -94,12 +97,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
   apriori, eclat, fp_growth, prefix_span, gsp.
 - Consumers: Apriori, Eclat, FP-growth, PrefixSpan, GSP (5/6
   R_association cards; HMM pending — model, not primitive).
-
-### L9. `_pinball_loss` + `_quantile_grad`
-- **Consumers**: LinearQuantReg, GBDT_pinball, CQR
-- **Home**: `cadw.ml._gbdt_common.pinball_loss(y, q, alpha)` +
-  `pinball_grad(y, q, alpha)`.
-- **Effort**: 0.5 session.
 
 ### L10. `_survival_logrank` (log-rank statistic + Breslow partial log-lik)
 - **Consumers**: RandomSurvivalForest, DeepSurv (uses coxph partial),
@@ -136,12 +133,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
   refine_axes=None)` + `random_search(param_dist, scorer, n_iter, seed)`.
 - **Note**: DEC-054 K4 deferred — this is the extraction target.
 - **Effort**: 1 session.
-
-### L16. `_adaboost_weight_update` (AdaBoost exponential loss update)
-- **Consumers**: RUSBoost, GBDT_scale_pos_weight (partial — class
-  weights), GBDT_threshold (cumulative-logit variant)
-- **Home**: `cadw.ml._gbdt_common.adaboost_weight(alpha, misclassified)`.
-- **Effort**: 0.3 session.
 
 ### L18. `_ks_stat` / `_chi2_stat` / `_psi_stat` (distribution drift)
 - **Consumers**: DriftStats, EvidentlyDrift, ADWIN (partial)

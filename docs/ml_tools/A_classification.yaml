@@ -1031,8 +1031,6 @@ subtypes:
     tier: sota
     depends_on:
     - cadw.ml._gbdt_common.cumulative_logit_prob
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L20"
-    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1176,8 +1174,6 @@ subtypes:
     depends_on:
     - cadw.ml._gbdt_common.adaboost_weight
     - cadw.ops.stats.normalize_weights
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L16, §L17"
-    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1231,8 +1227,6 @@ subtypes:
     depends_on:
     - cadw.ml._gbdt_common.pinball_loss
     - cadw.ml._gbdt_common.pinball_grad
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L9"
-    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -1262,8 +1256,6 @@ subtypes:
     depends_on:
     - cadw.ml._gbdt_common.pinball_loss
     - cadw.ml._gbdt_common.pinball_grad
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L9"
-    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -1293,8 +1285,6 @@ subtypes:
     depends_on:
     - cadw.ml._gbdt_common.pinball_loss
     - cadw.ml._gbdt_common.pinball_grad
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L9"
-    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
