@@ -1,8 +1,8 @@
 # CADW Roadmap
 
-Last updated: 2026-11-08 (after v0.9.133).
+Last updated: 2026-11-08 (after v0.9.136).
 
-## Current: v0.9.133 — DEC-054 dedup pass (K1, K2, K3a, K5c, K6, K10, K12)
+## Current: v0.9.136 — DEC-054 dedup + DEC-055 depends_on + DEC-056 PRIMITIVES_BACKLOG
 
 **5 releases since v0.9.128.** v0.9.129 = verify 3 ts drafts;
 v0.9.130-133 = DEC-054 dedup pass (7 clusters). 30 files touched,
@@ -53,6 +53,26 @@ PRIMITIVES_BACKLOG.md scan across all 302 cards.
 
 ---
 
+### v0.9.134 — home-correction + forward extraction
+- sigmoid -> numeric; znormalize -> stats; ols_fit -> linalg;
+  _xavier_init -> _nn_init. New `cadw/ops/{linalg,stats}.py`,
+  `cadw/ml/_nn_init.py`.
+- Forward extraction (AP10 exception, DEC-056): `_sq_dists` -> linalg
+  (12+ prospective), `_acf` -> stats (5+).
+- Version drift fixed (was 0.9.128 at v0.9.129-133 tags).
+
+### v0.9.135 — DEC-055 depends_on schema + migration
+- ModelCard.depends_on field + R11 test (importable).
+- Migration 66 cards (verified/draft): 11 non-empty, 55 `[]`.
+- 162 status=None cards untouched (out of scope).
+
+### v0.9.136 — DEC-056 PRIMITIVES_BACKLOG
+- Forward scan of 162 non-implemented cards.
+- 20 P1 clusters (3+ prospective consumers), 15 P2, 20 P3.
+- Coverage map + implementation roadmap (v0.9.137-140+).
+- AP10 amendment applied (forward extraction at 1 site allowed when
+  prospective >= 2).
+
 ## Historical: v0.9.128 — TAXONOMY FROZEN
 
 **Freeze declaration** (DEC-052, AI_CONSTITUTION §5.3): **58/58 subtypes**
@@ -99,7 +119,23 @@ All **implementation**, not card-filling:
 
 ## Next 3 sessions
 
-### v0.9.134 — home-correction + DEC-054 tail
+### v0.9.137 — P1 group A: distances + kernels
+L1 `_knn_query`, L2 `_core_distances`, L3 `_rbf_kernel`, L4 `_chol_solve`.
+Unblocks: LOF, DBSCAN, HDBSCAN, SMOTE, GPR, GP forecaster, spectral
+(pending L6), GPLVM, KernelPCA, GP-EI, BayesianOpt, KNNImputer.
+
+### v0.9.138 — P1 group B: graph
+L5 `_mst`, L6 `_graph_laplacian` + `_eigsh_topk`, L19 `_eigen_decomp_topk`.
+Unblocks: HDBSCAN dendrogram, Agglomerative single, Spectral x3, Consensus x3.
+
+### v0.9.139 — P1 group C: factorization + itemset
+L7 `_nmf_mu`, L8 `_itemset_mining` (Apriori/FP-tree/Eclat).
+
+### v0.9.140 — P1 group D: losses + stats
+L9-L20: pinball, survival logrank, DR score, LTR gradients, grid_search,
+arm_stats, adaboost, ks_stat, cumulative_logit.
+
+### v0.9.134 — home-correction + DEC-054 tail (DONE)
 
 **Part A (~1 h): home fixes.**
 - `sigmoid` -> `cadw/ops/numeric.py` (from `optim.py`: SGD there, sigmoid

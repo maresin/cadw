@@ -1796,6 +1796,14 @@ central scan amortizes to 0.
 be aware — allow `described_only: true` + `depends_on` with
 not-yet-implemented paths (whitelisted as "planned, see PRIMITIVES_BACKLOG").
 
+**Status (v0.9.136, 2026-11-08):** APPLIED.
+`docs/ml_tools/PRIMITIVES_BACKLOG.md` v1.0 created: 20 P1 clusters
+(3+ prospective consumers), 15 P2 (2), 20 P3 (1, opportunistic).
+Coverage map for all 162 non-implemented cards. Implementation
+roadmap: v0.9.137 (L1-L4 distances+kernels), v0.9.138 (L5/L6/L19
+graph+eigsh+MST), v0.9.139 (L7/L8 NMF+itemset), v0.9.140 (losses+
+stats).
+
 **Files (v0.9.136):**
 - `docs/ml_tools/PRIMITIVES_BACKLOG.md` (new)
 - `docs/ml_tools/DECISION_LOG.md` (this DEC)
