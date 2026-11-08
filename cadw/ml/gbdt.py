@@ -634,6 +634,45 @@ def _assign_leaf_from_array(
     return leaf
 
 
+_STATE_HEADER_BYTES = 256
+
+
+def _deep_nbytes(obj) -> int:
+    """Exact recursive byte count for nested dict/list/tuple/ndarray/scalar.
+
+    Used by GBDTModel.state_nbytes(). Not for hot paths — fit/predict
+    call it once at model finalization.
+    """
+    import sys
+    total = sys.getsizeof(obj)
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            total += sys.getsizeof(k) + _deep_nbytes(v)
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            total += _deep_nbytes(item)
+    elif hasattr(obj, "nbytes"):
+        total += int(obj.nbytes)
+    return int(total)
+
+
+def _trees_nbytes(trees) -> int:
+    """Sum _deep_nbytes over all tree dicts in `trees`.
+
+    Accepts either list of {"structure":..., "leaf_values":...} or
+    list of list (multiclass: trees[round][class] = tree dict).
+    """
+    total = 0
+    for t in trees:
+        if isinstance(t, list):
+            total += _trees_nbytes(t)
+        elif isinstance(t, dict):
+            total += _deep_nbytes(t)
+        else:
+            total += _deep_nbytes(t)
+    return int(total)
+
+
 def _leaf_vector(lv_map: dict, leaf: np.ndarray) -> np.ndarray:
     if not lv_map:
         return np.zeros_like(leaf, dtype=np.float64)
@@ -737,6 +776,18 @@ class GBDTRegressor:
             memory_guard=X._memory_guard,
             spill_dir=X._spill_dir,
         )
+
+    def state_nbytes(self) -> int:
+        """Exact byte count of persistent state: trees + min/max + header.
+
+        Tree representation: dict[int, tuple|None] (structure) +
+        dict[int, float] (leaf_values). CPython per-node overhead
+        dominates; this is exact via _deep_nbytes.
+        """
+        total = _STATE_HEADER_BYTES
+        total += self.mn_.nbytes + self.mx_.nbytes
+        total += _trees_nbytes(self.trees_)
+        return int(total)
 
     def to_dict(self) -> dict:
         return {
@@ -866,6 +917,18 @@ class GBDTClassifier:
             memory_guard=X._memory_guard,
             spill_dir=X._spill_dir,
         )
+
+    def state_nbytes(self) -> int:
+        """Exact byte count of persistent state: trees + min/max + header.
+
+        Tree representation: dict[int, tuple|None] (structure) +
+        dict[int, float] (leaf_values). CPython per-node overhead
+        dominates; this is exact via _deep_nbytes.
+        """
+        total = _STATE_HEADER_BYTES
+        total += self.mn_.nbytes + self.mx_.nbytes
+        total += _trees_nbytes(self.trees_)
+        return int(total)
 
     def to_dict(self) -> dict:
         return {
@@ -1540,6 +1603,19 @@ class GBDTMulticlassClassifier:
             memory_guard=X._memory_guard,
             spill_dir=X._spill_dir,
         )
+
+    def state_nbytes(self) -> int:
+        """Exact byte count of persistent state: trees + min/max + header.
+
+        Tree representation: dict[int, tuple|None] (structure) +
+        dict[int, float] (leaf_values). CPython per-node overhead
+        dominates; this is exact via _deep_nbytes.
+        """
+        total = _STATE_HEADER_BYTES
+        total += self.mn_.nbytes + self.mx_.nbytes
+        total += int(self.base_prediction_.nbytes)
+        total += _trees_nbytes(self.trees_)
+        return int(total)
 
     def to_dict(self) -> dict:
         return {

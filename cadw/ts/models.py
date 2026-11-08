@@ -1022,12 +1022,22 @@ class GBDTForecaster(ForecasterBase):
         return self._predict_in_sample()
 
     def state_nbytes(self):
+        """Persistent state: per-horizon GBDT models + optional pipeline.
+
+        Delegates to _inner_pipeline (differencing/decompose) when present;
+        otherwise sums state_nbytes() over self._models (list of
+        GBDTRegressor, one per horizon). +256 header.
+        """
         if self._inner_pipeline is not None:
-            return self._inner_pipeline.state_nbytes()
-        try:
-            return super().state_nbytes()
-        except (AttributeError, TypeError):
+            return int(self._inner_pipeline.state_nbytes())
+        models = getattr(self, "_models", None) or []
+        if not models:
             return 0
+        total = 256
+        for m in models:
+            if hasattr(m, "state_nbytes"):
+                total += int(m.state_nbytes())
+        return int(total)
 
     def _predict(self, steps):
         if self.mode == "recursive":

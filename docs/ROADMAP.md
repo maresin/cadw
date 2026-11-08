@@ -332,6 +332,20 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.159 (GBDT family batch 1: 5 cards):**
+- Added state_nbytes() to GBDTRegressor, GBDTClassifier,
+  GBDTMulticlassClassifier (was missing): exact tree byte count
+  via _deep_nbytes + min/max + header.
+- Flipped 5 cards: GBDT (binary), GBDT_multiclass, GBDT_L2,
+  GBDT_scale_pos_weight ×2 (A_classification + E_anomaly).
+- ram_formula (upper bound, iforest precedent):
+  n_estimators * (2**(max_depth+1)-1) * 500 + 2*d*f64 + 256
+  multiclass: × n_classes + n_classes*f64
+- Tests: 8 passed (CW-1 upper bound [0.20, 1.0]; CW-2 n-independent
+  ratio <=3.0; CW-6 guard-refuse at 0.001 MB).
+- Deferred v0.9.160: GBDTForecaster + GBDT_multiseries
+  (need _models populated post-predict for state_nbytes>0).
+
 **v0.9.158 (legacy TS batch 2: SARIMA + VAR):**
 - Flipped 2 remaining legacy TS cards: SARIMA (add state_nbytes
   = 2n*f64 + 256 for y_raw_ + _y_centered_) + VAR (existing

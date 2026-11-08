@@ -251,9 +251,41 @@ subtypes:
       predict: 'per-batch sigmoid.'
     primitive_reuse: [reduce]
   - name: GBDT_scale_pos_weight
+    cadw_module: cadw.ml.gbdt
+    cadw_function: fit_gbdt_classifier
+    input_api: df
+    fit_batched: true
+    predict_batched: true
+    depends_on: []
+    ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    formula_evidence:
+      trees: "gbdt.py:_grad_hess -- weight w = where(y>0.5, pos_weight, 1.0); tree build identical"
+      minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
+      header: "gbdt.py:_STATE_HEADER_BYTES=256"
+      state_nbytes: "gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
+      state_ooc: "test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0"
+      guard_refuse: "test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded"
+      correctness: "test_*_classification/regression/multiclass existing suites green"
+      cells_passed: "3/3"
+      runtime_sec: "~3"
+    bounded_state: true
+    bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    state_class: O(model)
+    state_type: iterative
+    n_scalability: constant
+    tier1_core_exception: "Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: weighted hist reduce. n-independent (trees do not grow with n)."
+    streaming_strategy:
+      fit: "per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: weighted hist reduce."
+      predict: per-batch _iter_filtered_batches -> stacked X -> tree descend; O(batch × trees).
+    primitive_reuse: [reduce]
     tier: sota
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - nonlinear_interactions
@@ -264,12 +296,6 @@ subtypes:
     config:
       scale_pos_weight: float
       n_estimators: int
-    cadw_module: cadw.ml.gbdt
-    cadw_function: fit_gbdt_classifier
-    input_api: df
-    depends_on:
-    - cadw.ops.numeric.sigmoid
-    depends_on_status: implemented
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -283,19 +309,7 @@ subtypes:
       value: 0.51
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
     transient_factor: 1.0
-    state_type: iterative
-    bounded_state: true
-    n_scalability: constant
-    streaming_strategy:
-      fit: 'P1a-1c codes path; weighted grad/hess.'
-      predict: 'per-batch tree recursion.'
-    primitive_reuse:
-    - reduce
-    - spill_dir
-    - codes_bin
   - name: CalibratedClassifierCV
     tier: sota
     depends_on: []
