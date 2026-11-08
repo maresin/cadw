@@ -467,6 +467,16 @@ Per STREAMING §6.1 — won't-fix with rationale:
   PRIMITIVES_BACKLOG §<cluster>` marker. v0.9.145+.
 - **R12 code-sync AST** (DEC-055): per-card `depends_on` matches
   actual imports. Deferred v0.9.145+ (needs PRIMITIVES_BACKLOG).
+- **impl/ 9 models promotion** (DEC-058 Part 2): KaplanMeier,
+  WeibullAFT, ComplementNB, NMF, EpsilonGreedy, UCB1,
+  ThompsonSampling, KernelDensity — production-grade OOC-first
+  in `.pingis/impl/`. Adapt + CW-1..5 + YAML verified. 3 duplicates
+  (OneHotEncoder/ReservoirSample/StratifiedSplit) — verify against
+  existing cadw API. ~10-15 sessions. Target: v0.9.145-155.
+- **cadwboost promotion** (DEC-058 Part 2): 3086L in
+  `.pingis/drafts/cadwboost/`, symmetric+leaf-wise trees, quantile
+  binning. Compare vs `cadw.ml.gbdt`; promote if wins. ~2-3
+  sessions. Target: v0.9.148+.
 - **`fit_meta_learner` AP2 refactor**: T/S learner verify requires
   removing `_collect + vstack` (DEC-012 pattern).
 - **Pre-commit hook for `render_matrix.py`**: `--check` flag prevents

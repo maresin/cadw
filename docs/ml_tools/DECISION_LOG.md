@@ -1983,3 +1983,130 @@ runtime measurement — which is what v0.9.137 R13 test will do.
 ---
 
 <!-- end DEC-057 -->
+
+
+---
+
+## DEC-058 (2026-11-08, v0.9.142) — .pingis cleanup + impl/cadwboost promotion backlog
+
+**Q:** Is `.pingis/` (22 MB, 154 tracked files) carrying stale artifacts?
+What to clean, what to promote (impl/ 9 models, cadwboost)?
+
+**A:** 13 MB removed (gitignored only, zero risk). Promotion of
+impl/cadwboost = separate multi-session effort, target v0.9.145+.
+
+### Part 1 — Cleanup (applied v0.9.142)
+
+**Removed (29 files + 5 dirs, all gitignored via `.gitignore` rules
+`.pingis/audits/`, `.pingis/_*.py`, `.pingis/patch.py`,
+`.pingis/summary.md`, `.pingis/session.log`):**
+
+- **11 stale audits** (no references in docs/cadw/tests/CHANGELOG):
+  dynamic_ram.md, inventory.md, source_conformance.md,
+  state_class_pass2_ml.md, state_class_pass2_ops_ts.md,
+  static_scan.md, v0935_algo_report.md, v0.9.48_final_report.md,
+  v0.9.49_bug1_report.md, v0.9.50_final_report.md,
+  v0.9.112/SUMMARY.md.
+- **15 scratch prototypes** (`.pingis/_*.py`): _bench_ram ×2,
+  _bocpd_test, _conf_* ×6, _gbdt_test, _guard_order, _proto ×3,
+  _ram_harness. All experiments completed; results in CHANGELOG.
+- **3 misc**: summary.md, experiments/v0935_summary.md, patch.py.
+- **5 dirs**: audits/fetch_cache, v0.9.113/PATCHES, v0.9.113/CARDS,
+  v0.9.112/_work, v0.9.113/_work.
+
+**Size: 22 MB → 9 MB (saved 13 MB).** git status clean after (all
+removed were gitignored; one tracked `v0935_summary.md` restored via
+`git checkout` — caught by cleanup verify step).
+
+**Kept (referenced in docs/code):**
+- audits: AUDIT_REPORT_v0930, AUDIT_v0931, EFFICIENCY_AUDIT_v0930,
+  FINAL_REPORT, pass3_2026-10-30, v0934_bugfix_report, v0.9.48_bugs,
+  v0.9.112/INDEX, inefficiency.md (referenced test_no_dense_windows.py).
+- experiments/v0934_notes.md (referenced BUG_BACKLOG + CHANGELOG).
+- session.log (gitignored; history).
+- algorithm_notes/ (120K, 10 notes referenced).
+- benches/ (284K, all referenced in YAML benchmark_url).
+- patches/ (16K).
+- plan_v0.9.87_refactor.md (12K).
+- impl/ (2.5M) — **promotion subject, Part 2.**
+- drafts/cadwboost/ (428K) — **promotion subject, Part 2.**
+- tasks/ (200K; 2 files at top, 11 in archive).
+
+### Part 2 — Promotion backlog (v0.9.145+)
+
+**impl/ (9 models + smoke runner):**
+
+Files:
+- `.pingis/impl/I/kaplan_meier.py` (322L, external_sort + ReduceOp + SpillDir)
+- `.pingis/impl/I/weibull_aft.py` (240L)
+- `.pingis/impl/J/complement_nb.py` (204L)
+- `.pingis/impl/J/nmf.py` (173L)
+- `.pingis/impl/M/bandits.py` (238L, ArmStatsOp + 3 policies)
+- `.pingis/impl/N/kernel_density.py` (257L)
+- `.pingis/impl/O/one_hot_encoder.py` (149L) — DUPLICATE of `cadw/dataframe.encode_categorical`
+- `.pingis/impl/O/reservoir.py` (134L) — DUPLICATE of `cadw/core/sampling.py`
+- `.pingis/impl/O/stratified_split.py` (210L) — DUPLICATE of `cadw/cv.py` StratifiedKFold
+- `.pingis/impl/smoke/run_smoke.py` (103L, subprocess + RSS measurement)
+
+**Quality assessment (from docstrings):** production-grade, not naive.
+- OOC-first design («No pa.Table, no read_all(), no per-row Python loops»).
+- Uses CADW primitives (external_sort, ReduceOp, SpillDir, SpillArray).
+- Smoke runner measures RSS via `resource.getrusage(RUSAGE_CHILDREN)`.
+
+**YAML state:** all 12 target cards (KaplanMeier, WeibullAFT,
+ComplementNB, NMF ×2, EpsilonGreedy, UCB1, ThompsonSampling,
+KernelDensity, ReservoirSample, StratifiedSplit, OneHotEncoder) are
+`status=None, cadw_module="", cadw_function=""` — not wired.
+
+**Promotion plan per model:**
+1. Read impl code; adapt to CADW style (MemoryGuard.check_state
+   contract, output=auto, state_nbytes()).
+2. Move to `cadw/ml/` (or `cadw/ts/` / `cadw/ops/` as appropriate).
+3. CW-1..5 verification (component-wise DEC-033).
+4. YAML: cadw_module + cadw_function + status: verified +
+   ram_formula + formula_evidence + measurement + depends_on.
+5. Duplicates (OneHotEncoder, ReservoirSample, StratifiedSplit) —
+   verify they match existing cadw API; delete impl OR keep as
+   reference.
+
+**Estimated effort:** 9 unique models × 1-2 sessions each = **10-15
+sessions.** Target: v0.9.145-155.
+
+**cadwboost (`.pingis/drafts/cadwboost/`):**
+- 10 files, 3086L (ooc, binning, histogram, missing, boosting,
+  multiclass, serialize, model, dataframe, __init__).
+- README: symmetric trees (CatBoost) + leaf-wise (LightGBM) +
+  quantile/uniform/weighted binning + approximate/exact split finding.
+- Status: experimental prototype, P0+P1 target. Not git-tracked.
+- YAML: A_classification.yaml::CADWBoost `described_only: true`
+  (honest).
+- Promotion: `cadw/ml/cadwboost.py` after P2 (ordered boosting, exact
+  SHAP, 464-test suite). Compare vs `cadw.ml.gbdt` on benchmark;
+  promote only if wins. **2-3 sessions.** Target: v0.9.148+.
+
+### Non-goals
+
+- **Not deleting impl/ or cadwboost/** — both are promotion-ready,
+  not stale. Removal would waste 300+ hours of prior work.
+- **Not touching tracked files** — cleanup only `.gitignore`'d.
+- **Not touching session.log** — user decision (keep history or
+  rotate; outside DEC scope).
+
+### Discoverability
+
+After DEC-058:
+- `.pingis/impl/` and `.pingis/drafts/cadwboost/` are the only
+  non-gitignored-or-tracked work-in-progress.
+- `.pingis/audits/` (432K) has 8 USED files + 1 kept (inefficiency).
+- Everything else in `.pingis/` is either referenced in docs or
+  promotion subject.
+
+**Files (v0.9.142):**
+- No git-tracked changes from cleanup (all gitignored).
+- `docs/ml_tools/DECISION_LOG.md` — this entry.
+- `docs/ROADMAP.md` — Backlog section: impl/cadwboost promotion
+  with target versions.
+
+---
+
+<!-- end DEC-058 -->
