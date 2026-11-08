@@ -85,6 +85,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `cumulative_logit_prob` | `cadw.ml._gbdt_common` (v0.9.151) | OrderedProbitBayesian | +0 (implemented) |
 | `dr_score` + `aipw_ate` | `cadw.ml._causal_common` (v0.9.152) | DR_learner, CausalForest ×2, DR_learner_uplift | +0 (implemented) |
 | `ks_2samp` + `psi` + `chi2_categorical` | `cadw.ops.stats` (v0.9.153) | EvidentlyDrift, ADWIN, SequentialTest | +0 (implemented) |
+| `ranknet_grad` + `listnet_grad` + `lambdarank_grad` | `cadw.ml._ltr_common` (v0.9.154) | PairwiseLogistic, ListNet, LambdaMART | +0 (implemented) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -111,15 +112,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 - **Consumers**: KMeansHDBSCAN_consensus, EvidenceAccumulation, CSPA
 - **Home**: `cadw.ops.linalg.consensus_matrix(labels_list)` (co-association
   matrix from multiple clusterings), then spectral eigendecomp (L6).
-- **Effort**: 1 session.
-
-### L13. `_ltr_gradients` (RankNet / ListNet / LambdaRank gradients)
-- **Consumers**: PairwiseLogistic (RankNet loss), LambdaMART (lambda
-  gradients), ListNet (Plackett-Luce)
-- **Home**: `cadw.ml._ltr_common.ranknet_grad(scores, labels)` +
-  `listnet_grad(scores, labels)` + `lambdarank_grad(scores, labels)`.
-- **Note**: shared **softmax** already in `cadw.ops.optim`; these are
-  derivatives of specific ranking losses.
 - **Effort**: 1 session.
 
 ### L14. `_grid_search` / `_random_search` (parameter search)

@@ -332,6 +332,17 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.154 (P1 L13: _ltr_common):**
+- New `cadw/ml/_ltr_common.py`: ranknet_grad (pairwise logistic,
+  Burges 2005), listnet_grad (Plackett-Luce, Cao 2007),
+  lambdarank_grad (pairwise with NDCG@k delta, Burges 2010).
+  lambdamart.py NOT touched (verified, inline _lambda_gradients
+  has different signature).
+- Tests: 19 passed (grad sum-zero, direction, antisymmetry,
+  NDCG@k perfect/reversed/truncated/zero-labels).
+- YAML: 2 cards flipped (PairwiseLogistic, ListNet). LambdaMART
+  already implemented.
+
 **v0.9.153 (P1 L18: stats drift helpers):**
 - Moved ks_2samp/psi/chi2_categorical from cadw.ml.drift to
   cadw.ops.stats (canonical home, DEC-054 §5.1). Added
