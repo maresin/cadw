@@ -27,6 +27,7 @@ subtypes:
         cadw_module: cadw.ml.kmeans
         cadw_function: fit_kmeans
         input_api: df
+        depends_on: []
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.KMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: inertia, value: null, note: 'no_public_benchmark: KMeans on AMLB is pre-processing; no unified clustering LB. Measure v0.9.124.'}
         state_class: O(model)
@@ -63,6 +64,7 @@ subtypes:
         cadw_module: cadw.ml.minibatch
         cadw_function: fit_minibatch_kmeans
         input_api: df
+        depends_on: []
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.MiniBatchKMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.MiniBatchKMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: inertia, value: null, note: 'no_public_benchmark: same as KMeans; measure v0.9.124.'}
         state_class: O(model)

@@ -521,6 +521,51 @@ def test_R2_verified_requires_ram_formula():
 
 
 
+def test_R11_depends_on_importable():
+    """R11 (DEC-055): every dotted path in `depends_on` resolves.
+
+    For card with `depends_on: [cadw.ops.numeric.ols_fit]`:
+    importlib.import_module("cadw.ops.numeric") + getattr(..., "ols_fit").
+
+    Absence of field = legacy = skip (migration is progressive).
+    """
+    import importlib
+    from pathlib import Path
+    import yaml
+    bad = []
+    for path in _section_files():
+        text = path.read_text()
+        try:
+            data = yaml.safe_load(text)
+        except Exception:
+            continue
+        for st in data.get("subtypes") or []:
+            for c in st.get("models") or []:
+                deps = c.get("depends_on")
+                if not deps:
+                    continue
+                if not isinstance(deps, list):
+                    bad.append(f"{path.name}:{c.get('name')}: "
+                               f"depends_on not a list")
+                    continue
+                for dep in deps:
+                    if not isinstance(dep, str) or "." not in dep:
+                        bad.append(f"{path.name}:{c.get('name')}: "
+                                   f"bad dep {dep!r}")
+                        continue
+                    mod, _, attr = dep.rpartition(".")
+                    try:
+                        m = importlib.import_module(mod)
+                    except Exception as e:
+                        bad.append(f"{path.name}:{c.get('name')}: "
+                                   f"cannot import {mod!r}: {e}")
+                        continue
+                    if not hasattr(m, attr):
+                        bad.append(f"{path.name}:{c.get('name')}: "
+                                   f"{mod}.{attr} missing")
+    assert not bad, "\n".join(bad)
+
+
 def test_R3_verified_no_backlog_in_code():
     """R3: status=verified ⟹ no # BACKLOG: in cadw module source."""
     import re

@@ -1422,6 +1422,7 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     input_api: df
+    depends_on: []
     state_class: O(1)
     bounded_state_dims: {}
     transient_factor: 1.0
@@ -1490,6 +1491,7 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     input_api: df
+    depends_on: []
     state_class: O(1)
     bounded_state_dims: {k: 1, d: 1}
     transient_factor: 1.0
@@ -1548,6 +1550,7 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_ab_test
     input_api: df
+    depends_on: []
     state_class: O(1)
     bounded_state_dims: {d: 2}
     transient_factor: 2.0

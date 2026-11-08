@@ -38,6 +38,7 @@ subtypes:
     cadw_module: cadw.ml.meta_learners
     cadw_function: fit_meta_learner
     input_api: df
+    depends_on: []
     benchmark_results:
     - benchmark: RCT_IHDP
       benchmark_url: https://www.fredjo.com/
@@ -87,6 +88,7 @@ subtypes:
     cadw_module: cadw.ml.meta_learners
     cadw_function: fit_meta_learner
     input_api: df
+    depends_on: []
     benchmark_results:
     - benchmark: RCT_IHDP
       benchmark_url: https://www.fredjo.com/
