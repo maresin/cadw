@@ -49,24 +49,14 @@ from cadw.ts.models import (
     ForecasterBase, _check_df, _extract_series,
 )
 
+# v0.9.132 (DEC-054): _ols_fit + _erfinv -> cadw.ops.numeric
+from cadw.ops.numeric import (
+    ols_fit as _ols_fit, erfinv as _erfinv,
+)
+
 
 # ── Helpers ───────────────────────────────────────────────────────
 
-def _ols_fit(y: np.ndarray) -> tuple[float, float]:
-    """OLS (intercept, slope) on y[t] vs t."""
-    n = y.size
-    if n < 2:
-        return float(y.mean()) if n else 0.0, 0.0
-    x = np.arange(n, dtype=np.float64)
-    x_mean = float(x.mean())
-    y_mean = float(y.mean())
-    num = float(np.sum((x - x_mean) * (y - y_mean)))
-    den = float(np.sum((x - x_mean) ** 2))
-    if den < 1e-12:
-        return y_mean, 0.0
-    b = num / den
-    a = y_mean - b * x_mean
-    return a, b
 
 
 def _ols_forecast(a: float, b: float, n: int,
@@ -102,20 +92,6 @@ def _best_alpha(y: np.ndarray) -> float:
     return best_a
 
 
-def _erfinv(x: float) -> float:
-    """Inverse error function via Newton iteration on math.erf."""
-    if x <= -1.0 or x >= 1.0:
-        raise ValueError("erfinv: x must be in (-1, 1)")
-    a = 0.147
-    ln1mx2 = math.log(1.0 - x * x)
-    term = 2.0 / (math.pi * a) + ln1mx2 / 2.0
-    guess = math.copysign(
-        math.sqrt(math.sqrt(term * term - ln1mx2 / a) - term), x)
-    for _ in range(3):
-        err = math.erf(guess) - x
-        d = 2.0 / math.sqrt(math.pi) * math.exp(-guess * guess)
-        guess -= err / d
-    return guess
 
 
 # ── ThetaForecaster (STM) ─────────────────────────────────────────
