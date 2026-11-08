@@ -1,5 +1,64 @@
 ## [Unreleased]
 
+### v0.9.142 (2026-11-08) — depends_on 100% coverage + .pingis cleanup
+
+**Counts:** 37 verified fns / 53 verified cards (unchanged).
+**Coverage:** 228/228 cards have `depends_on` (0 missing).
+
+Three sub-commits in this release:
+- v0.9.142 (`70135a7`): described_only depends_on forward-declare.
+- v0.9.142b (`a75655a`): coverage 100% (legacy + O_eda).
+- v0.9.142d (`6ebdfe4`): DEC-058 .pingis cleanup + promotion backlog.
+
+**Schema additions (DEC-055 amend):**
+- `ModelCard.depends_on_backlog: str | None` — ref to
+  PRIMITIVES_BACKLOG §<cluster>.
+- `ModelCard.depends_on_status: str | None` — "planned" |
+  "implemented"; R11 skips importable check when "planned".
+
+**Migration (228 cards):**
+- **63 verified**: `depends_on` actual (11 non-empty with imports).
+- **3 draft**: `depends_on` actual (EnsembleForecaster + 2).
+- **54 described_only planned**: forward-declared P1 primitives with
+  `depends_on_backlog: "PRIMITIVES_BACKLOG §L1, §L2, §L5"` +
+  `depends_on_status: planned`. Discoverable via
+  `grep "depends_on_status: planned" docs/ml_tools/*.yaml` -> 54.
+- **78 described_only empty**: `depends_on: []` (no P1 match —
+  implemented in cadw, utility, or NN-skip with `nn_excluded: true`).
+- **30 legacy (status=None)**: actual `depends_on` (AST-extracted
+  from cadw_module; 0-2 primitive imports each) +
+  `depends_on_status: implemented`. status stays None (source-fidelity
+  only, not DEC-033 component-wise verified). Cards: ETS, Theta,
+  SARIMA, VAR, GBDT×4, LambdaMART, T_learner_uplift, CausalTree,
+  feature_select×3, PermutationImportance, FairnessMetrics,
+  DriftStats, Hybrid_MF_GBDT, NaiveForecaster, GBDTForecaster,
+  GBDT_multiseries, IntervalFeatures_GBDT, GBDT_scale_pos_weight.
+- **5 O_eda (Describe/Hist/ValueCounts/SimpleImputer/EncodeCategorical)**:
+  `depends_on: []` (CadwDataFrame public API, not primitives) +
+  `depends_on_status: implemented`.
+
+**PRIMITIVES_BACKLOG header updated:**
+- "20 P1" -> "20 P1 clusters (~30 functions)". Some clusters are
+  families: L3 kernels ×3, L6 laplacian+eigsh, L9 pinball loss+grad,
+  L12 consensus+coassoc, L13 ranknet+listnet+lambdarank, L14
+  grid+random, L18 ks+chi2+psi.
+- "Where dependencies live" section: grep-discoverable pattern.
+
+**DEC-058 (new):** .pingis cleanup + impl/cadwboost promotion backlog.
+- 29 gitignored stale files + 5 dirs removed (22 -> 9 MB, saved
+  13 MB). 11 stale audits, 15 scratch prototypes, 3 misc, 5 dirs.
+- Kept: 8 USED audits + inefficiency.md (referenced test),
+  experiments/v0934_notes.md, algorithm_notes/, benches/, impl/,
+  drafts/cadwboost/.
+- **Promotion backlog (v0.9.145+)**: impl/ 9 models (production-
+  grade OOC-first per docstrings) + cadwboost (3086L, symmetric +
+  leaf-wise trees). 3 duplicates (OneHotEncoder / ReservoirSample /
+  StratifiedSplit) — verify against existing cadw API.
+  Estimated: 10-15 sessions + 2-3 sessions.
+
+**Tests:** schema 110 passed (R11 skips planned). Coverage audit:
+228/228 cards have `depends_on`.
+
 ### v0.9.141 (2026-11-08) — verify T_learner + S_learner (§1 complete)
 
 **Counts:** 35 -> 37 verified fns; 51 -> 53 verified cards. **All 10

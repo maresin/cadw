@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-08 (after v0.9.141).
 
-## Current: v0.9.141 — all 10 §1 drafts verified + DEC-054/055/056/057
+## Current: v0.9.142 — depends_on 100% coverage + .pingis cleanup + §1 done
 
 **12 releases since v0.9.128.** Initial goal from §1 list achieved:
 all 10 draft models -> verified (35 -> 37 verified fns, 51 -> 53
@@ -243,36 +243,34 @@ All **implementation**, not card-filling:
 
 ## Next 3 sessions
 
-### v0.9.142 — `fit_stacking` pilot + predict_batched measurement
+**Priority order (v0.9.143-155):**
+1. **P1 primitives** (v0.9.143-146) — unblocks 54 forward-declared cards.
+2. **impl/ 9 models promotion** (v0.9.147-155) — DEC-058 Part 2.
+3. **cadwboost promotion** (v0.9.148+ overlay with #2) — DEC-058 Part 2.
+4. **P2 primitives** — opportunistic, when 2nd consumer arrives.
+5. **R12 + described_only depends_on code-sync** (v0.9.156+).
 
-**Part A (~1 h): `fit_stacking` infrastructure.**
-`cadw/ml/stacking.py::fit_stacking(df, base_models, meta_learner,
-*, cv=5, output="auto")`. k-fold OOC + meta on OOF predictions.
-Reuse `_iter_filtered_batches` for fold iteration; base models are
-existing `fit_*` (fit on train fold); meta-learner fit on OOF.
-Returns `StackingModel` with `.predict_proba(df)` (SpillArray auto).
-Not a card — infrastructure (like `fit_ab_test`).
-
-**Part B (~30 min): predict_batched measurement.**
-For 8 `fit_batched: false` cards (OTM/THF/TTF, PELT, STRAY,
-BinarySegmentation): add `test_predict_batched_matches` — verify
-`predict` path does not do unexpected full read. For 5-10
-representative `fit_batched: true` cards: measure peak(n=1e4 vs 5e4)
-on predict with output="auto" (SpillArray).
-
-**Part C (~30 min): EnsembleForecaster backlog.**
-YAML: draft_reason = "verify blocked on fit_stacking (DEC-050 level 3);
-per-member OOC unverified". After fit_stacking lands, rewrite
-EnsembleForecaster as thin wrapper over fit_stacking.
+P1 first because each primitive (`_knn_query`, `_rbf_kernel`, ...)
+unblocks 3-12 cards at once; promotion is 1-2 sessions per model.
+See Backlog §impl/cadwboost for promotion details.
 
 ### v0.9.143 — P1 group A: distances + kernels
-L1 `_knn_query` (chunked sq_dists + argpartition).
-L2 `_core_distances` (k-th neighbour distance; builds on L1).
-L3 `_rbf_kernel` + `poly_kernel` + `laplacian_kernel` (pairwise kernel
-general helper).
-L4 `_chol_solve` (np.linalg.cholesky + solve; jitter=1e-8).
-Home: `cadw/ops/linalg.py`. Unblocks: LOF, DBSCAN, HDBSCAN, SMOTE,
-GPR, GP forecaster, KernelPCA, GPLVM, GP-EI, BayesianOpt, KNNImputer.
+
+**L1** `_knn_query` (~1 sess) — chunked sq_dists + argpartition.
+**L2** `_core_distances` (~0.5) — k-th neighbour distance.
+**L3** `_rbf_kernel` + `poly_kernel` + `laplacian_kernel` (~1) —
+pairwise kernel general helper (parameterized).
+**L4** `_chol_solve` (~0.5) — np.linalg.cholesky + solve; jitter.
+Home: `cadw/ops/linalg.py`.
+Unblocks: LOF, DBSCAN, HDBSCAN, SMOTE, KNNImputer, ML-kNN, ItemKNN,
+Spectral ×3, KernelPCA, SparsePCA, GPLVM, GPR, GP forecaster, GP-EI,
+SMAC, BayesianOpt_GP.
+
+**Also (~30 min):**
+- `predict_batched` measurement for 8 false-cards (OTM/THF/TTF,
+  PELT, STRAY, BinarySeg ×2): verify predict path.
+- `fit_stacking` pilot: `cadw/ml/stacking.py::fit_stacking` (k-fold
+  OOC + meta on OOF). Infrastructure, not card.
 
 ### v0.9.144 — P1 group B: graph + eigsh + MST
 L5 `_mst`, L6 `_graph_laplacian` + `_eigsh_topk`, L19

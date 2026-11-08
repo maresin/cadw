@@ -68,6 +68,10 @@ AI_FIRST_FILES = (
     "docs/ml_tools/PRIMITIVES_AND_PRINCIPLES.md",           # T4
     "docs/ml_tools/EXAMPLE_VERIFIED_CARD.md",               # T3
     "docs/ml_tools/METHODOLOGY_ALGORITHM_SELECTION.md",     # T2
+    # v0.9.143: PRIMITIVES_BACKLOG (plan of work: 20 P1 / 15 P2 /
+    # 20 P3 clusters + coverage map). Every card's `depends_on` cross-
+    # refs this. AI session must see "what's next" before code.
+    "docs/ml_tools/PRIMITIVES_BACKLOG.md",                  # T4 (plan)
 )
 SEP = "# " + "=" * 76
 
@@ -113,6 +117,9 @@ TINY_SKELETON = {
     "cadw/ml/coxph.py",     # CoxPH-precedent: state_nbytes + bounded_by_domain
     "cadw/ml/lda.py",       # auto K-spill + batch_size pass-through (DEC-042)
     "cadw/ml/chains.py",    # 5-CW state sum (v0.9.118)
+    # v0.9.143: schema.py — visible fields (ModelCard dataclass,
+    # R-rules, VALID_STATE_CLASS). Essential for YAML edits in session.
+    "docs/ml_tools/schema.py",
 }
 
 
