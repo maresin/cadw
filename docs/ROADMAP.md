@@ -1,12 +1,13 @@
 # CADW Roadmap
 
-Last updated: 2026-11-08 (after v0.9.136).
+Last updated: 2026-11-08 (after v0.9.141).
 
-## Current: v0.9.136 — DEC-054 dedup + DEC-055 depends_on + DEC-056 PRIMITIVES_BACKLOG
+## Current: v0.9.141 — all 10 §1 drafts verified + DEC-054/055/056/057
 
-**5 releases since v0.9.128.** v0.9.129 = verify 3 ts drafts;
-v0.9.130-133 = DEC-054 dedup pass (7 clusters). 30 files touched,
-~600 lines removed via AST-based extraction.
+**12 releases since v0.9.128.** Initial goal from §1 list achieved:
+all 10 draft models -> verified (35 -> 37 verified fns, 51 -> 53
+verified cards). Two open questions documented below: (A) batching
+honesty per-model, (B) shared-primitives plan (DEC-056 backlog).
 
 ### v0.9.129 — 3 ts drafts -> verified
 - `OTMThetaForecaster`, `TemporalHierarchy`, `TransformedTargetForecaster`
@@ -73,6 +74,126 @@ PRIMITIVES_BACKLOG.md scan across all 302 cards.
 - AP10 amendment applied (forward extraction at 1 site allowed when
   prospective >= 2).
 
+### v0.9.137 — DEC-057 impl: fit_batched/predict_batched + metric fix
+- test_fit_ooc_v106: py_bytes -> measure_peak_traced (sampler).
+- ModelCard.fit_batched + predict_batched schema fields.
+- R13 test (bounded_state=true + fit_batched=false requires streaming
+  keyword in streaming_strategy.fit).
+- Migration 66 cards: 58 (true,true), 8 (false,false) intrinsic O(n).
+
+### v0.9.138 — verify KMeans + MiniBatchKMeans + PCA (pre-cards era)
+- All 3 draft -> verified with CW-1..5.
+- OOC fix: batch_size auto-derive (DEC-023) for all 3 — before fix,
+  single batch = n at default budget.
+- G2: PCA check_state before eigh (2*d*d*8+d*8); KMeans
+  check_batch in _kmeans_plus_plus_init; honest MemoryLimitExceeded
+  when tight guard makes batch_rows < k.
+
+### v0.9.139 — verify BVAR + VECM (single-series TS, streaming fit)
+- Both draft -> verified. State O(k²p²) honest.
+- batch_size auto-derive for both (DEC-023 class, same gap as v0.9.138).
+- YAML: bounded_state_dims {d:2} -> {k:2, p:1} / {k:2, r:1};
+  state_class O(d²) -> O(model).
+
+### v0.9.140 — verify PELT + T2Q + STRAY (intrinsic O(n) + chunked)
+- T2Q: bounded_state true -> false (honest correction; O(n) output
+  arrays 4n*8, DEC-039 pattern as hampel/sub_pca v0.9.116).
+- T2Q: silent OOM fix — check_state(4*n*8, "tspq.output") before
+  aggregation (guard was missing post-chunk guard).
+- PELT (×2) + STRAY: verify confirmed YAML was honest.
+- 17 verification tests.
+
+### v0.9.141 — verify T_learner + S_learner (final 2 of §1 drafts)
+- Both share fit_meta_learner. State = n_estimators*K*4096 + n*f64
+  + 1024 (K=2 for T, K=1 for S; propensity_ is per-row n array).
+- YAML: fit_batched true -> false (AP2 _collect full-read);
+  bounded_state_dims {batch:1} -> {n:1, n_estimators:1}.
+- 10 verification tests.
+
+---
+
+## Open question A — Батчевость (DEC-057 status)
+
+**Answered (v0.9.137):** ModelCard.fit_batched + predict_batched
+fields exist. Migration of 66 implemented cards done:
+- **58 (true,true)** — batch streaming (direct `_iter_filtered_batches`,
+  chunked helpers, or delegates to batched `fit_*`).
+- **8 (false,false)** — intrinsic O(n): OTM/THF/TTF (single-series TS),
+  STRAY (O(n²) CPU), BinarySegmentation ×2 (DP over n), PELT ×2
+  (DP over n). All honest via bounded_by_domain or tier1_core_exception.
+
+**Honest YAML claims corrected (DEC-057 audit):**
+- T2Q: bounded_state true -> false (v0.9.140).
+- T_learner / S_learner: fit_batched true -> false (v0.9.141).
+
+**Open items (deferred, tracked):**
+1. **`predict_batched` measurement** — currently set = fit_batched by
+   convention, NOT measured independently. Some predict paths may be
+   full-read even when fit is batched. Target: v0.9.142 add
+   `test_predict_batched_per_model` (SpillArray vs concatenate).
+2. **EnsembleForecaster** — `fit_batched: true` inherited from members,
+   NOT verified. **DEFERRED** until `fit_stacking` infrastructure
+   exists (see below). Per-subtype ensemble wrappers should be thin
+   over `fit_stacking`, not separate code paths (DEC-050 level 3,
+   DEC-052 "no per-subtype duplicated recipes").
+3. **described_only cards (162)** — batching N/A (no code). When
+   implemented, `fit_batched` must be set. PRIMITIVES_BACKLOG
+   (DEC-056) covers the forward plan.
+
+---
+
+## Open question B — Общие функции (DEC-054/055/056 status)
+
+**DEC-054 (dedup pass):** 12 clusters K1-K12 identified. Applied 7:
+- `_probe_memory_limit_mb` ×16 -> `cadw.core.memory_guard.probe_limit_mb`
+- `_sigmoid` ×4 -> `cadw.ops.numeric.sigmoid` (+ stability fix)
+- `_ols_fit` ×2 + `_erfinv` ×2 -> `cadw.ops.linalg` + `cadw.ops.numeric`
+- `znormalize_rows` ×2 -> `cadw.ops.stats`
+- `_to_df` ×2 -> `cadw.ml._common._to_df_causal`
+- `_xavier_init` ×2 -> `cadw.ml._nn_init`
+- `_plt` ×2 -> `cadw.viz._lazy.lazy_plt`
+
+Skipped (AP10/AP22 with rationale):
+- `_ses` ×3 (3 different algorithms: SES / theta / Holt-Winters)
+- `_mahalanobis_distances` vs `_stream_mahalanobis` (oracle vs streaming)
+- `_collect` ×5 (5 different signatures)
+- `kshape._znormalize` (1D scalar vs per-row)
+- `_acf` (originally 1 site — re-extracted v0.9.134 forward-scan)
+- `_sq_dists` (originally 1 site — re-extracted v0.9.134 forward-scan)
+
+Deferred:
+- `_grid_search` (ETS coordinate vs OTM grid vs SARIMA full — 3
+  different scorers; generic helper needs design).
+
+**DEC-055 (depends_on):** ModelCard.depends_on field + R11 test
+(importable). 66 cards migrated: 11 non-empty, 55 `[]` (no current
+primitive imports — honest). described_only (162) not filled —
+depends_on forward-scan pending DEC-056.
+
+**DEC-056 (PRIMITIVES_BACKLOG):** `docs/ml_tools/PRIMITIVES_BACKLOG.md`
+v1.0 (449 lines). 162 non-implemented cards scanned, clustered:
+- **20 P1** (3+ prospective consumers): `_knn_query`, `_core_distances`,
+  `_rbf_kernel`, `_chol_solve`, `_mst`, `_graph_laplacian+_eigsh_topk`,
+  `_nmf_mu`, `_itemset_mining`, `_pinball_loss`, `_survival_logrank`,
+  `_doubly_robust_score`, `_consensus_matrix`, `_ltr_gradients`,
+  `_grid_search`, `_arm_stats`, `_adaboost_weight_update`,
+  `_fuzzy_cluster_weights`, `_ks_stat`, `_eigen_decomp_topk`,
+  `_cumulative_logit`.
+- **15 P2** (2 consumers), **20 P3** (1, opportunistic).
+- AP10 amendment: forward extraction allowed when prospective ≥ 2.
+  Applied v0.9.134 (`_sq_dists`, `_acf`).
+
+**Open items (deferred):**
+1. **P1 implementation** (v0.9.143+): `_knn_query` → `_rbf_kernel`
+   → `_chol_solve` (group A), then graph (group B), then
+   factorization+itemset (group C), then losses+stats (group D).
+2. **R12 (code-sync AST)** — deferred; needs PRIMITIVES_BACKLOG
+   to whitelist internal helpers. v0.9.145+.
+3. **described_only depends_on** — 162 cards. Fill with "not yet
+   implemented" marker + PRIMITIVES_BACKLOG cross-ref. v0.9.145+.
+
+---
+
 ## Historical: v0.9.128 — TAXONOMY FROZEN
 
 **Freeze declaration** (DEC-052, AI_CONSTITUTION §5.3): **58/58 subtypes**
@@ -119,106 +240,49 @@ All **implementation**, not card-filling:
 
 ## Next 3 sessions
 
-### v0.9.137 — DEC-057 impl: fit_batched/predict_batched + test fix
+### v0.9.142 — `fit_stacking` pilot + predict_batched measurement
 
-**Part A (~30 min):** `test_fit_ooc_v106.py`: `["py_bytes"]` ->
-`["rss_bytes"]`. Extend 6 -> 12 representative models.
+**Part A (~1 h): `fit_stacking` infrastructure.**
+`cadw/ml/stacking.py::fit_stacking(df, base_models, meta_learner,
+*, cv=5, output="auto")`. k-fold OOC + meta on OOF predictions.
+Reuse `_iter_filtered_batches` for fold iteration; base models are
+existing `fit_*` (fit on train fold); meta-learner fit on OOF.
+Returns `StackingModel` with `.predict_proba(df)` (SpillArray auto).
+Not a card — infrastructure (like `fit_ab_test`).
 
-**Part B (~30 min):** schema `ModelCard.fit_batched` +
-`predict_batched` + `_parse_model`.
+**Part B (~30 min): predict_batched measurement.**
+For 8 `fit_batched: false` cards (OTM/THF/TTF, PELT, STRAY,
+BinarySegmentation): add `test_predict_batched_matches` — verify
+`predict` path does not do unexpected full read. For 5-10
+representative `fit_batched: true` cards: measure peak(n=1e4 vs 5e4)
+on predict with output="auto" (SpillArray).
 
-**Part C (~30 min):** R13 test (bounded_state=true + fit_batched=false
-requires streaming keyword).
+**Part C (~30 min): EnsembleForecaster backlog.**
+YAML: draft_reason = "verify blocked on fit_stacking (DEC-050 level 3);
+per-member OOC unverified". After fit_stacking lands, rewrite
+EnsembleForecaster as thin wrapper over fit_stacking.
 
-**Part D (~30 min):** migration 66 cards (2-pass AST with delegate
-list + cadw/ts scan). Expect ~54 true / ~12 false with bounded_by_domain
-or refuse_at_guard.
+### v0.9.143 — P1 group A: distances + kernels
+L1 `_knn_query` (chunked sq_dists + argpartition).
+L2 `_core_distances` (k-th neighbour distance; builds on L1).
+L3 `_rbf_kernel` + `poly_kernel` + `laplacian_kernel` (pairwise kernel
+general helper).
+L4 `_chol_solve` (np.linalg.cholesky + solve; jitter=1e-8).
+Home: `cadw/ops/linalg.py`. Unblocks: LOF, DBSCAN, HDBSCAN, SMOTE,
+GPR, GP forecaster, KernelPCA, GPLVM, GP-EI, BayesianOpt, KNNImputer.
 
-### v0.9.138 — P1 group A: distances + kernels
-L1 `_knn_query`, L2 `_core_distances`, L3 `_rbf_kernel`, L4 `_chol_solve`.
-Unblocks: LOF, DBSCAN, HDBSCAN, SMOTE, GPR, GP forecaster, spectral
-(pending L6), GPLVM, KernelPCA, GP-EI, BayesianOpt, KNNImputer.
+### v0.9.144 — P1 group B: graph + eigsh + MST
+L5 `_mst`, L6 `_graph_laplacian` + `_eigsh_topk`, L19
+`_eigen_decomp_topk`. Home: `cadw/ops/graph.py` (new).
+Unblocks: HDBSCAN dendrogram, Agglomerative single, Spectral ×3,
+Consensus ×3.
 
-### v0.9.139 — P1 group B: graph
-L5 `_mst`, L6 `_graph_laplacian` + `_eigsh_topk`, L19 `_eigen_decomp_topk`.
-Unblocks: HDBSCAN dendrogram, Agglomerative single, Spectral x3, Consensus x3.
-
-### v0.9.140 — P1 group C: factorization + itemset
-L7 `_nmf_mu`, L8 `_itemset_mining` (Apriori/FP-tree/Eclat).
-
-### v0.9.141 — P1 group D: losses + stats
-L9-L20: pinball, survival logrank, DR score, LTR gradients, grid_search,
-arm_stats, adaboost, ks_stat, cumulative_logit.
-
-#### v0.9.134 — home-correction + DEC-054 tail (DONE, see CHANGELOG)
-
-**Part A (~1 h): home fixes.**
-- `sigmoid` -> `cadw/ops/numeric.py` (from `optim.py`: SGD there, sigmoid
-  is elementwise numeric, not optimization).
-- `znormalize_rows` -> `cadw/ops/stats.py` (new; mean/std = statistics).
-- `ols_fit` -> `cadw/ops/linalg.py` (new; or keep in numeric with note).
-- `_xavier_init` -> `cadw/ml/_nn_init.py` (new; NN-specific).
-- Update all importers (`gbdt`, `calibration`, `ordinal`, `autoencoder`,
-  `patch_memory_ad`).
-
-**Part B (~1 h): forward-looking extraction (AP10 exception for >=2
-prospective consumers).**
-- `_sq_dists` -> `cadw/ops/linalg.py` (prospective: kmeans_ad, kshape,
-  tspq, iforest, eif, HDBSCAN, DBSCAN, minibatch_kmeans — 8+).
-- `_acf` -> `cadw/ops/stats.py` (prospective: binseg, pelt, bocpd,
-  matrix_profile, stray — 5+).
-
-**Part C (~30 min): update DEC-054 with scope actually applied vs
-deferred.**
-
-#### v0.9.135 — schema `depends_on` + card migration (DONE)
-
-**Part A (~1.5 h): schema extension.**
-- `ModelCard.depends_on: list[str] | None` in `schema.py`.
-- `test_R11_depends_on_importable`: every dotted path in `depends_on`
-  must resolve via `importlib`.
-- `test_R12_depends_on_matches_code`: AST scan of `cadw_module`,
-  every top-level `from ... import ...` of a helper in `cadw.ops.*` /
-  `cadw.ts._*` / `cadw.ml._*` must appear in `depends_on` (or whitelisted
-  as stdlib/np/pa).
-
-**Part B (~1 h): migration.**
-- AST-extract imports for 51 verified + 14 draft cards.
-- Add `depends_on` field with explicit list.
-- described_only cards: `depends_on: []` (nothing to import yet).
-
-#### v0.9.136 — PRIMITIVES_BACKLOG.md (forward scan) (DONE)
-
-**Scan all 302 cards** (48 verified + 14 draft + 61 described_only +
-6 inference-only + 5 last-priority + 42 new candidates + 42 not-impl).
-
-For each described_only card: read `purpose` + `algorithm_source_url`,
-infer which primitives would be needed. Cluster by primitive:
-
-- `_sq_dists` (Euclidean pairwise) — needs: kmeans, kmeans_ad, kshape,
-  tspq, iforest, eif, DBSCAN, HDBSCAN, LOF, bisecting, minibatch,
-  spectral — **12+**.
-- `_rbf_kernel` — spectral, GP, kernel PCA, kernel k-means, MMD — **5+**.
-- `_cholesky_solve` / `_gp_predict` — GP regression, GP forecaster,
-  GP-EI, BayesianOpt — **4+**.
-- `_mutual_reachability` + `_mst` — HDBSCAN, OPTICS, single-linkage — **3+**.
-- `_itemset_count` + `_fp_tree` — Apriori, FP-growth, Eclat — **3+**.
-- `_leapfrog` + `_hmc_accept` — NUTS, Metropolis, HMC — **3+**.
-- `_sparse_coding` / `_nmf_mu` — NMF, SparsePCA, LDA — **3+**.
-- `_softmax_ce_grad` — ListNet, LambdaMART, GBDT-multiclass — **3+**.
-- `_fft` (numpy alias) — kshape, miniRocket, ROCKET, matrix_profile — **4+**.
-- ~20-30 more clusters.
-
-**Deliverable:** `docs/ml_tools/PRIMITIVES_BACKLOG.md` with:
-- cluster table (primitive, consumers, tier priority: 3+ = P1, 2 = P2,
-  1 = P3 with prospective notes).
-- estimated effort per primitive.
-- home module per primitive.
-
-**End of "Next 3 sessions" — v0.9.137+ = implement primitives by tier,
-then verify remaining draft models (BVAR, VECM, PELT, T2Q, STRAY).
-
----
+### v0.9.145+ — P1 groups C, D, R12, described_only depends_on
+C: `_nmf_mu`, `_itemset_mining` (Apriori/FP/Eclat).
+D: `_pinball_loss`, `_survival_logrank`, `_doubly_robust_score`,
+`_ltr_gradients`, `_arm_stats`, `_adaboost_weight_update`,
+`_fuzzy_cluster_weights`, `_ks_stat`, `_cumulative_logit`.
+Then R12 (code-sync) + described_only depends_on.
 
 ## Deferred (prior session plan, NOT executed)
 
@@ -267,7 +331,20 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
-**v0.9.129-133 (this session, 5 releases):**
+**v0.9.129-141 (this session, 13 releases + 5 docs commits):**
+- v0.9.129: verify 3 ts drafts (OTM/THF/TTF).
+- v0.9.130-133: K1/K2/K3a/K5c+K6+K10+K12 dedup (7 clusters, ~600 lines removed).
+- v0.9.134: home-correction + forward extraction + version drift fix.
+- v0.9.135: depends_on schema + migration 66 cards + R11.
+- v0.9.136: PRIMITIVES_BACKLOG (449 lines, 20 P1).
+- DEC-057 docs: OOC-batch audit.
+- v0.9.137: fit_batched/predict_batched + metric fix (py_bytes -> measure_peak_traced) + R13.
+- v0.9.138: verify KMeans/MiniBatch/PCA + OOC fix (batch_size auto-derive).
+- v0.9.139: verify BVAR/VECM + OOC fix.
+- v0.9.140: verify PELT×2/T2Q/STRAY + T2Q silent OOM fix.
+- v0.9.141: verify T_learner/S_learner (final 2 of §1).
+
+**v0.9.129-133 (prior session segment, 5 releases):**
 - v0.9.129: verify 3 ts drafts (OTM/THF/TTF) — 27 new tests + 3 YAML.
 - v0.9.130: K1 `_probe_memory_limit_mb` 16 -> 1 (AST migration).
 - v0.9.131: K2 `_sigmoid` 4 -> 1 (+ numerical stability fix).
@@ -373,6 +450,20 @@ Per STREAMING §6.1 — won't-fix with rationale:
   Honest as-is (`bounded_state: false, state_class: O(N·d)`).
 - **AST audit helper** (DEC-057 F4): delegate resolution + trans-
   module + cadw/ts scan. One-off script for future OOC audits.
+- **EnsembleForecaster verify** (DEC-057 open A.2): deferred until
+  `fit_stacking` (v0.9.142). Rewrite as thin wrapper; do not
+  duplicate recipe (DEC-050 level 3, DEC-052).
+- **predict_batched measurement** (DEC-057 open A.1): 8 false-cards
+  + 5-10 true-cards, verify predict path matches fit_batched.
+- **AP2 refactor: meta_learners** (fit_meta_learner): streaming
+  GBDT-per-arm via `df.filter(t==arm)` instead of `_collect` +
+  vstack. v0.9.142+ (does not block verify; T/S verified honest
+  via bounded_by_domain).
+- **described_only depends_on** (162 cards): fill `depends_on: []`
+  or forward-declare P1 primitives with `depends_on_backlog:
+  PRIMITIVES_BACKLOG §<cluster>` marker. v0.9.145+.
+- **R12 code-sync AST** (DEC-055): per-card `depends_on` matches
+  actual imports. Deferred v0.9.145+ (needs PRIMITIVES_BACKLOG).
 - **`fit_meta_learner` AP2 refactor**: T/S learner verify requires
   removing `_collect + vstack` (DEC-012 pattern).
 - **Pre-commit hook for `render_matrix.py`**: `--check` flag prevents

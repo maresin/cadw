@@ -1,5 +1,102 @@
 ## [Unreleased]
 
+### v0.9.141 (2026-11-08) — verify T_learner + S_learner (§1 complete)
+
+**Counts:** 35 -> 37 verified fns; 51 -> 53 verified cards. **All 10
+draft models from §1 list are now verified.**
+
+T_learner + S_learner (fit_meta_learner, kind='t'/'s') -> verified.
+State = n_estimators*K*4096 + n*f64 + 1024 (K=2 T, K=1 S; propensity_
+per-row array). YAML: fit_batched true->false (AP2 _collect);
+bounded_state_dims {batch:1} -> {n:1, n_estimators:1}.
+
+10 new tests. 2.4s runtime. Schema: 110 passed.
+
+### v0.9.140 (2026-11-08) — verify PELT + T2Q + STRAY
+
+**Counts:** 32 -> 35 verified fns (after v0.9.138, 139).
+
+T2Q: bounded_state true -> false (honest; O(n) output arrays 4n*8,
+DEC-039 pattern). Silent OOM fix: check_state(4*n*8, "tspq.output")
+before post-chunk aggregation — was missing at n=1e6 + tight guard.
+
+PELT (×2 D3.2 + D5 stub) + STRAY: verify confirmed YAML honest
+(bounded_by_domain / tier1_core_exception). ram_formula "256" (PELT
+container) and "2*n*f64+256" (STRAY).
+
+17 new tests. 3.7s runtime. Schema: 110 passed.
+
+### v0.9.139 (2026-11-08) — verify BVAR + VECM
+
+BVARModel + VECMModel -> verified. Single-series TS with streaming
+fit (`for batch`, `check_state`). batch_size auto-derive (DEC-023)
+added — same gap as v0.9.138.
+
+YAML: bounded_state_dims {d:2} -> {k:2, p:1}/{k:2, r:1};
+state_class O(d²) -> O(model) (state = O(k²p²)).
+
+12 new tests. 3s runtime. Schema: 110 passed.
+
+### v0.9.138 (2026-11-08) — verify KMeans + MiniBatchKMeans + PCA
+
+Pre-cards-era models -> verified. All 3 had **OOC bug** (DEC-023 class):
+`_iter_filtered_batches()` without batch_size → 1 batch = n at
+default budget → fit transient O(n).
+
+Fixes:
+- All 3: batch_size auto-derive (`derive_batch_size`); propagate to
+  `_iter_filtered_batches` + `_kmeans_plus_plus_init`.
+- MiniBatch: io_batch_size (separate from SGD batch_size) — 5
+  unpatched calls in fit (reservoir, sweep, conv passes).
+- PCA G2: check_state(2*d*d*8+d*8) before `np.linalg.eigh(cov)` —
+  tight guard was silent OOM at d=1000+.
+- KMeans G2: check_batch(extra_factor=2.0) in _kmeans_plus_plus_init;
+  MemoryLimitExceeded instead of ValueError when tight guard makes
+  batch_rows < k.
+
+state_nbytes added: KMeansModel (k*d+8+256), PCA (k*d+d+3k+256).
+
+18 new tests. 116s runtime. Schema: 110 passed.
+
+### v0.9.137 (2026-11-08) — DEC-057 impl: fit_batched/predict_batched + metric fix
+
+test_fit_ooc_v106: py_bytes -> measure_peak_traced. py_bytes
+(tracemalloc) is blind to numpy malloc; an unbatched numpy fit
+passed the old test. measure_peak_traced uses VmRSS sampler
+(v0.9.110/DEC-033 precedent). Ratio 1.3 -> 2.0.
+
+ModelCard.fit_batched + predict_batched + R13 test
+(bounded_state=true + fit_batched=false requires streaming keyword
+in streaming_strategy.fit — prevents silent mismatch).
+
+Migration 66 cards: 58 (true,true), 8 (false,false) intrinsic O(n).
+All 8 honest via bounded_by_domain / tier1_core_exception.
+
+9 tests (fit_ooc), 110 schema. Runtime: ~22s + 30s.
+
+### v0.9.136 (2026-11-08) — PRIMITIVES_BACKLOG (DEC-056)
+
+New: docs/ml_tools/PRIMITIVES_BACKLOG.md (449 lines). Forward scan
+of 162 non-implemented cards. 20 P1 (3+ prospective consumers),
+15 P2 (2), 20 P3 (1, opportunistic).
+
+AP10 amendment (DEC-056): forward extraction allowed when
+prospective ≥ 2. Applied v0.9.134 (_sq_dists, _acf).
+
+DEC-056 status: APPLIED (v0.9.136). Roadmap: v0.9.143-145 P1 groups A-D.
+
+### v0.9.135 (2026-11-08) — depends_on schema + migration (DEC-055)
+
+ModelCard.depends_on: list[str] (dotted path). R11 test (importable).
+66 cards migrated: 11 non-empty, 55 `[]`. 162 status=None cards
+left untouched (no code).
+
+Migration gotchas found and fixed: indent 2 vs 6 (AI_CONSTITUTION
+§5.4 legacy vs new); duplicate names across files (IForest E/D,
+Logistic_balanced E/A — first got overwritten).
+
+109 schema passed (was 108, +1 for R11).
+
 ### v0.9.134 (2026-11-08) — home-correction + forward extraction
 
 **Counts:** 35 verified fns / 51 verified cards (unchanged).
