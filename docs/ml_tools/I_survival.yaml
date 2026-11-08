@@ -250,8 +250,6 @@ subtypes:
     tier: sota
     depends_on:
     - cadw.ml._survival_common.logrank
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L10"
-    depends_on_status: planned
     tier_level: tier3_export
     implementation_status:
       described_only: true

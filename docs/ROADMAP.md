@@ -332,6 +332,16 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.155 (P1 L10: _survival_common logrank):**
+- New `cadw/ml/_survival_common.py`: logrank (k-sample,
+  Peto & Peto 1972 / Mantel-Haenszel).
+- Breslow partial log-lik NOT duplicated (lives inline in
+  cadw.ml.coxph, verified; different signature X-feature matmul).
+- Tests: 10 passed (identical/different groups, 3-group same/diff,
+  all-censored, deterministic balance, invalid args). Flake fix:
+  same-dist chi2 asserted via p > 0.001 (not fixed chi2<4).
+- YAML: 1 card flipped (RandomSurvivalForest).
+
 **v0.9.154 (P1 L13: _ltr_common):**
 - New `cadw/ml/_ltr_common.py`: ranknet_grad (pairwise logistic,
   Burges 2005), listnet_grad (Plackett-Luce, Cao 2007),

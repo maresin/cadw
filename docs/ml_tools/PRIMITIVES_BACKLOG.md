@@ -86,6 +86,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `dr_score` + `aipw_ate` | `cadw.ml._causal_common` (v0.9.152) | DR_learner, CausalForest ×2, DR_learner_uplift | +0 (implemented) |
 | `ks_2samp` + `psi` + `chi2_categorical` | `cadw.ops.stats` (v0.9.153) | EvidentlyDrift, ADWIN, SequentialTest | +0 (implemented) |
 | `ranknet_grad` + `listnet_grad` + `lambdarank_grad` | `cadw.ml._ltr_common` (v0.9.154) | PairwiseLogistic, ListNet, LambdaMART | +0 (implemented) |
+| `logrank` | `cadw.ml._survival_common` (v0.9.155) | RandomSurvivalForest | +0 (implemented) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -100,13 +101,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
   apriori, eclat, fp_growth, prefix_span, gsp.
 - Consumers: Apriori, Eclat, FP-growth, PrefixSpan, GSP (5/6
   R_association cards; HMM pending — model, not primitive).
-
-### L10. `_survival_logrank` (log-rank statistic + Breslow partial log-lik)
-- **Consumers**: RandomSurvivalForest, DeepSurv (uses coxph partial),
-  DeepHit (discrete-time), KaplanMeier (has own in .pingis/impl)
-- **Home**: `cadw.ml._survival_common.logrank(T, E, groups)` +
-  `breslow_partial_loglik(T, E, eta)` (reuse coxph internal).
-- **Effort**: 1 session.
 
 ### L12. `_consensus_matrix` + `_coassociation`
 - **Consumers**: KMeansHDBSCAN_consensus, EvidenceAccumulation, CSPA
