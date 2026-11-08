@@ -475,6 +475,24 @@ Per STREAMING §6.1 — won't-fix with rationale:
   `.pingis/drafts/cadwboost/`, symmetric+leaf-wise trees, quantile
   binning. Compare vs `cadw.ml.gbdt`; promote if wins. ~2-3
   sessions. Target: v0.9.148+.
+- **scripts/ cleanup** (DEC-058 Part 3): 4.6 MB, 163 tracked files.
+  Applied patch chains in `scripts/v0.9.26/28/29/` (71 files,
+  historical) + 9 `patch_v0930*.py` in `scripts/` root (last, referenced
+  in `docs/SESSION_BRIEF_v0.9.97.md` + `roadmap_research`). Proposed:
+  `git mv scripts/v0.9.26/ scripts/v0.9.28/ scripts/v0.9.29/
+  scripts/patch_v09{0,1,2,3}*.py scripts/archive/patches/` — preserves
+  history, declutters `scripts/` root. Bench + audit scripts stay
+  (`bench_*.py`, `audit_*.py`, `calibrate_throughput.py`,
+  `collect_project.py`, `reproduce_benchmark.py`). Target: v0.9.156+.
+  Precedent: `docs/roadmap_research/consolidated_roadmap.md` already
+  proposed `scripts/archive/patches/v0.9.0-0.9.20/`.
+- **`.pingis/` full removal** (DEC-058 Part 4, after impl/cadwboost
+  promotion): after v0.9.155 (impl promotion) + v0.9.150 (cadwboost),
+  the remaining `.pingis/` (session.log 4.4M + audits 432K + patches
+  16K + benchs 284K + algorithm_notes 120K + attachments 136K +
+  tasks 200K + plan_v0.9.87 12K) can be moved to `docs/archive/pingis/`
+  or removed. Bench JSONs may be promoted to `benchmarks/` first.
+  Target: v0.9.157+.
 - **`fit_meta_learner` AP2 refactor**: T/S learner verify requires
   removing `_collect + vstack` (DEC-012 pattern).
 - **Pre-commit hook for `render_matrix.py`**: `--check` flag prevents
