@@ -332,6 +332,15 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.158 (legacy TS batch 2: SARIMA + VAR):**
+- Flipped 2 remaining legacy TS cards: SARIMA (add state_nbytes
+  = 2n*f64 + 256 for y_raw_ + _y_centered_) + VAR (existing
+  state_nbytes = n*k*f64 + k*k*p*f64 + k*f64 + 256).
+- Tests: 6 passed (exact formula; state grows linearly;
+  guard refuses at n=500k + 2MB).
+- Remaining TS legacy: GBDTForecaster/GBDT_multiseries (real
+  CW-1..5 in v0.9.159+), backtest_forecaster (utility, not model).
+
 **v0.9.157 (legacy TS batch 1: 5 naive forecasters):**
 - Flipped 5 single-series TS cards from status:None to verified
   via DEC-011 bounded_by_domain (n<=1e6): NaiveForecaster, ETS,

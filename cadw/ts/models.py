@@ -602,6 +602,17 @@ class SARIMAForecaster(ForecasterBase):
         self._seasonal_order_ = best_info["seasonal_order"]
         self._fit_info = best_info
 
+    def state_nbytes(self):
+        """SARIMA persistent state: y_raw_ + _y_centered_ (2n*f64) + coefs+256.
+
+        y_raw_ and _y_centered_ are O(n); coefs (ar_, ma_, intercept_,
+        sigma2_) are O(p+q+~10) -> covered by +256.
+        """
+        if self.y_raw_ is None:
+            return 0
+        n = int(self.y_raw_.size)
+        return int(2 * n * 8 + 256)
+
     def _predict(self, steps):
         yd = self._yd
         valid = ~np.isnan(yd)
