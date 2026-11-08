@@ -332,6 +332,20 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.143-batch5 (duplicates + reservoir):**
+- Extract `reservoir_sample` + `batch_to_features` to
+  `cadw.ops.sampling` (P2, DEC-056). Refactor kernel_density.py
+  to use them (delete inline copies).
+- Promote ReservoirSample (O_eda): `fit_reservoir_sample` in
+  `cadw.ml.reservoir_sample`.
+- Promote OneHotEncoder (O_eda): `fit_one_hot_encoder` in
+  `cadw.ml.one_hot_encoder`.
+- Promote StratifiedSplit (O_eda): `fit_stratified_split` in
+  `cadw.ml.stratified_split` — thin wrapper over verified
+  cadw.cv.KFold (fixes impl's rng-in-loop bug).
+  depends_on: [cadw.cv.KFold].
+- Tests: ReservoirSample 10, OneHotEncoder 5, StratifiedSplit 9.
+
 **v0.9.143-batch4 (CNB + KDE):**
 - Promote ComplementNB + KernelDensity (J_nlp + N_density):
   `fit_complement_nb` in `cadw.ml.complement_nb`,

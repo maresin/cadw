@@ -25,68 +25,11 @@ from cadw.core.spill import (
     SpillDir, array_schema, array_to_record_batch, record_batch_to_numpy,
     spill_array_writer, spill_array_reader,
 )
+from cadw.ops.sampling import batch_to_features, reservoir_sample
 
 
 _HEADER_BYTES = 128
 _SPILLED_HEADER_BYTES = 256
-
-
-def _batch_to_X(batch: pa.RecordBatch, feature_cols: Sequence[str]) -> np.ndarray:
-    cols = []
-    for c in feature_cols:
-        arr = batch.column(c).to_numpy(zero_copy_only=False)
-        cols.append(np.asarray(arr, dtype=np.float64))
-    X = np.column_stack(cols)
-    mask = ~np.isnan(X).any(axis=1)
-    return X[mask]
-
-
-def _reservoir_k(
-    batch_iter: Iterator[pa.RecordBatch],
-    feature_cols: Sequence[str],
-    K: int,
-    *,
-    seed: int = 0,
-    memory_guard: Optional[MemoryGuard] = None,
-):
-    """Algorithm R reservoir sample of K rows, vectorized per batch.
-
-    G2/G5: guard state before allocating reservoir matrix.
-    """
-    rng = np.random.default_rng(seed)
-    reservoir = None
-    n_seen = 0
-    for batch in batch_iter:
-        X = _batch_to_X(batch, feature_cols)
-        if X.shape[0] == 0:
-            continue
-        b, d = X.shape
-        if reservoir is None:
-            # G5: guard state (K*d*8) before np.empty
-            if memory_guard is not None:
-                memory_guard.check_state(
-                    K * d * 8, name="kernel_density.reservoir")
-            reservoir = np.empty((K, d), dtype=np.float64)
-        take = min(K - n_seen, b)
-        if take > 0:
-            reservoir[n_seen:n_seen + take] = X[:take]
-            n_seen += take
-            X = X[take:]
-            b = X.shape[0]
-        if b == 0:
-            continue
-        stream_idx = np.arange(n_seen + 1, n_seen + b + 1, dtype=np.float64)
-        probs = K / stream_idx
-        accept = rng.random(b) < probs
-        n_acc = int(accept.sum())
-        if n_acc > 0:
-            slots = rng.integers(0, K, size=n_acc)
-            reservoir[slots] = X[accept]
-        n_seen += b
-    if reservoir is None or n_seen == 0:
-        raise ValueError("kernel_density: empty input")
-    n_kept = min(n_seen, K)
-    return reservoir[:n_kept].copy(), n_seen
 
 
 def _silverman_bandwidth(X: np.ndarray) -> float:
@@ -170,7 +113,7 @@ class KernelDensityModel:
         mg = memory_guard or df._memory_guard
         cols = list(self.feature_names_)
         for batch in df._iter_filtered_batches(batch_size=batch_size):
-            X = _batch_to_X(batch, cols)
+            X = batch_to_features(batch, cols)
             if X.shape[0] == 0:
                 yield np.empty(0, dtype=np.float64)
                 continue
@@ -226,7 +169,7 @@ def fit_kernel_density(
     if d < 1:
         raise ValueError(f"fit_kernel_density: d must be >= 1, got {d}")
 
-    centers, n_seen = _reservoir_k(
+    centers, n_seen = reservoir_sample(
         df._iter_filtered_batches(batch_size=batch_size),
         feature_cols, n_centers, seed=seed, memory_guard=mg,
     )

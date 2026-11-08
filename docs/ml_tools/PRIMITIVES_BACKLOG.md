@@ -68,6 +68,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `znormalize_rows` | `cadw.ops.stats` | autoencoder, patch_memory_ad | +5 |
 | `arm_stats` | `cadw.ops.stats` (v0.9.143) | bandits ×3 | +2 (future policy variations) |
 | `nmf_mu` | `cadw.ops.linalg` (v0.9.143) | NMF ×2 | +1 (Top2Vec) |
+| `reservoir_sample` + `batch_to_features` | `cadw.ops.sampling` (v0.9.143-b5) | KernelDensity, ReservoirSample | +3 (SMOTE, OHE) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |

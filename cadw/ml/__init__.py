@@ -20,6 +20,15 @@ from .naive_bayes import (
     BernoulliNB, fit_bernoulli_nb,
 )
 
+from cadw.ml.stratified_split import (  # noqa: E402
+    StratifiedSplitModel, fit_stratified_split,
+)
+from cadw.ml.one_hot_encoder import (  # noqa: E402
+    OneHotEncoderModel, fit_one_hot_encoder,
+)
+from cadw.ml.reservoir_sample import (  # noqa: E402
+    ReservoirSampleModel, fit_reservoir_sample,
+)
 from cadw.ml.kernel_density import (  # noqa: E402
     KernelDensityModel, fit_kernel_density,
 )

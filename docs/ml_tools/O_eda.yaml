@@ -356,12 +356,44 @@ subtypes:
     note: Feature encoding is evaluated through downstream accuracy; OpenML suites (CC18/CTR23) provide the tabular tasks.
   models:
   - name: OneHotEncoder
+    cadw_function: fit_one_hot_encoder
+    cadw_module: cadw.ml.one_hot_encoder
+    input_api: df
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {total_categories: 1, n_cats_cols: 1}
+    state_class: O(model)
+    state_type: cross_row
+    streaming_strategy: |
+      fit: external_sort per column + stream unique categories
+      (G2 guard during vocab append). Vocab spilled via SpillDir
+      during fit; model stores Python-object ndarray per column.
+      transform_batches: per-batch dense (n, total) f64.
+    primitive_reuse: [sort]
+    fit_batched: true
+    predict_batched: true
+    ram_formula: "total_categories * 200 + n_cats_cols * 128 + 256 + batch * total_categories * f64 + 4.0 * batch * row_size"
+    formula_evidence:
+      vocab: "cadw/ml/one_hot_encoder.py -- _collect_unique_column: Python list of unique categories; sys.getsizeof per item 28-80 B, budget 200 B/cat upper bound"
+      pointer_arrays: "cadw/ml/one_hot_encoder.py -- OneHotEncoderModel.categories_[c] = np.ndarray(object, len(cats))"
+      header: "cadw/ml/one_hot_encoder.py -- _HEADER_BYTES=256"
+      transform: "cadw/ml/one_hot_encoder.py -- transform_batches: np.zeros((n, total)) f64"
+      batch_term: "cadw/ml/one_hot_encoder.py -- to_pylist per cat col + per-row dict lookup"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: sys.getsizeof-based, categories exact"
+      state_ooc: "test_state_nbytes_exact: state(n=500) ~= state(n=5000) within 64B (same categories)"
+      formula_sanity: "SKIPPED (DEC-034: Python-object state noisy vs 200 B/cat upper bound)"
+      guard: "test_guard_refuses_at_tight: 10k cats + 0.005 MB -> MemoryLimitExceeded"
+      correctness: "test_transform_shape_and_one_hot + test_transform_handle_unknown_ignore + test_transform_handle_unknown_error"
+      cells_passed: "4/4 (OOC sanity skipped)"
+      runtime_sec: "~2"
     tier: baseline
     depends_on: []
     tier_level: tier1_core
     implementation_status:
-      described_only: true
-      reference_impl_ready: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - representation
     purpose: 'Expand a categorical column to one binary indicator per category. Inductive bias: categories are independent; high cardinality explodes dimensionality. Reference impl in .pingis/impl/O/one_hot_encoder.py (smoke 9/9, REPORT.md §6).'
@@ -778,13 +810,43 @@ subtypes:
     note: Split/resample primitives; downstream metric is the standard proxy.
   models:
   - name: StratifiedSplit
+    cadw_function: fit_stratified_split
+    cadw_module: cadw.ml.stratified_split
+    input_api: df
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {n_splits: 1}
+    state_class: O(1)
+    state_type: elementwise
+    streaming_strategy: |
+      fit: thin wrapper over cadw.cv.KFold(stratify_by=); state is
+      only (n_splits, stratify_col, seed) params. No per-row state.
+      split: delegates to KFold.split — streaming, O(batch) per call.
+      Fold assignment = splitmix64(row_id, seed) % k (deterministic).
+    primitive_reuse: []
+    fit_batched: true
+    predict_batched: false
+    ram_formula: "128 + 4.0 * batch * row_size"
+    formula_evidence:
+      params: "cadw/ml/stratified_split.py -- StratifiedSplitModel: 3 dataclass fields"
+      header: "cadw/ml/stratified_split.py -- _HEADER_BYTES=128"
+      batch_term: "cadw/cv.py -- KFold.split: per-batch filter(_iter_filtered_batches) + splitmix64"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 3 (n_splits) parametrized"
+      state_ooc: "test_state_independent_of_n: state identical n=500 vs n=5000"
+      formula_sanity: "SKIPPED (DEC-034: state O(1), batch signal < noise)"
+      guard: "test_guard_refuses_at_tight: 0.00005 MB < 128 B -> MemoryLimitExceeded"
+      correctness: "test_split_delegates_to_kfold + test_strata_preserved + test_split_invalid_fold"
+      cells_passed: "5/5 (OOC sanity skipped)"
+      runtime_sec: "~1"
+    depends_on:
+      - cadw.cv.KFold
     tier: baseline
-    depends_on: []
     tier_level: tier1_core
     implementation_status:
-      verified_by_agent: true
-      described_only: true
-      reference_impl_ready: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - probabilistic
     purpose: 'Split preserving class proportions in each fold. Inductive bias: class is the stratifier; correct when the target is the source of imbalance. Reference impl in .pingis/impl/O/stratified_split.py (smoke 9/9, REPORT.md §6).'
@@ -808,13 +870,42 @@ subtypes:
       value: null
       note: 'no_public_benchmark: splitter is not a model; accuracy depends entirely on the downstream estimator.'
   - name: ReservoirSample
+    cadw_function: fit_reservoir_sample
+    cadw_module: cadw.ml.reservoir_sample
+    input_api: df
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {k: 1, d: 1}
+    state_class: O(model)
+    state_type: aggregation
+    streaming_strategy: |
+      fit: single streaming pass via reservoir_sample (Algorithm R).
+      State (k', d) f64 sample matrix. n-independent by construction
+      (each arriving row considered independently; replacements bounded).
+      sample_batches: streaming RecordBatch chunks, RAM O(batch).
+    primitive_reuse: []
+    fit_batched: true
+    predict_batched: true
+    ram_formula: "k * d * f64 + 256 + 4.0 * batch * row_size"
+    formula_evidence:
+      sample: "cadw/ops/sampling.py -- reservoir_sample: np.empty((k, d)) f64"
+      header: "cadw/ml/reservoir_sample.py -- ReservoirSampleModel.state_nbytes(): +256"
+      batch_term: "cadw/ops/sampling.py -- reservoir_sample: column_stack + mask + rng draws"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 3 (k,d,n) parametrized"
+      state_ooc: "test_state_independent_of_n: state identical n=500 vs n=5000"
+      formula_sanity: "SKIPPED (DEC-034: row_size=d*8 small, signal < noise)"
+      guard: "test_guard_refuses_at_tight: k=100k + 0.01 MB -> MemoryLimitExceeded"
+      correctness: "test_primitive_reservoir_uniform + test_sample_batches_streaming"
+      cells_passed: "4/4 (OOC sanity skipped)"
+      runtime_sec: "~1"
     tier: baseline
     depends_on: []
     tier_level: tier1_core
     implementation_status:
-      verified_by_agent: true
-      described_only: true
-      reference_impl_ready: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - probabilistic
     purpose: 'Uniform sample of k items from a stream in one pass, O(k) state. Inductive bias: uniform inclusion; unbiased but ignores strata. Reference impl in .pingis/impl/O/reservoir.py (smoke 9/9, REPORT.md §6).'
