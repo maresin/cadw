@@ -17,6 +17,8 @@ History:
   knn_query: 8 consumers, core_distances: 3 consumers (P1).
 - v0.9.145: added pairwise_kernel (L3: rbf/poly/laplacian,
   parameterized) + chol_solve (L4). L3: 10 cards, L4: 5 cards.
+- v0.9.146: added eigh_topk (L19). 8 consumers (GPR, Spectral x5,
+  KernelPCA, GPLVM). n<=2000 dense (numpy.eigh), else scipy eigsh.
 """
 from __future__ import annotations
 
@@ -418,3 +420,98 @@ def chol_solve(
 
     # Cholesky exhausted; fall back to general solve
     return np.linalg.solve(K, b)
+
+
+# ============================================================================
+# Eigen decomposition (v0.9.146, P1 L19)
+# ============================================================================
+
+_EIGH_DENSE_THRESHOLD = 2000  # n <= 2000 -> dense numpy; else scipy eigsh
+_EIGH_STATE_HEADER = 256
+
+
+def eigh_topk(
+    M: np.ndarray,
+    k: int,
+    *,
+    which: str = "LA",
+    memory_guard=None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Top-k eigenvectors of symmetric M.
+
+    Args:
+      M: (n, n) symmetric float64 (or convertible).
+      k: number of eigenvectors.
+      which:
+        "LA" — largest algebraic (PCA, consensus; eigvals descending)
+        "SA" — smallest algebraic (spectral on L=D-W; ascending)
+        "LM" — largest magnitude
+        "SM" — smallest magnitude (spectral on L_sym; |λ| ascending)
+      memory_guard: optional; checks state BEFORE dense alloc.
+
+    Returns:
+      (eigvals (k,) float64, eigvecs (n, k) float64)
+
+    Method:
+      n <= 2000: numpy.linalg.eigh (full, O(n^3), ~n^2 RAM)
+      n >  2000: scipy.sparse.linalg.eigsh (Lanczos, O(n*k) RAM);
+                 "SM" uses shift-invert (sigma=0) for reliability.
+
+    OOC in n: NO for dense path (n^2); partial for scipy (n*k).
+    Refuses at guard if dense state > budget. For large n, callers
+    should subsample or use scipy path directly with their own adjacency.
+    """
+    M = np.ascontiguousarray(M, dtype=np.float64)
+    if M.ndim != 2 or M.shape[0] != M.shape[1]:
+        raise ValueError(f"M must be square 2-D; got {M.shape}")
+    n = M.shape[0]
+    if k < 1 or k > n:
+        raise ValueError(f"k must be in [1, n={n}]; got {k}")
+    if which not in ("LA", "SA", "LM", "SM"):
+        raise ValueError(
+            f"which must be in {{LA,SA,LM,SM}}; got {which!r}")
+
+    if n <= _EIGH_DENSE_THRESHOLD:
+        state_bytes = n * n * 8 + _EIGH_STATE_HEADER
+    else:
+        state_bytes = n * k * 8 * 2 + _EIGH_STATE_HEADER
+    if memory_guard is not None:
+        memory_guard.check_state(state_bytes, name="eigh_topk.state")
+
+    if n <= _EIGH_DENSE_THRESHOLD:
+        eigvals, eigvecs = np.linalg.eigh(M)  # ascending by value
+        if which == "LA":
+            order = np.argsort(eigvals)[-k:][::-1]
+        elif which == "SA":
+            order = np.argsort(eigvals)[:k]
+        elif which == "LM":
+            order = np.argsort(np.abs(eigvals))[-k:][::-1]
+        else:  # SM
+            order = np.argsort(np.abs(eigvals))[:k]
+        return eigvals[order].copy(), eigvecs[:, order].copy()
+
+    # Large n: scipy.sparse.linalg.eigsh
+    try:
+        from scipy.sparse.linalg import eigsh
+    except ImportError as e:
+        raise ImportError(
+            f"eigh_topk: n={n} > {_EIGH_DENSE_THRESHOLD} requires scipy "
+            f"({e}); install scipy or subsample"
+        ) from e
+
+    if which in ("LA", "LM"):
+        vals, vecs = eigsh(M, k=k, which=which)
+    elif which == "SA":
+        vals, vecs = eigsh(M, k=k, which="SA")
+    else:  # SM: shift-invert for spectral clustering reliability
+        vals, vecs = eigsh(M, k=k, sigma=0.0, which="LM")
+
+    if which == "LA":
+        order = np.argsort(vals)[-k:][::-1]
+    elif which == "SA":
+        order = np.argsort(vals)[:k]
+    elif which == "LM":
+        order = np.argsort(np.abs(vals))[-k:][::-1]
+    else:  # SM
+        order = np.argsort(np.abs(vals))[:k]
+    return vals[order].copy(), vecs[:, order].copy()

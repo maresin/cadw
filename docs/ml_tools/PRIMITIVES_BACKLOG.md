@@ -73,6 +73,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `core_distances` | `cadw.ops.linalg` (v0.9.144) | HDBSCAN, DBSCAN, LOF | +0 (implemented) |
 | `pairwise_kernel` (rbf/poly/laplacian) | `cadw.ops.linalg` (v0.9.145) | Spectral ×5, KernelPCA, SparsePCA, GPLVM, GP reg/forecaster, GP-EI, BayesianOpt_GP | +0 (implemented) |
 | `chol_solve` | `cadw.ops.linalg` (v0.9.145) | GP reg/forecaster, GP-EI, BayesianOpt_GP, GPLVM | +0 (implemented) |
+| `eigh_topk` | `cadw.ops.linalg` (v0.9.146) | GPR, Spectral ×5, KernelPCA, GPLVM | +4 (randomized_svd, Consensus ×3) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -164,13 +165,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 - **Consumers**: DriftStats, EvidentlyDrift, ADWIN (partial)
 - **Home**: `cadw.ops.stats.ks_2sample(a, b)`, `chi2_categorical(a, b)`,
   `psi(ref, cur, bins=10)`.
-- **Effort**: 0.5 session.
-
-### L19. `_eigen_decomp_topk` (small symmetric top-k)
-- **Consumers**: SpectralClustering, randomized_svd (post-process),
-  KernelPCA, Consensus matrix (L12)
-- **Home**: `cadw.ops.linalg.eigh_topk(M, k, which="LA")` — chunked
-  `numpy.linalg.eigh` with incremental k. For large d, use L6.
 - **Effort**: 0.5 session.
 
 ### L20. `_cumulative_logit` (proportional-odds / threshold model)

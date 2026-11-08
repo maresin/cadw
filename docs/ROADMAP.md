@@ -332,6 +332,16 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.146 (P1 L19: eigh_topk):**
+- Extract `eigh_topk` to `cadw.ops.linalg`. 8 direct consumers.
+  which ∈ {LA, SA, LM, SM}; n<=2000 dense numpy.eigh; n>2000
+  scipy.sparse.linalg.eigsh (SM uses shift-invert).
+- Tests: test_linalg_eigh_topk.py (11 passed, 1 skip: scipy
+  path slow to generate).
+- YAML: 3 unique + 1 dup card flipped (GaussianProcessRegressor,
+  KernelPCA, GPLVM, SMAC-dup). Spectral ×5 remain planned (blocked
+  on graph_laplacian + eigsh_topk, L6 — next group).
+
 **v0.9.145 (P1 group A: L3+L4):**
 - Extract `pairwise_kernel` (rbf/poly/laplacian, parameterized)
   + `chol_solve` (with jitter fallback to np.linalg.solve) to
