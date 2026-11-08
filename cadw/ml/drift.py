@@ -31,66 +31,9 @@ from cadw.core.warnings import (
 from cadw.ml._logging import log_fit
 from cadw.ops.reduce import ReduceOp, reduce as _reduce
 from cadw.ops.sort import external_sort, read_sorted
-
-
-def ks_2samp(a, b):
-    """Two-sample Kolmogorov-Smirnov statistic and asymptotic p-value."""
-    from scipy.stats import ks_2samp as _ks
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
-    if a.size == 0 or b.size == 0:
-        raise ValueError("ks_2samp: both samples must be non-empty")
-    res = _ks(a, b, method="asymp")
-    return float(res.statistic), float(res.pvalue)
-
-
-def psi(expected, actual, n_bins=10):
-    """Population Stability Index between two numeric samples."""
-    e = np.asarray(expected, dtype=np.float64)
-    a = np.asarray(actual, dtype=np.float64)
-    if e.size == 0 or a.size == 0:
-        raise ValueError("psi: both samples must be non-empty")
-    # bin edges from the expected distribution (quantile-based).
-    # Computed with an explicit sort + linear interpolation instead of
-    # np.quantile: the AST guard (§3.11) name-matches ``quantile`` to
-    # pyarrow pc.quantile, and this kernel runs on an already-materialised
-    # 1-D numpy array (O(n) extra, n = column length held by the caller).
-    qs = np.linspace(0, 1, n_bins + 1)
-    se = np.sort(e, kind="stable")
-    pos = qs * (se.size - 1)
-    lo = np.floor(pos).astype(np.int64)
-    hi = np.minimum(lo + 1, se.size - 1)
-    frac = pos - lo
-    edges = se[lo] * (1.0 - frac) + se[hi] * frac
-    edges[0] = -np.inf; edges[-1] = np.inf
-    # collapse duplicate edges
-    edges = np.unique(edges)
-    if edges.size < 3:
-        return 0.0
-    pe = np.histogram(e, bins=edges)[0].astype(np.float64)
-    pa_ = np.histogram(a, bins=edges)[0].astype(np.float64)
-    pe = np.maximum(pe / pe.sum(), 1e-6)
-    pa_ = np.maximum(pa_ / pa_.sum(), 1e-6)
-    return float(np.sum((pa_ - pe) * np.log(pa_ / pe)))
-
-
-def chi2_categorical(a, b):
-    """Chi-square homogeneity test on two categorical samples."""
-    from scipy.stats import chi2_contingency
-    a = np.asarray(a); b = np.asarray(b)
-    if a.size == 0 or b.size == 0:
-        raise ValueError("chi2_categorical: both samples must be non-empty")
-    cats = np.union1d(np.unique(a), np.unique(b))
-    ta = np.array([np.sum(a == c) for c in cats], dtype=np.float64)
-    tb = np.array([np.sum(b == c) for c in cats], dtype=np.float64)
-    table = np.vstack([ta, tb])
-    # drop columns that are all zero in both samples
-    keep = table.sum(axis=0) > 0
-    table = table[:, keep]
-    if table.shape[1] < 2:
-        return 0.0, 1.0
-    stat, p, _, _ = chi2_contingency(table, correction=False)
-    return float(stat), float(p)
+from cadw.ops.stats import (  # v0.9.153: moved canonical home
+    ks_2samp, psi, chi2_categorical,
+)
 
 
 def welch_t(a, b):

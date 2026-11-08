@@ -1436,8 +1436,6 @@ subtypes:
     - cadw.ops.stats.ks_2sample
     - cadw.ops.stats.chi2_categorical
     - cadw.ops.stats.psi
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L18"
-    depends_on_status: planned
     tier_level: tier3_export
     implementation_status:
       described_only: true
@@ -1470,8 +1468,6 @@ subtypes:
     - cadw.ops.stats.ks_2sample
     - cadw.ops.stats.chi2_categorical
     - cadw.ops.stats.psi
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L18"
-    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1739,8 +1735,6 @@ subtypes:
     - cadw.ops.stats.ks_2sample
     - cadw.ops.stats.chi2_categorical
     - cadw.ops.stats.psi
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L18"
-    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true

@@ -332,6 +332,15 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.153 (P1 L18: stats drift helpers):**
+- Moved ks_2samp/psi/chi2_categorical from cadw.ml.drift to
+  cadw.ops.stats (canonical home, DEC-054 §5.1). Added
+  ks_2sample alias (YAML refs). drift.py re-imports; 27 existing
+  drift tests still green.
+- Tests: 14 passed (KS identical/shifted/empty; PSI 3 thresholds;
+  chi2 same/different/single-cat/empty; drift re-export).
+- YAML: 3 cards flipped (EvidentlyDrift, ADWIN, SequentialTest).
+
 **v0.9.152 (P1 L11: _causal_common dr_score):**
 - New `cadw/ml/_causal_common.py`: dr_score (AIPW doubly robust)
   + aipw_ate convenience. Robins/Rotnitzky/Zhao 1994 +
