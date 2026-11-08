@@ -22,8 +22,6 @@ subtypes:
     tier: baseline
     depends_on:
     - cadw.ops.linalg.knn_query
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L1"
-    depends_on_status: planned
     tier_level: tier3_export
     implementation_status:
       described_only: true

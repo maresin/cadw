@@ -69,6 +69,8 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `arm_stats` | `cadw.ops.stats` (v0.9.143) | bandits ×3 | +2 (future policy variations) |
 | `nmf_mu` | `cadw.ops.linalg` (v0.9.143) | NMF ×2 | +1 (Top2Vec) |
 | `reservoir_sample` + `batch_to_features` | `cadw.ops.sampling` (v0.9.143-b5) | KernelDensity, ReservoirSample | +3 (SMOTE, OHE) |
+| `knn_query` | `cadw.ops.linalg` (v0.9.144) | LOF, DBSCAN, HDBSCAN, SMOTE, ML-kNN, ItemKNN, KNNImputer, EuclideanKMeansZ | +0 (implemented) |
+| `core_distances` | `cadw.ops.linalg` (v0.9.144) | HDBSCAN, DBSCAN, LOF | +0 (implemented) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -77,19 +79,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 ---
 
 ## P1 — 3+ prospective consumers (implement first)
-
-### L1. `_knn_query` (k-nearest neighbours)
-- **Consumers**: LOF, DBSCAN (eps-neighbourhood), SMOTE (kNN segments),
-  ML-kNN, ItemKNN, HDBSCAN (core-dist via kNN), KNNImputer, EuclideanKMeansZ (init)
-- **Home**: `cadw.ops.linalg.knn_query(X, query, k, *, return_dist=False)`
-- **Core**: chunked sq_dists + argpartition. For n > chunk: streaming merge.
-- **Effort**: 1 session (builds on `sq_dists`).
-
-### L2. `_core_distances` (k-th neighbour distance per point)
-- **Consumers**: HDBSCAN, DBSCAN, OPTICS, LOF, `_mutual_reachability`
-- **Home**: `cadw.ops.linalg.core_distances(X, k)`
-- **Note**: builds on `_knn_query`; can be computed in one pass with kNN.
-- **Effort**: 0.5 session after L1.
 
 ### L3. `_rbf_kernel` (Gaussian / polynomial / Laplacian kernels)
 - **Consumers**: SpectralClustering (×3 in B1/B2/B3), KernelPCA, GPLVM,

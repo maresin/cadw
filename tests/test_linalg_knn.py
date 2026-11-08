@@ -1,0 +1,155 @@
+"""v0.9.144: tests for cadw.ops.linalg.knn_query + core_distances (L1, L2)."""
+import ctypes
+import gc
+
+import numpy as np
+import pytest
+
+from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
+from cadw.ops.linalg import (
+    knn_query, core_distances, sq_dists,
+)
+
+
+def _malloc_trim():
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
+def _brute_knn(X, Q, k):
+    """Brute-force kNN via sq_dists + argsort (reference)."""
+    D = sq_dists(Q, X)
+    order = np.argsort(D, axis=1, kind="stable")
+    return order[:, :k], np.sqrt(np.maximum(
+        np.take_along_axis(D, order[:, :k], axis=1), 0.0))
+
+
+# ---- correctness vs brute force ----
+
+@pytest.mark.parametrize("n_x,n_q,d,k", [
+    (100, 10, 3, 5),
+    (500, 20, 5, 1),
+    (1000, 50, 10, 10),
+])
+def test_knn_matches_bruteforce(n_x, n_q, d, k):
+    rng = np.random.RandomState(0)
+    X = rng.normal(size=(n_x, d))
+    Q = rng.normal(size=(n_q, d))
+    idx, dist = knn_query(X, Q, k, return_dist=True)
+    idx_ref, dist_ref = _brute_knn(X, Q, k)
+    np.testing.assert_array_equal(idx, idx_ref)
+    np.testing.assert_allclose(dist, dist_ref, rtol=1e-10, atol=1e-10)
+
+
+def test_knn_index_only():
+    rng = np.random.RandomState(1)
+    X = rng.normal(size=(100, 3))
+    Q = rng.normal(size=(10, 3))
+    idx = knn_query(X, Q, 5)
+    idx_ref, _ = _brute_knn(X, Q, 5)
+    np.testing.assert_array_equal(idx, idx_ref)
+
+
+def test_knn_k_equals_n():
+    """k == n_x returns all points sorted by distance."""
+    rng = np.random.RandomState(2)
+    X = rng.normal(size=(50, 3))
+    Q = rng.normal(size=(5, 3))
+    idx, dist = knn_query(X, Q, 50, return_dist=True)
+    assert idx.shape == (5, 50)
+    # distances should be non-decreasing per row
+    assert (np.diff(dist, axis=1) >= -1e-10).all()
+
+
+def test_knn_chunk_invariant():
+    """Same result regardless of chunk_size."""
+    rng = np.random.RandomState(3)
+    X = rng.normal(size=(500, 5))
+    Q = rng.normal(size=(10, 5))
+    idx_a, dist_a = knn_query(X, Q, 7, chunk_size=17, return_dist=True)
+    idx_b, dist_b = knn_query(X, Q, 7, chunk_size=1000, return_dist=True)
+    np.testing.assert_array_equal(idx_a, idx_b)
+    np.testing.assert_allclose(dist_a, dist_b, rtol=1e-12)
+
+
+def test_knn_cosine_metric():
+    rng = np.random.RandomState(4)
+    X = rng.normal(size=(200, 4))
+    Q = rng.normal(size=(20, 4))
+    idx, dist = knn_query(X, Q, 5, metric="cosine", return_dist=True)
+    # brute cosine
+    Xn = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    Qn = Q / (np.linalg.norm(Q, axis=1, keepdims=True) + 1e-12)
+    D = 1.0 - Qn @ Xn.T
+    order = np.argsort(D, axis=1, kind="stable")[:, :5]
+    dist_ref = np.take_along_axis(D, order, axis=1)
+    np.testing.assert_array_equal(idx, order)
+    np.testing.assert_allclose(dist, dist_ref, rtol=1e-10)
+
+
+def test_knn_invalid_args():
+    X = np.zeros((10, 3))
+    Q = np.zeros((2, 3))
+    with pytest.raises(ValueError, match="k must be"):
+        knn_query(X, Q, 0)
+    with pytest.raises(ValueError, match="k must be"):
+        knn_query(X, Q, 11)
+    with pytest.raises(ValueError, match="metric must be"):
+        knn_query(X, Q, 3, metric="hamming")
+    with pytest.raises(ValueError, match="X is empty"):
+        knn_query(np.zeros((0, 3)), Q, 3)
+
+
+def test_knn_guard_refuses_at_tight():
+    """Large n_q * k with tiny guard -> MemoryLimitExceeded."""
+    X = np.zeros((100, 3))
+    Q = np.zeros((10_000, 3))
+    with pytest.raises(MemoryLimitExceeded):
+        knn_query(X, Q, 100, memory_guard=MemoryGuard(max_memory_mb=0.1))
+
+
+def test_knn_ooc_in_n_x():
+    """State independent of n_x (bounded by n_q*k)."""
+    rng = np.random.RandomState(5)
+    Q = rng.normal(size=(20, 5))
+    for n_x in (100, 1000):
+        X = rng.normal(size=(n_x, 5))
+        idx = knn_query(X, Q, 5)
+        # same result as brute
+        idx_ref, _ = _brute_knn(X, Q, 5)
+        np.testing.assert_array_equal(idx, idx_ref)
+
+
+# ---- core_distances ----
+
+@pytest.mark.parametrize("n,k", [(50, 1), (100, 5), (200, 10)])
+def test_core_distances_matches_brute(n, k):
+    rng = np.random.RandomState(6)
+    X = rng.normal(size=(n, 3))
+    core = core_distances(X, k)
+    # brute: sort distances per row, exclude self (dist 0 at position 0),
+    # take k-th NN (position k in sorted including self)
+    D = sq_dists(X, X)
+    Ds = np.sort(D, axis=1)
+    ref = np.sqrt(np.maximum(Ds[:, k], 0.0))
+    np.testing.assert_allclose(core, ref, rtol=1e-10)
+
+
+def test_core_distances_invalid_k():
+    X = np.zeros((10, 3))
+    with pytest.raises(ValueError, match="k must be"):
+        core_distances(X, 0)
+    with pytest.raises(ValueError, match="k must be"):
+        core_distances(X, 10)
+    with pytest.raises(ValueError, match="k must be"):
+        core_distances(X, 15)
+
+
+def test_core_distances_chunk_invariant():
+    rng = np.random.RandomState(7)
+    X = rng.normal(size=(300, 4))
+    a = core_distances(X, 5, chunk_size=23)
+    b = core_distances(X, 5, chunk_size=1000)
+    np.testing.assert_allclose(a, b, rtol=1e-12)

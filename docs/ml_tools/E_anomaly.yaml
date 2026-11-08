@@ -131,8 +131,6 @@ subtypes:
     depends_on:
     - cadw.ops.linalg.knn_query
     - cadw.ops.linalg.core_distances
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L1, §L2"
-    depends_on_status: planned
     tier_level: tier3_export
     implementation_status:
       described_only: true

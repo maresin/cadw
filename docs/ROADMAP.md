@@ -332,6 +332,16 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.144 (P1 group A: L1+L2):**
+- Extract `knn_query` + `core_distances` to `cadw.ops.linalg`
+  (P1 L1 + L2, DEC-056). knn_query: 8 cards, core_distances:
+  3 cards. Both chunked X streaming, OOC in n_X.
+- Tests: test_linalg_knn.py (15 passed: brute match, chunk
+  invariant, cosine, guard refuses, OOC in n).
+- YAML: 4 cards flipped to implemented (DBSCAN, LOF, ItemKNN,
+  KNNImputer — all deps importable). 4 remain planned: HDBSCAN×2
+  blocked on mst, ML-kNN/SMOTE blocked on normalize_weights.
+
 **v0.9.143-batch5 (duplicates + reservoir):**
 - Extract `reservoir_sample` + `batch_to_features` to
   `cadw.ops.sampling` (P2, DEC-056). Refactor kernel_density.py

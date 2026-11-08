@@ -12,6 +12,9 @@ History:
 - v0.9.143: added nmf_mu (Lee & Seung 1999 multiplicative update).
   Promoted from .pingis/impl/J/nmf.py; consumers NMF x2 + Top2Vec
   + LDA_embedding (3 -> P1 per PRIMITIVES_BACKLOG L7).
+- v0.9.144: added knn_query (L1) + core_distances (L2).
+  Chunked query against streamed X; state O(n_q * k).
+  knn_query: 8 consumers, core_distances: 3 consumers (P1).
 """
 from __future__ import annotations
 
@@ -73,3 +76,167 @@ def nmf_mu(X_b: np.ndarray, H: np.ndarray, *, eps: float = 1e-10) -> np.ndarray:
     WtW = W_b.T @ W_b
     denom = WtW @ H + eps
     return H * (WtX / denom)
+
+
+# ============================================================================
+# kNN primitives (v0.9.144, P1 L1 + L2 per PRIMITIVES_BACKLOG)
+# ============================================================================
+#
+# Patterns:
+#   knn_query      — chunked X streaming + top-k merge. State O(n_q * k).
+#   core_distances — k-th NN distance per row (self-excluded).
+#                    Delegates to knn_query(X, X, k+1)[:, k].
+#
+# Both OOC in n_X (number of candidate rows); n_q (query rows) must fit
+# state limit (bounded_state_dims: {n_q: 1, k: 1}).
+# ============================================================================
+
+_KNN_STATE_HEADER = 256
+
+
+def _resolve_knn_chunk_size(n_q: int, d: int, memory_guard=None) -> int:
+    """Pick chunk_size so that n_q * chunk * f64 fits comfortable budget."""
+    target_bytes = 8 * 1024 * 1024  # 8 MB default per chunk
+    if memory_guard is not None:
+        try:
+            avail = memory_guard.available_bytes
+            target_bytes = max(64 * 1024, min(target_bytes, avail // 4))
+        except Exception:
+            pass
+    per_row = 8 * d  # one X_c row
+    return max(1, int(target_bytes // max(per_row, 1)))
+
+
+def knn_query(
+    X: np.ndarray,
+    Q: np.ndarray,
+    k: int,
+    *,
+    return_dist: bool = False,
+    metric: str = "euclidean",
+    chunk_size: int | None = None,
+    memory_guard=None,
+):
+    """k nearest neighbours of Q in X (streaming over X chunks).
+
+    Args:
+      X: (n_x, d) float64 candidates.
+      Q: (n_q, d) float64 queries.
+      k: number of neighbours (1 <= k <= n_x).
+      return_dist: if True, also return distances (n_q, k).
+      metric: "euclidean" (default) | "cosine".
+      chunk_size: candidate rows per chunk; auto-derived from guard.
+      memory_guard: optional MemoryGuard (state + chunk checks).
+
+    Returns:
+      idx: (n_q, k) int64 — indices into X (0-based).
+      dist: (n_q, k) float64 — distance (euclidean: L2; cosine: 1-cos).
+            Only returned if return_dist=True.
+
+    State: O(n_q * k) for top-k heap; chunk transient O(n_q * chunk_size).
+    OOC in n_x: peak independent of n_x. Refuses at guard if state or
+    chunk buffer exceeds budget.
+    """
+    X = np.ascontiguousarray(X, dtype=np.float64)
+    Q = np.ascontiguousarray(Q, dtype=np.float64)
+    if X.ndim != 2 or Q.ndim != 2:
+        raise ValueError(f"X, Q must be 2-D; got {X.shape}, {Q.shape}")
+    if X.shape[1] != Q.shape[1]:
+        raise ValueError(
+            f"X.shape[1]={X.shape[1]} != Q.shape[1]={Q.shape[1]}")
+    if metric not in ("euclidean", "cosine"):
+        raise ValueError(
+            f"metric must be 'euclidean'|'cosine'; got {metric!r}")
+    n_x, d = X.shape
+    n_q = Q.shape[0]
+    if n_x == 0:
+        raise ValueError("knn_query: X is empty")
+    if k < 1 or k > n_x:
+        raise ValueError(f"k must be in [1, n_x={n_x}]; got {k}")
+
+    # state guard
+    state_bytes = n_q * k * 8 * 2 + _KNN_STATE_HEADER
+    if memory_guard is not None:
+        memory_guard.check_state(state_bytes, name="knn_query.state")
+
+    if chunk_size is None:
+        chunk_size = _resolve_knn_chunk_size(n_q, d, memory_guard)
+    chunk_size = max(1, int(chunk_size))
+
+    # metric preprocessing (norms for cosine)
+    if metric == "cosine":
+        Q_norm = Q / (np.linalg.norm(Q, axis=1, keepdims=True) + 1e-12)
+
+    top_d = np.full((n_q, k), np.inf, dtype=np.float64)
+    top_i = np.full((n_q, k), -1, dtype=np.int64)
+
+    for start in range(0, n_x, chunk_size):
+        end = min(start + chunk_size, n_x)
+        Xc = X[start:end]
+        chunk_bytes = n_q * (end - start) * 8
+        if memory_guard is not None:
+            memory_guard.check_state(
+                chunk_bytes, name="knn_query.chunk")
+
+        if metric == "euclidean":
+            D = sq_dists(Q, Xc)  # (n_q, chunk)
+        else:  # cosine
+            Xc_norm = Xc / (np.linalg.norm(Xc, axis=1, keepdims=True) + 1e-12)
+            D = 1.0 - (Q_norm @ Xc_norm.T)  # (n_q, chunk) in [0, 2]
+
+        # merge chunk with current top-k
+        merged_d = np.concatenate([top_d, D], axis=1)
+        chunk_ids = np.broadcast_to(
+            np.arange(start, end, dtype=np.int64),
+            (n_q, end - start))
+        merged_i = np.concatenate([top_i, chunk_ids], axis=1)
+
+        # argpartition + stable sort of the k survivors
+        part = np.argpartition(merged_d, k - 1, axis=1)[:, :k]
+        part_d = np.take_along_axis(merged_d, part, axis=1)
+        part_i = np.take_along_axis(merged_i, part, axis=1)
+        order = np.argsort(part_d, axis=1, kind="stable")
+        top_d = np.take_along_axis(part_d, order, axis=1)
+        top_i = np.take_along_axis(part_i, order, axis=1)
+
+    if not return_dist:
+        return top_i
+    if metric == "euclidean":
+        return top_i, np.sqrt(np.maximum(top_d, 0.0))
+    return top_i, top_d
+
+
+def core_distances(
+    X: np.ndarray,
+    k: int,
+    *,
+    chunk_size: int | None = None,
+    memory_guard=None,
+) -> np.ndarray:
+    """k-th nearest-neighbour distance per row of X (self-excluded).
+
+    Args:
+      X: (n, d) float64.
+      k: 1 <= k < n.
+      chunk_size, memory_guard: forwarded to knn_query.
+
+    Returns:
+      (n,) float64 — ||x_i - x_(i,k+1)||, where x_(i,j) is j-th nearest
+      neighbour of x_i (x_(i,1) = self with distance 0).
+
+    OOC in n for RAM: state = n * (k+1) * f64 * 2 + 256.
+    Compute is O(n^2) — intrinsic to kNN self-query; callers should
+    subsample (HDBSCAN typically n<=10^4 per batch) or bound n.
+    """
+    X = np.ascontiguousarray(X, dtype=np.float64)
+    if X.ndim != 2:
+        raise ValueError(f"X must be 2-D; got {X.shape}")
+    n, d = X.shape
+    if k < 1 or k >= n:
+        raise ValueError(f"k must be in [1, n-1]; got k={k}, n={n}")
+    # k+1 nearest: self is at position 0, target at index k
+    _, dist = knn_query(
+        X, X, k + 1, return_dist=True, metric="euclidean",
+        chunk_size=chunk_size, memory_guard=memory_guard,
+    )
+    return dist[:, k].copy()
