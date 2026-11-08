@@ -332,6 +332,20 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.161 (legacy O_eda batch 1: 4 fit_* cards):**
+- Flipped 4 cards from status:None to verified:
+  - DriftStats (fit_drift): O(1) lazy container (256 B),
+    bounded_state=true, state_class=O(1).
+  - MutualInfoSelect, VarianceThreshold, BorutaSelect
+    (all fit_feature_select method=): model O(d), fit transient
+    O(n*d) via _collect (AP2 with guard). bounded_by_domain n<=1e6.
+- Tests: 12 passed (drift container; feature_select state formula
+  exact d*8+512 per method; n-independent; guard-refuse).
+- Remaining O_eda legacy (7): Describe, Hist, ValueCounts,
+  SimpleImputer, EncodeCategorical, PermutationImportance,
+  FairnessMetrics — these are dataframe METHODS/analysis
+  functions, not fit_* models (reframe in v0.9.162).
+
 **v0.9.160 (GBDT family batch 2: 2 TS cards):**
 - Fixed `_NumpyReg.state_nbytes()` (was missing -> inherited 0
   -> GBDTForecaster total was just 256 header). Delegates to
