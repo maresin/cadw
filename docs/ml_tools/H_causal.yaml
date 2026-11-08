@@ -154,6 +154,10 @@ subtypes:
     - codes_bin
   - name: DR_learner
     tier: sota
+    depends_on:
+    - cadw.ml._causal_common.dr_score
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L11"
+    depends_on_status: planned
     tier_level: tier3_export
     implementation_status:
       described_only: true
@@ -180,6 +184,10 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
   - name: CausalForest
     tier: sota
+    depends_on:
+    - cadw.ml._causal_common.dr_score
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L11"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -310,6 +318,10 @@ subtypes:
     - codes_bin
   - name: CausalForest
     tier: sota
+    depends_on:
+    - cadw.ml._causal_common.dr_score
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L11"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -322,6 +334,10 @@ subtypes:
       - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CausalForest', algorithm_source_url: 'https://arxiv.org/abs/1510.04342', algorithm_source_kind: paper, attribution: literature, task_type: causal, n_datasets: null, metric: qini_coefficient, value: null, note: 'no_public_benchmark: causal forest uplift per-dataset'}
   - name: DR_learner_uplift
     tier: sota
+    depends_on:
+    - cadw.ml._causal_common.dr_score
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L11"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true

@@ -25,6 +25,7 @@ subtypes:
   models:
   - name: zscore
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
@@ -127,6 +128,11 @@ subtypes:
     primitive_reuse: [reduce]
   - name: LOF
     tier: baseline
+    depends_on:
+    - cadw.ops.linalg.knn_query
+    - cadw.ops.linalg.core_distances
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L1, §L2"
+    depends_on_status: planned
     tier_level: tier3_export
     implementation_status:
       described_only: true
@@ -153,6 +159,7 @@ subtypes:
       note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
   - name: GMMAnomaly
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -291,6 +298,7 @@ subtypes:
     - codes_bin
   - name: CalibratedClassifierCV
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true

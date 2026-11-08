@@ -139,6 +139,11 @@ class ModelCard:
     # (allows BVAR/VECM pattern where state is O(k²) but fit streams).
     fit_batched: bool | None = None
     predict_batched: bool | None = None
+    # v0.9.142 (DEC-055 amend): forward-declared deps for described_only
+    # cards. depends_on_status = "planned" means depends_on paths are
+    # NOT expected to resolve yet (R11 skips check).
+    depends_on_backlog: str | None = None
+    depends_on_status: str | None = None
     # v0.9.97: RAM formula components. {axis: power}; missing axis = 0.
     # est_bytes = sum(val**pow for axis,pow in dims.items()) * 8 * transient_factor
     bounded_state_dims: dict[str, int] | None = None
@@ -328,6 +333,8 @@ def _parse_model(m: dict) -> ModelCard:
         depends_on=m.get("depends_on"),
         fit_batched=m.get("fit_batched"),
         predict_batched=m.get("predict_batched"),
+        depends_on_backlog=m.get("depends_on_backlog"),
+        depends_on_status=m.get("depends_on_status"),
         bounded_state_dims=m.get("bounded_state_dims"),
         bounded_by_domain=m.get("bounded_by_domain"),
         transient_factor=(

@@ -17,6 +17,10 @@ subtypes:
     models:
       - name: Apriori
         tier: baseline
+        depends_on:
+        - cadw.ops.itemset.itemset_mining
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L8"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -30,6 +34,10 @@ subtypes:
 
       - name: Eclat
         tier: baseline
+        depends_on:
+        - cadw.ops.itemset.itemset_mining
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L8"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -43,6 +51,10 @@ subtypes:
 
       - name: FP-growth
         tier: sota
+        depends_on:
+        - cadw.ops.itemset.itemset_mining
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L8"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -66,6 +78,10 @@ subtypes:
     models:
       - name: GSP
         tier: baseline
+        depends_on:
+        - cadw.ops.itemset.itemset_mining
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L8"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -79,6 +95,10 @@ subtypes:
 
       - name: PrefixSpan
         tier: sota
+        depends_on:
+        - cadw.ops.itemset.itemset_mining
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L8"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -91,6 +111,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches', algorithm: 'SPMF PrefixSpan', algorithm_source_url: 'https://www.philippe-fournier-viger.com/spmf/', algorithm_source_kind: code, attribution: literature, task_type: association_rules, n_datasets: null, metric: sequence_coverage, value: null, note: 'no_public_benchmark: SPMF reference. Pei et al. 2001.'}
       - name: HMM
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true

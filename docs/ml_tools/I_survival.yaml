@@ -126,6 +126,7 @@ subtypes:
     - spill_dir
   - name: KaplanMeier
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
@@ -154,6 +155,7 @@ subtypes:
       note: 'no_public_benchmark: KM is a marginal-curve baseline; no public IBS leaderboard on sksurv collection'
   - name: WeibullAFT
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
@@ -183,6 +185,10 @@ subtypes:
       note: 'no_public_benchmark: no public C-index leaderboard for WeibullAFT on sksurv collection'
   - name: RandomSurvivalForest
     tier: sota
+    depends_on:
+    - cadw.ml._survival_common.logrank
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L10"
+    depends_on_status: planned
     tier_level: tier3_export
     implementation_status:
       described_only: true
@@ -212,6 +218,8 @@ subtypes:
       note: 'no_public_benchmark: sksurv docs page (fetched 2026-10-24) has no aggregated C-index table'
   - name: DeepSurv
     tier: sota
+    depends_on: []
+    nn_excluded: true
     tier_level: tier3_export
     implementation_status:
       described_only: false
@@ -243,6 +251,8 @@ subtypes:
       note: 'no_public_benchmark: DeepSurv reports per-dataset C-index on its own splits; no unified LB on sksurv collection'
   - name: DeepHit
     tier: sota
+    depends_on: []
+    nn_excluded: true
     tier_level: tier3_export
     implementation_status:
       described_only: false

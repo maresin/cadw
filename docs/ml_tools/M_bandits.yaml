@@ -109,6 +109,10 @@ subtypes:
     primitive_reuse: [reduce]
   - name: EpsilonGreedy
     tier: baseline
+    depends_on:
+    - cadw.ops.stats.arm_stats
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L15"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
@@ -137,6 +141,10 @@ subtypes:
       note: 'fetched 2026-10-25 from arXiv:1003.0146 Table 1: ''epsilon-greedy 1.596''. Reference baseline (0% lift by construction).'
   - name: UCB1
     tier: baseline
+    depends_on:
+    - cadw.ops.stats.arm_stats
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L15"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
@@ -165,6 +173,10 @@ subtypes:
       note: 'fetched 2026-10-25 from arXiv:1003.0146 Table 1: ''ucb 1.594'' in deploy bucket.'
   - name: ThompsonSampling
     tier: sota
+    depends_on:
+    - cadw.ops.stats.arm_stats
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L15"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       verified_by_agent: true
@@ -205,6 +217,8 @@ subtypes:
       note: 'fetched 2026-10-25 from arXiv:2008.07146 Table 1 (ALL campaign): ''Bernoulli TS ... 0.50% ± 0.004''. Value is percent CTR (0.5% = 0.005 fraction).'
   - name: NeuralUCB
     tier: sota
+    depends_on: []
+    nn_excluded: true
     tier_level: tier3_export
     implementation_status:
       described_only: false

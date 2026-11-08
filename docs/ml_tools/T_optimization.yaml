@@ -17,6 +17,11 @@ subtypes:
     models:
       - name: GP-EI
         tier: baseline
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.linalg.chol_solve
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L4"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -30,6 +35,7 @@ subtypes:
 
       - name: TPE
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -43,6 +49,11 @@ subtypes:
 
       - name: SMAC
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.linalg.chol_solve
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L4"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -66,6 +77,7 @@ subtypes:
     models:
       - name: NelderMead
         tier: baseline
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -79,6 +91,7 @@ subtypes:
 
       - name: CMA-ES
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -91,6 +104,11 @@ subtypes:
           - {benchmark: HPOBench, benchmark_url: 'https://github.com/automl/HPOBench', algorithm: 'cma.CMAEvolutionStrategy', algorithm_source_url: 'https://github.com/CMA-ES/pycma', algorithm_source_kind: code, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'Hansen 2001; pycma reference.'}
       - name: BayesianOpt_GP
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.linalg.chol_solve
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L4"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -103,6 +121,11 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'BayesianOpt_GP', algorithm_source_url: 'https://arxiv.org/abs/1012.2599', algorithm_source_kind: paper, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'no_public_benchmark: HPOBench suites (no single LB)'}
       - name: SMAC
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.linalg.chol_solve
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L4"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true

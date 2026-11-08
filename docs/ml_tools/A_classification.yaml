@@ -368,6 +368,7 @@ subtypes:
     - codes_bin
   - name: CADWBoost
     tier: sota
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -708,6 +709,12 @@ subtypes:
     - codes_bin
   - name: GaussianProcessRegressor
     tier: sota
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.linalg.chol_solve
+    - cadw.ops.linalg.eigh_topk
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L4, §L19"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -880,6 +887,11 @@ subtypes:
     primitive_reuse: [reduce]
   - name: ML-kNN
     tier: baseline
+    depends_on:
+    - cadw.ops.linalg.knn_query
+    - cadw.ops.stats.normalize_weights
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L1, §L17"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -988,6 +1000,7 @@ subtypes:
     primitive_reuse: [reduce]
   - name: GBDT_threshold
     tier: sota
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -1014,6 +1027,10 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
   - name: OrderedProbitBayesian
     tier: sota
+    depends_on:
+    - cadw.ml._gbdt_common.cumulative_logit_prob
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L20"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1152,6 +1169,11 @@ subtypes:
     - codes_bin
   - name: RUSBoost
     tier: sota
+    depends_on:
+    - cadw.ml._gbdt_common.adaboost_weight
+    - cadw.ops.stats.normalize_weights
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L16, §L17"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1202,6 +1224,11 @@ subtypes:
   models:
   - name: LinearQuantReg
     tier: baseline
+    depends_on:
+    - cadw.ml._gbdt_common.pinball_loss
+    - cadw.ml._gbdt_common.pinball_grad
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L9"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -1228,6 +1255,11 @@ subtypes:
       note: pinball loss, not rmse; use for ranking only [legacy v0.9.44, migrated v0.9.50]
   - name: GBDT_pinball
     tier: sota
+    depends_on:
+    - cadw.ml._gbdt_common.pinball_loss
+    - cadw.ml._gbdt_common.pinball_grad
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L9"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -1254,6 +1286,11 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
   - name: CQR
     tier: sota
+    depends_on:
+    - cadw.ml._gbdt_common.pinball_loss
+    - cadw.ml._gbdt_common.pinball_grad
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L9"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true

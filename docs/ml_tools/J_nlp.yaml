@@ -112,6 +112,7 @@ subtypes:
     primitive_reuse: [reduce]
   - name: ComplementNB
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
@@ -140,6 +141,7 @@ subtypes:
       note: 'no_public_benchmark: SST-2 GLUE live LB not fetchable; ComplementNB has no public SST-2 row'
   - name: LinearSVC
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       verified_by_agent: true
@@ -271,6 +273,8 @@ subtypes:
     primitive_reuse: [reduce]
   - name: Word2Vec
     tier: baseline
+    depends_on: []
+    nn_excluded: true
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -300,6 +304,8 @@ subtypes:
       note: 'no_public_benchmark: Word2Vec was never entered on the STS-B GLUE leaderboard; paper reports word-similarity tasks, not STS-B'
   - name: SentenceTransformer
     tier: sota
+    depends_on: []
+    nn_excluded: true
     tier_level: tier3_export
     implementation_status:
       described_only: false
@@ -342,6 +348,10 @@ subtypes:
       note: 'no_public_benchmark: STS-B GLUE LB not fetchable; S-BERT paper reports STS-B dev Spearman but that is a paper number, not a live LB row'
   - name: LDA_embedding
     tier: baseline
+    depends_on:
+    - cadw.ops.linalg.nmf_mu
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L7"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -498,6 +508,10 @@ subtypes:
     primitive_reuse: [reduce, spill_dir]
   - name: NMF
     tier: sota
+    depends_on:
+    - cadw.ops.linalg.nmf_mu
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L7"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -527,6 +541,7 @@ subtypes:
       note: 'no_public_benchmark: NMF has no likelihood/perplexity; 20NG has no live public coherence leaderboard either'
   - name: Top2Vec
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true

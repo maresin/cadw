@@ -56,6 +56,7 @@ subtypes:
 
       - name: TruncatedSVD
         tier: baseline
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -69,6 +70,7 @@ subtypes:
 
       - name: randomized_svd
         tier: sota
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -81,6 +83,11 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.utils.extmath.randomized_svd', algorithm_source_url: 'https://arxiv.org/abs/0909.4061', algorithm_source_kind: paper, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'Halko et al. 2011. CADW impl: fit_randomized_svd (J_nlp J2).'}
       - name: KernelPCA
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.linalg.eigh_topk
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L19"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -93,6 +100,10 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'KernelPCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.KernelPCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: kernel PCA per-dataset'}
       - name: SparsePCA
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -116,6 +127,10 @@ subtypes:
     models:
       - name: NMF
         tier: baseline
+        depends_on:
+        - cadw.ops.linalg.nmf_mu
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L7"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -130,6 +145,7 @@ subtypes:
 
       - name: ALS
         tier: sota
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -153,6 +169,7 @@ subtypes:
     models:
       - name: t-SNE
         tier: baseline
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -166,6 +183,7 @@ subtypes:
 
       - name: UMAP
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -178,6 +196,12 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'umap.UMAP', algorithm_source_url: 'https://arxiv.org/abs/1802.03426', algorithm_source_kind: paper, attribution: literature, task_type: manifold_learning, n_datasets: null, metric: trustworthiness, value: null, note: 'McInnes et al. 2018.'}
       - name: GPLVM
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.linalg.chol_solve
+        - cadw.ops.linalg.eigh_topk
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L4, §L19"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -201,6 +225,7 @@ subtypes:
     models:
       - name: PermutationImportance
         tier: baseline
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -214,6 +239,7 @@ subtypes:
 
       - name: Boruta
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -226,6 +252,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'boruta.BorutaPy', algorithm_source_url: 'https://www.jstatsoft.org/article/view/v036i11', algorithm_source_kind: paper, attribution: literature, task_type: feature_selection, n_datasets: null, metric: downstream_accuracy, value: null, note: 'Kursa & Rudnicki 2010.'}
       - name: SelectKBest
         tier: baseline
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true

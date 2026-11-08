@@ -93,6 +93,7 @@ subtypes:
 
       - name: BisectingKMeans
         tier: sota
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -105,6 +106,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.BisectingKMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: inertia, value: null, note: 'no_public_benchmark: not on AMLB.'}
       - name: GaussianMixtureClustering
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -117,6 +119,13 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianMixtureClustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/mixture.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: GMM clustering per-dataset'}
       - name: SpectralClustering
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.graph.graph_laplacian
+        - cadw.ops.graph.eigsh_topk
+        - cadw.ops.linalg.eigh_topk
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L6, §L19"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -140,6 +149,11 @@ subtypes:
     models:
       - name: DBSCAN
         tier: baseline
+        depends_on:
+        - cadw.ops.linalg.knn_query
+        - cadw.ops.linalg.core_distances
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L1, §L2"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -153,6 +167,12 @@ subtypes:
 
       - name: HDBSCAN
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.knn_query
+        - cadw.ops.linalg.core_distances
+        - cadw.ops.graph.mst
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L1, §L2, §L5"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -166,6 +186,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'hdbscan.HDBSCAN', algorithm_source_url: 'https://github.com/scikit-learn-contrib/hdbscan', algorithm_source_kind: code, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: Campello 2013 per-dataset numbers. Reference impl in .pingis/impl/N/HDBSCAN.txt.'}
       - name: GaussianMixtureClustering
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -178,6 +199,13 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianMixtureClustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/mixture.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: GMM clustering per-dataset'}
       - name: SpectralClustering
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.graph.graph_laplacian
+        - cadw.ops.graph.eigsh_topk
+        - cadw.ops.linalg.eigh_topk
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L6, §L19"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -201,6 +229,7 @@ subtypes:
     models:
       - name: AgglomerativeClustering
         tier: baseline
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -214,6 +243,7 @@ subtypes:
 
       - name: BIRCH
         tier: sota
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -227,6 +257,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.Birch', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.Birch.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: CADW-native measurement in .pingis/benches/birch.json (fit_time_s).'}
       - name: BisectingKMeans
         tier: sota
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -239,6 +270,13 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'BisectingKMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: bisecting clustering per-dataset'}
       - name: SpectralClustering
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.graph.graph_laplacian
+        - cadw.ops.graph.eigsh_topk
+        - cadw.ops.linalg.eigh_topk
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L6, §L19"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -262,6 +300,7 @@ subtypes:
     models:
       - name: EuclideanKMeansZ
         tier: baseline
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -275,6 +314,7 @@ subtypes:
 
       - name: KShape
         tier: sota
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -287,6 +327,7 @@ subtypes:
           - {benchmark: UCR_Classification, benchmark_url: 'https://www.timeseriesclassification.com/', algorithm: 'k-Shape (Paparrizos & Gravano 2015)', algorithm_source_url: 'https://arxiv.org/abs/1506.07608', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'Paper reports ARI per UCR dataset; no unified LB. CADW TS-anomaly implementation in D_time_series (fit_kshape); clustering-task view here.'}
       - name: ShapeGMM
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -309,6 +350,13 @@ subtypes:
     models:
       - name: SpectralCoclustering
         tier: baseline
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.graph.graph_laplacian
+        - cadw.ops.graph.eigsh_topk
+        - cadw.ops.linalg.eigh_topk
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L6, §L19"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -322,6 +370,13 @@ subtypes:
 
       - name: SpectralBiclustering
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.rbf_kernel
+        - cadw.ops.graph.graph_laplacian
+        - cadw.ops.graph.eigsh_topk
+        - cadw.ops.linalg.eigh_topk
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L6, §L19"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -334,6 +389,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.SpectralBiclustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.SpectralBiclustering.html', algorithm_source_kind: docs, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: no unified biclustering LB.'}
       - name: PlaidModel
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -346,6 +402,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'PlaidModel', algorithm_source_url: 'https://academic.oup.com/biostatistics/article/3/4/459/247731', algorithm_source_kind: paper, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: plaid per-dataset'}
       - name: Bimax
         tier: baseline
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -369,6 +426,7 @@ subtypes:
     models:
       - name: KMeansOnly
         tier: baseline
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -382,6 +440,10 @@ subtypes:
 
       - name: KMeansHDBSCAN_consensus
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.consensus_matrix
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L12"
+        depends_on_status: planned
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -394,6 +456,10 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'consensus (KMeans + HDBSCAN) -- Strehl & Ghosh 2002 framework', algorithm_source_url: 'https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: custom ensemble; ARI vs each base partition. Strehl & Ghosh 2002 consensus-clustering framework.'}
       - name: EvidenceAccumulation
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.consensus_matrix
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L12"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -406,6 +472,10 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'EvidenceAccumulation', algorithm_source_url: 'https://ieeexplore.ieee.org/document/1427769', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: evidence-accumulation per-dataset'}
       - name: CSPA
         tier: sota
+        depends_on:
+        - cadw.ops.linalg.consensus_matrix
+        depends_on_backlog: "PRIMITIVES_BACKLOG §L12"
+        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true

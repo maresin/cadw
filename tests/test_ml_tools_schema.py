@@ -587,6 +587,10 @@ def test_R11_depends_on_importable():
                 deps = c.get("depends_on")
                 if not deps:
                     continue
+                # v0.9.142 (DEC-055 amend): planned deps not yet
+                # implemented; importable check does not apply.
+                if c.get("depends_on_status") == "planned":
+                    continue
                 if not isinstance(deps, list):
                     bad.append(f"{path.name}:{c.get('name')}: "
                                f"depends_on not a list")

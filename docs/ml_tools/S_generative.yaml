@@ -15,6 +15,8 @@ subtypes:
     models:
       - name: TVAE
         tier: baseline
+        depends_on: []
+        nn_excluded: true
         tier_level: tier3_export
         implementation_status:
           described_only: true
@@ -28,6 +30,8 @@ subtypes:
 
       - name: CTGAN
         tier: sota
+        depends_on: []
+        nn_excluded: true
         tier_level: tier3_export
         implementation_status:
           described_only: true
@@ -41,6 +45,8 @@ subtypes:
 
       - name: CTAB-GAN+
         tier: sota
+        depends_on: []
+        nn_excluded: true
         tier_level: tier3_export
         implementation_status:
           described_only: true
@@ -53,6 +59,8 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://github.com/Team-TUD/CTAB-GAN-Plus', algorithm: 'CTAB-GAN+', algorithm_source_url: 'https://arxiv.org/abs/2109.06563', algorithm_source_kind: paper, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: Zhao et al. 2022. torch required.'}
       - name: TabNet
         tier: sota
+        depends_on: []
+        nn_excluded: true
         tier_level: tier3_export
         implementation_status:
           described_only: true
@@ -76,6 +84,8 @@ subtypes:
     models:
       - name: TabDDPM
         tier: baseline
+        depends_on: []
+        nn_excluded: true
         tier_level: tier3_export
         implementation_status:
           described_only: true
@@ -89,6 +99,8 @@ subtypes:
 
       - name: TabSyn
         tier: sota
+        depends_on: []
+        nn_excluded: true
         tier_level: tier3_export
         implementation_status:
           described_only: true
@@ -101,6 +113,8 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://github.com/amazon-science/tabsyn', algorithm: 'TabSyn', algorithm_source_url: 'https://arxiv.org/abs/2310.09656', algorithm_source_kind: paper, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: Zhang et al. 2023. torch required.'}
       - name: TabDDPM_classifier
         tier: sota
+        depends_on: []
+        nn_excluded: true
         tier_level: tier3_export
         implementation_status:
           described_only: true

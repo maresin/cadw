@@ -15,6 +15,7 @@ subtypes:
     models:
       - name: MeanFieldVI
         tier: baseline
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -28,6 +29,7 @@ subtypes:
 
       - name: BlackBoxVI
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -40,6 +42,7 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://arxiv.org/abs/1401.0118', algorithm: 'black-box VI', algorithm_source_url: 'https://arxiv.org/abs/1401.0118', algorithm_source_kind: paper, attribution: literature, task_type: probabilistic_inference, n_datasets: null, metric: elbo, value: null, note: 'Ranganath et al. 2014.'}
       - name: SVI
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -64,6 +67,7 @@ subtypes:
     models:
       - name: MetropolisHastings
         tier: baseline
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -77,6 +81,7 @@ subtypes:
 
       - name: NUTS
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true

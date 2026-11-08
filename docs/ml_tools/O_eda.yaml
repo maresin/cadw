@@ -150,6 +150,7 @@ subtypes:
     primitive_reuse: [hash_shuffle, reduce]
   - name: YDataProfiling
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -256,6 +257,10 @@ subtypes:
     primitive_reuse: [reduce]
   - name: KNNImputer
     tier: baseline
+    depends_on:
+    - cadw.ops.linalg.knn_query
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L1"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -282,6 +287,7 @@ subtypes:
       note: 'no_public_benchmark: KNNImputer docs example numbers are illustrative, not a benchmark ranking.'
   - name: IterativeImputer
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -343,6 +349,7 @@ subtypes:
   models:
   - name: OneHotEncoder
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -370,6 +377,7 @@ subtypes:
       note: 'no_public_benchmark: encoding is a preprocessing step; OpenML leaderboards rank full pipelines, not encoders alone.'
   - name: KBinsDiscretizer
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -397,6 +405,7 @@ subtypes:
       note: 'no_public_benchmark: binning has no standalone accuracy leaderboard.'
   - name: PolynomialFeatures
     tier: sota
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -454,6 +463,7 @@ subtypes:
     transient_factor: 22.5
   - name: TargetEncoder
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -679,6 +689,7 @@ subtypes:
   models:
   - name: PanderaSchema
     tier: baseline
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -705,6 +716,7 @@ subtypes:
       note: 'no_public_benchmark: schema validators have no accuracy benchmark; correctness is binary by construction.'
   - name: GreatExpectationsSuite
     tier: sota
+    depends_on: []
     tier_level: tier3_export
     implementation_status:
       described_only: true
@@ -754,6 +766,7 @@ subtypes:
   models:
   - name: StratifiedSplit
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
@@ -783,6 +796,7 @@ subtypes:
       note: 'no_public_benchmark: splitter is not a model; accuracy depends entirely on the downstream estimator.'
   - name: ReservoirSample
     tier: baseline
+    depends_on: []
     tier_level: tier1_core
     implementation_status:
       verified_by_agent: true
@@ -811,6 +825,11 @@ subtypes:
       note: 'no_public_benchmark: sampling scheme has no accuracy benchmark; correctness is proven analytically.'
   - name: SMOTE
     tier: sota
+    depends_on:
+    - cadw.ops.linalg.knn_query
+    - cadw.ops.stats.normalize_weights
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L1, §L17"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -840,6 +859,10 @@ subtypes:
       note: 'no_public_benchmark: imbalanced-learn docs page has usage examples but no cross-dataset AUC leaderboard for SMOTE.'
   - name: WeightedSample
     tier: baseline
+    depends_on:
+    - cadw.ops.stats.normalize_weights
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L17"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -878,6 +901,11 @@ subtypes:
   models:
   - name: GridSearch
     tier: baseline
+    depends_on:
+    - cadw.ops.optim.grid_search
+    - cadw.ops.optim.random_search
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L14"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -904,6 +932,11 @@ subtypes:
       note: 'no_public_benchmark: search strategy is not a model; accuracy is downstream.'
   - name: RandomizedSearch
     tier: baseline
+    depends_on:
+    - cadw.ops.optim.grid_search
+    - cadw.ops.optim.random_search
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L14"
+    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
@@ -931,6 +964,7 @@ subtypes:
       note: 'no_public_benchmark: original Bergstra & Bengio paper reports per-experiment gains, not a cross-dataset accuracy table.'
   - name: OptunaTPE
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1023,6 +1057,7 @@ subtypes:
     primitive_reuse: [reduce]
   - name: SHAPTreeExplainer
     tier: sota
+    depends_on: []
     tier_level: tier3_export
     implementation_status:
       described_only: true
@@ -1052,6 +1087,7 @@ subtypes:
       note: 'no_public_benchmark: SHAP paper (Lundberg & Lee 2017) is a theoretical/methodological paper; no cross-dataset accuracy leaderboard.'
   - name: Anchors
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1168,6 +1204,7 @@ subtypes:
     primitive_reuse: [reduce]
   - name: FairlearnParity
     tier: sota
+    depends_on: []
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1294,6 +1331,12 @@ subtypes:
     primitive_reuse: [reduce]
   - name: EvidentlyDrift
     tier: sota
+    depends_on:
+    - cadw.ops.stats.ks_2sample
+    - cadw.ops.stats.chi2_categorical
+    - cadw.ops.stats.psi
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L18"
+    depends_on_status: planned
     tier_level: tier3_export
     implementation_status:
       described_only: true
@@ -1322,6 +1365,12 @@ subtypes:
       note: 'fetch_ok_no_number: https://docs.evidentlyai.com/introduction (Evidently docs); no cross-dataset drift-detector leaderboard published.'
   - name: ADWIN
     tier: sota
+    depends_on:
+    - cadw.ops.stats.ks_2sample
+    - cadw.ops.stats.chi2_categorical
+    - cadw.ops.stats.psi
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L18"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -1585,6 +1634,12 @@ subtypes:
       note: "Per-arm 6-tuple state (n,sy,sy2,sx,sxy,sx2) is O(1) in n. Not O(d^2) — XTX model is per-arm scalars, not covariance matrix."
   - name: SequentialTest
     tier: sota
+    depends_on:
+    - cadw.ops.stats.ks_2sample
+    - cadw.ops.stats.chi2_categorical
+    - cadw.ops.stats.psi
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L18"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true

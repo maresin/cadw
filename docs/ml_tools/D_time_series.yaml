@@ -716,6 +716,7 @@ subtypes:
     cadw_module: cadw.ts
     cadw_function: backtest_forecaster
     input_api: df
+    depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: cadw/ts/backtest.py
@@ -731,6 +732,8 @@ subtypes:
 
   - name: Chronos-Bolt-Tiny
     tier: sota
+    depends_on: []
+    nn_excluded: true
     tier_level: tier3_export
     implementation_status:
       described_only: false
@@ -776,6 +779,8 @@ subtypes:
       notes: 'Pretraining corpus not fully disclosed; potential leakage against UCR/TSB-AD/M4/M5 datasets cannot be ruled out. Reference-only.'
   - name: Chronos-Bolt-Mini
     tier: sota
+    depends_on: []
+    nn_excluded: true
     tier_level: tier3_export
     implementation_status:
       described_only: false
@@ -818,6 +823,8 @@ subtypes:
       notes: 'Reference-only; unknown pretraining overlap.'
   - name: Chronos-2-small
     tier: sota
+    depends_on: []
+    nn_excluded: true
     tier_level: tier3_export
     implementation_status:
       described_only: false
@@ -1165,6 +1172,11 @@ subtypes:
 
   - name: GaussianProcessForecaster
     tier: sota
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.linalg.chol_solve
+    depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L4"
+    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -2202,6 +2214,7 @@ subtypes:
   # to diagnostic; point_adjusted_f1 explicitly legacy (gameable).
   - name: vus_pr
     combination: anchor
+    depends_on: []
     direction: higher
     responsibility: Volume Under the Surface (range-aware PR); primary TSAD
       metric recommended by TSB-AD (NeurIPS 2024) and TAB (VLDB 2025).
@@ -2210,6 +2223,7 @@ subtypes:
     not_implemented_in_cadw: true
   - name: auprc
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Point-wise area under PR curve.
     special: Point-wise; ignores anomaly range; prefer vus_pr for
@@ -2217,6 +2231,7 @@ subtypes:
     not_implemented_in_cadw: true
   - name: point_adjusted_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: LEGACY — F1 with 1-point tolerance (UCR protocol).
     special: LEGACY and gameable — random ranking hits near-perfect PA-F1
@@ -2232,6 +2247,7 @@ subtypes:
       recommended_contamination must exceed affected_ratio.
   - name: vus_roc
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Range-aware ROC-AUC; TSB-AD secondary metric.
     special: Less imbalance-sensitive than VUS-PR but less discriminative;
@@ -2239,6 +2255,7 @@ subtypes:
     not_implemented_in_cadw: true
   - name: range_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Range-aware F1 with tolerance windows (TSB-AD).
     special: Combines precision and recall over anomaly ranges; not
@@ -2246,6 +2263,7 @@ subtypes:
     not_implemented_in_cadw: true
   - name: affiliation_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Affiliation-F1 (TAB/UCR primary for UCR evaluation).
     special: Partial credit for near-miss detections; not comparable to
@@ -2260,6 +2278,7 @@ subtypes:
       prefer vus_roc or vus_pr.
   - name: point_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Point-wise F1 without tolerance (TSB-AD baseline).
     special: Strict; no credit for near-miss detections.
@@ -2653,6 +2672,7 @@ subtypes:
   # but NAB added as honest alternative — SKAB changepoint convention.
   - name: auprc
     combination: anchor
+    depends_on: []
     direction: higher
     responsibility: Change-point discrimination against imbalance.
     special: WEAK anchor for changepoint — point-wise auprc ignores
@@ -2660,6 +2680,7 @@ subtypes:
     not_implemented_in_cadw: true
   - name: nab
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: NAB score (standard Numenta metric); SKAB changepoint
       convention.
@@ -2668,12 +2689,14 @@ subtypes:
     not_implemented_in_cadw: true
   - name: detection_delay
     combination: pareto_axis
+    depends_on: []
     direction: lower
     responsibility: Samples between true and detected changepoint.
     special: Only meaningful if detection_rate is reported alongside.
     not_implemented_in_cadw: true
   - name: range_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Range-aware F1 with tolerance windows.
     special: For changepoint, report detection_delay alongside; single
@@ -2681,6 +2704,7 @@ subtypes:
     not_implemented_in_cadw: true
   - name: point_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Point-wise F1 without tolerance.
     special: Strict for changepoint (single timestamp); use
@@ -3366,6 +3390,7 @@ subtypes:
   # shape-anomaly scores; range-awareness of VUS-PR is the fix).
   - name: vus_pr
     combination: anchor
+    depends_on: []
     direction: higher
     responsibility: Volume Under the Surface (window-level PR); primary
       TSAD metric for range-aware shape anomalies (TSB-AD, TAB).
@@ -3374,6 +3399,7 @@ subtypes:
     not_implemented_in_cadw: true
   - name: auprc
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Point-wise area under PR curve at window resolution.
     special: Point-level AUPRC inflates scores on shape anomalies; use
@@ -3381,24 +3407,28 @@ subtypes:
     not_implemented_in_cadw: true
   - name: best_5_ranking
     combination: diagnostic
+    depends_on: []
     direction: lower
     responsibility: Rank of top-5 detections in ground truth (UCR-style).
     special: Authoritative for UCR paper comparisons; not continuous.
     not_implemented_in_cadw: true
   - name: vus_roc
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Range-aware ROC-AUC; TSB-AD secondary metric.
     special: Not numerically comparable to point-wise AUC-ROC.
     not_implemented_in_cadw: true
   - name: range_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Range-aware F1 with tolerance windows (TSB-AD).
     special: Combines precision and recall over anomaly ranges.
     not_implemented_in_cadw: true
   - name: affiliation_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Affiliation-F1 (TAB/UCR primary for UCR evaluation).
     special: Partial credit for near-miss detections; not comparable to
@@ -3411,6 +3441,7 @@ subtypes:
     special: Overly optimistic under heavy imbalance; prefer vus_roc.
   - name: point_f1
     combination: diagnostic
+    depends_on: []
     direction: higher
     responsibility: Point-wise F1 without tolerance (TSB-AD baseline).
     special: Strict; no credit for near-miss detections.
@@ -3540,6 +3571,7 @@ subtypes:
     primitive_reuse: [strided_view, reduce]
   - name: HIVE-COTE
     tier: sota
+    depends_on: []
     tier_level: tier3_export
     implementation_status:
       described_only: true
@@ -3728,6 +3760,7 @@ subtypes:
   metrics:
   - name: auprc
     combination: anchor
+    depends_on: []
     direction: higher
     responsibility: See D3.2.
     special: See D3.2.

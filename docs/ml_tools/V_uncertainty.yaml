@@ -16,6 +16,7 @@ subtypes:
     models:
       - name: PlattScaling
         tier: baseline
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -30,6 +31,7 @@ subtypes:
 
       - name: TemperatureScaling
         tier: baseline
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -43,6 +45,7 @@ subtypes:
 
       - name: IsotonicCalibration
         tier: sota
+        depends_on: []
         tier_level: tier1_core
         implementation_status:
           described_only: true
@@ -68,6 +71,7 @@ subtypes:
     models:
       - name: SplitConformal
         tier: baseline
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -81,6 +85,7 @@ subtypes:
 
       - name: CVplus
         tier: sota
+        depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
