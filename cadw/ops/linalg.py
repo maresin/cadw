@@ -9,6 +9,9 @@ History:
   exception per DEC-056: 12+ prospective consumers — kmeans, kmeans_ad,
   kshape, tspq, iforest, eif, DBSCAN, HDBSCAN, LOF, bisecting,
   minibatch, spectral).
+- v0.9.143: added nmf_mu (Lee & Seung 1999 multiplicative update).
+  Promoted from .pingis/impl/J/nmf.py; consumers NMF x2 + Top2Vec
+  + LDA_embedding (3 -> P1 per PRIMITIVES_BACKLOG L7).
 """
 from __future__ import annotations
 
@@ -46,3 +49,27 @@ def sq_dists(z: np.ndarray, mem: np.ndarray) -> np.ndarray:
     z_sq = (z * z).sum(axis=1)
     m_sq = (mem * mem).sum(axis=1)
     return z_sq[:, None] - 2.0 * (z @ mem.T) + m_sq[None, :]
+
+
+def nmf_mu(X_b: np.ndarray, H: np.ndarray, *, eps: float = 1e-10) -> np.ndarray:
+    """One mini-batch Lee & Seung mu update of H.
+
+    W_b = NNLS projection of batch X_b onto row space of H (closed-form,
+    clipped to >= 0). Then H <- H * (W_b^T X_b) / (W_b^T W_b H + eps).
+
+    Inputs:
+      X_b: dense non-negative batch, shape (b, V)
+      H:   non-negative components, shape (k, V)
+    Returns:
+      H_new, same shape as H, non-negative.
+
+    Reference: Lee & Seung (1999/2001) multiplicative updates; per-batch
+    closed-form W is the "NNLS W step" adaptation for streaming NMF.
+    """
+    k = H.shape[0]
+    HtH = H @ H.T + eps * np.eye(k, dtype=H.dtype)
+    W_b = np.maximum(X_b @ H.T @ np.linalg.inv(HtH), 0.0)
+    WtX = W_b.T @ X_b
+    WtW = W_b.T @ W_b
+    denom = WtW @ H + eps
+    return H * (WtX / denom)

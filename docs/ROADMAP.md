@@ -332,6 +332,12 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.143-batch2 (NMF):**
+- Promote NMF × 2 (C_dim + J_nlp): `fit_nmf` in `cadw.ml.nmf`.
+  Two YAML cards: None -> verified (DEC-033 component-wise).
+- P1 primitive `cadw.ops.linalg.nmf_mu` (L7, DEC-058).
+- Tests: 10 passed.
+
 **v0.9.143 (bandits batch):**
 - Promote bandits ×3 (EpsilonGreedy, UCB1, ThompsonSampling):
   `fit_epsilon_greedy`, `fit_ucb1`, `fit_thompson_sampling` in

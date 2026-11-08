@@ -126,16 +126,45 @@ subtypes:
       - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [reconstruction_error, fit_time_s], note: "No unified dim-reduction LB."}
     models:
       - name: NMF
+        cadw_function: fit_nmf
+        cadw_module: cadw.ml.nmf
+        input_api: df
+        n_scalability: constant
+        bounded_state: true
+        bounded_state_dims: {k: 1, vocab_size: 1}
+        state_class: O(model)
+        state_type: iterative
+        streaming_strategy: |
+          fit: multi-pass streaming; per-batch mini-batch mu updates H.
+          State H is (k, V) — bounded by user params, independent of n.
+          transform: per-batch W via transform_batches generator, O(batch).
+        primitive_reuse: [reduce]
+        fit_batched: true
+        predict_batched: false  # no predict; transform_batches is generator
+        ram_formula: "k * vocab_size * f64 + 128 + batch * vocab_size * f64 + 4 * batch * row_size"
+        formula_evidence:
+          H: "cadw/ml/nmf.py -- NMFModel.components_: np.ndarray[k, V] float64"
+          header: "cadw/ml/nmf.py -- NMFModel.state_nbytes(): +128"
+          dense_X: "cadw/ml/nmf.py -- _coo_to_dense: np.zeros((n_docs, V)); n_docs <= batch"
+          arrow: "cadw/ml/nmf.py -- batch read: 3 x i64 (doc,term,cnt) + mask"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          state_check: "test_state_nbytes_exact: bit-exact, 4 (k,V) parametrized"
+          state_ooc: "test_state_independent_of_n: state(n=500) == state(n=5000)"
+          formula_sanity: "test_ooc_batch_fixed: peak ratio < 2.0 at fixed batch"
+          ooc: "test_ooc_batch_fixed: median-of-3 per n (DEC-034)"
+          guard: "test_guard_refuses_at_tight: V=50k + 0.1 MB -> MemoryLimitExceeded"
+          correctness: "test_transform_batches_shape_and_nonneg + test_reconstruction_error_small"
+          note: "CW-3 batch coef skipped: transient b*V*f64 dominates row_size Arrow term at any realistic V. Formula uses conservative 4.0 arrow coef."
+          cells_passed: "N/A (component-wise)"
+          runtime_sec: "~5"
         tier: baseline
         depends_on:
         - cadw.ops.linalg.nmf_mu
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L7"
-        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-          reference_impl_ready: true
+          verified_in_cadw: true
+          status: verified
         roles: [representation, probabilistic]
         purpose: "Lee & Seung 1999: non-negative matrix factorization X ≈ W·H with W,H ≥ 0. Parts-based representation; interpretable components. Canonical CADW: .pingis/impl/J/nmf.py (reference impl), J_nlp.J3.NMF card."
         real_life_examples: ["Topic modeling (docs × words)", "Parts-based image decomposition", "Interpretable dim reduction"]

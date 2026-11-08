@@ -20,6 +20,7 @@ from .naive_bayes import (
     BernoulliNB, fit_bernoulli_nb,
 )
 
+from cadw.ml.nmf import NMFModel, fit_nmf  # noqa: E402
 from cadw.ml.bandits import (
     EpsilonGreedyPolicy, UCB1Policy, ThompsonSamplingPolicy,
     fit_epsilon_greedy, fit_ucb1, fit_thompson_sampling,

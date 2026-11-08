@@ -67,6 +67,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `sq_dists` | `cadw.ops.linalg` | patch_memory_ad | +12 (P1) |
 | `znormalize_rows` | `cadw.ops.stats` | autoencoder, patch_memory_ad | +5 |
 | `arm_stats` | `cadw.ops.stats` (v0.9.143) | bandits ×3 | +2 (future policy variations) |
+| `nmf_mu` | `cadw.ops.linalg` (v0.9.143) | NMF ×2 | +1 (Top2Vec) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -122,11 +123,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
   `scipy.sparse.linalg.eigsh` (avoid scipy in core? Use `numpy.linalg.eigh`
   for small; `scipy` optional for large — deferred).
 - **Effort**: 1-2 sessions (large-scale mode needs scipy decision).
-
-### L7. `_nmf_mu` (multiplicative-update NMF, Lee & Seung 1999)
-- **Consumers**: NMF (C2, J3), Top2Vec (J3), LDA_embedding (J2)
-- **Home**: `cadw.ops.linalg.nmf_mu(X, k, max_iter, tol)` — returns (W, H).
-- **Effort**: 1 session (chunked W-update; full H-update O(k*d) fits).
 
 ### L8. `_itemset_mining` (Apriori / FP-tree / Eclat shared core)
 - **Consumers**: Apriori, FP-growth, Eclat (R1)
