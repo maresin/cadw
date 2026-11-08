@@ -20,6 +20,12 @@ from .naive_bayes import (
     BernoulliNB, fit_bernoulli_nb,
 )
 
+from cadw.ml.kernel_density import (  # noqa: E402
+    KernelDensityModel, fit_kernel_density,
+)
+from cadw.ml.complement_nb import (  # noqa: E402
+    ComplementNBModel, fit_complement_nb,
+)
 from cadw.ml.weibull_aft import WeibullAFTModel, fit_weibull_aft  # noqa: E402
 from cadw.ml.kaplan_meier import KaplanMeierModel, fit_kaplan_meier  # noqa: E402
 from cadw.ml.nmf import NMFModel, fit_nmf  # noqa: E402

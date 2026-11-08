@@ -111,13 +111,44 @@ subtypes:
       predict: 'per-batch sparse tf-idf dot + sigmoid.'
     primitive_reuse: [reduce]
   - name: ComplementNB
+    cadw_function: fit_complement_nb
+    cadw_module: cadw.ml.complement_nb
+    input_api: df
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {n_classes: 1, vocab_size: 1}
+    state_class: O(model)
+    state_type: aggregation
+    streaming_strategy: |
+      fit: single-pass Reduce over COO (doc_id, term_id, count, label).
+      State (C, V) int64 class-term counts + (C,) totals.
+      predict: streaming argmin of complement log-likelihood per batch.
+    primitive_reuse: [reduce]
+    fit_batched: true
+    predict_batched: true
+    ram_formula: "n_classes * vocab_size * f64 + 3 * n_classes * f64 + 256 + 4.0 * batch * row_size"
+    formula_evidence:
+      log_prob: "cadw/ml/complement_nb.py -- ComplementNBModel.feature_log_prob_: (C,V) f64"
+      log_prior: "cadw/ml/complement_nb.py -- ComplementNBModel.class_log_prior_: (C,) f64"
+      totals: "cadw/ml/complement_nb.py -- ComplementNBModel.class_totals_: (C,) int64"
+      classes: "cadw/ml/complement_nb.py -- ComplementNBModel.classes_: (C,) int64"
+      header: "cadw/ml/complement_nb.py -- _HEADER_BYTES=256"
+      batch_term: "cadw/ml/complement_nb.py -- _CNBStatsOp.update: 3 to_numpy + linear idx + 2 masked copies"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 4 (C,V) parametrized"
+      state_ooc: "test_state_independent_of_n: state identical n=500 vs n=5000"
+      formula_sanity: "SKIPPED (DEC-034: row_size=32 B, signal < noise; state_ooc primary)"
+      guard: "test_guard_refuses_at_tight: C=100,V=50k + 0.1 MB -> MemoryLimitExceeded"
+      correctness: "test_shapes_and_priors + test_predict_in_range + test_sample_infer_from_first_batch"
+      cells_passed: "5/5 (OOC sanity skipped)"
+      runtime_sec: "~2"
     tier: baseline
     depends_on: []
     tier_level: tier1_core
     implementation_status:
-      verified_by_agent: true
-      described_only: true
-      reference_impl_ready: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - probabilistic
     purpose: 'Complement NB on TF-IDF (Rennie 2003). Inductive bias: per-class independent word likelihoods with a complement correction for imbalance. Very fast; weakest when word interactions matter. Reference impl in .pingis/impl/J/complement_nb.py (smoke 9/9, REPORT.md §6).'

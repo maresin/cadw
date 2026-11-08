@@ -72,12 +72,43 @@ subtypes:
         predict: 'per-batch responsibility (no n-sized state).'
         primitive_reuse: [reduce]
       - name: KernelDensity
+        cadw_function: fit_kernel_density
+        cadw_module: cadw.ml.kernel_density
+        input_api: df
+        n_scalability: constant
+        bounded_state: true
+        bounded_state_dims: {n_centers: 1, d: 1}
+        state_class: O(model)
+        state_type: aggregation
+        streaming_strategy: |
+          fit: reservoir sample of K centers (one streaming pass).
+          State (K, d) f64 centers + bandwidth scalar.
+          score: logsumexp per query batch, chunk-wise over centers.
+          Centers spill to disk when K*d*8 > state_limit_bytes.
+        primitive_reuse: [spill_array]
+        fit_batched: true
+        predict_batched: true
+        ram_formula: "n_centers * d * f64 + 128 + 4.0 * batch * row_size"
+        formula_evidence:
+          centers: "cadw/ml/kernel_density.py -- _reservoir_k: np.empty((K, d)) f64"
+          header: "cadw/ml/kernel_density.py -- _HEADER_BYTES=128 (RAM) / 256 (spilled)"
+          batch_term: "cadw/ml/kernel_density.py -- _reservoir_k: column_stack + mask + rng probs"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          state_check: "test_state_nbytes_exact: bit-exact, 4 (K,d) parametrized"
+          state_ooc: "test_state_independent_of_n: state identical n=500 vs n=5000 (same K)"
+          state_spilled: "test_spilled_state_constant: K*d*8 > state_limit -> state=256"
+          formula_sanity: "SKIPPED (DEC-034: row_size=d*8 small, signal < noise)"
+          guard: "test_guard_refuses_at_tight: K=100k + 0.05 MB -> MemoryLimitExceeded"
+          correctness: "test_score_finite_on_gaussian + test_bandwidth_positive_and_silverman + test_score_samples_streaming"
+          cells_passed: "6/6 (OOC sanity skipped)"
+          runtime_sec: "~2"
         tier: baseline
         depends_on: []
         tier_level: tier2_wrapper
         implementation_status:
-          described_only: true
-          reference_impl_ready: true
+          verified_in_cadw: true
+          status: verified
         roles: [local_structure, probabilistic]
         purpose: "Non-parametric kernel density estimator; the density is a sum of kernel bumps at every training point. Inductive bias: smooth local structure with bandwidth-controlled smoothing — no parametric form, but O(n) scoring and fragile in high dimensions."
         real_life_examples: ["1-2D density visualization", "Anomaly scoring in low-d sensor streams", "Smooth residual distributions"]

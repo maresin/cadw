@@ -332,6 +332,13 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.143-batch4 (CNB + KDE):**
+- Promote ComplementNB + KernelDensity (J_nlp + N_density):
+  `fit_complement_nb` in `cadw.ml.complement_nb`,
+  `fit_kernel_density` in `cadw.ml.kernel_density`.
+  Two YAML cards: None -> verified (DEC-033 component-wise).
+- Tests: CNB 9, KDE 9+1skip.
+
 **v0.9.143-batch3 (survival pair):**
 - Promote KaplanMeier + WeibullAFT (I_survival × 2): `fit_kaplan_meier`
   in `cadw.ml.kaplan_meier`, `fit_weibull_aft` in `cadw.ml.weibull_aft`.
