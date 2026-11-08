@@ -66,6 +66,7 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `ols_fit` | `cadw.ops.linalg` | otm, theta | +2 |
 | `sq_dists` | `cadw.ops.linalg` | patch_memory_ad | +12 (P1) |
 | `znormalize_rows` | `cadw.ops.stats` | autoencoder, patch_memory_ad | +5 |
+| `arm_stats` | `cadw.ops.stats` (v0.9.143) | bandits ×3 | +2 (future policy variations) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -175,12 +176,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
   refine_axes=None)` + `random_search(param_dist, scorer, n_iter, seed)`.
 - **Note**: DEC-054 K4 deferred — this is the extraction target.
 - **Effort**: 1 session.
-
-### L15. `_arm_stats` (bandit per-arm running stats)
-- **Consumers**: EpsilonGreedy, UCB1, ThompsonSampling, NeuralUCB
-- **Home**: `cadw.ops.stats.ArmStats` (dataclass or simple n/sum/mean
-  accumulator with per-arm partition). Uses Reduce pattern.
-- **Effort**: 0.5 session.
 
 ### L16. `_adaboost_weight_update` (AdaBoost exponential loss update)
 - **Consumers**: RUSBoost, GBDT_scale_pos_weight (partial — class

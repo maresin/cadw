@@ -332,6 +332,13 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.143 (bandits batch):**
+- Promote bandits ×3 (EpsilonGreedy, UCB1, ThompsonSampling):
+  `fit_epsilon_greedy`, `fit_ucb1`, `fit_thompson_sampling` in
+  `cadw.ml.bandits`. 3 YAML cards: None -> verified (DEC-033).
+- P1 primitive `cadw.ops.stats.arm_stats` (L15, DEC-058).
+- Tests: 29 passed (state_nbytes_exact, OOC, guard, correctness).
+
 **v0.9.129-141 (this session, 13 releases + 5 docs commits):**
 - v0.9.129: verify 3 ts drafts (OTM/THF/TTF).
 - v0.9.130-133: K1/K2/K3a/K5c+K6+K10+K12 dedup (7 clusters, ~600 lines removed).
@@ -376,7 +383,7 @@ verified fns at v0.9.118; 32 at v0.9.119.
 
 | Status | fns | cards | Что |
 |---|---|---|---|
-| verified | **32** | 48 | framework + 6 recent (v0.9.114-119) |
+| verified | **40** | 56 | +3 bandits ×2 (impl promo v0.9.143) |
 | draft | **14** | 17 | 4 ts (formula pending v0.9.129) + 10 prior (BVAR/VECM, binseg×2, pelt×2, t2q, meta_learner, ab_test×3) |
 | described_only | — | 61 | 19 in B/C/R/S/T/V/W + 42 v0.9.128 candidates |
 | inference-only | — | 6 | Chronos×3, MiniLM, DeepSurv, DeepHit |

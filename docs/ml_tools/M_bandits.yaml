@@ -108,16 +108,45 @@ subtypes:
       predict: 'per-batch UCB = a.T @ A^-1 @ x + alpha·sqrt(...).'
     primitive_reuse: [reduce]
   - name: EpsilonGreedy
+    cadw_function: fit_epsilon_greedy
+    input_api: df
+    cadw_module: cadw.ml.bandits
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {n_arms: 1}
+    state_class: O(model)
+    state_type: aggregation
+    streaming_strategy: |
+      fit: single streaming pass; per-arm sums/counts via ReduceOp
+      (cadw.ops.stats.ArmStatsOp). State O(n_arms), transient O(batch).
+      predict: online select()/update() per arm, O(n_arms) per call.
+    primitive_reuse: [reduce]
+    fit_batched: true
+    predict_batched: true
+    ram_formula: "2 * n_arms * f64 + 128 + 3.5 * batch * row_size"
+    formula_evidence:
+      q_: "cadw/ml/bandits.py -- EpsilonGreedyPolicy.q_: np.ndarray[n_arms] float64"
+      n_: "cadw/ml/bandits.py -- EpsilonGreedyPolicy.n_: np.ndarray[n_arms] int64"
+      header: "cadw/ml/bandits.py -- state_nbytes(): +128 (dataclass+rng)"
+      batch_term: "cadw/ops/stats.py -- ArmStatsOp.update: 2 to_numpy + Arrow batch"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 4 n_arms parametrized"
+      state_ooc: "test_state_independent_of_n: state(n=1k) == state(n=10k)"
+      formula_sanity: "test_ooc_batch_fixed: peak ratio < 2.0 at fixed batch"
+      ooc: "test_ooc_batch_fixed: median-of-3 per n (DEC-034)"
+      guard: "test_guard_refuses_at_tight: n_arms=10k + 0.01 MB -> MemoryLimitExceeded"
+      correctness: "test_q_matches_manual + test_online_select_update"
+      note: "CW-3 batch coef skipped: row_size=16 B, signal < noise. Primary evidence = state_nbytes_exact + OOC."
+      cells_passed: "N/A (component-wise)"
+      runtime_sec: "~10"
     tier: baseline
     depends_on:
     - cadw.ops.stats.arm_stats
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L15"
-    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
-      verified_by_agent: true
-      described_only: true
-      reference_impl_ready: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - linear_signal
     purpose: 'Epsilon-greedy exploration over per-arm reward estimates. Inductive bias: no structural assumption — uniform random exploration with rate epsilon, then exploit the empirical mean. Canonical baseline; weak when rewards are context-dependent. Reference impl in .pingis/impl/M/bandits.py (smoke 9/9, REPORT.md §6).'
@@ -140,16 +169,45 @@ subtypes:
       value: 1.596
       note: 'fetched 2026-10-25 from arXiv:1003.0146 Table 1: ''epsilon-greedy 1.596''. Reference baseline (0% lift by construction).'
   - name: UCB1
+    cadw_function: fit_ucb1
+    input_api: df
+    cadw_module: cadw.ml.bandits
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {n_arms: 1}
+    state_class: O(model)
+    state_type: aggregation
+    streaming_strategy: |
+      fit: single streaming pass; per-arm sums/counts via ReduceOp
+      (cadw.ops.stats.ArmStatsOp). State O(n_arms), transient O(batch).
+      predict: online select()/update() per arm, O(n_arms) per call.
+    primitive_reuse: [reduce]
+    fit_batched: true
+    predict_batched: true
+    ram_formula: "2 * n_arms * f64 + 128 + 3.5 * batch * row_size"
+    formula_evidence:
+      q_: "cadw/ml/bandits.py -- UCB1Policy.q_: np.ndarray[n_arms] float64"
+      n_: "cadw/ml/bandits.py -- UCB1Policy.n_: np.ndarray[n_arms] int64"
+      header: "cadw/ml/bandits.py -- state_nbytes(): +128 (dataclass+rng)"
+      batch_term: "cadw/ops/stats.py -- ArmStatsOp.update: 2 to_numpy + Arrow batch"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 4 n_arms parametrized"
+      state_ooc: "test_state_independent_of_n: state(n=1k) == state(n=10k)"
+      formula_sanity: "test_ooc_batch_fixed: peak ratio < 2.0 at fixed batch"
+      ooc: "test_ooc_batch_fixed: median-of-3 per n (DEC-034)"
+      guard: "test_guard_refuses_at_tight: n_arms=10k + 0.01 MB -> MemoryLimitExceeded"
+      correctness: "test_q_matches_manual + test_online_select_update"
+      note: "CW-3 batch coef skipped: row_size=16 B, signal < noise. Primary evidence = state_nbytes_exact + OOC."
+      cells_passed: "N/A (component-wise)"
+      runtime_sec: "~10"
     tier: baseline
     depends_on:
     - cadw.ops.stats.arm_stats
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L15"
-    depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
-      verified_by_agent: true
-      described_only: true
-      reference_impl_ready: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - probabilistic
     purpose: 'Auer et al. 2002 UCB1 — non-contextual optimism under uncertainty with an O(sqrt(log T / n_a)) bonus. Inductive bias: stationary arm means with no context; outperforms epsilon-greedy on stationary problems but not context-dependent ones. Reference impl in .pingis/impl/M/bandits.py (smoke 9/9, REPORT.md §6).'
@@ -172,16 +230,45 @@ subtypes:
       value: 1.594
       note: 'fetched 2026-10-25 from arXiv:1003.0146 Table 1: ''ucb 1.594'' in deploy bucket.'
   - name: ThompsonSampling
+    cadw_function: fit_thompson_sampling
+    input_api: df
+    cadw_module: cadw.ml.bandits
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {n_arms: 1}
+    state_class: O(model)
+    state_type: aggregation
+    streaming_strategy: |
+      fit: single streaming pass; per-arm sums/counts via ReduceOp
+      (cadw.ops.stats.ArmStatsOp). State O(n_arms), transient O(batch).
+      predict: online select()/update() per arm, O(n_arms) per call.
+    primitive_reuse: [reduce]
+    fit_batched: true
+    predict_batched: true
+    ram_formula: "4 * n_arms * f64 + 128 + 3.5 * batch * row_size"
+    formula_evidence:
+      q_: "cadw/ml/bandits.py -- ThompsonSamplingPolicy.q_: np.ndarray[n_arms] float64"
+      n_: "cadw/ml/bandits.py -- ThompsonSamplingPolicy.n_: np.ndarray[n_arms] int64"
+      header: "cadw/ml/bandits.py -- state_nbytes(): +128 (dataclass+rng)"
+      batch_term: "cadw/ops/stats.py -- ArmStatsOp.update: 2 to_numpy + Arrow batch"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact, 4 n_arms parametrized"
+      state_ooc: "test_state_independent_of_n: state(n=1k) == state(n=10k)"
+      formula_sanity: "test_ooc_batch_fixed: peak ratio < 2.0 at fixed batch"
+      ooc: "test_ooc_batch_fixed: median-of-3 per n (DEC-034)"
+      guard: "test_guard_refuses_at_tight: n_arms=10k + 0.01 MB -> MemoryLimitExceeded"
+      correctness: "test_q_matches_manual + test_online_select_update"
+      note: "CW-3 batch coef skipped: row_size=16 B, signal < noise. Primary evidence = state_nbytes_exact + OOC."
+      cells_passed: "N/A (component-wise)"
+      runtime_sec: "~10"
     tier: sota
     depends_on:
     - cadw.ops.stats.arm_stats
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L15"
-    depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
-      verified_by_agent: true
-      described_only: true
-      reference_impl_ready: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - probabilistic
     purpose: 'Chapelle & Li 2011 — Beta-Bernoulli posterior sampling per arm; plays an arm with probability proportional to its posterior probability of being optimal. Inductive bias: conjugate Bayesian per-arm model; naturally balances exploration and exploitation and is empirically strong on CTR data. Reference impl in .pingis/impl/M/bandits.py (smoke 9/9, REPORT.md §6).'

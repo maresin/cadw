@@ -20,6 +20,11 @@ from .naive_bayes import (
     BernoulliNB, fit_bernoulli_nb,
 )
 
+from cadw.ml.bandits import (
+    EpsilonGreedyPolicy, UCB1Policy, ThompsonSamplingPolicy,
+    fit_epsilon_greedy, fit_ucb1, fit_thompson_sampling,
+)
+
 __all__ = [
     "XTXOp", "LinearModel", "fit_linear",
     "fit_lasso", "fit_elasticnet",
@@ -35,6 +40,12 @@ __all__ = [
     "IsolationForestModel", "fit_isolation_forest",
     "permutation_importance",
     "GMMModel", "fit_gmm",
+    "fit_epsilon_greedy",
+    "fit_ucb1",
+    "fit_thompson_sampling",
+    "EpsilonGreedyPolicy",
+    "UCB1Policy",
+    "ThompsonSamplingPolicy",
 ]
 # v0.9.52: DWT-MLEAD (Thill, Konen, Baeck 2017)
 from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
