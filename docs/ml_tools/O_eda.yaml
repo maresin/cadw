@@ -58,6 +58,8 @@ subtypes:
     cadw_module: cadw.dataframe
     cadw_function: describe
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(d)
     bounded_state_dims: {d: 1}
     transient_factor: 1.0
@@ -98,6 +100,8 @@ subtypes:
     cadw_module: cadw.plot_accessor
     cadw_function: hist
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(1)
     bounded_state_dims: {}
     transient_factor: 1.0
@@ -138,6 +142,8 @@ subtypes:
     cadw_module: cadw.dataframe
     cadw_function: value_counts
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(model)
     bounded_state_dims: {k: 1, d: 1}
     transient_factor: 1.0
@@ -245,6 +251,8 @@ subtypes:
     cadw_module: cadw.dataframe
     cadw_function: fillna
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(d)
     bounded_state_dims: {d: 1}
     transient_factor: 1.0
@@ -450,6 +458,8 @@ subtypes:
     cadw_module: cadw.dataframe
     cadw_function: encode_categorical
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(K)
     state_type: aggregation
     bounded_state: false
@@ -506,7 +516,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - linear_signal
     - probabilistic
@@ -555,6 +564,8 @@ subtypes:
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(d)
     bounded_state_dims: {d: 1}
     transient_factor: 1.0
@@ -570,7 +581,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - linear_signal
     purpose: 'Drop features whose variance is below a threshold. Inductive bias: low variance means low information; catches constants and near-constants cheaply.'
@@ -595,6 +605,8 @@ subtypes:
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(d)
     bounded_state_dims: {d: 1}
     transient_factor: 1.0
@@ -610,7 +622,6 @@ subtypes:
     tier_level: tier2_wrapper
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     purpose: 'Shadow-feature wrapper: repeated GBDT fits compare real vs shuffled shadow features; selects only those that beat all shadows. Inductive bias: relevance detectable by tree ensembles; stable, expensive.'
@@ -636,6 +647,8 @@ subtypes:
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(batch)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
@@ -1019,7 +1032,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - calibration
     purpose: 'Shuffle one feature at a time and measure the drop in a chosen metric. Inductive bias: model-agnostic, captures any dependence; noisy under correlated features.'
@@ -1045,6 +1057,8 @@ subtypes:
     cadw_module: cadw.ml.importance
     cadw_function: permutation_importance
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(batch)
     bounded_state_dims: {batch: 1}
     transient_factor: 1.0
@@ -1143,7 +1157,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - calibration
     purpose: 'Group-wise TPR/FPR and positive-rate disparities via Reduce. Inductive bias: sensitive groups are the audit unit; metrics are statistical, no model.'
@@ -1192,6 +1205,8 @@ subtypes:
     cadw_module: cadw.ml.fairness
     cadw_function: fairness_metrics
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(model)
     bounded_state_dims: {k: 1, d: 1}
     transient_factor: 1.0
@@ -1282,7 +1297,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - calibration
     purpose: 'KS, chi2, PSI per feature computed with Reduce stats. Inductive bias: independent per-feature drift; misses multivariate drift.'
@@ -1319,6 +1333,8 @@ subtypes:
     cadw_module: cadw.ml.drift
     cadw_function: fit_drift
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     state_class: O(d)
     bounded_state_dims: {d: 1}
     transient_factor: 1.0

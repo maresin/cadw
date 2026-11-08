@@ -31,7 +31,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - temporal_dynamics
     purpose: Last-value / seasonal / drift baseline; every method must beat it.
@@ -43,6 +42,8 @@ subtypes:
     cadw_module: cadw.ts.models
     cadw_function: NaiveForecaster
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -71,7 +72,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
       described_only: false
     roles:
     - temporal_dynamics
@@ -88,6 +88,8 @@ subtypes:
     cadw_module: cadw.ts.ets
     cadw_function: ETSForecaster
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -144,7 +146,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - temporal_dynamics
     - probabilistic
@@ -164,6 +165,8 @@ subtypes:
     cadw_module: cadw.ts.auto_ets
     cadw_function: AutoETSForecaster
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/auto_ets.json
@@ -214,7 +217,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - temporal_dynamics
     - probabilistic
@@ -228,6 +230,11 @@ subtypes:
     cadw_module: cadw.ts.theta
     cadw_function: ThetaForecaster
     input_api: df
+    depends_on:
+    - cadw.ops.linalg.ols_fit
+    - cadw.ops.numeric.erfinv
+    - cadw.ts._decomposition.stl_decompose
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/theta.json
@@ -272,7 +279,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - temporal_dynamics
     - probabilistic
@@ -293,6 +299,9 @@ subtypes:
     cadw_module: cadw.ts.auto_theta
     cadw_function: AutoThetaForecaster
     input_api: df
+    depends_on:
+    - cadw.ts._decomposition.stl_decompose
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/auto_theta.json
@@ -349,7 +358,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - temporal_dynamics
     purpose: Seasonal ARIMA via Hannan-Rissanen CSS; explicit AR/MA orders.
@@ -361,6 +369,8 @@ subtypes:
     cadw_module: cadw.ts.models
     cadw_function: SARIMAForecaster
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -390,7 +400,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     purpose: 'GBDT on lag features; SOTA on heterogeneous M4/M5-type
@@ -407,6 +416,8 @@ subtypes:
     cadw_module: cadw.ts.models
     cadw_function: GBDTForecaster
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: M4
       benchmark_url: https://github.com/Mcompetitions/M4-methods
@@ -975,7 +986,6 @@ subtypes:
     evaluation_scope: both
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - temporal_dynamics
     purpose: Vector autoregression; explicit cross-series coefficients.
@@ -986,6 +996,8 @@ subtypes:
     cadw_module: cadw.ts.var
     cadw_function: VARModel
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: M5
       benchmark_url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
@@ -1028,7 +1040,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     - temporal_dynamics
@@ -1041,6 +1052,8 @@ subtypes:
     cadw_module: cadw.ts.models
     cadw_function: GBDTForecaster
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: M5
       benchmark_url: https://www.kaggle.com/competitions/m5-forecasting-accuracy
@@ -3474,7 +3487,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     - temporal_dynamics
@@ -3487,6 +3499,8 @@ subtypes:
     cadw_module: cadw.ts.stats
     cadw_function: rolling_stats
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: UCR_Classification
       benchmark_url: https://www.timeseriesclassification.com/

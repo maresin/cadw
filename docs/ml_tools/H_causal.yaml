@@ -235,7 +235,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     purpose: Two-model uplift (see _fit_uplift_two_model); reference baseline.
@@ -246,6 +245,8 @@ subtypes:
     cadw_module: cadw.ml.uplift
     cadw_function: _fit_uplift_two_model
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: RCT_IHDP
       benchmark_url: https://www.fredjo.com/
@@ -277,7 +278,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     purpose: ED-divergence splits + honest leaves (Rzepakowski-Jaroszewicz 2012, Wager-Athey 2018).
@@ -290,6 +290,8 @@ subtypes:
     cadw_module: cadw.ml.uplift
     cadw_function: fit_uplift
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: RCT_IHDP
       benchmark_url: https://www.fredjo.com/

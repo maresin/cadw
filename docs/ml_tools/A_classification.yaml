@@ -82,7 +82,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     purpose: Gradient-boosted trees; SOTA on most tabular Kaggle tasks.
@@ -96,6 +95,9 @@ subtypes:
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_classifier
     input_api: df
+    depends_on:
+    - cadw.ops.numeric.sigmoid
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -327,7 +329,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     purpose: One-vs-all softmax GBDT; SOTA on tabular multiclass.
@@ -339,6 +340,9 @@ subtypes:
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_multiclass
     input_api: df
+    depends_on:
+    - cadw.ops.numeric.sigmoid
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -655,7 +659,6 @@ subtypes:
     evaluation_scope: both
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     purpose: Gradient-boosted trees with squared loss; general-purpose SOTA.
@@ -668,6 +671,9 @@ subtypes:
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_regressor
     input_api: df
+    depends_on:
+    - cadw.ops.numeric.sigmoid
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/
@@ -1128,7 +1134,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - nonlinear_interactions
     purpose: Cost-sensitive GBDT; weight positives by neg/pos ratio (XGBoost semantics).
@@ -1141,6 +1146,9 @@ subtypes:
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_classifier
     input_api: df
+    depends_on:
+    - cadw.ops.numeric.sigmoid
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: AMLB
       benchmark_url: https://openml.github.io/automlbenchmark/

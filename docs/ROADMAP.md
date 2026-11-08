@@ -172,7 +172,10 @@ depends_on forward-scan pending DEC-056.
 
 **DEC-056 (PRIMITIVES_BACKLOG):** `docs/ml_tools/PRIMITIVES_BACKLOG.md`
 v1.0 (449 lines). 162 non-implemented cards scanned, clustered:
-- **20 P1** (3+ prospective consumers): `_knn_query`, `_core_distances`,
+- **20 P1 clusters (~30 functions)** (3+ prospective consumers; some
+  clusters are families: L3 kernels ×3, L6 laplacian+eigsh, L9 pinball
+  loss+grad, L12 consensus+coassoc, L13 ranknet+listnet+lambdarank,
+  L14 grid+random, L18 ks+chi2+psi): `_knn_query`, `_core_distances`,
   `_rbf_kernel`, `_chol_solve`, `_mst`, `_graph_laplacian+_eigsh_topk`,
   `_nmf_mu`, `_itemset_mining`, `_pinball_loss`, `_survival_logrank`,
   `_doubly_robust_score`, `_consensus_matrix`, `_ltr_gradients`,

@@ -9,6 +9,18 @@ when prospective consumers >= 2).
 `AI_CONSTITUTION` §5 (AP10 amendment), `PRIMITIVES_AND_PRINCIPLES.md`.
 
 **Status:** living document. Update as primitives are implemented.
+
+**Counts:** 20 P1 clusters (~30 functions; some clusters are
+families of 2-3 variants: L3 kernels ×3, L6 laplacian+eigsh,
+L9 pinball loss+grad, L12 consensus+coassoc, L13 ranknet+listnet+
+lambdarank, L14 grid+random, L18 ks+chi2+psi). 15 P2 clusters
+(~20 functions). 20 P3 clusters (~20 functions, opportunistic).
+
+**Where dependencies live:** each card's `depends_on` field lists
+primitive paths + `depends_on_backlog: PRIMITIVES_BACKLOG §<cluster>`
++ `depends_on_status: planned`. Discoverable via:
+  `grep "depends_on_status: planned" docs/ml_tools/*.yaml` -> 54 cards
+  `grep "§L1" docs/ml_tools/*.yaml` -> 8 cards (knn_query consumers)
 **Scope:** 162 cards (status=None: described_only=125, not_impl=106,
 inference-only=6, last-priority=5, overlap makes counts non-additive).
 

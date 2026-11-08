@@ -252,7 +252,6 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      verified_by_agent: true
     roles:
     - representation
     - nonlinear_interactions
@@ -265,6 +264,8 @@ subtypes:
     cadw_module: cadw.ml.hybrid_mf
     cadw_function: fit_hybrid_mf
     input_api: df
+    depends_on: []
+    depends_on_status: implemented
     benchmark_results:
     - benchmark: Amazon_Recsys
       benchmark_url: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
