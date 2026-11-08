@@ -60,6 +60,22 @@ class T2QResult:
     aggregate : str
     n_channels : int
     """
+    def state_nbytes(self) -> int:
+        """Persistent state (bytes), v0.9.140.
+
+        O(n) output arrays (decision_scores, labels, t2_scores,
+        q_scores = 4n*f64) + O(k*d) PCA (components, eigvals, mean)
+        + 256 header. bounded_state: false, bounded_by_domain n<=1e6
+        (DEC-039 pattern, same as hampel/sub_pca v0.9.116).
+        """
+        return int(
+            self.decision_scores.nbytes + self.labels.nbytes
+            + self.t2_scores.nbytes + self.q_scores.nbytes
+            + self.components.nbytes + self.eigvals.nbytes
+            + self.mean.nbytes + 256)
+
+
+
     decision_scores: np.ndarray
     labels: np.ndarray
     threshold: float
@@ -321,6 +337,13 @@ def fit_t2q(
 
     # Combined per-sample score
     combined = np.maximum(t2 / t2_limit, q / q_limit)
+
+    # v0.9.140 (DEC-039 fix, same as hampel/sub_pca v0.9.116):
+    # guard before O(n) aggregation output. est_bytes above only
+    # counted 2*n_s*8 (t2/q); post-aggregation t2_ts/q_ts/dec_ts/labels
+    # = 4*n*8 unguarded. At n=1e6 budget=5MB this silently OOMed.
+    if window_size > 1 and guard is not None and hasattr(guard, "check_state"):
+        guard.check_state(int(4 * n * 8), name="tspq.output")
 
     # Aggregate window scores to timestamps
     if window_size == 1:

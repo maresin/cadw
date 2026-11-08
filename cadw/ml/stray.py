@@ -42,6 +42,16 @@ class STRAYResult:
     tail_threshold: float
     n_tail: int
 
+    def state_nbytes(self) -> int:
+        """Persistent state (bytes), v0.9.140.
+
+        O(n) output arrays (decision_scores, labels = 2n*f64) + 256
+        header. bounded_state: false, tier1_core_exception (n<=20k
+        documented CPU bound at AP22).
+        """
+        return int(self.decision_scores.nbytes + self.labels.nbytes
+                   + 256)
+
 
 # v0.9.130 (DEC-054): _probe_memory_limit_mb -> 
 # cadw.core.memory_guard.probe_limit_mb (single source of truth).

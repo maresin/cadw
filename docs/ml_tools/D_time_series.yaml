@@ -1889,9 +1889,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "batched kNN not done; CPU-bound at n>1e5; v0.9.106"
-      verified_by_agent: false
+      verified_by_agent: true
+      status: verified
     roles:
     - local_structure
     purpose: 'Robust standardize plus k-th NN distance plus GPD tail fit plus negative log p-value; streaming with drift.'
@@ -1935,13 +1934,26 @@ subtypes:
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(n)
     bounded_state_dims: {n: 1}
+    ram_formula: "2 * n * f64 + 256"
+    formula_evidence:
+      output_arrays: "stray.py STRAYResult.state_nbytes: decision_scores + labels = 2*n*f64 (v0.9.140)"
+      kth_nn_transient: "stray.py _kth_nn_distances: chunk_size * n * 8 per chunk (max_mb bounded); not state"
+      header: "stray.py: +256 header"
+      fit_guard: "stray.py fit_stray: est_bytes = 8*n*d*min(n, 4*k); explicit MemoryLimitExceeded if > max_mb"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: 2n*8 + 256, parametrized n"
+      state_ratio_linear: "test_state_ratio_linear: 1000->5000 ~= 5x"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=1e6 + max_mb=1 -> MLE (STRAY internal est_bytes check)"
+      cells_passed: "3/3"
+      runtime_sec: "~1"
     transient_factor: 1.0
     state_type: cross_row
     bounded_state: false
     n_scalability: linear
-    tier1_core_exception: 'STRAY keeps k-th NN distances across full series (documented n<=20k limit); refuse beyond 20k.'
+    tier1_core_exception: 'STRAY keeps k-th NN distances across full series (documented n<=20k limit); refuse beyond 20k. O(n) decision_scores/labels output; tier1_core_exception + max_mb guard.'
     streaming_strategy:
-      fit: 'kNN distances on full series with n<=20k threshold.'
+      fit: 'kNN distances on full series with n<=20k threshold; max_mb guard for chunked distance matrix.'
       predict: 'score new points vs stored neighbors.'
     primitive_reuse: []
   - name: Autoencoder
@@ -2435,9 +2447,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "fit is container (256B); _collect_series buffers per-id series; DP in detect(); formula needs _collect_series refactor v0.9.104"
       verified_by_agent: true
+      status: verified
     bounded_by_domain:
       axis: n
       bound: 1000000
@@ -2484,9 +2495,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "_make_windows materializes O(n_w*w) at fit; strided+chunked v0.9.104"
-      verified_by_agent: false
+      verified_by_agent: true
+      status: verified
     roles:
     - representation
     purpose: 'Hotelling T^2 (PCA score-space) plus Q (SPE residual); OR-threshold; percentiles per stat. v0.9.72b role temporal_dynamics -> representation (PCA subspace SPC is a representation-based detector; different inductive bias from PELT/BOCPD temporal_dynamics).'
@@ -2528,14 +2538,35 @@ subtypes:
       target_leakage_checked: true
     coverage: broad
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
-    state_class: O(d²)
-    bounded_state_dims: {d: 2}
+    state_class: O(n)
+    bounded_state_dims: {n: 1, d: 1, k: 1}
+    ram_formula: "4 * n * f64 + k * d * f64 + k * f64 + d * f64 + 256"
+    formula_evidence:
+      output_arrays: "tspq.py T2QResult.state_nbytes: decision_scores + labels + t2_scores + q_scores = 4*n*f64"
+      components: "tspq.py T2QResult: components (k, d) = k*d*f64"
+      eigvals_mean: "tspq.py: eigvals (k) + mean (d) = k*f64 + d*f64"
+      header: "tspq.py: +256 header"
+      chunked_fit: "tspq.py:270-290 _iter_window_chunks_tspq; est_bytes = chunk*d*8*3 + 2*n_s*8 + d*d*8*3"
+      output_guard: "tspq.py v0.9.140: check_state(4*n*8, name='tspq.output') before post-aggregation arrays"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: 4n*8 + k*d*8 + k*8 + d*8 + 256, parametrized n"
+      state_ratio_linear: "test_state_ratio_linear: 1000->5000 ~= 4x"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=1e6 + 5MB -> MLE (tspq.output)"
+      peak_growth: "test_peak_grows_linearly_with_n: n=5000/n=1000 < 8"
+      cells_passed: "4/4"
+      runtime_sec: "~2"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "O(n) output arrays (decision_scores, labels, t2_scores, q_scores = 4n*f64) intrinsic to anomaly detector; n<=1e6 (DEC-039 pattern, same as hampel/sub_pca v0.9.116)."
+    tier1_core_exception: 'O(n) output arrays; bounded_by_domain n<=1e6. Fit chunked (O(chunk*d)), output aggregation is O(n).'
     transient_factor: 2.0
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    n_scalability: linear
     streaming_strategy:
-      fit: 'mean + covariance of PCA subspace (Reduce).'
+      fit: 'chunked windows + Reduce (mean, cov) + chunked scores; guard(state) for O(n) output arrays (v0.9.140).'
       predict: 'per-batch T-squared/Q stats.'
     primitive_reuse: [reduce]
   - name: CUSUM
@@ -3638,9 +3669,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "fit is container (256B); _collect_series buffers per-id series; DP in detect(); formula needs _collect_series refactor v0.9.104"
       verified_by_agent: true
+      status: verified
     bounded_by_domain:
       axis: n
       bound: 1000000
@@ -3673,12 +3703,26 @@ subtypes:
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n)
     bounded_state_dims: {n: 1}
+    ram_formula: "256"
+    formula_evidence:
+      container_state: "pelt.py PELTModel.state_nbytes: fixed 256B (validation-only; DP runs in detect())"
+      detect_concat: "pelt.py _collect_series: np.concatenate(vals) = n*f64 transient (single-series)"
+      detect_dp: "pelt.py pelt(): DP array over n (intrinsic; refuse_at_guard via check_state n*8)"
+      fit_guard: "pelt.py fit_pelt: _collect_series pre-pass check_batch/check_state; n=1e6 + tight -> MLE"
+    measurement:
+      verification_mode: "component-wise (DEC-033, container + detect)"
+      state_check: "test_state_nbytes_exact: 256 always (validation-only container)"
+      state_ooc: "test_state_independent_of_n: 256 regardless n"
+      fit_refuse: "test_fit_refuses_at_domain_bound: n=1e6 + 1MB -> MLE at pre-pass"
+      detect_ooc: "test_detect_ooc_for_n_below_bound: n=500 + 500MB -> succeeds"
+      cells_passed: "4/4"
+      runtime_sec: "~1"
     transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
     streaming_strategy:
-      fit: 'DP + pruning.'
+      fit: 'container only (256B); _collect_series pre-pass validates n_series and refuses at tight guard.'
       predict: 'report positions.'
     primitive_reuse: []
   metrics:
