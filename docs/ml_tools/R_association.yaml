@@ -48,9 +48,7 @@ subtypes:
       - name: FP-growth
         tier: sota
         depends_on:
-        - cadw.ops.itemset.itemset_mining
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L8"
-        depends_on_status: planned
+        - cadw.ops.itemset.fp_growth
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -75,9 +73,7 @@ subtypes:
       - name: GSP
         tier: baseline
         depends_on:
-        - cadw.ops.itemset.itemset_mining
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L8"
-        depends_on_status: planned
+        - cadw.ops.itemset.gsp
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true
@@ -92,9 +88,7 @@ subtypes:
       - name: PrefixSpan
         tier: sota
         depends_on:
-        - cadw.ops.itemset.itemset_mining
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L8"
-        depends_on_status: planned
+        - cadw.ops.itemset.prefix_span
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true

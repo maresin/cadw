@@ -5,7 +5,7 @@
 - apriori: level-wise frequent itemset mining
 - eclat: vertical tidset intersection
 
-v0.9.150 (next): fp_growth, prefix_span, gsp.
+v0.9.150: added fp_growth, prefix_span, gsp (L8 complete).
 
 Input: `transactions_factory` is either:
   - callable returning Iterator[Iterable[Hashable]] (preferred — replayable
@@ -238,4 +238,171 @@ def eclat(
         if len(ts) >= min_support:
             _dfs([item], ts, frozenset([item]))
 
+    return result
+
+
+# ============================================================================
+# FP-growth, PrefixSpan, GSP (v0.9.150, L8 complete)
+# ============================================================================
+
+def _fp_project(itemsets, min_support, prefix, results, max_len, depth, mg):
+    if depth > 100:
+        raise RecursionError("fp_growth: depth > 100")
+    counts = {}
+    for tx in itemsets:
+        for item in tx:
+            if item not in prefix:
+                counts[item] = counts.get(item, 0) + 1
+    frequent = [i for i, c in counts.items() if c >= min_support]
+    frequent.sort(key=lambda x: (counts[x], str(x)))
+    if mg is not None:
+        mg.check_state(len(frequent) * 200 + _HEADER_BYTES,
+                       name="fp_growth.recursion")
+    for item in frequent:
+        new_prefix = prefix | frozenset([item])
+        results.append((new_prefix, counts[item]))
+        if max_len is not None and len(new_prefix) >= max_len:
+            continue
+        projected = []
+        for tx in itemsets:
+            if item in tx:
+                remainder = [i for i in tx if i in counts and i != item]
+                if remainder:
+                    projected.append(remainder)
+        if projected:
+            _fp_project(projected, min_support, new_prefix, results,
+                        max_len, depth + 1, mg)
+
+
+def fp_growth(
+    transactions_factory,
+    min_support: int,
+    *,
+    max_len: int | None = None,
+    memory_guard=None,
+):
+    """FP-growth via projected-DB pattern growth (Han et al. 2000).
+
+    Same frequent itemsets as apriori; avoids FP-tree dict-of-dicts
+    by growing on projected databases.
+    OOC: not fully - projected DBs in memory. Guard checked per recursion.
+    """
+    if min_support < 1:
+        raise ValueError(f"min_support must be >= 1; got {min_support}")
+    itemsets = [list(tx) for tx in _iter_transactions(transactions_factory)]
+    results = []
+    _fp_project(itemsets, min_support, frozenset(), results,
+                max_len, 0, memory_guard)
+    return results
+
+
+def _is_subsequence(pattern, seq):
+    i = 0
+    for item in seq:
+        if i < len(pattern) and pattern[i] == item:
+            i += 1
+    return i == len(pattern)
+
+
+def prefix_span(
+    sequences_factory,
+    min_support: int,
+    *,
+    max_len=None,
+    memory_guard=None,
+):
+    """PrefixSpan: prefix-projected DB growth (Pei et al. 2001).
+
+    Sequences: iterable of ordered item-lists. Patterns = subsequences.
+    OOC: not fully - projected DBs in memory.
+    """
+    if min_support < 1:
+        raise ValueError(f"min_support must be >= 1; got {min_support}")
+    sequences = [list(s) for s in _iter_transactions(sequences_factory)]
+    results = []
+
+    def _mine(proj_db, prefix, depth):
+        if depth > 100:
+            raise RecursionError("prefix_span: depth > 100")
+        counts = {}
+        for seq in proj_db:
+            seen = set()
+            for item in seq:
+                if item not in seen:
+                    counts[item] = counts.get(item, 0) + 1
+                    seen.add(item)
+        frequent = [(i, c) for i, c in counts.items() if c >= min_support]
+        if memory_guard is not None:
+            memory_guard.check_state(len(frequent) * 200 + _HEADER_BYTES,
+                                     name="prefix_span.recursion")
+        for item, cnt in frequent:
+            new_prefix = prefix + [item]
+            results.append((tuple(new_prefix), cnt))
+            if max_len is not None and len(new_prefix) >= max_len:
+                continue
+            projected = []
+            for seq in proj_db:
+                try:
+                    idx = seq.index(item)
+                except ValueError:
+                    continue
+                suffix = seq[idx + 1:]
+                if suffix:
+                    projected.append(suffix)
+            if projected:
+                _mine(projected, new_prefix, depth + 1)
+
+    _mine(sequences, [], 0)
+    return results
+
+
+def gsp(
+    sequences_factory,
+    min_support: int,
+    *,
+    max_len=None,
+    memory_guard=None,
+):
+    """GSP: level-wise sequential patterns (Srikant & Agrawal 1996).
+    OOC: candidate set in memory.
+    """
+    if min_support < 1:
+        raise ValueError(f"min_support must be >= 1; got {min_support}")
+    sequences = [list(s) for s in _iter_transactions(sequences_factory)]
+
+    counts_1 = {}
+    for seq in sequences:
+        for item in set(seq):
+            counts_1[item] = counts_1.get(item, 0) + 1
+    F_prev = {tuple([item]): c for item, c in counts_1.items()
+              if c >= min_support}
+    result = list(F_prev.items())
+    k = 1
+
+    while F_prev:
+        if max_len is not None and k >= max_len:
+            break
+        k += 1
+        F_prev_set = set(F_prev.keys())
+        candidates = set()
+        for a in F_prev_set:
+            for b in F_prev_set:
+                if a[1:] == b[:-1]:
+                    new = a + (b[-1],)
+                    if len(new) == k:
+                        if all(new[:i] + new[i + 1:] in F_prev_set
+                               for i in range(k)):
+                            candidates.add(new)
+        if not candidates:
+            break
+        if memory_guard is not None:
+            memory_guard.check_state(len(candidates) * 200 + _HEADER_BYTES,
+                                     name="gsp.candidates")
+        new_counts = {c: 0 for c in candidates}
+        for seq in sequences:
+            for c in candidates:
+                if _is_subsequence(list(c), seq):
+                    new_counts[c] += 1
+        F_prev = {c: n for c, n in new_counts.items() if n >= min_support}
+        result.extend(F_prev.items())
     return result

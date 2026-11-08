@@ -332,6 +332,17 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.150 (P1 L8 complete: fp_growth + prefix_span + gsp):**
+- cadw/ops/itemset.py extended with:
+  - fp_growth (projected-DB pattern growth, Han 2000 semantics)
+  - prefix_span (prefix-projected DB DFS, Pei 2001)
+  - gsp (level-wise sequential, Srikant & Agrawal 1996)
+- Tests: 12 passed (fp_growth == apriori crosscheck; gsp ==
+  prefix_span crosscheck; random 200 seqs; max_len; guard).
+- YAML: 3 cards flipped (FP-growth, PrefixSpan, GSP). HMM stays
+  planned (model, not primitive — v0.9.152+).
+- R_association: 5/6 cards now flipped (HMM pending).
+
 **v0.9.149 (P1 L8: itemset apriori + eclat):**
 - New `cadw/ops/itemset.py`: support_count + candidate_generation
   + apriori + eclat. L8 was a single dispatcher (itemset_mining)
