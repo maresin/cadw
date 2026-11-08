@@ -102,8 +102,6 @@ subtypes:
         tier: sota
         depends_on:
         - cadw.ops.linalg.rbf_kernel
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L3"
-        depends_on_status: planned
         tier_level: tier2_wrapper
         implementation_status:
           described_only: true

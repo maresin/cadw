@@ -15,6 +15,8 @@ History:
 - v0.9.144: added knn_query (L1) + core_distances (L2).
   Chunked query against streamed X; state O(n_q * k).
   knn_query: 8 consumers, core_distances: 3 consumers (P1).
+- v0.9.145: added pairwise_kernel (L3: rbf/poly/laplacian,
+  parameterized) + chol_solve (L4). L3: 10 cards, L4: 5 cards.
 """
 from __future__ import annotations
 
@@ -240,3 +242,179 @@ def core_distances(
         chunk_size=chunk_size, memory_guard=memory_guard,
     )
     return dist[:, k].copy()
+
+
+# ============================================================================
+# Kernel + Cholesky primitives (v0.9.145, P1 L3 + L4)
+# ============================================================================
+#
+# pairwise_kernel — parameterized over {"rbf", "poly", "laplacian"}.
+#   One function, not 3 wrappers (AP22: no per-variant duplication).
+#   Chunked Y streaming; peak O(n_x * chunk_y), independent of n_y.
+#
+# chol_solve — Cholesky + triangular solve; falls back to np.linalg.solve
+#   when Cholesky fails (kernel matrix not strictly PSD due to noise).
+# ============================================================================
+
+_SUPPORTED_KERNELS = ("rbf", "poly", "laplacian")
+_KERNEL_STATE_HEADER = 256
+
+
+def _resolve_kernel_chunk_size(
+    n_x: int, d: int, memory_guard=None,
+) -> int:
+    """Pick chunk_size in Y so n_x * chunk * f64 fits budget."""
+    target_bytes = 8 * 1024 * 1024
+    if memory_guard is not None:
+        try:
+            avail = memory_guard.available_bytes
+            target_bytes = max(64 * 1024, min(target_bytes, avail // 4))
+        except Exception:
+            pass
+    per_row = 8 * max(n_x, 1)
+    return max(1, int(target_bytes // per_row))
+
+
+def pairwise_kernel(
+    X: np.ndarray,
+    Y: np.ndarray,
+    kernel: str = "rbf",
+    *,
+    gamma: float = 1.0,
+    degree: int = 3,
+    coef0: float = 1.0,
+    chunk_size: int | None = None,
+    memory_guard=None,
+) -> np.ndarray:
+    """Pairwise kernel matrix K(X, Y) of shape (n_x, n_y).
+
+    Args:
+      X: (n_x, d) float64.
+      Y: (n_y, d) float64.
+      kernel: "rbf" | "poly" | "laplacian".
+        - rbf:       K = exp(-gamma * ||x-y||^2)
+        - poly:      K = (gamma * <x,y> + coef0) ** degree
+        - laplacian: K = exp(-gamma * ||x-y||_1)
+      gamma, degree, coef0: kernel hyperparameters.
+      chunk_size: Y rows per chunk (auto from guard if None).
+      memory_guard: optional MemoryGuard.
+
+    Returns:
+      K: (n_x, n_y) float64.
+
+    OOC in n_y: peak = O(n_x * chunk_y), independent of n_y.
+    K matrix itself is (n_x, n_y) — caller responsible for that size.
+    """
+    X = np.ascontiguousarray(X, dtype=np.float64)
+    Y = np.ascontiguousarray(Y, dtype=np.float64)
+    if X.ndim != 2 or Y.ndim != 2:
+        raise ValueError(f"X, Y must be 2-D; got {X.shape}, {Y.shape}")
+    if X.shape[1] != Y.shape[1]:
+        raise ValueError(
+            f"X.shape[1]={X.shape[1]} != Y.shape[1]={Y.shape[1]}")
+    if kernel not in _SUPPORTED_KERNELS:
+        raise ValueError(
+            f"kernel must be one of {_SUPPORTED_KERNELS}; got {kernel!r}")
+    if gamma <= 0:
+        raise ValueError(f"gamma must be > 0; got {gamma}")
+    if kernel == "poly":
+        if degree < 1:
+            raise ValueError(f"degree must be >= 1; got {degree}")
+
+    n_x, d = X.shape
+    n_y = Y.shape[0]
+    if memory_guard is not None:
+        memory_guard.check_state(
+            n_x * n_y * 8 + _KERNEL_STATE_HEADER,
+            name="pairwise_kernel.output")
+
+    if chunk_size is None:
+        chunk_size = _resolve_kernel_chunk_size(n_x, d, memory_guard)
+    chunk_size = max(1, int(chunk_size))
+
+    K = np.empty((n_x, n_y), dtype=np.float64)
+    for start in range(0, n_y, chunk_size):
+        end = min(start + chunk_size, n_y)
+        Yc = Y[start:end]
+        if memory_guard is not None:
+            memory_guard.check_state(
+                n_x * (end - start) * 8, name="pairwise_kernel.chunk")
+
+        if kernel == "rbf":
+            D2 = sq_dists(X, Yc)
+            Kc = np.exp(-gamma * np.maximum(D2, 0.0))
+        elif kernel == "poly":
+            Kc = (gamma * (X @ Yc.T) + coef0) ** degree
+        else:  # laplacian
+            # chunked L1 distance
+            diff = X[:, None, :] - Yc[None, :, :]
+            Kc = np.exp(-gamma * np.abs(diff).sum(axis=2))
+        K[:, start:end] = Kc
+    return K
+
+
+def rbf_kernel(X, Y, gamma=1.0, **kw):
+    """Convenience wrapper: pairwise_kernel(X, Y, 'rbf', gamma=gamma)."""
+    return pairwise_kernel(X, Y, "rbf", gamma=gamma, **kw)
+
+
+def poly_kernel(X, Y, gamma=1.0, degree=3, coef0=1.0, **kw):
+    """Convenience wrapper: pairwise_kernel(X, Y, 'poly', ...)."""
+    return pairwise_kernel(
+        X, Y, "poly", gamma=gamma, degree=degree, coef0=coef0, **kw)
+
+
+def laplacian_kernel(X, Y, gamma=1.0, **kw):
+    """Convenience wrapper: pairwise_kernel(X, Y, 'laplacian', gamma=gamma)."""
+    return pairwise_kernel(X, Y, "laplacian", gamma=gamma, **kw)
+
+
+def chol_solve(
+    K: np.ndarray,
+    b: np.ndarray,
+    *,
+    jitter: float = 1e-8,
+    max_attempts: int = 3,
+) -> np.ndarray:
+    """Solve Kx = b via Cholesky with progressive jitter fallback.
+
+    Args:
+      K: (n, n) symmetric matrix (kernel Gram, typically PSD).
+      b: (n,) or (n, m) right-hand side.
+      jitter: initial jitter added to diagonal (default 1e-8).
+      max_attempts: number of Cholesky retries with jitter *= 10.
+                    After max_attempts, falls back to np.linalg.solve
+                    (no jitter; works for any non-singular K).
+
+    Returns:
+      x: (n,) or (n, m) solution.
+
+    Raises:
+      np.linalg.LinAlgError: if both Cholesky (all attempts) and solve fail.
+
+    Memory: O(n^2) intermediate (L factor). No OOC — caller manages K size.
+    """
+    K = np.ascontiguousarray(K, dtype=np.float64)
+    b = np.ascontiguousarray(b, dtype=np.float64)
+    if K.ndim != 2 or K.shape[0] != K.shape[1]:
+        raise ValueError(f"K must be square 2-D; got {K.shape}")
+    if b.shape[0] != K.shape[0]:
+        raise ValueError(
+            f"b.shape[0]={b.shape[0]} != K.shape[0]={K.shape[0]}")
+    n = K.shape[0]
+
+    current_jitter = float(jitter)
+    for attempt in range(max_attempts + 1):
+        try:
+            K_jit = K if attempt == 0 else K + current_jitter * np.eye(n)
+            L = np.linalg.cholesky(K_jit)
+            # Solve L L^T x = b via forward + back substitution
+            y = np.linalg.solve(L, b)
+            x = np.linalg.solve(L.T, y)
+            return x
+        except np.linalg.LinAlgError:
+            current_jitter *= 10.0
+            continue
+
+    # Cholesky exhausted; fall back to general solve
+    return np.linalg.solve(K, b)

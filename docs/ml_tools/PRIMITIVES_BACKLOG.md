@@ -71,6 +71,8 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 | `reservoir_sample` + `batch_to_features` | `cadw.ops.sampling` (v0.9.143-b5) | KernelDensity, ReservoirSample | +3 (SMOTE, OHE) |
 | `knn_query` | `cadw.ops.linalg` (v0.9.144) | LOF, DBSCAN, HDBSCAN, SMOTE, ML-kNN, ItemKNN, KNNImputer, EuclideanKMeansZ | +0 (implemented) |
 | `core_distances` | `cadw.ops.linalg` (v0.9.144) | HDBSCAN, DBSCAN, LOF | +0 (implemented) |
+| `pairwise_kernel` (rbf/poly/laplacian) | `cadw.ops.linalg` (v0.9.145) | Spectral ×5, KernelPCA, SparsePCA, GPLVM, GP reg/forecaster, GP-EI, BayesianOpt_GP | +0 (implemented) |
+| `chol_solve` | `cadw.ops.linalg` (v0.9.145) | GP reg/forecaster, GP-EI, BayesianOpt_GP, GPLVM | +0 (implemented) |
 | `acf` | `cadw.ops.stats` | AutoStationarizer | +5 (P1) |
 | `stl_decompose` | `cadw.ts._decomposition` | otm, theta, transforms, anomaly_pipeline | +2 |
 | `_xavier_init` | `cadw.ml._nn_init` | autoencoder, patch_memory_ad | +3 |
@@ -79,23 +81,6 @@ P2/P3 wait for second consumer to justify extraction (AP10).
 ---
 
 ## P1 — 3+ prospective consumers (implement first)
-
-### L3. `_rbf_kernel` (Gaussian / polynomial / Laplacian kernels)
-- **Consumers**: SpectralClustering (×3 in B1/B2/B3), KernelPCA, GPLVM,
-  GP regression, GaussianProcessForecaster, GP-EI, BayesianOpt_GP, SparsePCA (opt)
-- **Home**: `cadw.ops.linalg.rbf_kernel(X, Y, gamma)`, `poly_kernel(...)`,
-  `laplacian_kernel(...)`, `_pairwise_kernel(X, Y, kernel, **kw)`
-- **Note**: parameterized by kernel — NOT separate functions per kernel.
-  This avoids AP22-style splitting when a new kernel arrives.
-- **Effort**: 1 session (chunked; supports symmetric shortcut).
-
-### L4. `_chol_solve` (Cholesky factor + triangular solve)
-- **Consumers**: GP regression, GaussianProcessForecaster, GP-EI,
-  BayesianOpt_GP, GPLVM (kernel posterior)
-- **Home**: `cadw.ops.linalg.chol_solve(K, b, jitter=1e-8)` — with
-  `np.linalg.cholesky` + `scipy.linalg.cho_solve` equivalent (use
-  `np.linalg.solve(K, b)` when Cholesky fails).
-- **Effort**: 0.5 session.
 
 ### L5. `_mst` (minimum spanning tree)
 - **Consumers**: HDBSCAN (single-linkage dendrogram), Agglomerative

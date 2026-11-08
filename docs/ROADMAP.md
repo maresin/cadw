@@ -332,6 +332,18 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.145 (P1 group A: L3+L4):**
+- Extract `pairwise_kernel` (rbf/poly/laplacian, parameterized)
+  + `chol_solve` (with jitter fallback to np.linalg.solve) to
+  `cadw.ops.linalg`. L3: 10 cards, L4: 5 cards.
+- Convenience wrappers: rbf_kernel/poly_kernel/laplacian_kernel.
+- Tests: test_linalg_kernels.py (16 passed: correctness vs
+  manual, symmetric, diag=1 for rbf, chunk-invariant, guard,
+  chol jitter fallback).
+- YAML: 8 cards flipped (SparsePCA, GaussianProcessForecaster,
+  GP-EI, SMAC, BayesianOpt_GP). 8 remain planned — blocked on
+  eigh_topk (L19) or graph_laplacian/eigsh_topk (L6).
+
 **v0.9.144 (P1 group A: L1+L2):**
 - Extract `knn_query` + `core_distances` to `cadw.ops.linalg`
   (P1 L1 + L2, DEC-056). knn_query: 8 cards, core_distances:
