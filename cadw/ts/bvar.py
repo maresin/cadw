@@ -102,6 +102,7 @@ class BVARModel(ForecasterBase):
         self.n_obs_ = None
 
     def fit(self, df, target_col, *, time_col=None, group_col=None,
+            batch_size: "int | None" = None,
             memory_guard=None):
         cols = [target_col] if isinstance(target_col, str) else list(target_col)
         if not cols:
@@ -116,13 +117,22 @@ class BVARModel(ForecasterBase):
         est_state = (m * m + m * k + k * k + k * p + 512) * 8
         mg.check_state(est_state, name="bvar.state")
 
+        # v0.9.139 (DEC-023 pattern): auto-derive batch_size if None.
+        # Without this, _iter_filtered_batches() yields 1 batch = n;
+        # fit transient = n*k*8 becomes O(n), defeating OOC.
+        if batch_size is None:
+            _row_size = k * 8  # BVAR reads only `cols` (k f64 values/row)
+            batch_size = mg.get_batch_rows(
+                row_size_bytes=_row_size, expansion_factor=3.0,
+                state_bytes=est_state)
+
         XTX = np.zeros((m, m), dtype=np.float64)
         XTY = np.zeros((m, k), dtype=np.float64)
         YTY = np.zeros((k, k), dtype=np.float64)
         T = 0
         buf = None  # last p rows of Y (k cols)
 
-        for batch in df._iter_filtered_batches():
+        for batch in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(batch, name="bvar.batch", extra_factor=2.0)
             Y_b = _extract_cols(batch, cols)
             if Y_b.size == 0:

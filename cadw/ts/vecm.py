@@ -74,6 +74,7 @@ class VECMModel(ForecasterBase):
         self.stable_ = None
 
     def fit(self, df, target_col, *, time_col=None, group_col=None,
+            batch_size: "int | None" = None,
             memory_guard=None):
         cols = [target_col] if isinstance(target_col, str) else list(target_col)
         if not cols:
@@ -104,6 +105,13 @@ class VECMModel(ForecasterBase):
         ) * 8
         mg.check_state(est_state, name="vecm.state")
 
+        # v0.9.139 (DEC-023 pattern): auto-derive batch_size if None.
+        if batch_size is None:
+            _row_size = k * 8
+            batch_size = mg.get_batch_rows(
+                row_size_bytes=_row_size, expansion_factor=3.0,
+                state_bytes=est_state)
+
         # Cross-cov matrices: all (k, k)
         M00 = np.zeros((k, k)); M01 = np.zeros((k, k)); M02 = np.zeros((k, k))
         M11 = np.zeros((k, k)); M12 = np.zeros((k, k)); M22 = np.zeros((k, k))
@@ -127,7 +135,7 @@ class VECMModel(ForecasterBase):
                 M11 += z1.T @ z1
             T += z0.shape[0]
 
-        for batch in df._iter_filtered_batches():
+        for batch in df._iter_filtered_batches(batch_size=batch_size):
             mg.check_batch(batch, name="vecm.batch", extra_factor=2.0)
             Y_b = _extract_cols(batch, cols)
             if Y_b.size == 0:

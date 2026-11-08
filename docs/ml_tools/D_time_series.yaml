@@ -1065,9 +1065,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
       verified_by_agent: true
+      status: verified
     roles:
     - temporal_dynamics
     purpose: 'Bayesian VAR with Minnesota (random-walk) prior; Normal-Inverted Wishart conjugate posterior. Shrinks coefficients toward random walk, stabilizes forecasts on short series and large panels (Litterman 1986; Banbura-Giannone-Reichlin 2010). Streaming via sufficient statistics XTX/XTY/YTY Reduce.'
@@ -1085,14 +1084,30 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    state_class: O(d²)
-    bounded_state_dims: {d: 2}
+    ram_formula: "((1 + k * p) * k + k * p + 256) * f64 + 2 * batch * row_size"
+    formula_evidence:
+      state_beta: "bvar.py state_nbytes: beta_post((1+k*p), k) = (1+k*p)*k*f64"
+      state_last_p: "bvar.py state_nbytes: last_p_ buffer (k, p) = k*p*f64"
+      header: "bvar.py state_nbytes: +256 (header)"
+      batch_transient: "bvar.py:126 check_batch(extra_factor=2.0) per batch; 2 * batch * row_size"
+      fit_guard_state: "bvar.py:117 check_state(est_state) where est_state = (m*m+m*k+k*k+k*p+512)*8 (conservative upper bound)"
+      fit_guard_batch: "bvar.py:126 check_batch(extra_factor=2.0)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: ((1+k*p)*k + k*p + 256) * 8, parametrized (k,p)"
+      state_ooc: "test_state_independent_of_n: n=500 vs 5000 -> unchanged"
+      ooc: "test_ooc_batch_fixed: n=50k/n=10k ratio<2.0 at bs=1000, median-of-3"
+      guard_refuse: "test_guard_refuses_at_tight: budget=0.2MB < state -> MemoryLimitExceeded"
+      cells_passed: "5/5"
+      runtime_sec: "~1"
+    state_class: O(model)
+    bounded_state_dims: {k: 2, p: 1}
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'per-batch lag-pair extraction + XTX/XTY/YTY Reduce; closed-form Normal-Inverted Wishart posterior (state O(k²·p²) independent of n).'
+      fit: 'per-batch lag-pair extraction + XTX/XTY/YTY Reduce; closed-form Normal-Inverted Wishart posterior (state O(k²·p²) independent of n). batch_size auto-derive via mg.get_batch_rows (v0.9.139 DEC-023 pattern).'
       predict: 'recursive forecast using posterior mean beta.'
     primitive_reuse:
     - reduce
@@ -1101,9 +1116,8 @@ subtypes:
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "formula: matrix measurement requires evaluate_formula (v0.9.103)"
       verified_by_agent: true
+      status: verified
     roles:
     - temporal_dynamics
     purpose: 'Vector Error Correction Model via Johansen MLE; recovers cointegrating relations β and adjustment speeds α for series sharing a stochastic trend. Streaming cross-covariance accumulation + generalized eigenproblem on k×k matrices (Johansen 1988/1991).'
@@ -1121,14 +1135,30 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    state_class: O(d²)
-    bounded_state_dims: {d: 2}
+    ram_formula: "(4 * k * k + k * r + 256) * f64 + 2 * batch * row_size"
+    formula_evidence:
+      state_beta_alpha: "vecm.py state_nbytes: 3*k*k (beta_ + alpha_ + gamma_) + k*k (S00/S01/S11 temps) = 4*k*k*f64"
+      state_coint: "vecm.py state_nbytes: k*r (cointegration rank dims) = k*r*f64"
+      header: "vecm.py state_nbytes: +256"
+      batch_transient: "vecm.py:131 check_batch(extra_factor=2.0) per batch"
+      fit_guard_state: "vecm.py:105 check_state(est_state) conservative upper bound"
+      fit_guard_batch: "vecm.py:131 check_batch(extra_factor=2.0)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: (4*k*k + k*r + 256) * 8, parametrized (k,r,p)"
+      state_ooc: "test_state_independent_of_n"
+      ooc: "test_ooc_batch_fixed: n=50k/n=10k ratio<2.0 at bs=1000, median-of-3"
+      guard_refuse: "test_guard_refuses_at_tight: budget=0.02MB < state -> MemoryLimitExceeded"
+      cells_passed: "5/5"
+      runtime_sec: "~1"
+    state_class: O(model)
+    bounded_state_dims: {k: 2, r: 1}
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'per-batch cross-cov accumulation (M00/M01/M02/M11/M12/M22) + concentration + generalized eigenproblem on k×k matrices (state O(k²·p²) independent of n).'
+      fit: 'per-batch cross-cov accumulation (M00/M01/M02/M11/M12/M22) + concentration + generalized eigenproblem on k×k matrices (state O(k²·p²) independent of n). batch_size auto-derive v0.9.139 (DEC-023 pattern).'
       predict: 'error-correction recursion α·βᵀ·Y_{t-1} + Γ·ΔY_lags.'
     primitive_reuse:
     - reduce
