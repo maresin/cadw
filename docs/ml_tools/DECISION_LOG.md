@@ -1521,3 +1521,289 @@ test_constants_match_env catches version changes.
 **Do NOT invent `avg_word_len` from data at fit time:** it would require full
 pass before formula evaluation → estimate_memory becomes O(n). Conservative
 upper bound is correct for pre-flight.
+
+
+---
+
+## DEC-053 (skipped, no formal record)
+
+Reserved. No formal decision recorded; commits in v0.9.129-133 used
+DEC-054 for the dedup pass (documented formally below). Future
+sessions: do not reuse DEC-053.
+
+---
+
+## DEC-054 (2026-11-08, v0.9.130-133) — dedup pass: K1-K12, AST-based migration
+
+**Q:** Across cadw/ml/, cadw/ts/, cadw/ops/, cadw/viz/ there are many
+helper functions with same name/behavior in 2+ modules. Which to
+unify, which to leave (AP10 / AP22)?
+
+**A:** 12 clusters probed (K1-K12). Applied 7, deferred 1, skipped 4.
+
+### Applied (7 clusters, v0.9.130-133)
+
+| Cluster | Copies | Home | Version |
+|---|---|---|---|
+| K1 `_probe_memory_limit_mb` | 16 | `cadw.core.memory_guard.probe_limit_mb` | v0.9.130 |
+| K2 `_sigmoid` | 4 | `cadw.ops.optim.sigmoid` (public; also numerical-stability fix) | v0.9.131 |
+| K3a `_ols_fit` | 2 | `cadw.ops.numeric.ols_fit` | v0.9.132 |
+| K3a `_erfinv` | 2 | `cadw.ops.numeric.erfinv` | v0.9.132 |
+| K5c `znormalize_rows` | 2 | `cadw.ops.numeric.znormalize_rows` | v0.9.133 |
+| K6 `_to_df` (causal) | 2 | `cadw.ml._common._to_df_causal` | v0.9.133 |
+| K10 `_xavier_init` | 2 | `cadw.ml._common._xavier_init` | v0.9.133 |
+| K12 `_plt` | 2 | `cadw.viz._lazy.lazy_plt(module_name)` | v0.9.133 |
+
+### Skipped (AP10 — 1 file, 1-2 sites)
+
+| Cluster | Copies | Why skip | Revisit |
+|---|---|---|---|
+| K5a `_sq_dists` | 1 file, 2 sites | AP10: no second consumer | See DEC-056 (forward-looking: 8+ prospective consumers) |
+| K11 `_acf` | 1 site (transforms.py:596) | AP10 | See DEC-056 (5+ prospective) |
+
+**AP10 exception rule (new, v0.9.134):** extraction at 1 site IS
+allowed if ≥2 prospective consumers exist in described_only cards.
+See DEC-056 for the exception registry.
+
+### Skipped (AP22 — same name, different algorithm)
+
+| Cluster | Copies | Difference |
+|---|---|---|
+| K3b `_ses` | 3 | otm: `(lvl, fitted)`; theta: `_ses_fit -> (_, _, sse)`; ets: Holt-Winters `(a,b,g,p,s,seasonal,damped)` — three different algorithms |
+| K5b `_mahalanobis` | 2 | `_mahalanobis_distances` (naive O(n·w²) reference oracle, `# Do not call from non-test code`); `_stream_mahalanobis` (streaming production) |
+| K6 `_collect` | 5 | 5 different signatures: `(df,cols,y_col,mg,batch)`, `(df,cols,t_col,y_col,mg)`, `(df,cols,y_col,mg,name)`, `(df,cols,label_cols,mg,batch)`, `(df,mg)` — different collectors, not duplicates |
+| K5c `kshape._znormalize` | 2 | 1D series + scalar std (`np.std(x)`); other znormalize is per-row (`axis=1`) — different semantics |
+
+### Deferred
+
+**K4 `_grid_search`** — ETS uses coordinate refinement over `(α,β,γ,φ)`;
+OTM uses inline full grid `W2_GRID × ALPHA_GRID`; SARIMA uses inline
+`(p,d,q)(P,D,Q)`. Same pattern name, different scorer signature. A
+generic `grid_search(param_grid, scorer, refine_axes=None)` is
+**deferred to v0.9.135+** — one concrete generic implementation is not
+justified until 3rd+ real caller demands it (AP22). Reference
+implementation stub in DEC-054 is ETS `_grid_search` — it's the closest
+to generic.
+
+### AST-based migration (MANDATORY for future dedup)
+
+**Lesson (v0.9.130, cost 83 test failures):** regex
+`(?:.*\n)*?` + lookahead `(?=^def |^class )` eats decorators and
+statements between functions:
+- `linear.py`: lost `@dataclass` above `LinearModel` -> TypeError in 18 tests
+- `gbdt.py`: lost `_LOSSES = (...)` line -> NameError in 65 tests
+- `calibration.py` / `ordinal.py`: similar
+
+**Correct pattern:**
+
+```python
+import ast
+tree = ast.parse(src)
+for node in tree.body:
+    if isinstance(node, ast.FunctionDef) and node.name == "_target":
+        # node.lineno .. node.end_lineno are exact boundaries
+        # decorator_list is separate — untouched by removal
+        lines = src.splitlines(keepends=True)
+        new = "".join(lines[:node.lineno-1] + [ALIAS] + lines[node.end_lineno:])
+```
+
+**Do NOT use regex for Python function replacement.** AST is the only
+safe boundary.
+
+### Home correction needed (v0.9.134)
+
+The applied homes have semantic issues:
+
+| Function | Current home | Correct home | Reason |
+|---|---|---|---|
+| `sigmoid` | `cadw.ops.optim` | `cadw.ops.numeric` | `optim.py` = SGD/RMSprop; sigmoid is elementwise numeric |
+| `znormalize_rows` | `cadw.ops.numeric` | `cadw.ops.stats` | mean/std = statistics, not numeric |
+| `ols_fit` | `cadw.ops.numeric` | `cadw.ops.linalg` | closed-form regression = linalg |
+| `_xavier_init` | `cadw.ml._common` | `cadw.ml._nn_init` | NN-specific; `_common.py` mixes Arrow helpers + NN init |
+
+Fix in v0.9.134. New modules: `cadw/ops/linalg.py`,
+`cadw/ops/stats.py`, `cadw/ml/_nn_init.py`.
+
+### Files touched (summary, v0.9.130-133)
+
+- v0.9.130: `cadw/core/memory_guard.py` + 16 `cadw/ml/*.py`
+- v0.9.131: `cadw/ops/optim.py`, `cadw/ml/{gbdt,calibration,ordinal}.py`
+- v0.9.132: new `cadw/ops/numeric.py`, `cadw/ts/{otm,theta}.py`
+- v0.9.133: `cadw/ops/numeric.py`, `cadw/ml/_common.py`, new
+  `cadw/viz/_lazy.py`, `cadw/ml/{autoencoder,patch_memory_ad,
+  meta_learners,uplift}.py`, `cadw/viz/{matplotlib,seaborn}_adapter.py`
+
+**~600 lines removed, ~200 added. No behavioral change** (verified
+by 327+319+219+210 gates + smoke for each migration).
+
+---
+
+## DEC-055 (2026-11-08, v0.9.135 target) — `depends_on` schema field
+
+**Q:** Should YAML cards declare which helper functions/algorithms
+they import, even if those helpers are not yet implemented?
+
+**A:** Yes — new `ModelCard.depends_on: list[str] | None` field.
+
+**Rationale:**
+1. **Documentation**: explicit dependency graph per model. Currently
+   only `primitive_reuse: [reduce, hash_shuffle, ...]` lists *core
+   primitives* (Reduce/HashShuffle/Sort/Spill); helper functions
+   (`stl_decompose`, `ols_fit`, `erfinv`) are invisible.
+2. **Schema test R11** (`test_R11_depends_on_importable`): every dotted
+   path in `depends_on` resolves via `importlib.import_module` +
+   `getattr`. Catches typo, deprecated function, wrong module path.
+3. **Schema test R12** (`test_R12_depends_on_matches_code`): AST scan
+   of `cadw_module` source, every top-level `from cadw.* import X` of
+   a `_`-prefixed or non-stdlib/np/pa helper must appear in `depends_on`
+   (or whitelisted). Prevents "silent dependency".
+4. **Forward planning**: `described_only` cards can declare
+   `depends_on: [primitive1, primitive2]` even before primitives are
+   implemented. PRIMITIVES_BACKLOG (DEC-056) reads these to plan.
+
+**Example (verified card):**
+
+```yaml
+- name: OTMThetaForecaster
+  depends_on:
+    - cadw.ts._decomposition.stl_decompose
+    - cadw.ops.numeric.ols_fit
+    - cadw.ops.numeric.erfinv
+  primitive_reuse: [reduce]
+```
+
+**Example (described_only card):**
+
+```yaml
+- name: HDBSCAN
+  described_only: true
+  not_implemented_in_cadw: true
+  depends_on:
+    - cadw.ops.linalg.sq_dists
+    - cadw.ops.linalg.mahalanobis
+    - cadw.ops.stats.mutual_reachability
+    - cadw.ops.graph.mst             # not yet implemented
+```
+
+**Scope:** field is `Optional`. Cards without it are treated as
+"unrestricted / legacy" (no R11/R12 test). Migration in v0.9.135 for
+51 verified + 14 draft cards. described_only cards: full scan in
+v0.9.136 (DEC-056).
+
+**Not in scope:** metric dependencies (`MetricCard`), ensemble
+dependencies (`EnsembleRule`). Those may follow DEC-057 if needed.
+
+**Schema fields to add in `docs/ml_tools/schema.py::ModelCard`:**
+
+```python
+# v0.9.135 (DEC-055): imported helper functions / algorithms.
+# Dotted path "cadw.ops.numeric.ols_fit". Optional; None = legacy.
+depends_on: list[str] | None = None
+```
+
+**Tests (v0.9.135):**
+- `test_R11_depends_on_importable`
+- `test_R12_depends_on_matches_code`
+
+**Migration script (v0.9.135):**
+- For 51 verified + 14 draft: parse `cadw_module` file via AST, collect
+  `from cadw.* import <name>` for non-auto helpers, write `depends_on`.
+- For 61 described_only: `depends_on: []` initially, fill via DEC-056
+  scan.
+
+---
+
+## DEC-056 (2026-11-08, v0.9.136 target) — PRIMITIVES_BACKLOG (forward scan)
+
+**Q:** Should we proactively write forward-looking helper primitives
+(`_sq_dists`, `_acf`, `_rbf_kernel`) even when current implementation
+uses them 0-1 times, based on prospective demand from described_only
+cards?
+
+**A:** Yes — via `docs/ml_tools/PRIMITIVES_BACKLOG.md` forward scan.
+
+**Method (v0.9.136):**
+
+1. **Scan all 302 cards** (48 verified + 14 draft + 61 described_only
+   + 6 inference-only + 5 last-priority + 42 v0.9.128 candidates +
+   42 not-impl).
+2. **For each described_only card:** read `purpose` + `algorithm_source_url`,
+   infer primitives (euclidean distances, kernels, tree-building,
+   matrix factorization, FFT, gradient stubs, etc.).
+3. **Cluster by primitive:** which cards share which primitive.
+4. **Priority:**
+   - **P1** = 3+ consumers (implement now; justifies extraction under
+     AP10 exception, DEC-054)
+   - **P2** = 2 consumers (implement alongside second consumer)
+   - **P3** = 1 consumer, prospective (opportunistic)
+5. **Home module:** for each primitive, choose correct home
+   (`cadw.ops.linalg`, `cadw.ops.stats`, `cadw.ops.graph`,
+   `cadw.ml._nn_init`, etc.).
+6. **Effort:** LOC + test estimate per primitive.
+
+**Deliverable:** `docs/ml_tools/PRIMITIVES_BACKLOG.md` with:
+
+- Cluster table: primitive | home | consumers | priority | effort.
+- Per-cluster detail: algorithm reference, signature, guard plan.
+- Implementation roadmap: P1 in v0.9.137, P2 in v0.9.140+, P3 in v0.9.145+.
+
+**Estimated clusters (~30 unique primitives across 61 described_only):**
+
+| Primitive | Consumers | Priority |
+|---|---|---|
+| `_sq_dists` (Euclidean pairwise) | kmeans, kmeans_ad, kshape, tspq, iforest, eif, DBSCAN, HDBSCAN, LOF, bisecting, minibatch, spectral | **P1** (12+) |
+| `_rbf_kernel` | spectral, GP regression, KernelPCA, kernel kmeans, MMD | **P1** (5+) |
+| `_cholesky_solve` / `_gp_predict` | GP regression, GP forecaster, GP-EI, BayesianOpt | **P1** (4+) |
+| `_mutual_reachability` + `_mst` | HDBSCAN, OPTICS, single-linkage | **P1** (3+) |
+| `_itemset_count` + `_fp_tree` | Apriori, FP-growth, Eclat | **P1** (3+) |
+| `_leapfrog` + `_hmc_accept` | NUTS, Metropolis, HMC | **P1** (3+) |
+| `_fft` (numpy alias) | kshape, ROCKET, miniRocket, matrix_profile | **P1** (4+) |
+| `_nmf_mu` / `_sparse_coding` | NMF, SparsePCA, LDA | **P1** (3+) |
+| `_softmax_ce_grad` | ListNet, LambdaMART, GBDT-multiclass | **P1** (3+) |
+| `_acf` | binseg, pelt, bocpd, matrix_profile, stray | **P1** (5+) |
+| `_tricube` / `_loess` (already in `_decomposition`) | STL, MSTL, RSTL, outlier-detection | ✓ existing |
+| `_sigmoid` (already in `ops.optim`; move to `numeric`) | logistic, calibration, ordinal, gbdt, autoencoder, neural-ucb | ✓ v0.9.131 |
+| ~20 more P2/P3 | | |
+
+**AP10 exception registry (formalizes DEC-054 K5a/K11 skip):**
+
+- `_sq_dists`: 1 current site (patch_memory_ad), **12+ prospective**
+  — extract NOW (v0.9.134).
+- `_acf`: 1 current site (transforms.py), **5+ prospective**
+  — extract NOW (v0.9.134).
+- `_grid_search`: 1 current (ETS), 3 prospective (OTM, SARIMA, AutoETS)
+  — parameterized helper deferred v0.9.135 (needs generic scorer).
+- `_mahalanobis`: 2 current (oracle vs streaming, AP22) — leave split.
+- `_ses`: 3 current (AP22) — leave split.
+
+**Rule (permanent, replaces AP10 as written):**
+
+> **AP10 amendment:** "Don't extract at 1 site" applies only when
+> prospective consumers < 2 AND the current single site does not
+> intend to be reused (utility). When prospective consumers ≥ 2
+> (from PRIMITIVES_BACKLOG scan), extraction at 1 site IS allowed
+> and encouraged — forward investment. AP10 is a heuristic, not
+> a prohibition.
+
+**Why now (not later):** 61 described_only cards represent 15-20
+sessions of implementation work. Without PRIMITIVES_BACKLOG, each
+session re-derives "which primitives do I need" from `algorithm_source_url`.
+This creates 15-20 duplicate probes (v0.9.129-PartB pattern). One
+central scan amortizes to 0.
+
+**Consequence:** after v0.9.136, described_only cards may carry
+`depends_on` with primitives NOT YET implemented. `test_R11` should
+be aware — allow `described_only: true` + `depends_on` with
+not-yet-implemented paths (whitelisted as "planned, see PRIMITIVES_BACKLOG").
+
+**Files (v0.9.136):**
+- `docs/ml_tools/PRIMITIVES_BACKLOG.md` (new)
+- `docs/ml_tools/DECISION_LOG.md` (this DEC)
+- `AI_CONSTITUTION.md` §5 AP10 amendment
+- `tests/test_ml_tools_schema.py::test_R11_depends_on_importable` —
+  allow `described_only: true` cards to have unresolved depends_on
+  (with rationale in `depends_on_backlog: <section>` field).
+
+---
+
+<!-- end DEC-054..056 -->
