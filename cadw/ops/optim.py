@@ -21,7 +21,7 @@ import numpy as np
 from cadw.core.memory_guard import MemoryGuard
 
 
-def _sigmoid(x):
+def sigmoid(x):
     """Numerically stable sigmoid: 1 / (1 + exp(-x)).
 
     Avoids overflow for large |x| by handling positive / negative
@@ -171,7 +171,7 @@ def sgd_streaming(
             if loss == "ridge":
                 pred = z
             else:  # logistic
-                pred = _sigmoid(z)
+                pred = sigmoid(z)
             grad = (pred - Y_b).T @ X_b / max(len(X_b), 1)
             if penalty_mask is not None:
                 grad = grad + lam * W * penalty_mask

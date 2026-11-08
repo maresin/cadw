@@ -44,8 +44,10 @@ def _collect(df, cols, y_col, mg, name):
     return np.vstack(Xs), np.concatenate(ys)
 
 
-def _sigmoid(z):
-    return 1.0 / (1.0 + np.exp(-np.clip(z, -50.0, 50.0)))
+# v0.9.131 (DEC-054): numerically stable sigmoid from
+# cadw.ops.optim (handles overflow for |z|>>0 without RuntimeWarning).
+from cadw.ops.optim import sigmoid as _sigmoid
+
 
 
 def _fit_platt(scores, y, max_iter=100, tol=1e-8):

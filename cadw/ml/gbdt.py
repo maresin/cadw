@@ -127,9 +127,10 @@ def _attach_codes(enriched_iter, codes_mm, nan_mask):
         )
         off += n
 
-def _sigmoid(z: np.ndarray) -> np.ndarray:
-    """Numerically stable sigmoid."""
-    return 0.5 * (1.0 + np.tanh(0.5 * z))
+# v0.9.131 (DEC-054): numerically stable sigmoid from
+# cadw.ops.optim (handles overflow for |z|>>0 without RuntimeWarning).
+from cadw.ops.optim import sigmoid as _sigmoid
+
 
 
 _LOSSES = ("l2", "logloss_binary")
