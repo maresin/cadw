@@ -74,6 +74,21 @@ class PCA:
             "method": getattr(self, "method_", "exact"),
         }
 
+    def state_nbytes(self) -> int:
+        """Persistent state RAM (bytes).
+
+        v0.9.138: formula from code (AP23). Stored:
+          components_ (k*d*f64) + mean_ (d*f64)
+          + explained_variance_ (k*f64)
+          + explained_variance_ratio_ (k*f64)
+          + singular_values_ (k*f64) + header 256.
+        """
+        return int(
+            self.components_.nbytes + self.mean_.nbytes
+            + self.explained_variance_.nbytes
+            + self.explained_variance_ratio_.nbytes
+            + self.singular_values_.nbytes + 256)
+
     def _check_features(self, X: np.ndarray) -> None:
         if X.shape[1] != self.n_features_in_:
             raise ValueError(
@@ -250,8 +265,15 @@ def _fit_pca_randomized(df, X_cols, k, mg, n_oversamples, random_state):
         memory_guard=mg)
 
     # n_samples for sample-variance conversion.
+    # v0.9.138 (DEC-023 pattern): auto-derive batch_size if None.
+    # CovarianceMeanOp state = cov(d,d) + mean(d) = d*d*8 + d*8.
+    if batch_size is None:
+        from cadw.ml._memory_estimate import derive_batch_size as _dbs
+        _probe_op = CovarianceMeanOp(X_cols)
+        batch_size = _dbs(_probe_op, df, mg, None)
+
     n_samples = 0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         n_samples += b.num_rows
     if n_samples < 2:
         raise ValueError(
@@ -296,6 +318,7 @@ def fit_pca(
     method: str = "auto",
     n_oversamples: int = 10,
     random_state: int = 0,
+    batch_size: "int | None" = None,
     memory_guard: Optional[MemoryGuard] = None,
 ) -> PCA:
     """Fit PCA via Reduce(CovarianceOp) + eigh.
@@ -376,7 +399,8 @@ def fit_pca(
     # v0.8.0: CovarianceMeanOp returns cov + mean + n in one pass.
     # 2× I/O reduction vs v0.7.2 (which re-scanned for mean).
     op = CovarianceMeanOp(X_cols)
-    res = reduce(df._iter_filtered_batches(), op, mg, log=False)
+    res = reduce(df._iter_filtered_batches(batch_size=batch_size),
+                 op, mg, log=False)
 
     cov = res["cov"]
     mean = res["mean"]
@@ -388,6 +412,15 @@ def fit_pca(
         )
 
     # eigendecomposition: eigh returns ascending eigenvalues
+    # v0.9.138: G2 — guard before eigh. eigh allocates (d,) eigvals
+    # + (d,d) eigvecs = 2*d*d*8 + d*8. Without this, tight guard
+    # silently OOMs at d=1000+ (cov 8MB, eigh adds 16MB).
+    if mg is not None:
+        try:
+            mg.check_state(int(2 * d * d * 8 + d * 8),
+                           name="pca.eigh")
+        except AttributeError:
+            pass  # duck-typed guard without check_state
     eigvals, eigvecs = np.linalg.eigh(cov)
     # Sort descending
     order = np.argsort(eigvals)[::-1]

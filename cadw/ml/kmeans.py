@@ -111,12 +111,16 @@ class KMeansStepOp(ReduceOp):
 
 def _kmeans_plus_plus_init(
     df, X_cols: Sequence[str], k: int, seed: int,
+    *, batch_size: int | None = None,
 ) -> np.ndarray:
     """k-means++ init from first sample batch. Deterministic with seed."""
     rng = np.random.default_rng(seed)
-    # Grab first batch (small enough; if df huge — still 1 batch = bounded)
     sample: np.ndarray | None = None
-    for b in df._iter_filtered_batches():
+    _mg = getattr(df, "_memory_guard", None)
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        # v0.9.138: G2 — check_batch before _stack_numeric (2x batch).
+        if _mg is not None and hasattr(_mg, "check_batch"):
+            _mg.check_batch(b, name="kmeans.plus_plus", extra_factor=2.0)
         X = _stack_numeric(b, X_cols)
         mask = ~np.isnan(X).any(axis=1)
         X = X[mask]
@@ -128,6 +132,18 @@ def _kmeans_plus_plus_init(
 
     n, d = sample.shape
     if n < k:
+        # v0.9.138: honest refuse-at-guard. If tight guard forced
+        # batch_rows < k, this is OOM-prevention, not ValueError —
+        # caller should get MemoryLimitExceeded (STABILITY_PROTOCOL §2.2).
+        # Fall through to MemoryLimitExceeded when guard is present;
+        # ValueError only for genuinely small n (n < k with ample budget).
+        if _mg is not None and hasattr(_mg, "check_state"):
+            from cadw.core.memory_guard import MemoryLimitExceeded
+            raise MemoryLimitExceeded(
+                f"fit_kmeans: batch_rows={n} < k={k} "
+                f"(guard usable budget too tight); "
+                f"increase memory_guard or reduce k"
+            )
         raise ValueError(
             f"fit_kmeans: k={k} > available rows={n}"
         )
@@ -163,6 +179,16 @@ class KMeansModel:
     @property
     def k(self) -> int:
         return self.cluster_centers_.shape[0]
+
+    def state_nbytes(self) -> int:
+        """Persistent state RAM (bytes).
+
+        v0.9.138: formula from code (AP23). Stored:
+          cluster_centers_ (k*d*f64) + inertia_ (f64) + header 256.
+        feature_names_ (list[str]) + n_iter_/n_rows_/converged_/
+        fitted_ (small scalars) — 256 covers per-instance overhead.
+        """
+        return int(self.cluster_centers_.nbytes + 8 + 256)
 
     def to_dict(self) -> dict:
         return {
@@ -253,6 +279,7 @@ def fit_kmeans(
     max_iter: int = 300,
     tol: float = 1e-4,
     seed: int = 42,
+    batch_size: "int | None" = None,
     memory_guard: Optional[MemoryGuard] = None,
 ) -> KMeansModel:
     """Fit k-means clustering via iter-Reduce.
@@ -262,6 +289,7 @@ def fit_kmeans(
     - n_init: number of random inits (k-means++ seeded). Best inertia kept.
     - max_iter, tol: stopping criteria.
     - seed: for reproducibility.
+    - batch_size: None (default) → auto-derive from guard (DEC-023).
     - memory_guard: default df._memory_guard.
 
     Peak RAM = batch + O(k×d). Independent of N.
@@ -303,10 +331,19 @@ def fit_kmeans(
     mg = memory_guard or df._memory_guard
     d = len(X_cols)
 
+    # v0.9.138 (DEC-023 pattern): auto-derive batch_size if None.
+    # KMeansStepOp state = sums(k,d) + counts(k) + inertia = k*d*8 + k*8.
+    # Before fix, _iter_filtered_batches() defaulted to 1 batch = n.
+    if batch_size is None:
+        from cadw.ml._memory_estimate import derive_batch_size as _dbs
+        _probe_op = KMeansStepOp(X_cols, np.zeros((k, d), dtype=np.float64))
+        batch_size = _dbs(_probe_op, df, mg, None)
+
     best: Optional[dict] = None
     for init_idx in range(n_init):
         init_seed = seed + init_idx
-        centers = _kmeans_plus_plus_init(df, X_cols, k, init_seed)
+        centers = _kmeans_plus_plus_init(df, X_cols, k, init_seed,
+                                          batch_size=batch_size)
         n_iter = 0
         converged = False
         inertia = float("inf")
@@ -315,7 +352,8 @@ def fit_kmeans(
         for it in range(max_iter):
             n_iter = it + 1
             op = KMeansStepOp(X_cols, centers)
-            res = reduce(df._iter_filtered_batches(), op, mg, log=False)
+            res = reduce(df._iter_filtered_batches(batch_size=batch_size),
+                         op, mg, log=False)
             n_valid = res["counts"].sum()
             if n_valid == 0:
                 raise ValueError("fit_kmeans: no valid (non-null) rows")

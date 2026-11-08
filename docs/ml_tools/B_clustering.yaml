@@ -18,8 +18,8 @@ subtypes:
         tier_level: tier1_core
         implementation_status:
           verified_in_cadw: true
-          status: draft
-          draft_reason: "formula from code (v0.9.123); measurement component-wise (DEC-033) v0.9.124"
+          verified_by_agent: true
+          status: verified
         roles: [local_structure]
         purpose: "Lloyd k-means with k-means++ init. Spherical equal-variance clusters; centroid objective. Canonical baseline."
         real_life_examples: ["Customer segmentation (k known)", "Vector quantization", "Anomaly via distance to nearest centroid"]
@@ -57,8 +57,8 @@ subtypes:
         tier_level: tier1_core
         implementation_status:
           verified_in_cadw: true
-          status: draft
-          draft_reason: "formula from code (v0.9.123); measurement v0.9.124"
+          verified_by_agent: true
+          status: verified
         roles: [local_structure]
         purpose: "Sculley 2010 streaming k-means: per-centroid updates with eta = 1/count. Reservoir init + streaming sweeps."
         real_life_examples: ["Large-scale segmentation (n > 10^6)", "Online clustering with drift"]

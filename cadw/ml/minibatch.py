@@ -90,7 +90,7 @@ class MiniBatchKMeansModel:
     def predict(self, df, memory_guard=None):
         mg = memory_guard or df._memory_guard
         out = []
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=io_batch_size):
             mg.check_batch(b, name="minibatch.predict", extra_factor=3.0)
             out.append(self._predict_array(_stack_numeric_safe(b, self.feature_cols_)))
         return np.concatenate(out) if out else np.zeros(0, dtype=np.int64)
@@ -100,7 +100,7 @@ class MiniBatchKMeansModel:
         mg = memory_guard or df._memory_guard
         total = 0.0
         n = 0
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=io_batch_size):
             mg.check_batch(b, name="minibatch.inertia", extra_factor=3.0)
             X = _stack_numeric_safe(b, self.feature_cols_)
             d2, lab = _assign(X, self.centers_)
@@ -111,6 +111,7 @@ class MiniBatchKMeansModel:
 
 def fit_minibatch_kmeans(df, X_cols, *, n_clusters=8, batch_size=1024,
                          max_iter=100, tol=1e-4, seed=0,
+                         io_batch_size: "int | None" = None,
                          memory_guard: Optional[MemoryGuard] = None):
     """Fit MiniBatch KMeans with per-centroid streaming updates."""
     cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
@@ -128,9 +129,18 @@ def fit_minibatch_kmeans(df, X_cols, *, n_clusters=8, batch_size=1024,
     reservoir = []
     reservoir_rows = 0
     cap = 10 * batch_size
+    # v0.9.138 (DEC-023 pattern): io_batch_size auto-derive if None.
+    # Separation: batch_size = SGD mini-batch (existing); io_batch_size
+    # = df iterator (new). Before fix, both _iter_filtered_batches below
+    # used default (1 batch = n) → OOC false in verification.
+    if io_batch_size is None:
+        _row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        io_batch_size = mg.get_batch_rows(
+            row_size_bytes=_row_size, expansion_factor=3.0,
+            state_bytes=int(n_clusters * len(X_cols) * 8 + n_clusters * 8))
     rng = np.random.RandomState(seed)
     n_seen = 0
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=io_batch_size):
         mg.check_batch(b, name="minibatch.fit", extra_factor=3.0)
         X = _stack_numeric_safe(b, cols)
         if np.isnan(X).any():
@@ -155,7 +165,7 @@ def fit_minibatch_kmeans(df, X_cols, *, n_clusters=8, batch_size=1024,
     # pass 2: streaming per-centroid updates over the data itself
     prev_inertia = np.inf
     for _ in range(int(max_iter)):
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=io_batch_size):
             mg.check_batch(b, name="minibatch.sweep", extra_factor=3.0)
             X = _stack_numeric_safe(b, cols)
             for s in range(0, X.shape[0], batch_size):
@@ -169,7 +179,7 @@ def fit_minibatch_kmeans(df, X_cols, *, n_clusters=8, batch_size=1024,
         # convergence: relative change of centroids
         shift = 0.0
         total_norm = 0.0
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=io_batch_size):
             mg.check_batch(b, name="minibatch.conv", extra_factor=3.0)
             X = _stack_numeric_safe(b, cols)
             d2, lab = _assign(X, centers)
@@ -231,7 +241,7 @@ class MiniBatchGMMModel:
     def predict_proba(self, df, memory_guard=None):
         mg = memory_guard or df._memory_guard
         out = []
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=io_batch_size):
             mg.check_batch(b, name="minibatch.gmm_proba", extra_factor=3.0)
             X = _stack_numeric_safe(b, self.feature_cols_)
             r, _ = _responsibilities(X, self.weights_, self.means_, self.covars_)
@@ -244,7 +254,7 @@ class MiniBatchGMMModel:
     def score_samples(self, df, memory_guard=None):
         mg = memory_guard or df._memory_guard
         out = []
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=io_batch_size):
             mg.check_batch(b, name="minibatch.gmm_score", extra_factor=3.0)
             X = _stack_numeric_safe(b, self.feature_cols_)
             k = self.weights_.size

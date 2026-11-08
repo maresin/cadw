@@ -20,8 +20,8 @@ subtypes:
         tier_level: tier1_core
         implementation_status:
           verified_in_cadw: true
-          status: draft
-          draft_reason: "formula from code (v0.9.123); measurement component-wise (DEC-033) v0.9.124"
+          verified_by_agent: true
+          status: verified
         roles: [representation]
         purpose: "Pearson 1901: orthogonal linear projection maximizing variance. Eigendecomposition of covariance; exact for full SVD, randomized for large d. Canonical baseline."
         real_life_examples: ["Feature preprocessing", "Denoising", "2D visualization"]
