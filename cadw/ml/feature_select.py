@@ -36,10 +36,19 @@ from cadw.ml._logging import log_fit
 
 
 
-def _collect(df, cols, y_col, mg, name):
+def _collect(df, cols, y_col, mg, name, max_rows=None):
     Xs, ys = [], []
     n = 0
+    cap = max_rows
     for b in df._iter_filtered_batches():
+        if cap is not None and n >= cap:
+            break
+        if cap is not None:
+            take = min(b.num_rows, cap - n)
+        else:
+            take = b.num_rows
+        if take < b.num_rows:
+            b = b.slice(0, take)
         mg.check_batch(b, name=name, extra_factor=3.0)
         # v0.9.90-S3 (G2): pre-check BEFORE append.
         n += b.num_rows
@@ -348,6 +357,7 @@ def _boruta_selector(X, y, rng, n_estimators, max_iter):
 def fit_feature_select(df, X_cols, y_col, *, method="mutual_info",
                        task="classification", variance_threshold=0.0,
                        max_iter=20, n_estimators=50, seed=0,
+                       max_samples: int | None = None,
                        memory_guard: Optional[MemoryGuard] = None):
     """Fit a feature selector: 'mutual_info', 'variance', or 'boruta'.
 
@@ -371,7 +381,16 @@ def fit_feature_select(df, X_cols, y_col, *, method="mutual_info",
 
     if method == "boruta":
         # AP2 path (needs hstack(X|shadows); deferred v0.9.172+).
-        X, y = _collect(df, cols, y_col, mg, "feature_select.boruta")
+        n_total = df.count()
+        cap = int(max_samples) if max_samples is not None else 20000
+        if max_samples is None and n_total > cap:
+            import warnings
+            warnings.warn(
+                f"fit_feature_select (boruta): subsampling to {cap} rows "
+                f"(n={n_total}). Pass max_samples=N to override.",
+                stacklevel=2,
+            )
+        X, y = _collect(df, cols, y_col, mg, "feature_select.boruta", max_rows=cap)
         if np.isnan(X).any() or np.isnan(y).any():
             raise ValueError("feature_select: nulls in features or target")
         rng = np.random.RandomState(seed)

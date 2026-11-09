@@ -332,6 +332,24 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.174 (S2b-2b: BorutaSelect subsample cap):**
+- `fit_feature_select` boruta path: add `max_samples=20000` default
+  + subsample warning (precedent S2b-2a chains/meta/uplift).
+- `_collect` in feature_select: add max_rows cap (None-safe).
+- YAML: BorutaSelect bounded_state false -> true, n_scalability
+  linear -> constant, bounded_by_domain/tier1_core_exception
+  removed, ram_formula simplified to `2*d*f64 + 512 +
+  2.0*batch*row_size`, subsample_note added.
+- Tests: 10 existing + 12 verification + 112 schema, all green.
+- **AP2_COLLECT 10/10 complete** (v0.9.170-174): feature_select
+  (variance, mutual_info), chains, ordinal, meta_learners, uplift ×2,
+  boruta. All original AP2 violations resolved.
+- Remaining DEC-064 classes:
+  - GBDT_FIT_TRANSIENT (5 cards): partial-OOC via memmap (DEC-065),
+    true OOC refactor v0.9.180+ (posix_fadvise / direct file I/O).
+  - OUTPUT_N (10 anomaly cards): bounded_by_domain, refactor v0.9.180+
+    (DEC-066, needs DEC-036 reservoir sampling first).
+
 **v0.9.173 (S2f-1: CUSUM flip + S2f scope-honesty, DEC-066):**\n- CUSUM YAML: bounded_by_domain removed, bounded_state=true\n  (already `output='auto'` default, SpillArray implemented).\n- 10 anomaly models (kshape, sub_pca, autoencoder,\n  patch_memory_ad, tspq, s2g, dwt_mlead, eif, kmeans_ad,\n  bocpd): honest bounded_by_domain KEPT. Root cause: SpillArray\n  not implemented (NotImplementedError stubs v0.9.116),\n  percentile over n requires reservoir (DEC-036), window-to-\n  timestamp map needs 2nd pass.\n- Refactor deferred v0.9.180+ (DEC-066): DEC-036 reservoir\n  (~2-3 sess) + per-model SpillArray (~1-2 sess × 10).\n- Estimated S2f sweep: 10-15 sessions, not 2-3.\n- Milestone: CUSUM is the only truly OOC anomaly model today.\n\n**v0.9.172 (S2c-1: GBDT fit memmap refactor — partial, DEC-065):**\n- `_fit_boosting` (binary + regression): pred/cur_leaf/nan_mask\n  on SpillDir memmap. `_binning_pass`: nan_mask -> bool memmap.\n- Extract `_assign_leaf_batch` helper (bit-identical to\n  _AssignLeavesOpCodes.update). Shared between ReduceOp and direct\n  memmap-write loop.\n- `batch_size` param on public fit_gbdt_classifier/regressor\n  (DEC-023 class gap; auto-derived from guard if None). Propagated\n  through _binning_pass + _fit_boosting + _iter_x_with_codes.\n- `_madvise_dontneed` helper (Linux MADV_DONTNEED; insufficient at\n  scale — memmap dirty pages not evicted).\n- **Honest outcome (DEC-065)**: ~1.6x RSS improvement (32 B/row ->\n  ~20 B/row) but NOT true OOC. CW-5 40x n ratio = 24-36 (linear).\n- Tests: CW-2 state_nbytes_independent_of_n + batch_size param\n  accepted + memmap_writes_do_not_leak_into_state. CW-5 skipped.\n- YAML: 5 GBDT cards keep bounded_by_domain (refined reason +\n  fit_transient_note; v0.9.172 improvement documented).\n- Refactor to true OOC deferred v0.9.173+ (posix_fadvise or direct\n  file I/O).\n\n**v0.9.171 (S2b-2a: chains/meta/uplift/ordinal subsample cap):**
 - Code: `max_samples=20000` param + warning on subsample for:
   fit_chains, fit_meta_learner, _fit_uplift_two_model,
