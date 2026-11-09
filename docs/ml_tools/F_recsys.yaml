@@ -246,9 +246,39 @@ subtypes:
     - external_sort
     - reduce
   - name: Hybrid_MF_GBDT
+    cadw_module: cadw.ml.hybrid_mf
+    cadw_function: fit_hybrid_mf
+    input_api: df
+    fit_batched: true
+    predict_batched: true
+    depends_on: []
+    ram_formula: "(n_users + n_items) * n_factors * f64 + n_factors * n_factors * f64 + n_items * n_content * f64 + n_content * n_factors * f64 + 256"
+    formula_evidence:
+      state_nbytes: "hybrid_mf.py:74-75 -- state_nbytes: base_.state_nbytes() + B_.nbytes + C_.nbytes"
+      breakdown: "als.py:ALSModel.state_nbytes -- U*K*f64 + I*K*f64 + K*K*f64 + 256"
+      B_C: "hybrid_mf.py:fit -- B = solve(C^T C + ridge I, C^T Y); C = content_matrix(I, F); B.shape=(F, K)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_*_state_bounded: actual > 0"
+      state_ooc: "test_*_state_independent_of_n: ratio <=3.0"
+      guard_refuse: "test_*_guard_refuses: 0.001 MB -> MemoryLimitExceeded"
+      cells_passed: "3/3"
+      runtime_sec: "~3"
+    bounded_state: true
+    bounded_state_dims: {n_users: 1, n_items: 1, n_factors: 1, n_content: 1}
+    state_class: O(model)
+    state_type: iterative
+    n_scalability: constant
+    tier1_core_exception: "Hybrid MF: ALS base (U*K user_factors + I*K item_factors + K*K xtx) + ridge B (F*K) + content matrix C (I*F). Bounded by user/item counts (not n_rows)."
+    streaming_strategy:
+      fit: "fit_als(df) + _content_matrix(df) + ridge; n_rows streamed per batch in ALS."
+      predict: "per-batch MF predict (user_factors . item_factors); O(batch*K)."
+    primitive_reuse: [reduce, external_sort]
     tier: sota
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - representation
@@ -259,11 +289,6 @@ subtypes:
     config:
       n_factors: int
       n_estimators: int
-    cadw_module: cadw.ml.hybrid_mf
-    cadw_function: fit_hybrid_mf
-    input_api: df
-    depends_on: []
-    depends_on_status: implemented
     benchmark_results:
     - benchmark: Amazon_Recsys
       benchmark_url: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
@@ -277,21 +302,7 @@ subtypes:
       value: 0.27
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot'
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
     transient_factor: 1.0
-    state_type: iterative
-    bounded_state: true
-    n_scalability: constant
-    streaming_strategy:
-      fit: 'ALS factors (F1 pattern) + GBDT codes path (P1a) on stacked features.'
-      predict: 'per-batch ALS dot + GBDT recursion.'
-    primitive_reuse:
-    - hash_shuffle
-    - external_sort
-    - reduce
-    - spill_dir
-    - codes_bin
   - name: SVDpp
     tier: sota
     depends_on: []

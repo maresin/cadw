@@ -332,6 +332,18 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.164 (final legacy batch: 3 complex ML):**
+- Flipped Hybrid_MF_GBDT (F_recsys), T_learner_uplift + CausalTree
+  (H_causal) from status:None to verified.
+- ram_formulas (from state_nbytes bodies):
+  - Hybrid_MF_GBDT: ALS base (U,I,K) + ridge B (F,K) + C (I,F).
+  - T_learner_uplift: 2× GBDT (treatment/control arms).
+  - CausalTree: n_estimators × 2^(max_depth+1)-1 nodes + d + 1024.
+- Tests: 9 passed (state bounded >0; state independent of n;
+  guard-refuse at 0.001 MB per card).
+- **31 legacy status:None -> 0 truly-pending**: 21 verified +
+  9 not-a-model + 0 pending. All original legacy cards resolved.
+
 **v0.9.163 (LambdaMART verify):**
 - Flipped LambdaMART (G_learning_to_rank): status:None -> verified.
 - Uses existing state_nbytes (n_nodes * 96 + n_features * 4096);
