@@ -332,6 +332,17 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.163 (LambdaMART verify):**
+- Flipped LambdaMART (G_learning_to_rank): status:None -> verified.
+- Uses existing state_nbytes (n_nodes * 96 + n_features * 4096);
+  fit OOC via SpillDir memmap (v0.9.87-P2b-full-2).
+- ram_formula (upper bound): n_estimators × (2**(max_depth+1)-1) × 96
+  + d*f64*512 + 256.
+- Tests: 4 passed (CW-1 [0.20, 1.0]; CW-2 ratio ≤3.0;
+  CW-6 guard refuses at 0.001 MB; predict smoke).
+- Remaining complex ML: Hybrid_MF_GBDT, T_learner_uplift, CausalTree
+  (v0.9.164+).
+
 **v0.9.162 (not_a_model reframe: 9 cards):**
 - New `ModelCard.not_a_model: bool = False` (DEC-060).
 - R14 test: not_a_model=true => status=None (consistency).

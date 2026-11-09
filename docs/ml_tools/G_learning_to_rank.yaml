@@ -50,9 +50,40 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot'
   - name: LambdaMART
+    cadw_module: cadw.ml.lambdamart
+    cadw_function: fit_lambdamart
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    depends_on: []
+    ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 96 + d * f64 * 512 + 256"
+    formula_evidence:
+      tree_nodes: "lambdamart.py:588-598 -- state_nbytes: n_nodes * 96 + n_features * 4096 (exact node byte count)"
+      node_byte: "96 B/node -- CPython _Node object with left/right/feat/thr/leaf (5 fields + header)"
+      feature_cache: "n_features * 4096 -- per-feature binning scratch (mn_/mx_/range_ + bins)"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
+      state_ooc: "test_state_independent_of_n: same params, n=480 vs n=4800 -> ratio <=3.0"
+      guard_refuse: "test_guard_refuses: nq=40 n=12 n_est=50 depth=10 + 0.001 MB -> MemoryLimitExceeded"
+      correctness: "test_lambdamart.py existing suite (ndcg_at_k, mixin, e2e) + test_predict_smoke"
+      cells_passed: "4/4"
+      runtime_sec: "~5"
+    bounded_state: true
+    bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    state_class: O(model)
+    state_type: iterative
+    n_scalability: constant
+    tier1_core_exception: "Tree-ensemble state bounded by {n_estimators: 1, max_depth: 1, d: 1}; LambdaMART tree state: n_nodes*96 (Python node objects) + n_features*4096 (per-feature cache/scratch). Bounded by n_estimators × 2^(max_depth+1)-1 nodes. n-independent (via SpillDir memmap fit for n-sized codes/y/scores/grad/hess)."
+    streaming_strategy:
+      fit: "external_sort by query_col + SpillDir memmap for n-sized state (codes uint8, y/scores/grad/hess float64, node_id int32). Tree build via ReduceOps; RAM = O(batch*d + n_nodes*d*bins)."
+      predict: "per-batch _stack_numeric -> binning -> tree descend; returns pa.Table[score]. O(batch*d + n_trees*nodes)."
+    primitive_reuse: [external_sort, reduce, memmap, spill_dir]
     tier: sota
     tier_level: tier1_core
     implementation_status:
+      verified_in_cadw: true
+      status: verified
       verified_in_cadw: true
     roles:
     - nonlinear_interactions
@@ -64,11 +95,6 @@ subtypes:
       n_estimators: int
       max_depth: int
       learning_rate: float
-    cadw_module: cadw.ml.lambdamart
-    cadw_function: fit_lambdamart
-    input_api: df
-    depends_on: []
-    depends_on_status: implemented
     benchmark_results:
     - benchmark: LETOR
       benchmark_url: https://web.archive.org/web/20240101000000/https://www.microsoft.com/en-us/research/project/letor-learning-rank-information-retrieval/
@@ -82,21 +108,7 @@ subtypes:
       value: 0.51
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot'
-    state_class: O(batch)
-    bounded_state_dims: {batch: 1}
     transient_factor: 1.0
-    state_type: iterative
-    bounded_state: true
-    n_scalability: constant
-    streaming_strategy:
-      fit: 'P2b-full-2: external_sort by query -> sorted Arrow IPC; binning + BFS tree build via ReduceOps over sorted stream; all n-sized state (codes/y/scores/grad/hess/node_id) on SpillDir memmap; group_offsets int64 (n_q+1). RAM = O(batch*d + n_nodes*d*bins + n_q*8).'
-      predict: 'chunked tree recursion over codes memmap; per-batch._raw.'
-    primitive_reuse:
-    - external_sort
-    - reduce
-    - memmap
-    - spill_dir
-    - codes_bin
   - name: ListNet
     tier: sota
     depends_on:
