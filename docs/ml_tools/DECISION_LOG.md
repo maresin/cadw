@@ -2561,3 +2561,40 @@ documented honestly. Refactor to true OOC deferred v0.9.173+.
 ---
 
 <!-- end DEC-065 -->
+
+
+---
+
+## DEC-066 (2026-11-09, v0.9.173) — S2f anomaly output: honest bounded_by_domain, refactor deferred
+
+**Q:** S2f planned: flip `output="memory"` default to `"auto"` for 10 anomaly models (kshape, sub_pca, autoencoder, patch_memory_ad, tspq, s2g, dwt_mlead, eif, kmeans_ad, bocpd). Is this a quick win?
+
+**A:** No. Only CUSUM has SpillArray implemented (`output="auto"` default, verified v0.9.113). The other 10 raise `NotImplementedError` on `output="auto"|"disk"` (v0.9.116 stubs, DEC-013 residue).
+
+**Root causes per model:**
+
+1. **Streaming complexity**: decision_scores (n) requires `_map_scores_to_timestamps` (window→timestamp max over `[i, i+w)`), which needs all n_w window distances readable. SpillArray can stream n_w, but map needs 2nd pass.
+2. **Percentile over n**: `contamination=0.1` default requires full decision_scores for threshold. Streaming requires reservoir sample (DEC-036).
+3. **Multiple arrays** per model: eif (3 n-arrays), kmeans_ad (4 n-arrays), autoencoder/patch_memory_ad (3 arrays), s2g (decision_scores + labels + graph edges).
+
+**Effort estimate (10 models):** 10-15 sessions. Not 2-3.
+
+**Honest decision:** Keep `bounded_by_domain {axis: n, bound: 1e6}` for 10 models (16-40 MB at n=1e6; guard refuses). CUSUM flipped to `bounded_state: true` (only one with working SpillArray).
+
+**Refactor roadmap (v0.9.180+):**
+1. **DEC-036 reservoir sampling** implementation (~2-3 sessions): reservoir sample 10k decision_scores, percentile on sample (approx error O(1/sqrt(10000)) ~ 3%). Unblocks 8 of 10 models.
+2. **Per-model SpillArray implementation** (~1-2 sessions each): precedent CUSUM (`SpillArray(width=1)` per array, `spill_ratio=0.5` auto / `0.0` disk).
+3. **Order**: sub_pca (simplest, no contamination) → tspq (2 arrays, no contamination) → dwt_mlead (2 arrays, contamination) → kshape (window→timestamp map) → s2g (graph edges spill) → autoencoder/patch_memory_ad (3 arrays) → EIF (3 arrays) → KMeansAD (4 arrays) → BOCPD (posterior).
+
+**Not changing:**
+- `contamination=0.1` defaults (user-facing API stability).
+- `bounded_by_domain` reason fields (already document "percentile requires materialization").
+- YAML `fit_transient_note` fields (already honest).
+
+**Impact:** 10 anomaly cards remain bounded_by_domain (honest, guard refuses); CUSUM flipped. Massive S2f sweep deferred v0.9.180+.
+
+**Session milestone v0.9.173:** CUSUM OOC honest via SpillArray; 10 anomaly cards documented as bounded_by_domain with refactor roadmap.
+
+---
+
+<!-- end DEC-066 -->

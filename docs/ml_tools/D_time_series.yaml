@@ -2816,6 +2816,7 @@ subtypes:
       state_constant: "cusum.py -- s_pos_cur, s_neg_cur, Welford (n, mean, M2), total 64B"
       header: "cusum.py -- +256 constant"
     measurement:
+      output_ooc: "output=\"disk\" forces immediate spill (SpillArray spill_ratio=0.0); peak ratio < 2.0 at fixed batch (v0.9.173 S2f-1; CUSUM is reference impl)."
       verification_mode: "component-wise (DEC-033)"
       bit_identical: "test_bit_identical_df_vs_legacy"
       ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n (output linear)"
@@ -2863,7 +2864,6 @@ subtypes:
     state_type: iterative
     bounded_state: true
     n_scalability: linear  # output O(n) -> disk; state O(1)
-    bounded_by_domain: {axis: n, bound: 1000000, reason: "single-series CUSUM, n <= 10^6 typical"}
     streaming_strategy:
       fit: 'warmup mean/std.'
       predict: 'one CUSUM accumulator per stream.'
