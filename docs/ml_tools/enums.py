@@ -19,6 +19,7 @@ ROLES = (
 
 # === Tier levels (3) ===
 TIER_LEVELS = (
+    "reference",  # DEC-060: dataframe method / analysis fn
     "tier1_core",     # implementable on CADW primitives (Reduce/Shuffle/Sort)
     "tier2_wrapper",  # thin wrapper over a light pure-Python library
     "tier3_export",   # SOTA, reached only via to_batches (not implemented here)

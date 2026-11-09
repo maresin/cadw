@@ -906,6 +906,34 @@ UNCARDED_WHITELIST = {
 }
 
 
+def test_R14_not_a_model_consistency():
+    """R14 (v0.9.162, DEC-060): not_a_model cards must be tier=reference
+    with implementation_status.status=None.
+
+    These are dataframe methods (df.describe, df.value_counts) or analysis
+    functions (permutation_importance, fairness_metrics) — not fit_* models.
+    Marking them not_a_model avoids R5 alias confusion and clarifies intent.
+    """
+    import yaml
+    from pathlib import Path
+    bad = []
+    for path in _section_files():
+        try:
+            data = yaml.safe_load(path.read_text())
+        except Exception:
+            continue
+        for st in data.get("subtypes") or []:
+            for c in st.get("models") or []:
+                if not c.get("not_a_model"):
+                    continue
+                impl = c.get("implementation_status") or {}
+                if impl.get("status") is not None:
+                    bad.append(f"{path.name}:{c.get('name')}: not_a_model "
+                               f"but status={impl.get('status')!r} "
+                               f"(expected None)")
+    assert not bad, "\n".join(bad)
+
+
 def test_R10_public_fit_covered():
     """R10 (v0.9.121): every public `fit_*` in cadw.ml.__all__ has a YAML
     card (resolvable by _lookup_card) OR is in UNCARDED_WHITELIST.

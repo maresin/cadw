@@ -836,8 +836,10 @@ subtypes:
       predict: 'base.predict then inverse transforms. O(n + sum(transformer state)).'
     primitive_reuse: [reduce, stl_decompose]
 
+  # NOT-A-MODEL: utility function (backtest_forecaster; no fit state) (DEC-060)
   - name: backtest_forecaster
     tier: baseline
+    not_a_model: true
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
@@ -3646,8 +3648,10 @@ subtypes:
     metrics:
     - accuracy
   models:
+  # NOT-A-MODEL: dataframe method rolling_stats() (DEC-060)
   - name: IntervalFeatures_GBDT
     tier: baseline
+    not_a_model: true
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true

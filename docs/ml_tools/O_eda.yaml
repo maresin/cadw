@@ -17,8 +17,10 @@ subtypes:
     - value_counts
     note: Descriptive-statistics primitives; no cross-library accuracy leaderboard exists.
   models:
+  # NOT-A-MODEL: dataframe method df.describe() (DEC-060)
   - name: Describe
     tier: baseline
+    not_a_model: true
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
@@ -70,8 +72,10 @@ subtypes:
       fit: 'no fit; per-column streaming count/mean/std/min/max/quantile Reduce.'
       predict: 'returns summary table (output, not state).'
     primitive_reuse: [reduce]
+  # NOT-A-MODEL: dataframe method df.hist() (DEC-060)
   - name: Hist
     tier: baseline
+    not_a_model: true
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
@@ -112,8 +116,10 @@ subtypes:
       fit: 'no fit; streaming bin counts (bins hyperparameter).'
       predict: 'returns histogram table (output).'
     primitive_reuse: [reduce]
+  # NOT-A-MODEL: dataframe method df.value_counts() (DEC-060)
   - name: ValueCounts
     tier: baseline
+    not_a_model: true
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
@@ -221,8 +227,10 @@ subtypes:
     - accuracy
     note: Imputation primitives; no cross-library leaderboard. RMSE of imputed vs true values is the standard proxy.
   models:
+  # NOT-A-MODEL: dataframe method df.fillna() (DEC-060)
   - name: SimpleImputer
     tier: baseline
+    not_a_model: true
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
@@ -470,8 +478,10 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: polynomial expansion is a preprocessing transform; no standalone leaderboard.'
+  # NOT-A-MODEL: dataframe method df.encode_categorical() (DEC-060)
   - name: EncodeCategorical
     tier: baseline
+    not_a_model: true
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
@@ -1162,8 +1172,10 @@ subtypes:
     - fidelity
     note: XAI methods are evaluated on fidelity/sanity checks; no cross-dataset AUC leaderboard.
   models:
+  # NOT-A-MODEL: analysis function permutation_importance (returns result, no fit state) (DEC-060)
   - name: PermutationImportance
     tier: baseline
+    not_a_model: true
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
@@ -1287,8 +1299,10 @@ subtypes:
     - eo_diff
     note: Fairness metrics have no universal leaderboard; Fairlearn docs define DP/EO but publish no cross-dataset ranking.
   models:
+  # NOT-A-MODEL: analysis function fairness_metrics (returns result, no fit state) (DEC-060)
   - name: FairnessMetrics
     tier: baseline
+    not_a_model: true
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true

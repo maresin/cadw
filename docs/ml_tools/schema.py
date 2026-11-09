@@ -139,6 +139,10 @@ class ModelCard:
     # (allows BVAR/VECM pattern where state is O(k²) but fit streams).
     fit_batched: bool | None = None
     predict_batched: bool | None = None
+    # v0.9.162 (DEC-060): df.method() / analysis function, not fit_* model.
+    # Skips R5 alias consistency (these are not in the model-impl set).
+    # Expected: tier="reference", implementation_status.status=None.
+    not_a_model: bool = False
     # v0.9.142 (DEC-055 amend): forward-declared deps for described_only
     # cards. depends_on_status = "planned" means depends_on paths are
     # NOT expected to resolve yet (R11 skips check).
@@ -332,6 +336,7 @@ def _parse_model(m: dict) -> ModelCard:
         primitive_reuse=m.get("primitive_reuse"),
         depends_on=m.get("depends_on"),
         fit_batched=m.get("fit_batched"),
+        not_a_model=bool(m.get("not_a_model", False)),
         predict_batched=m.get("predict_batched"),
         depends_on_backlog=m.get("depends_on_backlog"),
         depends_on_status=m.get("depends_on_status"),

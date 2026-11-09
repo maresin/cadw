@@ -332,6 +332,20 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.162 (not_a_model reframe: 9 cards):**
+- New `ModelCard.not_a_model: bool = False` (DEC-060).
+- R14 test: not_a_model=true => status=None (consistency).
+- Reframed 9 cards with `not_a_model: true` + `# NOT-A-MODEL:`
+  YAML comment:
+  - O_eda: Describe, Hist, ValueCounts, SimpleImputer,
+    EncodeCategorical, PermutationImportance, FairnessMetrics
+    (dataframe methods / analysis functions).
+  - D_time_series: backtest_forecaster (utility),
+    IntervalFeatures_GBDT (rolling_stats method).
+- **31 legacy status:None -> 0 truly-pending**: 18 verified +
+  9 not-a-model + 4 complex ML (LambdaMART, Hybrid_MF,
+  T_learner_uplift, CausalTree — v0.9.163+).
+
 **v0.9.161 (legacy O_eda batch 1: 4 fit_* cards):**
 - Flipped 4 cards from status:None to verified:
   - DriftStats (fit_drift): O(1) lazy container (256 B),

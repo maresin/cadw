@@ -2110,3 +2110,46 @@ After DEC-058:
 ---
 
 <!-- end DEC-058 -->
+
+
+---
+
+## DEC-060 (2026-11-09, v0.9.162) — `not_a_model` field for dataframe methods / analysis functions
+
+**Q:** O_eda contains 7 cards (Describe, Hist, ValueCounts, SimpleImputer,
+EncodeCategorical, PermutationImportance, FairnessMetrics) and
+D_time_series contains 2 cards (backtest_forecaster, IntervalFeatures_GBDT)
+whose `cadw_function` points to a dataframe method (`df.describe()`,
+`df.fillna()`) or an analysis function (`permutation_importance`,
+`fairness_metrics`) — not a `fit_*` model. They sit with `status: None`
+because they are not verification targets, but this reads as "legacy debt".
+
+**A:** New `ModelCard.not_a_model: bool = False` (default False). Cards with
+`not_a_model: true` must have `implementation_status.status = None`.
+R14 enforces consistency. R5 (alias consistency) skips not_a_model cards.
+
+**Why not delete** (like DEC-050 K_vision/L_graph): metadata is useful
+(purpose, real_life_examples, benchmark URLs document the CADW API surface
+that these functions provide). Deletion loses that map.
+
+**Why not `tier: reference`** (initial attempt v0.9.162): two schema rules
+conflict:
+- Subtype baseline requirement: "O1 must have >=1 baseline model"
+  (`validate_matrix`). If all O1 cards are reference, subtype fails.
+- `validate_matrix` hardcodes `tier in ('baseline', 'sota', 'ensemble')`,
+  does not use TIER_LEVELS.
+- `tier: reference` reverts to original `tier` (baseline for O_eda cards).
+
+**Convention:** `# NOT-A-MODEL: <reason> (DEC-060)` YAML comment above card.
+`not_a_model: true` field. `tier` unchanged (baseline/sota as appropriate).
+
+**Enforcement:** R14 (`test_R14_not_a_model_consistency`) requires
+`not_a_model: true => status is None`. R5 (`test_R5_aliases_consistent_status`)
+skips not_a_model cards.
+
+**Impact:** 9 cards marked (7 O_eda + 2 D_time_series). No behavioral change
+to any function — metadata clarification only.
+
+---
+
+<!-- end DEC-060 -->
