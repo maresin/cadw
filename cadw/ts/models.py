@@ -1030,18 +1030,29 @@ class GBDTForecaster(ForecasterBase):
         return self._predict_in_sample()
 
     def state_nbytes(self):
-        """Persistent state: per-horizon GBDT models + optional pipeline.
+        """Persistent state: per-horizon GBDT models + lag matrices.
 
-        Delegates to _inner_pipeline (differencing/decompose) when present;
-        otherwise sums state_nbytes() over self._models (list of
-        GBDTRegressor, one per horizon). +256 header.
+        Delegates to _inner_pipeline (differencing/decompose) when present.
+        Otherwise counts:
+          - sum of per-horizon GBDTRegressor.state_nbytes()
+          - _y        (n,) f64     -- needed for recursive mode + deferred horizons
+          - _X        (n, d) f64   -- lag matrix; needed by _train_n_horizons
+          - _idx      (n,) int64   -- origin indices; needed by _train_n_horizons
+          - _tail_features (d,) f64
+          - +256 header
+        S1 audit (2026-11-09): previous version under-reported by ~3x
+        (n=1000) to ~2500x (n=1e6, d=4) — treated as bounded_state bug.
         """
         if self._inner_pipeline is not None:
             return int(self._inner_pipeline.state_nbytes())
-        models = getattr(self, "_models", None) or []
-        if not models:
-            return 0
         total = 256
+        # n-sized persistent fields
+        for attr in ("_y", "_X", "_idx", "_tail_features"):
+            v = getattr(self, attr, None)
+            if v is not None and hasattr(v, "nbytes"):
+                total += int(v.nbytes)
+        # per-horizon fitted models
+        models = getattr(self, "_models", None) or []
         for m in models:
             if hasattr(m, "state_nbytes"):
                 total += int(m.state_nbytes())

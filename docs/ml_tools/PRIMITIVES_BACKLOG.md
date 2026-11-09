@@ -361,3 +361,56 @@ its primitives.
 ---
 
 **End of PRIMITIVES_BACKLOG v1.0.**
+
+
+---
+
+## Appendix A — Batch-layer vs leaf-layer primitives (v0.9.168, DEC-063)
+
+**Why:** P1 primitives implemented v0.9.144-156 split into two architectural
+classes. This appendix prevents the misconception "every primitive is OOC".
+
+### Batch-layer (OOC by design): primitives that stream input in batches
+- `arm_stats` (L15) — ReduceOp, per-batch
+- `nmf_mu` (L7) — per-batch H update, state H=k*V
+- `reservoir_sample` (batch_to_features + reservoir) (P2) — Algorithm R
+- `apriori` (L8) — k+1 passes over batches, state = candidates
+- `fp_growth`, `prefix_span` (L8) — projected DB, batches filtered per prefix
+- `gsp` (L8) — level-wise, batches per level
+- `pinball_loss`/`pinball_grad`/`adaboost_weight`/`cumulative_logit_prob`
+  (L9/L16/L20) — elementwise, O(batch) per call
+- `dr_score`/`aipw_ate` (L11) — elementwise, O(batch) per call
+- `normalize_weights` (L17) — O(k), stateless
+- `grid_search`/`random_search` (L14) — call scorer per combo
+- `ks_2samp`/`psi`/`chi2_categorical` (L18) — **O(a+b) over both samples**
+  (caller passes already-collected arrays)
+- `logrank` (L10) — **O(n log n)** over concatenated arrays
+- `ranknet_grad`/`listnet_grad`/`lambdarank_grad` (L13) — **O(n²) per query**
+- `svd_flip`-style small helpers — O(model)
+
+### Leaf-layer (NOT OOC by themselves): pure-array primitives, caller
+### must arrange batching + spill.
+
+| Primitive | O(·) | Why not OOC | How to use OOC |
+|---|---|---|---|
+| `knn_query` (L1) | O(n_q·k) state + O(n_q·n_x) compute | all pairs Q vs X | chunk X (default), query fits RAM; OOC in n_X ✓ |
+| `core_distances` (L2) | O(n·k) output | self-query | caller must subsample or accept O(n) |
+| `pairwise_kernel` (L3) | **O(n_x·n_y)** output | output is dense matrix | caller chunks Y (chunk_size), still O(n_x) result; for OOC-by-n_x: chunk X too |
+| `chol_solve` (L4) | O(n²) factor L | dense matrix input | caller controls n (typically n≤10K GP datasets) |
+| `eigh_topk` (L19) | O(n²) dense / O(n·k) scipy | eigendecomp | scipy path n>2000 has O(n·k) state; caller controls n |
+| `graph_laplacian` (L6a) | O(n²) output | dense L | caller controls n (spectral clustering on adjacency) |
+| `eigsh_topk` (L6b) | thin wrapper → eigh_topk | (delegated) | same |
+| `mst` (L5) | O(m+n) edges | full edge list in RAM | caller chunks/builds edges (typical m=O(n log n)) |
+| `eclat` (L8) | O(sum|tx|) tidsets | vertical layout in RAM | caller uses apriori/fp_growth for OOC alternative |
+
+### Rule for future primitives
+
+- **Batch-layer** (Reduce/Shuffle/Sort/SpillArray): state independent of n
+  given batch size fixed. YAML `bounded_state: true`.
+- **Leaf-layer**: state = f(n) or O(n²). Caller MUST batch + spill.
+  No YAML card (primitives, not models). Caller's model is responsible
+  for OOC guarantee.
+
+**Reference:** AI_CONSTITUTION §1 (OOC by design), §3 patterns
+(Reduce/HashShuffle/Sort/SpillArray/chunked), DEC-056 (forward
+extraction when 2+ prospective consumers).

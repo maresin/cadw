@@ -264,6 +264,7 @@ subtypes:
       header: "gbdt.py:_STATE_HEADER_BYTES=256"
       state_nbytes: "gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree"
     measurement:
+      fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
       state_ooc: "test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0"
@@ -273,6 +274,10 @@ subtypes:
       runtime_sec: "~3"
     bounded_state: true
     bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    bounded_by_domain:
+      axis: n
+      bound: 100000
+      reason: "S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+."
     state_class: O(model)
     state_type: iterative
     n_scalability: constant

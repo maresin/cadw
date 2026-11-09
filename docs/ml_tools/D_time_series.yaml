@@ -518,7 +518,7 @@ subtypes:
     fit_batched: true
     predict_batched: false
     depends_on: []
-    ram_formula: "n_horizons * n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    ram_formula: "n * d * f64 + n * f64 + n * f64 + n_horizons * n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
     formula_evidence:
       trees: "cadw.ts.models:_NumpyReg (GBDTRegressor per horizon) -- state_nbytes per tree _deep_nbytes"
       forecaster: "cadw.ts.models:GBDTForecaster.state_nbytes -- sum over self._models"
@@ -532,11 +532,15 @@ subtypes:
       guard_refuse: "test_guard_refuses_during_fit: n=200 + horizons=20 + 0.001 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~4"
-    bounded_state: true
-    bounded_state_dims: {n_estimators: 1, max_depth: 1, n_horizons: 1, d: 1}
+    bounded_state: false
+    bounded_state_dims: {n: 1, n_estimators: 1, max_depth: 1, n_horizons: 1, d: 1}
+    bounded_by_domain:
+      axis: n
+      bound: 100000
+      reason: "S1 audit: state includes _X (n×d f64) + _y (n) + _idx (n) for deferred horizon training; n=1e5 × d=4 ≈ 4 MB."
     state_class: O(model)
     state_type: iterative
-    n_scalability: constant
+    n_scalability: linear
     tier1_core_exception: "Tree-ensemble state bounded by {n_estimators: 1, max_depth: 1, n_horizons: 1, d: 1}; per-horizon training: lag matrix build (n, d) + GBDT per-tree hist reduce. n-independent."
     streaming_strategy:
       fit: "extract_series (O(batch)) -> lag matrix build. Per-horizon GBDT: per-tree Reduce on histograms. per-horizon training: lag matrix build (n, d) + GBDT per-tree hist reduce."

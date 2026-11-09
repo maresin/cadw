@@ -332,6 +332,24 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.168 (OOC audit: 3 bugs + leaf-layer docs, DEC-063):**
+- Bug #1 fix: GBDTForecaster.state_nbytes() — includes _y/_X/_idx/
+  _tail_features (was ~3x under-report at n=1k, ~2500x at n=1e6).
+  YAML: bounded_state true -> false, bounded_by_domain n<=1e5.
+- Bug #2 (deferred refactor): GBDT family fit transient O(n·90B)
+  (pred/grad/hess), not O(batch). YAML honest fix: bounded_by_domain
+  n<=1e5 + measurement.fit_transient_note. SpillDir refactor
+  planned v0.9.169+ (precedent LambdaMART v0.9.87-P2b-full-2).
+- Bug #3: AST probe false positives confirmed via runtime probe;
+  session discipline: runtime `walked vs state_nbytes` before verified.
+- PRIMITIVES_BACKLOG Appendix A: batch-layer (OOC) vs leaf-layer
+  (pure-array, caller batches) explicit taxonomy of ~20 primitives.
+- 10 cards updated (GBDT ×5 + T_learner_uplift + CausalTree +
+  FeatureSelect ×3): all now carry bounded_by_domain + fit_transient_note.
+- Refactor roadmap v0.9.169+: GBDT SpillDir, FeatureSelect/T_learner AP2,
+  Ensemble/GBDTForecaster deferred horizon SpillDir. Single-series TS
+  remains bounded_by_domain permanently (DEC-011 domain bound).
+
 **v0.9.167 (cross_ref schema field):**
 - New `ModelCard.cross_ref: str | None = None` (DEC-062,
   formalizes DEC-049 policy). Format `<section>.<card>`.

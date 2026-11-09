@@ -239,6 +239,7 @@ subtypes:
       breakdown: "uplift.py:_fit_uplift_two_model -- 2 separate fit_gbdt_classifier calls (arm=1.0, arm=0.0)"
       B_C: ""
     measurement:
+      fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_*_state_bounded: actual > 0"
       state_ooc: "test_*_state_independent_of_n: ratio <=3.0"
@@ -247,6 +248,10 @@ subtypes:
       runtime_sec: "~3"
     bounded_state: true
     bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    bounded_by_domain:
+      axis: n
+      bound: 100000
+      reason: "S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+."
     state_class: O(model)
     state_type: iterative
     n_scalability: constant
@@ -295,6 +300,7 @@ subtypes:
       breakdown: "uplift.py:_CausalTree -- honest leaf: separate train/holdout split; state = tree nodes"
       B_C: ""
     measurement:
+      fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_*_state_bounded: actual > 0"
       state_ooc: "test_*_state_independent_of_n: ratio <=3.0"
@@ -303,6 +309,10 @@ subtypes:
       runtime_sec: "~3"
     bounded_state: true
     bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    bounded_by_domain:
+      axis: n
+      bound: 100000
+      reason: "S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+."
     state_class: O(model)
     state_type: iterative
     n_scalability: constant

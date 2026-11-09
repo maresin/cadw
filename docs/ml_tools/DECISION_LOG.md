@@ -2276,3 +2276,105 @@ would catch this. Deferred v0.9.168+.
 ---
 
 <!-- end DEC-062 -->
+
+
+---
+
+## DEC-063 (2026-11-09, v0.9.168) — OOC batched audit: 3 bugs fixed, leaf-layer documented
+
+**Q:** After v0.9.143-166 (~84 verified cards, ~20 P1 primitives), are ALL
+implemented primitives and models truly OOC (batched)? User requirement:
+"we accept ONLY OOC and bounded_by_domain as temporary measure. Others
+need solutions."
+
+**A:** Audit found 3 classes:
+
+### 3 bugs fixed (v0.9.168)
+
+**Bug #1 — `GBDTForecaster.state_nbytes()` under-reports by ~3x (n=1k)**
+- Was: `256 + sum(models.state_nbytes())` = trees only
+- Reality: also holds `_y` (n·f64) + `_X` (n·d·f64) + `_idx` (n·i64) +
+  `_tail_features` (d·f64) — persistent for deferred horizon training
+- Fix: `state_nbytes()` now sums those fields (n=1k: 20k → 68k; n=1e6,
+  d=4: ~2500x under-report corrected)
+- YAML: `bounded_state: true` → `false` + `bounded_by_domain n<=1e5`
+
+**Bug #2 — GBDT family fit transient O(n), not O(batch)**
+- Fit peak / model state ratio = 32x (n=2k, model 5.7 KB, peak 184 KB)
+- Root: `pred = np.full(n_total, ...)` + grad/hess n-sized in RAM
+  (codes already SpillDir memmap ✓, but grad/hess/pred not)
+- Refactor planned v0.9.169+ (precedent LambdaMART v0.9.87-P2b-full-2:
+  all n-sized state on SpillDir memmap → fit peak O(batch))
+- YAML honest fix now: `bounded_by_domain {axis: n, bound: 1e5}` +
+  `measurement.fit_transient_note` documents the refactor target.
+- 10 cards touched: GBDT, GBDT_L2, GBDT_multiclass, GBDT_scale_pos_weight
+  (×2: A_classification + E_anomaly), T_learner_uplift, CausalTree,
+  MutualInfoSelect, VarianceThreshold, BorutaSelect.
+
+**Bug #3 — Probe-3 (AST) false positives**
+- AST probe flagged Ensemble/AutoETS/AutoTheta/Transforms/GBDTForecaster
+  for `y_`-missing. Runtime probe confirmed `walked <= state_nbytes`
+  for all → false positives (delegation via inner pipelines/models).
+- Rule: use runtime probe for state_nbytes coverage, not AST.
+
+### 4 classes of primitives (documented in PRIMITIVES_BACKLOG Appendix A)
+
+**A. Batch-layer OOC** (state independent of n given batch size):
+`arm_stats`, `nmf_mu`, `reservoir_sample`, `apriori`/`eclat`/`fp_growth`/
+`prefix_span`/`gsp`, elementwise losses, `dr_score`, `normalize_weights`,
+`grid_search`/`random_search`, `ks_2samp`/`psi`/`chi2_categorical`,
+`logrank`, `ranknet_grad`/`listnet_grad`/`lambdarank_grad`.
+Note: O(n log n) or O(n²) *compute* on caller-provided arrays, but no
+framework-internal state scaling with n.
+
+**B. Leaf-layer** (pure-array, caller MUST batch/spill):
+`knn_query`, `core_distances`, `pairwise_kernel`, `chol_solve`,
+`eigh_topk`, `graph_laplacian`, `eigsh_topk`, `mst`.
+Caller owns OOC guarantee; library gives O(n) results only when caller
+provides O(n)-fitting input.
+
+**C. Bounded_by_domain (temporary)** — models with n-sized state or fit
+transient. Guard refuses at state_limit (honest). Currently:
+- Single-series TS: Naive/ETS/AutoETS/Theta/AutoTheta/SARIMA/VAR
+- EnsembleForecaster (per-member pipelines)
+- GBDTForecaster (deferred horizon training)
+- GBDT family (fit transient — refactor v0.9.169+)
+- T_learner_uplift, CausalTree (AP2 `_collect_cls`)
+- FeatureSelect ×3 (AP2 `_collect` vstack)
+Total: ~18 cards. All documented in YAML `measurement.fit_transient_note`
+or `streaming_strategy.fit`.
+
+**D. True OOC verified** — ~66 cards (Reduce/HashShuffle/Sort/SpillArray).
+Full list in `docs/ROADMAP.md` §verified baseline.
+
+### Roadmap (v0.9.169+)
+
+1. **GBDT fit SpillDir refactor** — 2 sess, precedent LambdaMART
+   (`codes_mm` already done; `grad_mm`, `hess_mm`, `pred_mm` next).
+   Flip 5 GBDT family cards from bounded_by_domain → truly OOC.
+2. **FeatureSelect / T_learner AP2 refactor** — 2 sess.
+   Replace `_collect` vstack with SpillDir memmap + streaming.
+   Flip 3+3 cards.
+3. **EnsembleForecaster / GBDTForecaster deferred horizon refactor** —
+   1-2 sess. Move `_y/_X/_idx` to SpillDir; load per-horizon on demand.
+4. **Single-series TS** (Naive/ETS/Theta/SARIMA/VAR) — remain
+   `bounded_by_domain` permanently (single-series by definition, `n<=1e6`
+   is domain bound, not implementation gap). DEC-011 accepted.
+
+**Session discipline established:** For every new verified card, runtime
+probe `walked vs state_nbytes` (not AST) before `status: verified`.
+
+**Files touched (v0.9.168):**
+- `cadw/ts/models.py` — GBDTForecaster.state_nbytes fix
+- `docs/ml_tools/D_time_series.yaml` — GBDTForecaster bounded_by_domain
+- `docs/ml_tools/A_classification.yaml` — 4 GBDT cards bounded_by_domain
+- `docs/ml_tools/E_anomaly.yaml` — 1 GBDT card bounded_by_domain
+- `docs/ml_tools/H_causal.yaml` — T_learner_uplift, CausalTree
+- `docs/ml_tools/O_eda.yaml` — FeatureSelect ×3 fit_transient_note
+- `docs/ml_tools/PRIMITIVES_BACKLOG.md` — Appendix A (batch vs leaf)
+- `docs/ROADMAP.md` — §v0.9.168 + refactor roadmap
+- `docs/ml_tools/DECISION_LOG.md` — this entry
+
+---
+
+<!-- end DEC-063 -->

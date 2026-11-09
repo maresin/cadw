@@ -562,6 +562,7 @@ subtypes:
       source: "feature_select.py:38-50 -- _collect: Xs/ys append (AP2), mg.check_state(n*(d*8+8)) per batch"
       state: "feature_select.py:139-140 -- FeatureSelectorModel.state_nbytes: scores_.nbytes + 512"
     measurement:
+      fit_transient_note: "AP2 or n-sized fit transient (pred/grad/hess/_collect vstack); OOC refactor planned v0.9.168+."
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact"
       state_ooc: "test_*_state_independent_of_n"
@@ -646,6 +647,7 @@ subtypes:
       source: "feature_select.py:38-50 -- _collect (AP2) + _variance_selector (numpy var axis=0)"
       state: "feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512"
     measurement:
+      fit_transient_note: "AP2 or n-sized fit transient (pred/grad/hess/_collect vstack); OOC refactor planned v0.9.168+."
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact"
       state_ooc: "test_*_state_independent_of_n"
@@ -706,6 +708,7 @@ subtypes:
       source: "feature_select.py:38-50 -- _collect (AP2) + _boruta_selector: Xa = hstack(X, shadows) 2d, GBDT fit"
       state: "feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512"
     measurement:
+      fit_transient_note: "AP2 or n-sized fit transient (pred/grad/hess/_collect vstack); OOC refactor planned v0.9.168+."
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact"
       state_ooc: "test_*_state_independent_of_n"
