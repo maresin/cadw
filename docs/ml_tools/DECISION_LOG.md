@@ -2153,3 +2153,83 @@ to any function — metadata clarification only.
 ---
 
 <!-- end DEC-060 -->
+
+
+---
+
+## DEC-061 (2026-11-09, v0.9.166) — `fit_stacking` infrastructure function
+
+**Q:** ROADMAP §A.2 "EnsembleForecaster DEFERRED until fit_stacking" —
+should EnsembleForecaster (weighted average) and `fit_stacking` (tabular
+stacker) share infrastructure?
+
+**A:** No — they are independent. v0.9.165 confirmed EnsembleForecaster
+is a weighted-average forecaster (inverse_mase / median / custom),
+not a stacker. `fit_stacking` is tabular (base models → meta learner
+on OOF). The ROADMAP §A.2 coupling was a misreading; corrected in
+v0.9.165.
+
+**`fit_stacking` scope (v0.9.166):**
+- Infrastructure function (not a card), like `fit_ab_test`.
+- `fit_stacking(df, X_cols, y_col, *, base_models, meta_learner, cv=5,
+  task, memory_guard, seed) -> StackingModel`.
+- K-fold OOC: pass 1 = OOF per base model (one fold at a time via
+  `cadw.cv.KFold(stratify_by=y)`); pass 2 = meta fit on OOF matrix;
+  pass 3 = refit bases on full df for predict.
+- OOC: KFold streams one fold at a time. OOF matrix = n × n_base × f64
+  (bounded by n and n_base; n=1e6, n_base=5 → ~40 MB). Guard checked.
+- `state_nbytes()` = sum(base.state_nbytes) + meta.state_nbytes() + 256.
+- Reused by `ensemble_recommendation` recipes (DEC-050 level 3,
+  DEC-052 "no per-subtype duplicated recipes"); no per-subtype wrapper
+  card.
+
+**Deferred (v0.9.167+):**
+- Multiclass stacking meta (currently binary: `arr[:, -1]` takes P(y=1)).
+- Regression meta (`task="regression"` supports existing meta_learner,
+  but predict path uses `.predict()`, meta may need custom).
+- `output="auto"` / SpillArray OOF matrix (currently in-memory numpy;
+  for n > ~1e6 × n_base > 5 the OOF matrix may not fit).
+
+---
+
+<!-- end DEC-061 -->
+
+
+---
+
+## DEC-061 (2026-11-09, v0.9.166) — `fit_stacking` infrastructure function
+
+**Q:** ROADMAP §A.2 "EnsembleForecaster DEFERRED until fit_stacking" —
+should EnsembleForecaster (weighted average) and `fit_stacking` (tabular
+stacker) share infrastructure?
+
+**A:** No — they are independent. v0.9.165 confirmed EnsembleForecaster
+is a weighted-average forecaster (inverse_mase / median / custom),
+not a stacker. `fit_stacking` is tabular (base models → meta learner
+on OOF). The ROADMAP §A.2 coupling was a misreading; corrected in
+v0.9.165.
+
+**`fit_stacking` scope (v0.9.166):**
+- Infrastructure function (not a card), like `fit_ab_test`.
+- `fit_stacking(df, X_cols, y_col, *, base_models, meta_learner, cv=5,
+  task, memory_guard, seed) -> StackingModel`.
+- K-fold OOC: pass 1 = OOF per base model (one fold at a time via
+  `cadw.cv.KFold(stratify_by=y)`); pass 2 = meta fit on OOF matrix;
+  pass 3 = refit bases on full df for predict.
+- OOC: KFold streams one fold at a time. OOF matrix = n × n_base × f64
+  (bounded by n and n_base; n=1e6, n_base=5 → ~40 MB). Guard checked.
+- `state_nbytes()` = sum(base.state_nbytes) + meta.state_nbytes() + 256.
+- Reused by `ensemble_recommendation` recipes (DEC-050 level 3,
+  DEC-052 "no per-subtype duplicated recipes"); no per-subtype wrapper
+  card.
+
+**Deferred (v0.9.167+):**
+- Multiclass stacking meta (currently binary: `arr[:, -1]` takes P(y=1)).
+- Regression meta (`task="regression"` supports existing meta_learner,
+  but predict path uses `.predict()`, meta may need custom).
+- `output="auto"` / SpillArray OOF matrix (currently in-memory numpy;
+  for n > ~1e6 × n_base > 5 the OOF matrix may not fit).
+
+---
+
+<!-- end DEC-061 -->

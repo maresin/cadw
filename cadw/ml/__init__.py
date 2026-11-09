@@ -103,3 +103,6 @@ from .anomaly_pipeline import (  # noqa: E402,F401
 )
 
 from cadw.ml.rocket import fit_rocket, RocketModel  # noqa: E402
+
+# v0.9.166 (DEC-061): stacking infrastructure
+from cadw.ml.stacking import fit_stacking, StackingModel

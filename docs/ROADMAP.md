@@ -332,6 +332,32 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.166 (fit_stacking tabular infrastructure):**
+- New `cadw/ml/stacking.py::fit_stacking` (DEC-061): K-fold OOC
+  tabular stacker (not a card; like fit_ab_test).
+- Reuses `cadw.cv.KFold(stratify_by=y)` for OOC folds; pass 1 = OOF
+  per base model, pass 2 = meta on OOF, pass 3 = refit bases on
+  full df.
+- state = sum(base.state_nbytes) + meta.state_nbytes + 256.
+- Tests: 5 passed (runs+predicts; state>=header; guard-refuse at
+  0.001 MB; invalid args; no-regression vs best base on A1).
+- ROADMAP §A.2 false coupling (EnsembleForecaster <-> fit_stacking)
+  corrected; ROADMAP §2 priority #1 (P1 group A) and #2 (impl/
+  promotion) already done in v0.9.144-164; §A.2 closed.
+
+**v0.9.166 (fit_stacking tabular infrastructure):**
+- New `cadw/ml/stacking.py::fit_stacking` (DEC-061): K-fold OOC
+  tabular stacker (not a card; like fit_ab_test).
+- Reuses `cadw.cv.KFold(stratify_by=y)` for OOC folds; pass 1 = OOF
+  per base model, pass 2 = meta on OOF, pass 3 = refit bases on
+  full df.
+- state = sum(base.state_nbytes) + meta.state_nbytes + 256.
+- Tests: 5 passed (runs+predicts; state>=header; guard-refuse at
+  0.001 MB; invalid args; no-regression vs best base on A1).
+- ROADMAP §A.2 false coupling (EnsembleForecaster <-> fit_stacking)
+  corrected; ROADMAP §2 priority #1 (P1 group A) and #2 (impl/
+  promotion) already done in v0.9.144-164; §A.2 closed.
+
 **v0.9.165 (EnsembleForecaster verified):**
 - Flipped EnsembleForecaster (D_time_series) draft -> verified
   via bounded_by_domain (DEC-011): state O(n) per member pipeline
