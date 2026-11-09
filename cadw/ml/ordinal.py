@@ -79,10 +79,19 @@ def _predict_proba_np(X, beta, theta):
     return np.clip(probs, 0.0, 1.0)
 
 
-def _collect(df, cols, y_col, mg, batch_size=None):
+def _collect(df, cols, y_col, mg, batch_size=None, max_rows=None):
     Xs, ys = [], []
     n = 0
+    cap = max_rows
     for b in df._iter_filtered_batches(batch_size=batch_size):
+        if cap is not None and n >= cap:
+            break
+        if cap is not None:
+            take = min(b.num_rows, cap - n)
+        else:
+            take = b.num_rows
+        if take < b.num_rows:
+            b = b.slice(0, take)
         mg.check_batch(b, name="ordinal.pass1", extra_factor=3.0)
         # v0.9.90-S3 (G2): pre-check BEFORE append.
         n += b.num_rows
@@ -197,6 +206,7 @@ class OrdinalLogitModel:
 
 
 def fit_ordinal_logit(df, X_cols, y_col, *, max_iter=200, tol=1e-6,
+                      max_samples: Optional[int] = None,
                       memory_guard: Optional[MemoryGuard] = None,
                       batch_size=None):
     """Fit a proportional-odds ordinal logit on integer-coded ordered classes."""
@@ -207,7 +217,16 @@ def fit_ordinal_logit(df, X_cols, y_col, *, max_iter=200, tol=1e-6,
         if c not in df._columns:
             raise KeyError(f"fit_ordinal_logit: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    X, y = _collect(df, cols, y_col, mg, batch_size=batch_size)
+    n_total = df.count()
+    cap = int(max_samples) if max_samples is not None else 20000
+    if max_samples is None and n_total > cap:
+        import warnings
+        warnings.warn(
+            f"fit_ordinal_logit: subsampling to {cap} rows (n={n_total}). "
+            f"Pass max_samples=N to override.",
+            stacklevel=2,
+        )
+    X, y = _collect(df, cols, y_col, mg, batch_size=batch_size, max_rows=cap)
     if np.isnan(X).any() or np.isnan(y).any():
         raise ValueError("fit_ordinal_logit: nulls in features or outcome")
     classes = np.unique(y)

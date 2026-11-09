@@ -124,15 +124,26 @@ def test_peak_grows_linearly_with_n():
     assert ratio < 20.0, f"ratio {ratio:.2f}; small={p_small}, large={p_large}"
 
 
-def test_guard_refuses_at_domain_bound():
-    """bounded_by_domain n<=1e6 honest: n=1e6 + guard=10MB -> refuse."""
+def test_subsamples_at_domain_bound():
+    """S2b-2a: fit_chains subsamples to 20000 rows (cap) at n=1e6.
+
+    Prior behavior: _collect O(n) -> guard refuse. Now: subsample+warn
+    (bounded_state=true; OOC via _collect max_rows cap).
+    """
+    import warnings
     d, L = 20, 3
     df = _make_df(1_000_000, d, L, seed=0)
-    with pytest.raises(Exception):
-        fit_chains(df, [f"x{j}" for j in range(d)], [f"y{k}" for k in range(L)],
-                   n_estimators=5,
-                   memory_guard=MemoryGuard(max_memory_mb=10),
-                   batch_size=1000)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        m = fit_chains(df, [f"x{j}" for j in range(d)],
+                        [f"y{k}" for k in range(L)],
+                        n_estimators=5,
+                        memory_guard=MemoryGuard(max_memory_mb=10),
+                        batch_size=1000)
+    assert any("subsampling to 20000" in str(x.message) for x in w), (
+        f"expected subsample warning; got: {[str(x.message)[:60] for x in w]}")
+    # state bounded (bounded_state=true)
+    assert m.state_nbytes() < 10 * 1024 * 1024  # well below 10 MB guard
 
 
 def test_tight_guard_raises():

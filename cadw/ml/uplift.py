@@ -270,6 +270,14 @@ def fit_uplift(df, X_cols, treatment_col, y_col, *, n_estimators=50,
     mg = memory_guard or df._memory_guard
 
     cap = int(max_samples) if max_samples is not None else _MAX_SAMPLE_ROWS
+    n_total = df.count()
+    if max_samples is None and n_total > cap:
+        import warnings
+        warnings.warn(
+            f"fit_uplift: subsampling to {cap} rows (n={n_total}). "
+            f"Pass max_samples=N to override.",
+            stacklevel=2,
+        )
     X, t, y = _collect_cls(df, cols, treatment_col, y_col, mg, max_rows=cap)
 
     if np.isnan(X).any() or np.isnan(y).any() or np.isnan(t).any():
@@ -312,6 +320,7 @@ def fit_uplift(df, X_cols, treatment_col, y_col, *, n_estimators=50,
 
 def _fit_uplift_two_model(df, X_cols, treatment_col, y_col, *, n_estimators=50,
                           max_depth=3, learning_rate=0.1, seed=0,
+                          max_samples: Optional[int] = None,
                           memory_guard: Optional[MemoryGuard] = None):
     """Reference T-learner baseline (v0.9.37). Tests only."""
     cols = [X_cols] if isinstance(X_cols, str) else list(X_cols)
@@ -321,7 +330,16 @@ def _fit_uplift_two_model(df, X_cols, treatment_col, y_col, *, n_estimators=50,
         if c not in df._columns:
             raise KeyError(f"fit_uplift: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    X, t, y = _collect_cls(df, cols, treatment_col, y_col, mg)
+    n_total = df.count()
+    cap = int(max_samples) if max_samples is not None else _MAX_SAMPLE_ROWS
+    if max_samples is None and n_total > cap:
+        import warnings
+        warnings.warn(
+            f"_fit_uplift_two_model: subsampling to {cap} rows "
+            f"(n={n_total}). Pass max_samples=N to override.",
+            stacklevel=2,
+        )
+    X, t, y = _collect_cls(df, cols, treatment_col, y_col, mg, max_rows=cap)
 
     from cadw.ml.gbdt import fit_gbdt_classifier
     m1 = m0 = None

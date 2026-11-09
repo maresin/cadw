@@ -825,11 +825,12 @@ subtypes:
   - name: OneVsRest_Logistic
     tier: baseline
     tier_level: tier1_core
-    ram_formula: "n_estimators * d * d * f64 + 512"
+    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
     formula_evidence:
       per_estimator: "chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64"
       header: "chains.py -- label_cols list + feature_cols list + params dict = 512"
     measurement:
+      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = sum(GBDT trees) + d."
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact sum + 512 (n_est, d, L parametrized)"
       state_independent_of_n: "test_state_independent_of_n: bounded ratio <=1.5 (GBDT data-dependent nodes)"
@@ -869,16 +870,11 @@ subtypes:
       value: 0.62
       std: null
       note: subset accuracy [legacy v0.9.44, migrated v0.9.50]
-    state_class: O(model)
-    bounded_state_dims: {n_estimators: 1, d: 2}
+    state_class: O(d)
+    bounded_state_dims: {d: 1}
     state_type: aggregation
-    bounded_state: false
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: '_collect np.vstack(Xs) O(n*d); state O(n_est*d^2). n<=1e6 typical for tabular multi-label.'
-
-    n_scalability: linear
+    bounded_state: true
+    n_scalability: constant
     streaming_strategy:
       fit: 'per-class binary logistic; L binary fits, each O(d²) Reduce.'
       predict: 'per-batch stack of L sigmoids.'
@@ -886,11 +882,12 @@ subtypes:
   - name: ClassifierChains
     tier: sota
     tier_level: tier1_core
-    ram_formula: "n_estimators * d * d * f64 + 512"
+    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
     formula_evidence:
       per_estimator: "chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64"
       header: "chains.py -- label_cols list + feature_cols list + params dict = 512"
     measurement:
+      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = sum(GBDT trees) + d."
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact sum + 512 (n_est, d, L parametrized)"
       state_independent_of_n: "test_state_independent_of_n: bounded ratio <=1.5 (GBDT data-dependent nodes)"
@@ -931,16 +928,11 @@ subtypes:
       value: 0.66
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    state_class: O(model)
-    bounded_state_dims: {n_estimators: 1, d: 2}
+    state_class: O(d)
+    bounded_state_dims: {d: 1}
     state_type: aggregation
-    bounded_state: false
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: '_collect np.vstack(Xs) O(n*d); state O(n_est*d^2). n<=1e6 typical for tabular multi-label.'
-
-    n_scalability: linear
+    bounded_state: true
+    n_scalability: constant
     streaming_strategy:
       fit: 'L chained logistic fits on (X + prior labels); O(d²) per classifier.'
       predict: 'per-batch chained prediction.'
@@ -996,12 +988,13 @@ subtypes:
   - name: OrdinalLogit
     tier: baseline
     tier_level: tier1_core
-    ram_formula: "d * f64 + K * f64 + 256"
+    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
     formula_evidence:
       beta: "ordinal.py -- OrdinalLogitModel.beta_ = (d,) f64 = d*f64"
       theta: "ordinal.py -- OrdinalLogitModel.theta_ = (K-1,) f64 = (K-1)*f64"
       header: "ordinal.py -- classes_ ndarray + feature_cols list + params dict = 256"
     measurement:
+      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = beta(d) + theta(K-1) + 512."
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, (d,K) parametrized (5/3, 10/4, 20/5)"
       state_independent_of_n: "test_state_independent_of_n: state(n=2k)==state(n=10k)"
@@ -1043,15 +1036,10 @@ subtypes:
       std: null
       note: exact-match accuracy [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d)
-    bounded_state_dims: {d: 1, K: 1}
+    bounded_state_dims: {d: 1}
     state_type: aggregation
-    bounded_state: false
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: '_collect np.vstack(Xs) O(n*d); state O(d+K). n<=1e6 typical for tabular ordinal classification.'
-
-    n_scalability: linear
+    bounded_state: true
+    n_scalability: constant
     streaming_strategy:
       fit: 'K-1 cumulative-logit Reduces over shared beta (d² Hessian).'
       predict: 'per-row cumulative P(y<=k) from fitted thresholds.'

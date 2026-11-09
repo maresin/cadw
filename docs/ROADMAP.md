@@ -332,6 +332,25 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.171 (S2b-2a: chains/meta/uplift/ordinal subsample cap):**
+- Code: `max_samples=20000` param + warning on subsample for:
+  fit_chains, fit_meta_learner, _fit_uplift_two_model,
+  fit_ordinal_logit. fit_uplift: warning added (had max_samples).
+- _collect in chains/meta_learners/ordinal/uplift: max_rows cap
+  (None-safe; v1 had float('inf') -> int() OverflowError bug).
+- Tests: 71 passed + test_chains_verification subsample_at_domain_bound
+  (replaces guard_refuses_at_domain_bound — behavior change honest:
+  subsample+warn instead of MemoryLimitExceeded).
+- YAML flip 7 cards: bounded_state=false -> true, n_scalability
+  linear -> constant, ram_formula '2*d*f64 + 512 + 2.0*batch*row_size',
+  bounded_by_domain / tier1_core_exception removed, subsample_note
+  added: ClassifierChains, OneVsRest_Logistic, OrdinalLogit,
+  T_learner, S_learner, T_learner_uplift, CausalTree.
+- R13 fix: T_learner + S_learner fit_batched false -> true
+  (subsample via _iter_filtered_batches is truly batched).
+- BorutaSelect remains bounded_by_domain (needs S2c GBDT SpillDir).
+- AP2_COLLECT: 9 of 10 done (only Boruta deferred to S2c dependency).
+
 **v0.9.170 (S2b-1: feature_select OOC refactor):**
 - `cadw/ml/feature_select.py` refactor (variance + mutual_info):
   - _collect AP2 vstack -> SpillDir memmap (X and y on disk)

@@ -129,10 +129,19 @@ class MetaLearnerModel:
         return float(np.mean(t * y / e - (1 - t) * y / (1 - e)))
 
 
-def _collect(df, cols, t_col, y_col, mg):
+def _collect(df, cols, t_col, y_col, mg, max_rows=None):
     Xs, ts, ys = [], [], []
     n = 0
+    cap = max_rows
     for b in df._iter_filtered_batches():
+        if cap is not None and n >= cap:
+            break
+        if cap is not None:
+            take = min(b.num_rows, cap - n)
+        else:
+            take = b.num_rows
+        if take < b.num_rows:
+            b = b.slice(0, take)
         mg.check_batch(b, name="meta_learner.pass1", extra_factor=2.0)
         # v0.9.90-S3 (G2): pre-check BEFORE append.
         n += b.num_rows
@@ -152,6 +161,7 @@ def _collect(df, cols, t_col, y_col, mg):
 def fit_meta_learner(df, X_cols, treatment_col, y_col, *, kind="t",
                      n_estimators=50, max_depth=3, learning_rate=0.1,
                      propensity_alpha=1.0,
+                     max_samples: int | None = None,
                      memory_guard: Optional[MemoryGuard] = None):
     """Fit a T-learner or S-learner, plus a propensity model.
 
@@ -171,7 +181,16 @@ def fit_meta_learner(df, X_cols, treatment_col, y_col, *, kind="t",
         if c not in df._columns:
             raise KeyError(f"fit_meta_learner: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    X, t, y = _collect(df, cols, treatment_col, y_col, mg)
+    n_total = df.count()
+    cap = int(max_samples) if max_samples is not None else 20000
+    if max_samples is None and n_total > cap:
+        import warnings
+        warnings.warn(
+            f"fit_meta_learner: subsampling to {cap} rows (n={n_total}). "
+            f"Pass max_samples=N to override.",
+            stacklevel=2,
+        )
+    X, t, y = _collect(df, cols, treatment_col, y_col, mg, max_rows=cap)
     if np.isnan(X).any() or np.isnan(y).any() or np.isnan(t).any():
         raise ValueError("fit_meta_learner: nulls in features, outcome or treatment")
     uniq = np.unique(t)
