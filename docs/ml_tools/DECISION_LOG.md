@@ -2597,4 +2597,371 @@ documented honestly. Refactor to true OOC deferred v0.9.173+.
 
 ---
 
+---
+
+## DEC-067 (2026-11-10, v0.9.175) — OOC batched work front: 2-tier + 6-level auto-switch
+
+**Q:** After v0.9.174, ~40 cards are `bounded_by_domain` (or invalid, e.g. STRAY). User
+demand (this session): "добиться состояния OOC batched для моделей, примитивов, общих
+функций". What is the concrete work front, and how to handle cases where OOC is not
+achievable via window/solver?
+
+**A:** 2-tier insufficient model + 6-level auto-switch registry. OOC achievable for
+**all** models with current budget if **any** variant fits. Refuse only when **no**
+variant fits (physical impossibility or absurd params).
+
+### Dynamic budget (NOT machine constant)
+
+`budget = MemoryGuard.available_bytes()` — **dynamic**, reflects **current** available
+RAM at call time. Server: 128 GB. Container: 2 GB. Embedded: 512 MB. "8-16 GB" from
+DEC-050 was an **example** of a weak machine, not a hard limit.
+
+`min_ram_formula(model, params)` is **analytical**, depends only on params — not machine.
+
+### 2-tier model (replaces single "insufficient")
+
+| Tier | Condition | Behavior |
+|---|---|---|
+| **operational** | `budget >= min_ram(best_variant)` | Auto-switch to best fitting variant + **work**. |
+| **insufficient_no_alt** | `budget < min_ram(best_variant)` | `MemoryLimitExceeded` + model + params + options + **current** budget. |
+
+`min_ram(best_variant)` = minimum over all `auto_switch` candidates (see 6 levels).
+True refuse reserved for physical impossibility (e.g., `d=1e18` overflows Python int,
+`depth=100` impossible to materialize). Message includes sanity-check suggestion
+("did you mean d=1e4?").
+
+### 6-level auto-switch registry
+
+When `budget < min_ram(current_params)`, try in order:
+
+| Level | Switch | Example | Accuracy |
+|---|---|---|---|
+| **L1 solver** | `closed` → `sgd` | `fit_linear`/`fit_logistic`/`fit_pca` | convergence (DEC-033 §4.2) |
+| **L2 iteration** | `batch_tree` → `round_by_round_spill` | `fit_gbdt`/`fit_lambdamart` n_estimators | **none** (exact) |
+| **L3 blocked** | `K=K_user, mode=full` → `K=K_user, K_block=auto, mode=blocked` | `fit_als`/`fit_nmf` K | **none** (exact), ~K/K_blk slower |
+| **L4 sparse** | `components_mode=dense` → `components_mode=sparse_csr` | `fit_lda` (naturally sparse) | **none** (exact) |
+| **L5 streaming** | `mode=batch` → `mode=online` | MLE-forecasters + `fit_online_*` | RLS ≠ MLE (adaptive) |
+| **L6 recursive** | `horizon_mode=direct` → `horizon_mode=recursive` | `fit_gbdt_forecaster` | algorithm switch, often better for long H |
+
+Additional axis for **data**, not model params:
+- **window**: `window=None` → `window="auto"` → `W = min(n, get_window_size())`.
+  Semantic truncation, disclosed via `ApproximationInfo`. (This is `bounded_by_window`,
+  not auto-switch.)
+
+### Model inventory (40 cards currently not OOC batched)
+
+| Group | Cards | Strategy | Sessions |
+|---|---|---|---|
+| **A. TS Forecaster** | Naive, ETS, AutoETS, Theta, AutoTheta, OTMTheta, SARIMA, VAR, TemporalHierarchy, TransformedTarget, Ensemble | `window="auto"` + drop `y_`/`fitted_` + `predict_in_sample(df)` | 5-6 |
+| **B. Anomaly output** | kshape, sub_pca, autoencoder, patch_memory_ad, tspq, s2g, dwt_mlead, eif, kmeans_ad, bocpd (10 unique after dedup) | `output="auto"` (SpillArray) + DEC-036 reservoir | 12-15 |
+| **C. GBDT+lambdamart** | GBDT, GBDT_L2, GBDT_multiclass, GBDT_scale_pos_weight ×2, lambdamart | L2 round-by-round SpillArray (bundle) | 3-4 |
+| **D. Pelt** | PELT ×2 | `max_window="auto"` (already supported) + `get_window_size()` | 0.5 |
+| **E. CoxPH concordance** | CoxPH (metric) | external_sort + Fenwick streaming | 1-2 |
+| **F. Binseg** | BinarySegmentation ×2 | external cumsum (SpillDir) | 1-2 |
+| **G. Insufficient 11 cases** | GBDT/depth, GBDT/k_classes, lambdamart/d, GBDTForecaster/horizon, ALS/K, NMF/K, LDA/K·V, TFIDF/V, encode_categorical/K | L2-L6 via auto-switch; L3 blocked ALS/NMF; L4 sparse LDA; L6 recursive GBDTF | (covered by A-C) |
+| **H. Primitives** | 30+ functions in cadw/ops/* | Class A batch (already OOC ~15), B leaf (streaming/sparse ~10), intrinsic (bounds ~5) | 8-10 |
+
+### Escape hatches (documented, not bug)
+
+- `df.apply` — 3 variants (DEC-069).
+- `df.to_pandas` / `to_arrow_table` — explicit escape, documented.
+- `df.cumsum/rolling/expanding/ewm/diff/shift/ffill` — **already OOC** (P19, eager-to-disk);
+  YAML cards only (v0.9.191).
+- `df.pivot` / `df.sample` — probe (P25-P27); auto-spill or guard.
+
+### Bounded_by_domain fate
+
+- **All 40 cards** with `bounded_by_domain: y` → **force `status: draft`** (G17, new gate).
+- Visibility in ROADMAP: `draft_reason: "bounded_by_domain, refactor target vX"`.
+- After refactor → `verified` (bounded_state: true, no bounded_by_domain).
+
+### min_ram_formula (mandatory for verified)
+
+Analytical bottom-bound, derived from code (AP23 analog for bottom-bound). Migration
+to all 90+ cards in v0.9.177-178 (AST + script). Fields:
+- `min_ram_formula`: string expression (like ram_formula, but for "minimum viable")
+- `min_ram_evidence`: per-term `file:line` reference
+
+### Roadmap waves (v0.9.175-220)
+
+| Wave | Versions | Scope | Sessions |
+|---|---|---|---|
+| 0 | v0.9.175-178 | docs + infra + min_ram migration | 3-4 |
+| 1 | v0.9.179-181 | quick wins (pelt, coxph, binseg) | 3-4 |
+| 2 | v0.9.182-186 | TS refactor (group A) | 5-6 |
+| 3 | v0.9.187-190 | GBDT bundle (C) + GBDTForecaster | 3-4 |
+| 4 | v0.9.191 | DF YAML + apply 3-variant | 0.5-1 |
+| 5 | v0.9.192-208 | anomaly SpillArray (B) + streaming opt-in | 14-17 |
+| 6 | v0.9.209-218 | primitives (H) | 8-10 |
+| 7 | v0.9.219 | L12 consensus_matrix | 1 |
+
+**Total ~38-45 sessions** to full honest OOC.
+
+### Invariants established
+
+- **OOC ≠ zero OOM in all cases**: OOC means RAM=O(batch+state); achievable always
+  via auto-switch if any variant fits current budget. True refuse only when nothing fits.
+- **Dynamic budget**: MemoryLimitExceeded uses **current** budget, not machine constant.
+- **Approximation always disclosed**: `ApproximationInfo` + `ApproximationWarning`;
+  silent approximation = AP24 violation.
+- **bounded_by_domain**: never `verified`; visible debt until refactor.
+
+---
+
+---
+
+## DEC-068 (2026-11-10, v0.9.175) — unified params: window / params / output / strict
+
+**Q:** Different models have different "tuning knobs" (solver, window, mode, output,
+max_window, lag_window). Unify or keep per-model signatures?
+
+**A:** Unified 5-parameter surface + per-model optional extensions. Same philosophy
+as existing `output=` for ZMS/CUSUM (v0.9.90).
+
+### Standard 5-parameter surface
+
+```python
+def fit_<model>(
+    df, ...,
+    *,
+    window: str | int | None = "auto",  # bound on algorithm state (n-history models)
+    solver: str = "auto",                # "closed"|"sgd"|"auto" (state O(d²) models)
+    output: str = "auto",                # "memory"|"auto"|"disk" (n-sized output)
+    params: str = "manual",              # "manual"|"auto" (grid search)
+    strict: bool = False,                # refuse on any adjustment
+    memory_guard: MemoryGuard | None = None,
+    **model_specific_kwargs,
+) -> <Model>
+```
+
+- **Only those params that are meaningful for the model** (e.g., `fit_naive` has no
+  `solver`; `fit_linear` has no `window`). Model card declares `params_supported`.
+- **`window`** — bound on algorithm state (n-history): ETS/Theta/SARIMA/VAR/ARIMA/
+  Naive/OTM/pelt(`max_window`)/GBDTForecaster(`lag_window`)/rolling/expanding/ewm.
+- **`solver`** — algorithm variant for state O(d²): linear/logistic/pca
+  (`closed`|`sgd`).
+- **`output`** — RAM vs disk for n-sized result: all anomaly ZMS/CUSUM-like +
+  GBDT family (future) + DataFrames.
+- **`params`** — `manual` (user hyperparams) vs `auto` (grid search / AICc).
+
+### `strict` semantics
+
+`strict=False` (default) — auto-switch to a fitting variant if needed + emit
+`ApproximationInfo` + `ApproximationWarning`.
+`strict=True` — refuse if user-specified params do not fit; no auto-switch.
+Reason: some users need "exact or abort" (validation, reproducibility, CI).
+
+### Auto-switch 6 levels (see DEC-067 for full table)
+
+L1 solver, L2 iteration, L3 blocked, L4 sparse, L5 streaming, L6 recursive.
+`resolve_params()` (v0.9.176) tries variants in `min_ram`-ascending order,
+returns `(effective_params, list[ApproximationInfo])`.
+
+### Prediction semantics — 3 modes
+
+`predict(steps)` — state extrapolation. Same for all modes.
+
+`predict_in_sample(df)` — **mandatory df** (breaking change from
+`predict_in_sample()`):
+- **exact** (W >= n, or batch MLE on full series): returns `[0, n)`, `approximation=None`.
+- **window** (W < n): exact `[n-W, n)`, **NaN** `[0, n-W)`, `approximation=[window_truncated, ...]`.
+- **online** (RLS, n→∞): approximate `[0, n)` (always), `approximation=[online, ...]`.
+
+Breaking change rationale: exact MLE for `[0, n)` requires full `y_` in state (O(n)).
+Removing it makes state O(1) (true OOC). User can opt in `fit(df, save_y=True)` for
+legacy (state becomes O(n), `bounded_state: false`, explicit).
+
+### `window="auto"` resolution
+
+`W = min(n, mg.get_window_size(unit_bytes=8, target_fraction=0.25))`.
+- `window=None` — requested unbounded; auto-adjusts down to `W_max` if needed +
+  `ApproximationInfo(type="window_adjusted", reason="budget_limit")`.
+- `window=int W` — explicit; auto-adjusts down if `W > W_max`.
+- `window="auto"` — direct use of `W_max` (or `n` if smaller).
+
+Never refuse on window alone — only if `W_max < min_history(model)` (e.g., `2s+1` for
+ETS). Refuse is `insufficient_no_alt`.
+
+### YAML schema
+
+```yaml
+- name: Theta
+  cadw_function: fit_theta
+  params_supported: [window, params, strict]
+  window_semantics:
+    auto: "W_eff = min(n, W_max)"
+    int: "W_eff = min(W, n, W_max); warn if W_eff < W"
+    None: "W_eff = min(n, W_max); warn if W_eff < n"
+    strict: "raise if adjustment needed"
+  min_ram_formula:
+    window_auto: "(2*seasonal + 1) * f64 + 3 * row_size + 512"
+  ram_formula:
+    window_auto: "W_eff * f64 + batch * row_size + (2*seasonal+1) * f64 + 256"
+  auto_switch: []  # no variants for Theta (window covers all n)
+  approximation:
+    - type: window_adjusted
+      reason: budget_limit
+    - type: window_truncated
+      lost_range: "[0, n - W_eff)"
+  predict_in_sample:
+    exact_when: "W_eff >= n"
+    partial_when: "W_eff < n (NaN for [0, n-W_eff))"
+```
+
+### Backward compatibility
+
+Existing calls `fit_theta(df, y, seasonal_period=7)`:
+- `window="auto"` default → no behavior change if budget >= n*8 (W = n, exact).
+- If budget < n*8, previously raised; now auto-adjusts + warning.
+- `predict_in_sample()` (no df) raises TypeError with actionable message
+  ("call predict_in_sample(df), or fit(..., save_y=True) for legacy").
+
+Reference: DEC-067 (work front), AI_CONSTITUTION §4.0 R2, R6.
+
+---
+
+---
+
+## DEC-069 (2026-11-10, v0.9.175) — df.apply: 3-variant API (default/checked/safe)
+
+**Q:** `df.apply(func)` — arbitrary user function. RAM can grow O(n) inside func
+(silent OOM) if user accumulates into closure / global. How to control?
+
+**A:** 3 variants:
+- `df.apply(func)` — default, **AST-warning** on known-dangerous patterns.
+  Proceeds regardless (user knows their func). No OOC guarantee for arbitrary func.
+- `df.apply_checked(func)` — **runtime accumulation detection** via tracemalloc +
+  RSS sampler. Overhead 2-5%. Use for unknown/third-party func.
+- `df.apply_safe(func)` — **require MG-aware signature** `func(batch, mg) -> batch`.
+  Guaranteed OOC (func responsible). Use in production pipelines.
+
+### Default `df.apply(func)`
+
+**Signature:** unchanged (`apply(func, axis=0)`), new optional `warn_dangerous=True`.
+
+**Behavior:**
+1. AST-parse `func.__code__` source (via `inspect.getsource`).
+2. Detect known dangerous patterns:
+   - `ast.Attribute` with method name in `{append, add, extend}` on closure-captured
+     name (from `ast.Name` bound outside func)
+   - `ast.Assign` to `ast.Subscript` on closure-captured dict
+   - `ast.Call` to `{np.concatenate, np.vstack, np.hstack}` with closure-captured arg
+   - `ast.Global` inside func
+3. If found → `ApplySafetyWarning` with:
+   - pattern summary ("modifies closure variable 'acc' at line 3")
+   - suggestions (use apply_checked, refactor, suppress with warn_dangerous=False)
+4. Proceed (user handles their func).
+
+**Limitations:** AST misses dynamic patterns (`getattr`, `setattr`, indirect mutation).
+Dangerous patterns via `numpy` internal (e.g., `np.cumsum` on full arrays inside func) —
+not detected. Document in docstring.
+
+### `df.apply_checked(func, *, max_growth_ratio=2.0)`
+
+**Runtime check:**
+```python
+import tracemalloc
+tracemalloc.start()
+baseline = tracemalloc.get_traced_memory()[0]
+try:
+    for i, batch in enumerate(self._iter_filtered_batches()):
+        result_batch = _apply_batch(func, batch, axis)
+        if i % 1000 == 0:  # sample every 1000 rows
+            current = tracemalloc.get_traced_memory()[0]
+            growth = current - baseline
+            if growth > max_growth_ratio * baseline and growth > 10 * 1024**2:
+                raise MemoryLimitExceeded(
+                    f"apply_checked: memory grew {growth/1e6:.1f} MB above "
+                    f"baseline (ratio {growth/baseline:.2f} > {max_growth_ratio}). "
+                    f"Func may accumulate. Reduce n, or use apply_safe."
+                )
+finally:
+    tracemalloc.stop()
+```
+
+**Coverage:**
+- Python objects (closure, dict, list): via tracemalloc ✓
+- numpy arrays via `malloc`: add RSS sampler every 1000 rows (like `measure_peak_traced`) ✓
+- Pure C extensions: RSS sampler catches ✓
+
+**Overhead:** tracemalloc ~2-5% (Python object tracking). RSS sampler negligible.
+Combined overhead 3-7%.
+
+### `df.apply_safe(func)`
+
+**Signature enforced at call site:**
+```python
+try:
+    sig = inspect.signature(func)
+    params = list(sig.parameters.values())
+    if len(params) < 2:
+        raise TypeError(...)
+except (ValueError, TypeError):
+    raise TypeError("apply_safe: func must accept (batch: pa.RecordBatch, mg: MemoryGuard)")
+```
+
+**Behavior:** pass `mg=self._memory_guard` explicitly. Func must call
+`mg.check_state(...)` itself.
+
+**Warning if not called:** `inspect.getsource(func)` + AST-scan for `mg.check_state`
+/ `mg.check_batch` calls. If none → `ApplySafetyWarning` ("func lacks check_state;
+OOC guarantee not enforced"). Not blocking — user might call nested helper.
+
+### YAML card (DF_operations.yaml)
+
+```yaml
+- name: apply
+  cadw_method: "CadwDataFrame.apply"
+  variants:
+    default:
+      bounded_state: false
+      escape_hatch: true
+      ast_warning: ApplySafetyWarning on {append, add, extend, Global, concat}
+      ooc_guarantee: none
+    checked:
+      bounded_state: true
+      runtime_check: "tracemalloc + RSS sampler every 1000 rows; raise if growth > 2x baseline"
+      overhead: "3-7%"
+      ooc_guarantee: for detectable accumulation
+    safe:
+      bounded_state: true
+      signature: "func(batch: pa.RecordBatch, mg: MemoryGuard) -> pa.RecordBatch"
+      ooc_guarantee: user-responsible (mg.check_state contract)
+```
+
+### Alternatives rejected
+
+- **Only `apply_safe`** — too restrictive for ad-hoc use. Users expect `df.apply(lambda x: x*2)` to work.
+- **Only AST-warning** — misses dynamic patterns, no runtime guarantee.
+- **Full sandbox** (e.g., resource-limited subprocess) — complexity, perf hit; not for tabular.
+- **Only `apply_checked`** — runtime overhead for every apply; overkill for known-safe.
+
+### Migration
+
+- `df.apply(func)` — unchanged behavior + AST warning on dangerous patterns.
+  Backward-compatible (warning only).
+- `df.apply_checked(func)` — new (v0.9.191).
+- `df.apply_safe(func)` — new (v0.9.191).
+
+Existing tests of `df.apply` (elementwise, aggregation, dict return) — continue passing
+(AST warning only if pattern matched; AST warnings not raised by default, emit
+`ApplySafetyWarning` via `warnings.warn`).
+
+### Probe (v0.9.175, before implementation)
+
+6 experiments (E1-E6) to ground AST rules:
+- E1: elementwise (x*2) — safe
+- E2: elementwise dict — safe
+- E3: row-wise complex — safe
+- E4: closure append — dangerous (should be caught by AST)
+- E5: aggregate returns scalar-per-column — safe (shape change)
+- E6: groupby + apply — safe if n_groups bounded
+
+Results → `docs/audits/v0.9.175_apply_experiments.md`. AST rules confirmed/adjusted
+before v0.9.191.
+
+Reference: DEC-067 (work front), AI_CONSTITUTION R1, R7, AP24 (silent approximation).
+
+---
+
 <!-- end DEC-066 -->

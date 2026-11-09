@@ -2016,9 +2016,13 @@ subtypes:
     pareto_axes: [recall, fit_time_s, peak_rss_mb]
     state_class: O(d)
     bounded_state_dims: {n: 1}
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "v0.9.175 P17: output='memory' default + 5*n decision_scores; SpillArray not yet wired (DEC-066 refactor v0.9.192+)."
     transient_factor: 1.0
     state_type: windowed
-    bounded_state: true
+    bounded_state: false
     n_scalability: constant
     streaming_strategy:
       fit: 'no fit; rolling median + MAD deque.'
@@ -2163,6 +2167,10 @@ subtypes:
     transient_factor: 1.0
     state_type: cross_row
     bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 100000
+      reason: "O(n^2) distances intrinsic (DEC-040, DEC-067 group F). Alternative: sub-sampling or streaming distances (v0.9.192+)."
     n_scalability: linear
     tier1_core_exception: 'STRAY keeps k-th NN distances across full series (documented n<=20k limit); refuse beyond 20k. O(n) decision_scores/labels output; tier1_core_exception + max_mb guard.'
     streaming_strategy:

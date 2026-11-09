@@ -211,3 +211,83 @@ Approves or corrects.
 **`session brief`** — markdown doc at session start (`docs/SESSION_BRIEF_vX.Y.Z.md`).
 States goals, scope, anti-scope. Must not contradict
 `AI_CONSTITUTION`. If conflict, constitution wins; ask user.
+
+---
+
+## RAM budget, tiers, auto-switch (v0.9.175)
+
+**`budget`** — `MemoryGuard.available_bytes()` at call time. **Dynamic**, not machine
+constant. Server: 128 GB, container: 2 GB, embedded: 512 MB. Set by user via
+`MemoryGuard(max_memory_mb=...)`. "8-16 GB" (DEC-050) is an example, not a limit.
+
+**`min_ram(model, params)`** — analytical bottom-bound, depends only on params
+(`d`, `K`, `V`, `n_estimators`, `depth`, `window`, ...), not machine or data.
+Expressed as `min_ram_formula` string in YAML, derived from code (AP23 analog).
+Example: `fit_linear(d=1000)` min_ram = `d²·8 + d·8 + 3·row_size + 512` (closed)
+or `d·8 + 3·row_size + 512` (sgd).
+
+**`BudgetTier`** — enum: `operational` (budget >= min_ram(best_variant)) |
+`insufficient_no_alt` (budget < min_ram(best_variant), no variant fits). See DEC-067.
+
+**`auto-switch`** — 6-level registry (DEC-067): L1 solver (closed→sgd), L2 iteration
+(batch_tree→round_by_round_spill), L3 blocked (K_block), L4 sparse (dense→csr),
+L5 streaming (batch→online), L6 recursive (direct→recursive). Resolves at
+`resolve_params()` in v0.9.176.
+
+**`resolve_params()`** — function (v0.9.176) that tries user_params, then all
+`auto_switch` candidates, returns first fitting `(effective_params,
+list[ApproximationInfo])`. Raises `MemoryLimitExceeded` only if nothing fits.
+
+**`ApproximationInfo`** — dataclass: `type` (window_adjusted|window_truncated|
+solver_switch|streaming_switch|subsample|output_spilled|round_by_round|
+blocked|sparse|recursive), `axis`, `requested`, `effective`, `reason`,
+`lost_range`, `accuracy_impact`. `result.approximation: list[ApproximationInfo] |
+None` — 0, 1, or rarely 2 entries.
+
+**`ApproximationWarning`** — UserWarning fired whenever any approximation happened
+(unless `suppress_approximation_warnings=True` AND user explicitly acknowledged
+via `strict=False`). Silent approximation = AP24 violation.
+
+**`window`** — bound on **algorithm state** (not I/O granularity). `W = min(n,
+get_window_size(unit_bytes=8, target_fraction=0.25))`. For MLE-forecasters
+(ETS/Theta/SARIMA/VAR/ARIMA/Naive), pelt (`max_window`), rolling/expanding/ewm
+(`window`). `window=None` = unbounded (may auto-adjust); `window=int` = explicit
+(may auto-adjust down); `window="auto"` = derived from budget.
+
+**`get_window_size(unit_bytes, target_fraction=0.25)`** — new MemoryGuard method
+(v0.9.176). Largest W s.t. `W * unit_bytes <= state_limit * target_fraction`.
+**Different from `get_batch_rows`** (I/O granularity, ~1-10k rows). `get_window_size`
+returns algorithmic state capacity (~10^5-10^7 observations).
+
+**`bounded_by_window`** — YAML field. `n_scalability: bounded_by_window` + structured
+`{axis: n, window_param: "max_window"|"window", auto_from_guard: true,
+truncation_loss: "..."}`. Applies to pelt, rolling, expanding, ewm, ETS, Theta,
+SARIMA, VAR, ARIMA, GBDTForecaster. NOT to anomaly (their output=n is semantic —
+use SpillArray).
+
+**`strict`** — parameter: `strict=True` → refuse on any adjustment (exact or
+nothing); `strict=False` (default) → auto-adjust + warning. `strict` is opt-in for
+users who need "bit-identical or abort".
+
+**`PrimitiveCard`** — new YAML schema (v0.9.176, spec v0.9.175). For functions in
+cadw/ops/*: fields `layer` (batch|leaf|intrinsic), `ram_formula`, `min_ram_formula`,
+`bounded_state`, `streaming_variant`, `intrinsic_bound`. Complements ModelCard
+(fit_*) and DataFrameOpCard (df methods).
+
+**`DataFrameOpCard`** — new YAML schema (v0.9.175). For df methods (cumsum,
+rolling, fillna, pivot, sample, apply): fields `ram_formula`, `min_ram_formula`,
+`bounded_state`, `memory_guard_site`, `escape_hatch` (bool, for `apply` / `to_pandas`).
+
+**`insufficient_no_alt`** — 2nd tier in DEC-067 (with `operational`). When
+`budget < min_ram(best_variant)`, honest refuse with `MemoryLimitExceeded` +
+actionable `options`. Not debt — physics (e.g., `d=1e18`, `depth=100`).
+
+**`escape_hatch`** — documented API that bypasses OOC guarantees (`df.apply(func)`,
+`df.to_pandas()`, `df.to_arrow_table()`). Not a bug — explicit user contract.
+`apply` additionally has 3 variants (default AST-warn / checked runtime / safe MG-aware).
+
+**`DF_operations.yaml`** — new file (v0.9.175) holding `DataFrameOpCard` entries.
+Separate from ml_tools/*.yaml because df methods have different lifecycle (no
+fit/verified, no `cadw_function`, different YAML schema).
+
+

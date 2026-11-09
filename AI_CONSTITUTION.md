@@ -203,6 +203,73 @@ After:
 
 ---
 
+## §4.0. Hard requirements (R1-R7) — normative, v0.9.175
+
+Every `fit_*` / `predict_*` / `transform_*` / df-method / primitive MUST satisfy
+R1-R7. Verified status requires all pass. Normative, not advisory.
+
+### R1. RAM = O(batch + state)
+
+`peak(n=10^6) / peak(n=10^3) < 2.0` at fixed batch (STABILITY_PROTOCOL §2.1).
+State does not grow with n (or declared bound axis). If n-sized state is
+unavoidable, use SpillArray/SpillDir/SpillBuffer (RAM O(chunk), disk O(n)) — this
+**counts as R1-pass** (RAM=O(chunk), disk-managed).
+
+### R2. Always process (unless physically impossible)
+
+If `budget >= min_ram(best_variant)`: **must work**. Auto-switch through candidates
+in registry (DEC-067 6 levels: solver/iteration/blocked/sparse/streaming/recursive),
+pick first fit. Emit `ApproximationInfo` if the switched variant is not bit-identical.
+
+If `budget < min_ram(best_variant)`: raise `MemoryLimitExceeded` with actionable
+`options`. This is **legitimate refuse**, not debt. Message MUST include:
+- `model.name`, `params`
+- `min_required_bytes`, `available_bytes` (**current** budget, not machine constant)
+- `options`: list of concrete suggestions (increase budget / reduce specific params /
+  alternative algorithm / sanity check on params)
+
+`budget = MemoryGuard.available_bytes()` — **dynamic**, not machine constant.
+
+### R3. Refuse = clean exception, not OOM kill
+
+`MemoryLimitExceeded` is a Python exception, caught by caller, not process-killed by
+kernel OOM. `check_state` / `check_batch` MUST precede all n-sized allocations
+(G2 gate enforces via AST). Enforced by `test_guard_before_alloc.py`.
+
+### R4. Formula from code, verified by measurement
+
+`ram_formula` + `min_ram_formula` derived from reading code (AP23), each term
+points to `file:line`. Measurement matrix ±30% (STABILITY_PROTOCOL §4), or
+component-wise per DEC-033 if combined RSS unmeasurable.
+
+### R5. Verified = R1-R4 pass + no open backlog
+
+`verified_in_cadw: true` + `status: verified` requires R1-R4 pass + measurement
+block + no `# BACKLOG:` in source + no `bounded_by_domain` (G17 forbids). Missing any
+→ `status: draft` with `draft_reason`.
+
+### R6. Approximation always disclosed
+
+Any approximation (window truncation, solver switch, streaming, subsample, output
+spill) MUST attach:
+- `result.approximation: list[ApproximationInfo]` (0, 1, or 2 entries)
+- `ApproximationWarning` (unless user suppressed via `strict=False` + explicit
+  `suppress_approximation_warnings=True`)
+
+Silent approximation = AP24 violation.
+
+### R7. Primitives, not ad-hoc
+
+Every OOC achievement uses a primitive from §3 (Reduce / HashShuffle / Sort /
+SpillArray / SpillBuffer / chunked-strided / window). New primitive requires design
+discussion (PRIMITIVES_BACKLOG §Maintenance). Auto-switch resolves via primitives,
+not via new code paths.
+
+### Orthogonality
+
+R1-R7 orthogonal to §2 postulates (which are descriptive) — R1-R7 are **enforcement**
+of postulates. On conflict — R1-R7 win (§4.0 is Tier 1).
+
 ## §4.1. Self-verification protocol (MANDATORY — enforced by G8–G10)
 
 Human review is not available. Every new function that allocates
@@ -674,6 +741,43 @@ constants at runtime, adapts to Python version automatically.
 **Reference:** STABILITY_PROTOCOL §3-4, EXAMPLE_VERIFIED_CARD.md.
 
 ---
+
+### AP24. Silent approximation
+
+Approximation without `ApproximationInfo` in result + `ApproximationWarning` in
+warnings = R6 violation.
+
+Wrong: `fit_theta(...)` internally truncates `y_` to last 1e6 obs without warning.
+Right: `result.approximation = [ApproximationInfo(type="window_truncated", ...)]`
++ `warnings.warn(ApproximationWarning(...))`.
+
+Reference: DEC-067, DEC-068.
+
+### AP25. Refuse without alternatives when alternative exists
+
+`MemoryLimitExceeded` when `budget >= min_ram(some_variant)` = R2 violation. Must
+try all `auto_switch` candidates first (DEC-067 6 levels).
+
+Wrong: `fit_linear(solver="closed")` raises because `d²·8 > budget` — without trying
+`solver="sgd"` (state = d·8).
+Right: auto-switch to `sgd`, emit `ApproximationInfo(type="solver_switch", ...)`.
+
+### AP26. Budget as machine constant, not dynamic
+
+Hardcoded `8 * 1024**3` or `"weak machine"` checks instead of `mg.available_bytes()`.
+Budget comes from user `MemoryGuard(max_memory_mb=...)` — dynamic per call.
+
+Wrong: `if n * 8 > 8 * 1024**3: raise ...`
+Right: `if n * 8 > mg.available_bytes(): auto_switch_or_raise(...)`
+
+### AP27. Verified card without min_ram_formula
+
+`status: verified` requires both `ram_formula` AND `min_ram_formula` (R2 depends on
+the latter). Schema test G14 enforces.
+
+### AP28. n-sized alloc without check_state (G2)
+
+Same as AP4 restated for §4.0 R3. AST gate G2 (test_guard_before_alloc.py) enforces.
 
 ### §5.1. Single source of truth (one fact, one place)
 

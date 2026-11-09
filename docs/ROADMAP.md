@@ -2,7 +2,62 @@
 
 Last updated: 2026-11-08 (after v0.9.141).
 
-## Current: v0.9.142 — depends_on 100% coverage + .pingis cleanup + §1 done
+## Current: v0.9.175 — OOC batched work front (DEC-067)
+
+**Big picture:** ~40 cards are not OOC batched (`bounded_by_domain` or `draft`).
+User requirement (2026-11-10): OOC for **all** models/primitives/functions with
+current budget via auto-switch; refuse only if no variant fits (physical
+impossibility or absurd params).
+
+### v0.9.175 (docs + YAML, no code refactor)
+
+- DEC-067: 2-tier insufficient + 6-level auto-switch registry + 8-group inventory.
+- DEC-068: unified params (window / solver / output / params / strict).
+- DEC-069: df.apply 3-variant API.
+- AI_CONSTITUTION: §4.0 R1-R7 (hard requirements), AP24-AP28 (new violations).
+- STABILITY_PROTOCOL: §2.5 (bounded_by_window), §4.4 (min_ram_formula),
+  §6.1 (insufficient tiers), §6.2 (approximation verification).
+- PARAMS_DESIGN.md, PRIMITIVE_CARD_SPEC.md, DF_OPERATIONS_SPEC.md (new specs).
+- DF_operations.yaml: 20 df method cards (cumulative/rolling/shift already OOC;
+  fill/pivot/sample pending probes; apply 3-variant).
+- GLOSSARY: 12 new terms (budget dynamic, min_ram, BudgetTier, auto-switch,
+  ApproximationInfo, window, get_window_size, bounded_by_window, strict,
+  PrimitiveCard, DataFrameOpCard, insufficient_no_alt, escape_hatch).
+- YAML fixes: Hampel `bs=False bd=y`, STRAY `bd=y {axis: n, bound: 1e5}`.
+- Probe P1-P24 documented (`docs/audits/v0.9.175_probe.md`).
+- 6 apply experiments designed (`docs/audits/v0.9.175_apply_experiments.md`).
+
+### Waves v0.9.176-220 (roadmap summary)
+
+| Wave | Versions | Scope | Sessions |
+|---|---|---|---|
+| 0 (docs + infra) | v0.9.175-178 | docs, `get_window_size`, `ApproximationInfo`, `resolve_params`, `min_ram_formula` migration (90+ cards) | 3-4 |
+| 1 (quick wins) | v0.9.179-181 | pelt `max_window="auto"`, coxph concordance, binseg external cumsum | 3-4 |
+| 2 (TS refactor) | v0.9.182-186 | drop y_/fitted_, `_extract_series_tail`, `predict_in_sample(df)` | 5-6 |
+| 3 (GBDT bundle) | v0.9.187-190 | GBDT+lambda round-by-round SpillArray, GBDTForecaster lag SpillDir | 3-4 |
+| 4 (dataframe) | v0.9.191 | df YAML + apply 3-variant impl + probe P25-P27 | 0.5-1 |
+| 5 (anomaly) | v0.9.192-208 | DEC-036 reservoir + SpillArray ×10 | 14-17 |
+| 6 (primitives) | v0.9.209-218 | streaming A + sparse B + intrinsic bounds C | 8-10 |
+| 7 (L12) | v0.9.219 | consensus_matrix | 1 |
+
+**Total ~38-45 sessions** to full honest OOC.
+
+---
+
+## Next 3 sessions (v0.9.176-178 — infrastructure wave)
+
+### v0.9.176 — Infrastructure (1.5 sessions)
+MemoryGuard.get_window_size(), ApproximationInfo, ApproximationWarning, BudgetTier enum, resolve_params() 6-level auto-switch, ModelCard.bounded_by_window field, PrimitiveCard + DataFrameOpCard dataclasses, result.approximation field in TS bases. G12-G17 gate skeletons.
+
+### v0.9.177 — min_ram_formula migration part 1 (1 session)
+AST script + 45+ verified cards: analytical min_ram_formula + min_ram_evidence. G14 test (verified => min_ram_formula present).
+
+### v0.9.178 — min_ram_formula migration part 2 + wave 1 start (1 session)
+Remaining 45+ cards + pelt max_window='auto' + MemoryGuard.get_window_size wiring. Wave 1 (quick wins) starts.
+
+---
+
+## Historical: v0.9.142 — depends_on 100% coverage + .pingis cleanup + §1 done
 
 **12 releases since v0.9.128.** Initial goal from §1 list achieved:
 all 10 draft models -> verified (35 -> 37 verified fns, 51 -> 53
@@ -241,7 +296,7 @@ All **implementation**, not card-filling:
 
 ---
 
-## Next 3 sessions
+## Historical: Next 3 sessions
 
 **Priority order (v0.9.143-155):**
 1. **P1 primitives** (v0.9.143-146) — unblocks 54 forward-declared cards.

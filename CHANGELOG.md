@@ -4693,6 +4693,33 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.175] — 2026-11-10 (OOC batched work front)
+
+### v0.9.175 (2026-11-10) — OOC batched work front (DEC-067/068/069)
+
+Docs + YAML only (no code refactor; infrastructure v0.9.176+).
+
+- DEC-067: 2-tier insufficient + 6-level auto-switch registry +
+  8-group work front (A-H). `bounded_by_domain` deprecated; force
+  `status: draft` (G17). Dynamic budget (not machine constant).
+- DEC-068: unified 5-param surface (window/solver/output/params/
+  strict) for ML/TS. `predict_in_sample(df)` breaking change.
+- DEC-069: `df.apply` 3-variant API (default AST-warning / checked
+  runtime / safe MG-aware).
+- AI_CONSTITUTION §4.0 R1-R7 (hard requirements) + AP24-AP28.
+- STABILITY_PROTOCOL §2.5 (bounded_by_window), §4.4 (min_ram_formula),
+  §6.1 (insufficient tiers), §6.2 (approximation verification).
+- New specs: PARAMS_DESIGN.md, PRIMITIVE_CARD_SPEC.md,
+  DF_OPERATIONS_SPEC.md.
+- docs/df_operations.yaml (20 cards): cumulative/rolling/shift
+  already-OOC; fill/pivot/sample draft (probe v0.9.176); apply
+  3-variant; export escape hatches.
+- GLOSSARY: 12 new terms.
+- YAML fixes: Hampel bs=False bd=y; STRAY bd=y {n:1e5}.
+- README: dynamic budget clarification.
+- Audits: docs/audits/v0.9.175_probe.md (P1-P24),
+  docs/audits/v0.9.175_apply_experiments.md (E1-E6 design).
+
 ## [0.9.14] — 2026-10-21
 
 ### v0.9.7–v0.9.14: audit round 2 (16 patches, 3 silent data-loss bugs)

@@ -1,0 +1,191 @@
+# DF_operations.yaml — CadwDataFrame method cards
+# Version: v0.9.175 (schema formalized v0.9.176 DataFrameOpCard dataclass)
+# See docs/ml_tools/DF_OPERATIONS_SPEC.md for schema.
+# NOTE: file lives in docs/ (not docs/ml_tools/) so test_ml_tools_schema.py
+# does NOT try to parse it as ModelCard. v0.9.176 adds a proper loader.
+
+version: "0.9.175"
+
+operations:
+
+# --- cumulative (already OOC, P19: external_sort + SpillDir) ---
+- name: cumsum
+  cadw_method: "CadwDataFrame.cumsum"
+  category: cumulative
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + 512"
+  min_ram_formula: "3.5 * row_size + 512"
+  memory_guard_site: "cumsum.sorted_input"
+  depends_on: [cadw.ops.sort.external_sort]
+  notes: "Output written incrementally to SpillDir; RAM O(batch). Eager-to-disk via Dataset.from_batches."
+
+- name: cumprod
+  cadw_method: "CadwDataFrame.cumprod"
+  category: cumulative
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + 512"
+  min_ram_formula: "3.5 * row_size + 512"
+  memory_guard_site: "cumprod.sorted_input"
+  depends_on: [cadw.ops.sort.external_sort]
+  notes: "Same as cumsum (bit-identical OOC mechanism)."
+
+- name: cummax
+  cadw_method: "CadwDataFrame.cummax"
+  category: cumulative
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + 512"
+  min_ram_formula: "3.5 * row_size + 512"
+  memory_guard_site: "cummax.sorted_input"
+  depends_on: [cadw.ops.sort.external_sort]
+
+- name: cummin
+  cadw_method: "CadwDataFrame.cummin"
+  category: cumulative
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + 512"
+  min_ram_formula: "3.5 * row_size + 512"
+  memory_guard_site: "cummin.sorted_input"
+  depends_on: [cadw.ops.sort.external_sort]
+
+# --- rolling / expanding / ewm (already OOC, P19: batch_iter -> from_batches) ---
+- name: rolling
+  cadw_method: "CadwDataFrame.rolling"
+  category: rolling
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + window * f64 * n_cols + 512"
+  min_ram_formula: "3.5 * row_size + window * f64 + 512"
+  memory_guard_site: "rolling.input"
+  depends_on: [cadw.dataset.dataset.Dataset.from_batches]
+  notes: "Deque of W values per column; RAM O(batch + W). Output via Dataset.from_batches (eager-to-disk)."
+
+- name: expanding
+  cadw_method: "CadwDataFrame.expanding"
+  category: rolling
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + n_cols * 16 + 512"
+  min_ram_formula: "3.5 * row_size + n_cols * 16 + 512"
+  memory_guard_site: "expanding.input"
+  depends_on: [cadw.dataset.dataset.Dataset.from_batches]
+  notes: "State = O(n_cols); expanding state per column is O(1) (running sum/count)."
+
+- name: ewm
+  cadw_method: "CadwDataFrame.ewm"
+  category: rolling
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + n_cols * f64 * 2 + 512"
+  min_ram_formula: "3.5 * row_size + n_cols * f64 * 2 + 512"
+  memory_guard_site: "ewm.input"
+  depends_on: [cadw.dataset.dataset.Dataset.from_batches]
+  notes: "EWM state = last_value + last_weight per column, O(n_cols)."
+
+# --- shift / diff / pct_change / ffill (already OOC, P19: Arrow tail buffer) ---
+- name: diff
+  cadw_method: "CadwDataFrame.diff"
+  category: shift
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + k * row_size * n_cols + 512"
+  min_ram_formula: "3.5 * row_size + k * row_size + 512"
+  memory_guard_site: "diff.input"
+  depends_on: [cadw.dataset.dataset.Dataset.from_batches]
+  notes: "Arrow tail buffer of k rows; RAM O(batch + k). Output via Dataset.from_batches."
+
+- name: shift
+  cadw_method: "CadwDataFrame.shift"
+  category: shift
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + k * row_size * n_cols + 512"
+  min_ram_formula: "3.5 * row_size + k * row_size + 512"
+  memory_guard_site: "shift.input"
+
+- name: ffill
+  cadw_method: "CadwDataFrame.ffill"
+  category: shift
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + n_cols * f64 + 512"
+  min_ram_formula: "3.5 * row_size + n_cols * f64 + 512"
+  memory_guard_site: "ffill.input"
+  notes: "Last valid value per column; O(n_cols) state."
+
+# --- fill (probe needed) ---
+- name: fillna
+  cadw_method: "CadwDataFrame.fillna"
+  category: fill
+  status: draft
+  draft_reason: "Probe P25 pending (v0.9.176): fillna output = n*row_size; needs guard/auto-spill/SpillBuffer decision."
+  bounded_state: null
+  ram_formula: null
+  min_ram_formula: null
+  memory_guard_site: null
+
+# --- reshape (probe needed) ---
+- name: pivot
+  cadw_method: "CadwDataFrame.pivot"
+  category: reshape
+  status: draft
+  draft_reason: "Probe P27 pending (v0.9.176): pivot may need O(n*K) RAM. Auto-spill or guard decision."
+  bounded_state: null
+  ram_formula: null
+  min_ram_formula: null
+  memory_guard_site: null
+
+# --- sample (probe needed) ---
+- name: sample
+  cadw_method: "CadwDataFrame.sample"
+  category: sample
+  status: draft
+  draft_reason: "Probe P26 pending (v0.9.176): sample(frac) = O(n*frac); sample(n) = O(n_samples) reservoir."
+  bounded_state: null
+  ram_formula: null
+  min_ram_formula: null
+  memory_guard_site: null
+
+# --- apply (3-variant, DEC-069) ---
+- name: apply
+  cadw_method: "CadwDataFrame.apply"
+  category: apply
+  status: escape_hatch
+  bounded_state: false
+  escape_hatch: true
+  variants:
+    default:
+      bounded_state: false
+      escape_hatch: true
+      ast_warning: "ApplySafetyWarning on {append, add, extend, Global, np.concatenate}"
+      ooc_guarantee: "none"
+    checked:
+      bounded_state: true
+      runtime_check: "tracemalloc + RSS sampler every 1000 rows; raise if growth > 2x baseline"
+      overhead: "3-7%"
+      ooc_guarantee: "for detectable accumulation"
+    safe:
+      bounded_state: true
+      signature: "func(batch: pa.RecordBatch, mg: MemoryGuard) -> pa.RecordBatch"
+      ooc_guarantee: "user-responsible (mg.check_state contract)"
+  notes: "3-variant per DEC-069. Default = current behavior (AST warning only). Checked/safe v0.9.191+."
+
+# --- export (explicit escape hatches) ---
+- name: to_pandas
+  cadw_method: "CadwDataFrame.to_pandas"
+  category: export
+  status: escape_hatch
+  bounded_state: false
+  escape_hatch: true
+  notes: "Explicit user contract: loads full dataset into pandas (RAM O(n*row_size)). Documented. No guard."
+
+- name: to_arrow_table
+  cadw_method: "CadwDataFrame.to_arrow_table"
+  category: export
+  status: escape_hatch
+  bounded_state: false
+  escape_hatch: true
+  notes: "Explicit user contract: full pyarrow.Table in RAM (O(n*row_size)). Documented. No guard."

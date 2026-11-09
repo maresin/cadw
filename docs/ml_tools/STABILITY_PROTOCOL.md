@@ -91,6 +91,45 @@ stability, not precedes it.
 
 ---
 
+### §2.5. Window bound check (v0.9.175, DEC-067 / DEC-068)
+
+For models declared `n_scalability: bounded_by_window` (pelt, rolling, expanding, ewm,
+ETS, Theta, SARIMA, VAR, ARIMA, GBDTForecaster), verify:
+
+**(a) OOC in W**: at fixed `W`, varying `n` changes peak <2.0×. Peak depends on W, not n.
+
+```python
+peak_n3 = measure_peak(fit_X, df_n=10**3, window=W_fixed)["total_bytes"]
+peak_n5 = measure_peak(fit_X, df_n=10**5, window=W_fixed)["total_bytes"]
+assert peak_n5 / max(peak_n3, 1) < 2.0
+```
+
+**(b) W adjustment**: `window=None` at tight budget → W_eff auto-adjusts down,
+emits `ApproximationInfo(type="window_adjusted")`. `peak(W_eff)` fits budget.
+
+```python
+mg = MemoryGuard(max_memory_mb=2)  # small
+result = fit_X(df, window=None, memory_guard=mg)
+assert result.approximation is not None
+assert result.approximation[0].type == "window_adjusted"
+assert result.approximation[0].effective <= result.approximation[0].requested or \
+       result.approximation[0].requested is None
+```
+
+**(c) Approximation disclosed**: `predict_in_sample(df)` returns NaN for lost range
+`[0, n-W_eff)`.
+
+```python
+pred = result.predict_in_sample(df)
+assert pred[:n - W_eff].isna().all()  # or all-NaN
+assert pred[n - W_eff:].notna().all()
+```
+
+**(d) Insufficient**: if `W_max < min_history(model)` (e.g., `2s+1` for ETS) →
+`MemoryLimitExceeded` (insufficient_no_alt tier).
+
+---
+
 ## §3. Step 2 — Formula from code
 
 **Order is mandatory. Do not derive formula from measurement.**
@@ -243,6 +282,67 @@ Find missing line in code.
 
 ---
 
+### §4.4. min_ram_formula derivation (v0.9.175, DEC-067)
+
+`min_ram_formula` is the **bottom-bound**: minimum RAM for the algorithm to work at all.
+Complements `ram_formula` (peak) with "must-have" (floor).
+
+**Decomposition:**
+
+```
+min_ram = state_min + minimal_working_batch + fixed_overhead
+```
+
+| Term | Source | Example |
+|---|---|---|
+| `state_min` | Required state for any variant | `fit_linear`: `d*d*8` (closed) or `d*8` (sgd); `fit_ets`: `(2*s + 1)*8` (seasonal init) |
+| `minimal_working_batch` | Minimum rows for one update | Reduce: 1; Sort: 2 (merge); ETS: `2*s + 1` observations |
+| `fixed_overhead` | header + guard | 256–1024 B (model-specific) |
+
+**Derivation rules (AP23 analog for bottom-bound):**
+
+1. **Read code** — find every n-sized **unavoidable** allocation. "Unavoidable" = no
+   SpillArray alternative in this variant.
+2. **Each term points to `file:line`** in `min_ram_evidence`.
+3. **Minimum over variants**: if solver closed min_ram > sgd min_ram, the effective
+   model min_ram = sgd min_ram (auto-switch can reach sgd).
+4. **No invented components**: if you can't find the allocation in code, it doesn't
+   exist. Under-estimate is OK for bottom-bound (R2 refuses earlier), over-estimate
+   would falsely refuse.
+
+**Verification:**
+
+```python
+# Assertion: fit with tight budget = min_ram * 1.05 succeeds
+mg = MemoryGuard(max_memory_mb=(min_ram * 1.05) / 1e6)
+fit_X(df_small, memory_guard=mg)  # must succeed
+
+# Assertion: fit with tight budget = min_ram * 0.95 fails with actionable
+mg = MemoryGuard(max_memory_mb=(min_ram * 0.95) / 1e6)
+with pytest.raises(MemoryLimitExceeded) as exc_info:
+    fit_X(df_small, memory_guard=mg)
+assert "requires" in str(exc_info.value)
+assert "options" in str(exc_info.value).lower()
+```
+
+**YAML:**
+
+```yaml
+min_ram_formula: "d * d * f64 + 3 * row_size + 512"
+min_ram_evidence:
+  closed_state: "linear.py:142 -- XTX d²·8, unavoidable for closed solver"
+  min_batch: "linear.py:88 -- at least 1 row per update"
+  overhead: "linear.py:90 -- 512 B header"
+```
+
+**Anti-pattern:** `min_ram_formula = ram_formula * 0.1` (fitted). Violates AP23
+analog. Must read code.
+
+**Migration:** v0.9.177-178 for 90+ cards (script + AST). Mandatory for `verified`
+(R5 + G14).
+
+---
+
 ## §5. Step 4 — YAML card
 
 ```yaml
@@ -291,6 +391,52 @@ no `reference_only`, no `verified_cost_bounded`. If known gap -> `draft`.
 (single-series TS, n<=10^6). Replaced in v0.9.103 by
 `bounded_by_domain` field + `status: verified` (see AI_CONSTITUTION §5.2,
 DEC-011). Do NOT invent other `tier*_exception` statuses.
+
+---
+
+### §6.1. Insufficient tier semantics (v0.9.175, DEC-067)
+
+2-tier model replaces old single "draft". Additional YAML field: `insufficient_tier`.
+
+**`operational`** (default for verified): `budget >= min_ram(best_variant)` at any
+reasonable budget. Model works via auto-switch if needed.
+
+**`insufficient_no_alt`**: `min_ram(best_variant)` can exceed typical budget. Verified
+meaning "auto-switch works when budget >= X". Below X: `MemoryLimitExceeded` with
+actionable options. Documented `min_ram_formula` provides X.
+
+Example: `fit_gbdt(n_estimators=100, max_depth=3)` — `min_ram ≈ 17 KB`. Always
+operational on any sane budget. `fit_gbdt(n_estimators=1000, max_depth=10)` — `min_ram
+≈ 200 GB`. `insufficient_no_alt` tier: refuse with "reduce n_estimators/depth".
+
+Both tiers can be `status: verified` — the difference is `min_ram_formula` magnitude
+relative to typical deployment budget. Documentation must be honest about which tier.
+
+### §6.2. Approximation verification (v0.9.175, R6)
+
+Any approximation (auto-switch, window truncation, subsample, output spill) MUST:
+
+1. Attach `ApproximationInfo` to result (list, 0/1/2 entries).
+2. Emit `ApproximationWarning` (unless explicitly suppressed via
+   `suppress_approximation_warnings=True`).
+3. `ApproximationInfo.accuracy_impact` field documents expected loss ("none",
+   "negligible", "estimated: ~3%", "documented DEC-033 §4.2").
+
+**Test pattern:**
+
+```python
+# Trigger auto-switch
+result = fit_X(df, solver="closed", memory_guard=tight_mg)
+assert result.approximation is not None
+assert any(a.type == "solver_switch" for a in result.approximation)
+assert result.approximation[0].accuracy_impact != "none"
+
+# Exact (no approximation)
+result = fit_X(df, memory_guard=large_mg)
+assert result.approximation is None  # or [] depending on convention
+```
+
+Silent approximation = AP24 violation.
 
 ---
 

@@ -414,3 +414,35 @@ classes. This appendix prevents the misconception "every primitive is OOC".
 **Reference:** AI_CONSTITUTION §1 (OOC by design), §3 patterns
 (Reduce/HashShuffle/Sort/SpillArray/chunked), DEC-056 (forward
 extraction when 2+ prospective consumers).
+
+
+### Appendix A.1 — 2-tier insufficient + auto-switch (v0.9.175, DEC-067)
+
+Primitives that are NOT batch-layer fall into two categories:
+
+**Leaf-layer with streaming variant (planned v0.9.209+):**
+- `knn_query`, `core_distances`, `pairwise_kernel` — add `*_chunks` API (additive)
+- Existing consumers (LOF, DBSCAN, HDBSCAN, SMOTE, ML-kNN, ItemKNN, KNNImputer,
+  Spectral ×5, KernelPCA, GPLVM, GP family) migrate to chunked call-sites.
+- PrimitiveCard: `layer: leaf`, `streaming_variant: <fn_name>_chunks`.
+
+**Leaf-layer with sparse variant (planned v0.9.213+):**
+- `graph_laplacian`, `eigh_topk`, `eigsh_topk` — accept `scipy.sparse` for n>2000.
+- Existing consumers (Spectral ×5) rewrite on sparse Laplacian.
+- PrimitiveCard: `layer: leaf`, `streaming_variant: null`, `notes: "sparse path for n>2000"`.
+
+**Intrinsic (no streaming/sparse variant; honest bounds):**
+- `chol_solve` — n<=1e4 (O(n^2) factor, ~800 MB at n=1e4)
+- `eclat` — n<=1e5 item count (vertical tidsets)
+- `fp_growth` — n<=1e5
+- `prefix_span` — n<=1e5
+- `ranknet_grad`, `listnet_grad`, `lambdarank_grad` — n_per_query<=100 (intrinsic pairwise)
+- PrimitiveCard: `layer: intrinsic`, `intrinsic_bound: {axis, bound, reason}`,
+  `refuse_above: <bound>`, `alternative: "<suggestion>"`.
+
+**Insufficient tier for primitives:** if `budget < min_ram(primitive)` (e.g.,
+`chol_solve(n=10000)` requires 800 MB but budget=100 MB -> refuse with actionable
+"reduce n or use preconditioned CG"). Same 2-tier model as models (DEC-067).
+
+---
+
