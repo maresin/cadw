@@ -582,12 +582,46 @@ subtypes:
   # ==========================================================================
     transient_factor: 1.0
   - name: EnsembleForecaster
+    cadw_module: cadw.ts.ensemble
+    cadw_function: EnsembleForecaster
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    depends_on: []
+    ram_formula: "5 * n_members * n * f64 + 256"
+    formula_evidence:
+      pipeline: "transforms.py:367-378 -- AutoForecastPipeline.state_nbytes: forecaster.state_nbytes() + sum(t.state_nbytes()) + 256"
+      ensemble: "ensemble.py:319-320 -- EnsembleForecaster.state_nbytes: sum(p.state_nbytes() for p in self._pipelines)"
+      member_bases: "models.py:NaiveForecaster.state_nbytes = n*f64+256; theta.py = 2n*f64+256; ets.py = 3n*f64+256"
+      stationarizer: "transforms.py:148-155 -- AutoStationarizer.state_nbytes: tail_regular_ (n*f64) + tail_seasonal_ (n*f64) for seasonal configs"
+    measurement:
+      verification_mode: "bounded_by_domain (DEC-011)"
+      state_check: "test_state_positive: state = sum(pipelines.state_nbytes())"
+      state_ooc: "test_state_grows_linearly: n=500 -> 2000 (4x) -> ratio [3.0, 5.5]"
+      members_linear: "test_state_independent_of_members_count_linear: 2->3 ratio [1.3, 2.2]"
+      guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded (4 MB > 1 MB)"
+      per_member_bound: "test_state_per_member_bounded: each pipeline <= 4n*f64+8192 at n=500"
+      cells_passed: "5/5"
+      runtime_sec: "~3"
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "Per-member AutoForecastPipeline: base forecaster (Naive 1n, Theta 2n, ETS 2-3n) + AutoStationarizer (1n) + fitted (1n). Upper bound 5n*f64 per member. n=1e6 × 2 members = 80 MB (fits weak machine)."
+    state_class: O(n)
+    bounded_state_dims: {n: 1, n_members: 1}
+    state_type: aggregation
+    bounded_state: false
+    n_scalability: linear
+    tier1_core_exception: "Per-member pipeline: state O(n) via base forecaster + transformers (STL/MSTL/AutoStationarizer) + fitted. Guard refuses at state_limit. bounded_by_domain n<=1e6."
+    streaming_strategy:
+      fit: "batched extract_series per member; each member pipeline (transform + base forecaster) fits sequentially. Validation split via last val_steps; refit on full n."
+      predict: "per-member pipeline predict + inverse_transform; weighted average over n_members. O(steps × n_members × trees)."
+    primitive_reuse: [reduce]
     tier: ensemble
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
-      status: draft
-      draft_reason: "verified in cadw.ts v0.9.82; YAML ram_formula pending v0.9.128"
+      status: verified
     roles:
     - temporal_dynamics
     - nonlinear_interactions
@@ -601,12 +635,6 @@ subtypes:
     config:
       members: list[ForecasterBase]
       weighting: 'uniform | inverse_mase | optimized'
-    cadw_module: cadw.ts
-    cadw_function: EnsembleForecaster
-    input_api: df
-    fit_batched: true
-    predict_batched: true
-    depends_on: []
     benchmark_results:
     - benchmark: cadw_internal
       benchmark_url: .pingis/benches/ensemble.json
@@ -619,16 +647,6 @@ subtypes:
       metric: mase
       value: null
       note: 'CADW-native ensemble; see .pingis/benches/ensemble.json (v0.9.82).'
-    state_class: O(model)
-    bounded_state_dims: {n_members: 1}
-    state_type: iterative
-    bounded_state: true
-    n_scalability: constant
-    streaming_strategy:
-      fit: 'per-member fit + weight learning on holdout; O(sum(state_i)).'
-      predict: 'weighted average of per-member predict().'
-    primitive_reuse: [reduce]
-
   - name: OTMThetaForecaster
     tier: sota
     tier_level: tier1_core

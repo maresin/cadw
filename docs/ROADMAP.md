@@ -332,6 +332,23 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.165 (EnsembleForecaster verified):**
+- Flipped EnsembleForecaster (D_time_series) draft -> verified
+  via bounded_by_domain (DEC-011): state O(n) per member pipeline
+  (base forecaster + AutoStationarizer + fitted).
+- ram_formula (upper bound): 5 * n_members * n * f64 + 256.
+- bounded_by_domain {axis: n, bound: 1e6}; fit_batched: true,
+  predict_batched: false (per-member pipeline predict).
+- **False coupling in ROADMAP §A.2 corrected**: EnsembleForecaster
+  is a weighted-average (inverse_mase / median / custom), not a
+  stacker; independent from `fit_stacking` (tabular). Verified
+  independently.
+- Tests: 5 passed (state = sum over pipelines; grows linearly
+  n=500 -> 2000; guard refuses at n=500k + 2MB; per-member bound
+  ≤4n+8192; 2->3 members ratio ~1.5x).
+- **All original drafts closed**: D_time_series 9/9 verified;
+  total draft fns 3 -> 2 (both TS edge cases deferred).
+
 **v0.9.164 (final legacy batch: 3 complex ML):**
 - Flipped Hybrid_MF_GBDT (F_recsys), T_learner_uplift + CausalTree
   (H_causal) from status:None to verified.
