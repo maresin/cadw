@@ -332,6 +332,22 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.170 (S2b-1: feature_select OOC refactor):**
+- `cadw/ml/feature_select.py` refactor (variance + mutual_info):
+  - _collect AP2 vstack -> SpillDir memmap (X and y on disk)
+  - chunked 2-pass variance (O(chunk*d) peak)
+  - chunked 2-pass histogram MI per column (x_edges from sample,
+    joint per chunk; peak O(chunk*16 + n_bins^2))
+  - Boruta stays AP2 (needs hstack(X|shadows); deferred v0.9.172+)
+- Tests: 10 existing + 12 verification all pass. Smoke: variance /
+  mutual_info produce correct scores, state=544.
+- YAML flip: MutualInfoSelect + VarianceThreshold
+  bounded_state=false -> true, n_scalability linear->constant,
+  bounded_by_domain/tier1_core_exception removed,
+  ram_formula d*f64 + 512 + 2.0*batch*row_size.
+- BorutaSelect remains bounded_by_domain n<=1e5 (S2b-2 deferred).
+- DEC-064 Class 1 AP2_COLLECT: 2 of 10 flipped; 8 remaining in S2b-2.
+
 **v0.9.169 (S2a audit: 40 bounded_by_domain classified, DEC-064):**
 - S2a completed: 43 cards classified into 8 classes.
 - 4 classes = technical debt (S2b/S2c/S2f refactor):

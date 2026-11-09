@@ -30,6 +30,7 @@ import numpy as np
 import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
+from cadw.core.spill import SpillDir
 from cadw.ml._logging import log_fit
 
 
@@ -49,6 +50,155 @@ def _collect(df, cols, y_col, mg, name):
     if n == 0:
         raise ValueError("feature_select: empty input")
     return np.vstack(Xs), np.concatenate(ys)
+
+
+
+# ============================================================================
+# v0.9.170 (S2b): OOC collect via SpillDir memmap + chunked selectors.
+# Replaces AP2 `_collect` (Xs.append + np.vstack) for variance / mutual_info.
+# Boruta still uses AP2 `_collect` (needs hstack(X|shadows); v0.9.172+).
+# ============================================================================
+
+_COLLECT_CHUNK = 50_000  # rows per MI / variance pass
+
+
+def _collect_mm(df, cols, y_col, mg, name):
+    """Stream df -> X_mm (n, d) + y_mm (n,) on disk via SpillDir.
+
+    Returns (X_mm, y_mm, n, sdir). Caller MUST `del X_mm, y_mm; sdir.__exit__`.
+    Peak: O(batch * (d + 1)) — truly OOC in n.
+    Null check: per batch (before memmap write). Guard: check_batch per batch.
+    """
+    n = df.count()
+    if n == 0:
+        raise ValueError("feature_select: empty input")
+    sdir = SpillDir(guard=mg, name=f"{name}_collect")
+    sdir.__enter__()
+    try:
+        X_mm = np.memmap(sdir.path("X.bin"), dtype=np.float64,
+                          mode="w+", shape=(n, len(cols)))
+        y_mm = np.memmap(sdir.path("y.bin"), dtype=np.float64,
+                          mode="w+", shape=(n,))
+        idx = 0
+        for b in df._iter_filtered_batches():
+            mg.check_batch(b, name=name, extra_factor=3.0)
+            X_b = _stack_numeric_safe(b, cols)
+            y_b = (b.column(y_col).cast(pa.float64(), safe=False)
+                   .to_numpy(zero_copy_only=False).astype(np.float64, copy=False))
+            b_n = X_b.shape[0]
+            if np.isnan(X_b).any() or np.isnan(y_b).any():
+                raise ValueError("feature_select: nulls in features or target")
+            X_mm[idx:idx + b_n] = X_b
+            y_mm[idx:idx + b_n] = y_b
+            idx += b_n
+            del X_b, y_b
+        X_mm.flush()
+        y_mm.flush()
+        return X_mm, y_mm, n, sdir
+    except BaseException:
+        sdir.__exit__(None, None, None)
+        raise
+
+
+def _variance_selector_chunked(X_mm, threshold, mg):
+    """Chunked 2-pass variance (sum + sum_sq). Peak O(chunk * d)."""
+    n, d = X_mm.shape
+    s1 = np.zeros(d, dtype=np.float64)
+    s2 = np.zeros(d, dtype=np.float64)
+    for i in range(0, n, _COLLECT_CHUNK):
+        end = min(i + _COLLECT_CHUNK, n)
+        block = np.asarray(X_mm[i:end])
+        s1 += block.sum(axis=0)
+        s2 += (block * block).sum(axis=0)
+    mean = s1 / n
+    var = s2 / n - mean * mean
+    var = np.maximum(var, 0.0)
+    sel = [j for j in range(d) if var[j] > threshold]
+    return var, sel
+
+
+def _prepare_y_setup(y_mm, n, n_bins):
+    """Scan y in chunks: discrete (unique) or continuous (quantile edges)."""
+    uniq_acc = np.empty(0, dtype=np.float64)
+    for i in range(0, n, _COLLECT_CHUNK):
+        end = min(i + _COLLECT_CHUNK, n)
+        y_blk = np.asarray(y_mm[i:end])
+        uniq_acc = np.union1d(uniq_acc, np.unique(y_blk))
+        if len(uniq_acc) > n_bins:
+            break
+    if len(uniq_acc) <= n_bins:
+        return ("discrete", uniq_acc)
+    # Continuous: strided sample
+    stride = max(1, n // 5000)
+    y_sample = np.asarray(y_mm[::stride])
+    y_edges = np.unique(np.quantile(y_sample, np.linspace(0, 1, n_bins + 1)))
+    return ("continuous", y_edges)
+
+
+def _histogram_mi_chunked(X_mm, y_mm, n, j, *, y_setup, n_bins, mg):
+    """Chunked 2-pass histogram MI for one column j. Peak O(chunk * 16)."""
+    # Pass 1: x_edges from strided sample
+    stride = max(1, n // 5000)
+    x_sample = np.asarray(X_mm[::stride, j])
+    x_edges = np.unique(np.quantile(x_sample, np.linspace(0, 1, n_bins + 1)))
+    if len(x_edges) < 2:
+        return 0.0
+    nx = len(x_edges) - 1
+    x_cut = x_edges[1:-1]
+
+    kind, payload = y_setup
+    if kind == "discrete":
+        y_unique = payload
+        ny = max(len(y_unique), 1)
+    else:
+        y_edges = payload
+        ny = max(len(y_edges) - 1, 1)
+
+    joint = np.zeros((nx, ny), dtype=np.float64)
+    for i in range(0, n, _COLLECT_CHUNK):
+        end = min(i + _COLLECT_CHUNK, n)
+        x_blk = np.asarray(X_mm[i:end, j])
+        y_blk = np.asarray(y_mm[i:end])
+        x_idx = np.digitize(x_blk, x_cut)
+        if kind == "discrete":
+            y_idx = np.searchsorted(y_unique, y_blk)
+            y_idx = np.clip(y_idx, 0, ny - 1)
+        else:
+            y_idx = np.digitize(y_blk, y_edges[1:-1])
+        np.add.at(joint, (x_idx, y_idx), 1.0)
+    total = joint.sum()
+    if total == 0:
+        return 0.0
+    joint /= total
+    px = joint.sum(axis=1, keepdims=True)
+    py = joint.sum(axis=0, keepdims=True)
+    outer = px @ py
+    nz = joint > 0
+    mi = float(np.sum(joint[nz] * np.log(joint[nz] / outer[nz])))
+    return max(mi, 0.0)
+
+
+def _mi_all_columns_chunked(X_mm, y_mm, n, mg, n_bins=None):
+    """Chunked MI for all columns. Peak O(chunk * d + n_bins^2)."""
+    if n_bins is None:
+        n_bins = max(5, min(50, int(n ** (1.0 / 3.0))))
+    y_setup = _prepare_y_setup(y_mm, n, n_bins)
+    kind, payload = y_setup
+    if kind == "continuous" and len(payload) < 2:
+        return np.zeros(X_mm.shape[1], dtype=np.float64)
+    if kind == "discrete" and len(payload) < 1:
+        return np.zeros(X_mm.shape[1], dtype=np.float64)
+    d = X_mm.shape[1]
+    scores = np.zeros(d, dtype=np.float64)
+    for j in range(d):
+        mg.check_state(
+            _COLLECT_CHUNK * 16 + 4096,
+            name=f"feature_select.mi_col_{j}",
+        )
+        scores[j] = _histogram_mi_chunked(
+            X_mm, y_mm, n, j, y_setup=y_setup, n_bins=n_bins, mg=mg,
+        )
+    return scores
 
 
 def _entropy_from_counts(counts):
@@ -199,7 +349,13 @@ def fit_feature_select(df, X_cols, y_col, *, method="mutual_info",
                        task="classification", variance_threshold=0.0,
                        max_iter=20, n_estimators=50, seed=0,
                        memory_guard: Optional[MemoryGuard] = None):
-    """Fit a feature selector: 'mutual_info', 'variance', or 'boruta'."""
+    """Fit a feature selector: 'mutual_info', 'variance', or 'boruta'.
+
+    v0.9.170 (S2b): variance + mutual_info are truly OOC via SpillDir
+    memmap (X on disk; chunked 2-pass; peak O(chunk * d)).
+    Boruta (shadow-loop, needs full X|shadows in RAM) remains bounded_by_domain
+    n<=1e5 (refactor deferred v0.9.172+).
+    """
     if method not in ("mutual_info", "variance", "boruta"):
         raise ValueError(
             f"fit_feature_select: method must be 'mutual_info', 'variance' or 'boruta'; got {method!r}")
@@ -210,23 +366,32 @@ def fit_feature_select(df, X_cols, y_col, *, method="mutual_info",
         if c not in df._columns:
             raise KeyError(f"fit_feature_select: column {c!r} not in {df._columns}")
     mg = memory_guard or df._memory_guard
-    X, y = _collect(df, cols, y_col, mg, "feature_select.pass1")
-    if np.isnan(X).any() or np.isnan(y).any():
-        raise ValueError("fit_feature_select: nulls in features or target")
     if task not in ("classification", "regression"):
         raise ValueError(f"fit_feature_select: task must be 'classification' or 'regression'; got {task!r}")
-    if method == "variance":
-        scores, sel = _variance_selector(X, variance_threshold)
-    elif method == "mutual_info":
-        discrete_y = task == "classification"
-        scores = np.array([_mutual_info_native(X[:, j], y, mg=mg)
-                           for j in range(X.shape[1])])
-        sel = list(np.argsort(-scores))
-    else:
+
+    if method == "boruta":
+        # AP2 path (needs hstack(X|shadows); deferred v0.9.172+).
+        X, y = _collect(df, cols, y_col, mg, "feature_select.boruta")
+        if np.isnan(X).any() or np.isnan(y).any():
+            raise ValueError("feature_select: nulls in features or target")
         rng = np.random.RandomState(seed)
         _, kept = _boruta_selector(X, y, rng, n_estimators, max_iter)
         scores = kept.astype(np.float64)
         sel = [j for j in range(X.shape[1]) if kept[j]]
+    else:
+        # v0.9.170 OOC path: SpillDir memmap + chunked 2-pass.
+        X_mm, y_mm, n, sdir = _collect_mm(
+            df, cols, y_col, mg, "feature_select.pass1")
+        try:
+            if method == "variance":
+                scores, sel = _variance_selector_chunked(
+                    X_mm, variance_threshold, mg)
+            else:  # mutual_info
+                scores = _mi_all_columns_chunked(X_mm, y_mm, n, mg)
+                sel = list(np.argsort(-scores))
+        finally:
+            del X_mm, y_mm
+            sdir.__exit__(None, None, None)
     selected = [cols[j] for j in sel]
     model = FeatureSelectorModel(method, cols, scores, selected,
                                  {"task": task,

@@ -557,28 +557,22 @@ subtypes:
     input_api: df
     fit_batched: true
     predict_batched: true
-    ram_formula: "n * d * f64 + n * f64 + d * f64 + 512 + 4.0 * batch * row_size"
+    ram_formula: "d * f64 + 512 + 2.0 * batch * row_size"
     formula_evidence:
       source: "feature_select.py:38-50 -- _collect: Xs/ys append (AP2), mg.check_state(n*(d*8+8)) per batch"
       state: "feature_select.py:139-140 -- FeatureSelectorModel.state_nbytes: scores_.nbytes + 512"
     measurement:
-      fit_transient_note: "AP2 or n-sized fit transient (pred/grad/hess/_collect vstack); OOC refactor planned v0.9.168+."
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact"
-      state_ooc: "test_*_state_independent_of_n"
+      state_ooc: "test_feature_select_ooc_peak_does_not_grow_with_n: ratio <3.0 for 5x n"
       note: "bounded_by_domain (DEC-011): fit transient O(n*d), guard refuses at state_limit."
       cells_passed: "3/3"
       runtime_sec: "~1"
-    bounded_state: false
+    bounded_state: true
     bounded_state_dims: {n: 1, d: 1}
     state_class: O(d)
     state_type: aggregation
-    n_scalability: linear
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: "MI feature selection: fit transient = _collect full matrix (n*d*f64 + n*f64, AP2 with guard). Model state = scores_ (d*f64) + 512. n*d*8 = 160 MB at n=1e6, d=20 — fits weak machine."
-    tier1_core_exception: "Fit transient O(n*d) via _collect (AP2, guard-before-append). Guard refuses at state_limit. bounded_by_domain n<=1e6 (16 MB at d=2, 160 MB at d=20)."
+    n_scalability: constant
     streaming_strategy:
       fit: "single stream _collect (n*d f64) + numpy MI; guard refuses at state_limit."
       predict: "transform(df) -> stream select(selected_) per batch; O(batch*d)."
@@ -642,28 +636,22 @@ subtypes:
     input_api: df
     fit_batched: true
     predict_batched: true
-    ram_formula: "n * d * f64 + n * f64 + d * f64 + 512 + 4.0 * batch * row_size"
+    ram_formula: "d * f64 + 512 + 2.0 * batch * row_size"
     formula_evidence:
       source: "feature_select.py:38-50 -- _collect (AP2) + _variance_selector (numpy var axis=0)"
       state: "feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512"
     measurement:
-      fit_transient_note: "AP2 or n-sized fit transient (pred/grad/hess/_collect vstack); OOC refactor planned v0.9.168+."
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact"
-      state_ooc: "test_*_state_independent_of_n"
+      state_ooc: "test_feature_select_ooc_peak_does_not_grow_with_n: ratio <3.0 for 5x n"
       note: "bounded_by_domain (DEC-011)."
       cells_passed: "3/3"
       runtime_sec: "~1"
-    bounded_state: false
+    bounded_state: true
     bounded_state_dims: {n: 1, d: 1}
     state_class: O(d)
     state_type: aggregation
-    n_scalability: linear
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: "Variance filter: same _collect fit transient (n*d) as mutual_info; scores_=variance (d,) + 512. n*d*8 = 160 MB at n=1e6, d=20."
-    tier1_core_exception: "Fit transient O(n*d) via _collect (AP2, guard). bounded_by_domain n<=1e6."
+    n_scalability: constant
     streaming_strategy:
       fit: "single stream _collect + numpy var; guard refuses at state_limit."
       predict: "transform(df) -> per-batch select; O(batch*d)."
