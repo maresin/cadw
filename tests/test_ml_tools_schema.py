@@ -934,6 +934,74 @@ def test_R14_not_a_model_consistency():
     assert not bad, "\n".join(bad)
 
 
+def test_R15_cross_ref_consistency():
+    """R15 (v0.9.167, DEC-062): cross_ref field format + resolution.
+
+    Format: "<section>.<card>" e.g. "N_density.HDBSCAN".
+    - section must be a real YAML file (without .yaml suffix)
+    - card must exist in that section (by name)
+    - no self-reference (card.cross_ref != "section.card" of self)
+
+    Cards WITH cross_ref are duplicates; the target (canonical home) has
+    cross_ref=None. See DEC-049 (policy) + DEC-062 (formalization).
+    """
+    import yaml
+    from pathlib import Path as _P
+
+    YAML_DIR = _P(__file__).parent.parent / "docs" / "ml_tools"
+    SKIP = {"benchmarks.yaml", "memory_constants.yaml"}
+
+    section_cards = {}
+    all_cards = []
+    for yp in sorted(YAML_DIR.glob("*.yaml")):
+        if yp.name in SKIP:
+            continue
+        try:
+            data = yaml.safe_load(yp.read_text())
+        except yaml.YAMLError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        section_name = yp.stem
+        names = set()
+        for st in data.get("subtypes") or []:
+            for c in st.get("models") or []:
+                nm = c.get("name")
+                if nm:
+                    names.add(nm)
+                    all_cards.append((yp.name, section_name, nm, c))
+        section_cards[section_name] = names
+
+    bad = []
+    for yfile, section_name, card_name, c in all_cards:
+        cr = c.get("cross_ref")
+        if not cr:
+            continue
+        if not isinstance(cr, str):
+            bad.append(f"{yfile}:{card_name}: cross_ref must be str; "
+                       f"got {type(cr).__name__}")
+            continue
+        parts = cr.split(".", 1)
+        if len(parts) != 2:
+            bad.append(f"{yfile}:{card_name}: cross_ref={cr!r} — "
+                       f"must be 'section.card'")
+            continue
+        target_section, target_card = parts
+        if target_section not in section_cards:
+            bad.append(f"{yfile}:{card_name}: cross_ref={cr!r} — "
+                       f"section {target_section!r} not found")
+            continue
+        if target_card not in section_cards[target_section]:
+            bad.append(f"{yfile}:{card_name}: cross_ref={cr!r} — "
+                       f"card {target_card!r} not found in "
+                       f"{target_section}")
+            continue
+        if target_section == section_name and target_card == card_name:
+            bad.append(f"{yfile}:{card_name}: cross_ref={cr!r} — "
+                       f"self-reference")
+    assert not bad, "\n".join(bad)
+
+
 def test_R10_public_fit_covered():
     """R10 (v0.9.121): every public `fit_*` in cadw.ml.__all__ has a YAML
     card (resolvable by _lookup_card) OR is in UNCARDED_WHITELIST.

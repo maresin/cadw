@@ -332,6 +332,17 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.167 (cross_ref schema field):**
+- New `ModelCard.cross_ref: str | None = None` (DEC-062,
+  formalizes DEC-049 policy). Format `<section>.<card>`.
+- R15 test: format, resolution (section + card exist), no self-ref.
+- Migrated 5 dual-classified cards: HDBSCAN, BIRCH -> N_density;
+  NMF, randomized_svd -> J_nlp; ALS -> F_recsys.
+- File-level markdown comments removed from B_clustering.yaml +
+  C_dim_reduction.yaml (replaced by per-card field).
+- Tests: 112 passed (added R15).
+- Deferred v0.9.168+: R16 bidirectional (`canonical_for`).
+
 **v0.9.166 (fit_stacking tabular infrastructure):**
 - New `cadw/ml/stacking.py::fit_stacking` (DEC-061): K-fold OOC
   tabular stacker (not a card; like fit_ab_test).

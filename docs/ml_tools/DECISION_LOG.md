@@ -2233,3 +2233,46 @@ v0.9.165.
 ---
 
 <!-- end DEC-061 -->
+
+
+---
+
+## DEC-062 (2026-11-09, v0.9.167) — `cross_ref` schema field (formalizes DEC-049)
+
+**Q:** DEC-049 introduced markdown comments + `cross_ref_comment` (schema-
+ignored) for dual-classified cards. Formal `cross_ref` field was deferred
+"to v0.9.124" — never implemented. Do it now?
+
+**A:** Yes. New `ModelCard.cross_ref: str | None = None`.
+
+**Format:** `"<section>.<card>"` e.g. `"N_density.HDBSCAN"`. Section = YAML
+file stem (without .yaml); card = card name in that section.
+
+**Semantics:** card WITH `cross_ref` is the duplicate; target (canonical
+home) has `cross_ref=None`. The field is one-directional (duplicate → home).
+
+**Enforcement (R15, `test_R15_cross_ref_consistency`):**
+- `cross_ref` must be str
+- Format must be `section.card` (exactly one dot)
+- Section must be a real YAML file
+- Card must exist in that section (by name)
+- No self-reference (card's own section.card)
+
+**Migration (5 cards, from DEC-049 canonical list):**
+- `B_clustering::HDBSCAN` → `N_density.HDBSCAN`
+- `B_clustering::BIRCH` → `N_density.BIRCH`
+- `C_dim_reduction::NMF` → `J_nlp.NMF`
+- `C_dim_reduction::ALS` → `F_recsys.ALS`
+- `C_dim_reduction::randomized_svd` → `J_nlp.LSA_TFIDF_SVD`
+
+**File-level markdown comments removed** in B_clustering.yaml and
+C_dim_reduction.yaml (replaced by per-card field with same rationale).
+
+**Not done (opportunistic):** bidirectional check (`canonical_for` on home
+card). R15 verifies resolution; if home card is missing (deleted) the
+duplicate is silently orphaned. A future R16 (`canonical_for` bidirectional)
+would catch this. Deferred v0.9.168+.
+
+---
+
+<!-- end DEC-062 -->

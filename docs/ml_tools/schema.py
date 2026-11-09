@@ -143,6 +143,13 @@ class ModelCard:
     # Skips R5 alias consistency (these are not in the model-impl set).
     # Expected: tier="reference", implementation_status.status=None.
     not_a_model: bool = False
+    # v0.9.167 (DEC-062): canonical home for dual-classified cards.
+    # Format: "<section>.<card>" e.g. "N_density.HDBSCAN".
+    # The card that has cross_ref set is the duplicate; the target
+    # (canonical home) has cross_ref=None. R15 enforces: format,
+    # section exists, card exists in section, no self-reference.
+    # See DEC-049 (policy) + DEC-062 (formalization).
+    cross_ref: str | None = None
     # v0.9.142 (DEC-055 amend): forward-declared deps for described_only
     # cards. depends_on_status = "planned" means depends_on paths are
     # NOT expected to resolve yet (R11 skips check).
@@ -337,6 +344,7 @@ def _parse_model(m: dict) -> ModelCard:
         depends_on=m.get("depends_on"),
         fit_batched=m.get("fit_batched"),
         not_a_model=bool(m.get("not_a_model", False)),
+        cross_ref=m.get("cross_ref"),
         predict_batched=m.get("predict_batched"),
         depends_on_backlog=m.get("depends_on_backlog"),
         depends_on_status=m.get("depends_on_status"),

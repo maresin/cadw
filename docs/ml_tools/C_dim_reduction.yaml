@@ -1,9 +1,6 @@
 # C - Dimensionality reduction
 # v0.9.123 (DEC-048/049). 1 draft (PCA with formula from cadw/ml/pca.py)
 # + 8 described_only.
-# cross-ref (markdown only): randomized SVD canonical J_nlp.J2 (verified);
-# NMF canonical J_nlp.J3 (verified); ALS canonical F_recsys (verified);
-# PermutationImportance canonical O_eda.O8 (verified).
 
 section: C
 name: Dimensionality reduction
@@ -69,6 +66,10 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.TruncatedSVD', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.TruncatedSVD.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB.'}
 
       - name: randomized_svd
+
+        # DEC-049: canonical home is J_nlp.J2.LSA_TFIDF_SVD
+
+        cross_ref: "J_nlp.LSA_TFIDF_SVD"
         tier: sota
         depends_on: []
         tier_level: tier1_core
@@ -122,6 +123,8 @@ subtypes:
       - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [reconstruction_error, fit_time_s], note: "No unified dim-reduction LB."}
     models:
       - name: NMF
+        # DEC-049: canonical home is J_nlp (topic modeling)
+        cross_ref: "J_nlp.NMF"
         cadw_function: fit_nmf
         cadw_module: cadw.ml.nmf
         input_api: df
@@ -169,6 +172,10 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.NMF', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html', algorithm_source_kind: docs, attribution: literature, task_type: matrix_factorization, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB. Reference impl .pingis/impl/J/nmf.py; card J_nlp.J3.NMF.'}
 
       - name: ALS
+
+        # DEC-049: canonical home is F_recsys (collaborative filtering)
+
+        cross_ref: "F_recsys.ALS"
         tier: sota
         depends_on: []
         tier_level: tier1_core

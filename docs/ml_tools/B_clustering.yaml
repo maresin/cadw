@@ -1,7 +1,5 @@
 # B - Clustering
 # v0.9.123 (DEC-048/049). 2 draft (KMeans, MiniBatchKMeans) + 8 described_only.
-# cross-ref (markdown only): BIRCH/HDBSCAN canonical N_density.N1; KShape
-# canonical D_time_series.D4. P provides clustering-task view.
 
 section: B
 name: Clustering
@@ -162,6 +160,10 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.DBSCAN', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: no unified clustering LB.'}
 
       - name: HDBSCAN
+
+        # DEC-049: canonical home is N_density (density view)
+
+        cross_ref: "N_density.HDBSCAN"
         tier: sota
         depends_on:
         - cadw.ops.linalg.knn_query
@@ -234,6 +236,10 @@ subtypes:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.AgglomerativeClustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.AgglomerativeClustering.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: no unified clustering LB.'}
 
       - name: BIRCH
+
+        # DEC-049: canonical home is N_density
+
+        cross_ref: "N_density.BIRCH"
         tier: sota
         depends_on: []
         tier_level: tier1_core
