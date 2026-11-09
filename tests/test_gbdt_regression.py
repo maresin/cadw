@@ -226,7 +226,7 @@ def test_fit_gbdt_guard_rejects_tight_budget(tmp_path):
     y = x + 0.1 * rng.normal(size=n)
     df = make_df(tmp_path, {"x": x.tolist(), "y": y.tolist()})
     df._memory_guard = MemoryGuard(max_memory_bytes=100_000)
-    with pytest.raises(MemoryLimitExceeded, match="internal state"):
+    with pytest.raises(MemoryLimitExceeded, match="internal_state"):
         fit_gbdt_regressor(df, ["x"], "y", n_estimators=5)
 
 
@@ -313,26 +313,27 @@ def test_fit_gbdt_filtered(tmp_path):
     assert r2 > 0.5
 
 def test_fit_gbdt_uses_codes_path(monkeypatch, tmp_path):
-    """P1a-1c: regression fit uses codes-based hist/assign ops."""
+    """P1a-1c + v0.9.172: hist via _AllNodeHistOpCodes; assign via _assign_leaf_batch."""
     from cadw.ml import gbdt as gbdt_mod
 
     hist_codes_calls = [0]
     assign_codes_calls = [0]
     orig_hist = gbdt_mod._AllNodeHistOpCodes
-    orig_assign = gbdt_mod._AssignLeavesOpCodes
+    orig_assign_batch = gbdt_mod._assign_leaf_batch
 
     class SpyHist(orig_hist):
         def update(self, state, batch):
             hist_codes_calls[0] += 1
             return super().update(state, batch)
 
-    class SpyAssign(orig_assign):
-        def update(self, state, batch):
-            assign_codes_calls[0] += 1
-            return super().update(state, batch)
+    def spy_assign_batch(codes, nan_mask, tree, root_id=0):
+        # v0.9.172 (S2c): _fit_boosting calls _assign_leaf_batch directly
+        # (no ReduceOp) for memmap-write compatibility.
+        assign_codes_calls[0] += 1
+        return orig_assign_batch(codes, nan_mask, tree, root_id)
 
     monkeypatch.setattr(gbdt_mod, "_AllNodeHistOpCodes", SpyHist)
-    monkeypatch.setattr(gbdt_mod, "_AssignLeavesOpCodes", SpyAssign)
+    monkeypatch.setattr(gbdt_mod, "_assign_leaf_batch", spy_assign_batch)
 
     n = 200
     rng = np.random.default_rng(0)

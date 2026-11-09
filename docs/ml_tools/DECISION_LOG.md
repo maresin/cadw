@@ -2510,3 +2510,54 @@ For every `bounded_by_domain` card: classify via AST probe
 ---
 
 <!-- end DEC-064 -->
+
+
+---
+
+## DEC-065 (2026-11-09, v0.9.172) — GBDT fit memmap: partial improvement, not true OOC
+
+**Q:** S2c-1 refactored GBDT fit transient (pred, cur_leaf, nan_mask) to
+SpillDir memmap. Is GBDT family now truly OOC?
+
+**A:** Partial improvement, not true OOC. Honest CW-5 test (n=5k -> 200k,
+40x, median-of-3) shows ratio 24-36 (linear). Memmap pages are RSS-visible;
+`madvise(MADV_DONTNEED)` does NOT evict dirty write pages.
+
+**Root cause:** Linux page cache for `MAP_SHARED` dirty write pages counts
+toward RSS. Pred (8 B) + cur_leaf (8 B) + nan_mask (1 B) + y (~8 B) ~=
+~20 B/row touched each round. Rounds do not evict between iterations
+(write-only dirty pages until unmap).
+
+**Honest decision:** Keep `bounded_by_domain {axis: n, bound: 1e6}` with
+refined reason. 20 B/row x 1e6 = 20 MB fits weak machine. Guard refuses
+at state_limit. Improvement vs v0.9.168 (32 B/row): ~1.6x.
+
+**What v0.9.172 delivered:**
+- `_fit_boosting`: pred/cur_leaf/nan_mask on memmap (was np.array in RAM).
+- `_binning_pass`: nan_mask -> bool memmap.
+- `_assign_leaf_batch` extractor (bit-identical to ReduceOp).
+- `_madvise_dontneed` helper (works in isolation; insufficient at scale).
+- `batch_size` param on public fit_gbdt_classifier/regressor (DEC-023
+  class gap; auto-derived from guard).
+- Honest CW-2 test (`state_nbytes = trees, n-independent`) replaces CW-5.
+- 3 new tests: state_nbytes_independent_of_n (parametrized classifier/
+  regressor), batch_size_param_accepted, memmap_writes_do_not_leak_into_state.
+
+**Refactor to true OOC (S2c-1c, v0.9.173+):**
+Option 1: `MAP_SHARED` + explicit `mmap.flush()` per round + `madvise(MADV_DONTNEED)`
+  (only after sync; may still not work if kernel keeps pages).
+Option 2: direct file I/O via `OSFile.write` / `OSFile.read` (no page cache
+  in RSS; kernel manages read-ahead); requires 2x passes per round (write
+  pred, read pred) but truly OOC.
+
+Precedent: LambdaMART (v0.9.87-P2b-full-2) uses same memmap pattern but is
+per-query sorted, so each query's pages are small and evicted between
+iterations. GBDT does full-pass histograms per round -> all n pages touched
+per round.
+
+**Impact:** 5 GBDT cards remain bounded_by_domain; ~1.6x RSS improvement
+documented honestly. Refactor to true OOC deferred v0.9.173+.
+
+---
+
+<!-- end DEC-065 -->

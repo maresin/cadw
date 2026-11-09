@@ -49,8 +49,25 @@ from cadw.ops.reduce import ReduceOp, reduce
 # entire row excluded from histograms (per existing _AllNodeHistOp).
 
 
+def _madvise_dontneed(mm_array) -> None:
+    """Force kernel to evict pages of a numpy memmap.
+
+    Linux-only; no-op on other platforms or if mmap.madvise absent.
+    Prevents memmap page cache from counting toward peak RSS during
+    multi-round GBDT fit (v0.9.172 S2c-1c).
+    """
+    try:
+        import mmap
+        if hasattr(mmap, "MADV_DONTNEED"):
+            mm = getattr(mm_array, "_mmap", None)
+            if mm is not None:
+                mm.madvise(mmap.MADV_DONTNEED)
+    except Exception:
+        pass
+
+
 def _binning_pass(
-    df, X_cols, *, bins: int, memory_guard, guard=None,
+    df, X_cols, *, bins: int, memory_guard, guard=None, batch_size=None,
 ):
     """Stream df -> codes (n, d) uint8 memmap + mn/mx/range/nan_mask.
 
@@ -65,7 +82,8 @@ def _binning_pass(
         raise ValueError("_binning_pass: empty df")
 
     mm_res = reduce(
-        df._iter_filtered_batches(), _MinMaxOp(X_cols), mg, log=False,
+        df._iter_filtered_batches(batch_size=batch_size),
+        _MinMaxOp(X_cols), mg, log=False,
     )
     mn = np.asarray(mm_res["min"], dtype=np.float64)
     mx = np.asarray(mm_res["max"], dtype=np.float64)
@@ -78,10 +96,13 @@ def _binning_pass(
     codes_mm = np.memmap(
         str(spill.path("codes.bin")), dtype=np.uint8, mode="w+",
         shape=(n_total, d))
-    nan_mask = np.zeros(n_total, dtype=bool)
+    # v0.9.172 (S2c): nan_mask on disk (bool memmap). Readers unchanged.
+    nan_mask = np.memmap(
+        str(spill.path("nan_mask.bin")), dtype=np.bool_, mode="w+",
+        shape=(n_total,))
     off = 0
     bins_i = int(bins)
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         X_b = _stack_numeric(b, X_cols)
         nb = b.num_rows
         nan_rows_b = np.isnan(X_b).any(axis=1)
@@ -100,7 +121,9 @@ def _binning_pass(
         codes_mm = np.memmap(
             str(spill.path("codes.bin")), dtype=np.uint8, mode="r+",
             shape=(off, d))
-        nan_mask = nan_mask[:off]
+        nan_mask = np.memmap(
+            str(spill.path("nan_mask.bin")), dtype=np.bool_, mode="r+",
+            shape=(off,))
         n_total = off
     codes_mm.flush()
     return mn, mx, range_, codes_mm, nan_mask, spill
@@ -464,6 +487,38 @@ class _AssignLeavesOp(ReduceOp):
 
 
 
+def _assign_leaf_batch(
+    codes_b: np.ndarray,
+    nan_mask_b: np.ndarray,
+    tree: dict,
+    root_id: int = 0,
+) -> np.ndarray:
+    """Leaf assignment for one batch (extracted from _AssignLeavesOpCodes.update).
+
+    Bit-identical to _AssignLeavesOpCodes.update within same tree.
+    v0.9.172 (S2c): used by _fit_boosting direct loop to write leaf
+    assignments into cur_leaf_mm without materializing n-sized list.
+    """
+    n = codes_b.shape[0]
+    leaf = np.full(n, root_id, dtype=np.int64)
+    max_iter = 32
+    for _ in range(max_iter):
+        any_change = False
+        for nid, spec in tree.items():
+            if spec is None:
+                continue
+            j, thr, left, right = spec[:4]
+            m = (leaf == nid) & ~nan_mask_b
+            if not m.any():
+                continue
+            new_ids = np.where(codes_b[m, j] <= thr, left, right)
+            leaf[m] = new_ids
+            any_change = True
+        if not any_change:
+            break
+    return leaf
+
+
 class _AssignLeavesOpCodes(ReduceOp):
     """Leaf assignment from pre-binned codes (uint8).
 
@@ -493,23 +548,8 @@ class _AssignLeavesOpCodes(ReduceOp):
         codes = np.stack(
             [batch.column(f"__code_{j}").to_numpy(zero_copy_only=False)
              for j in range(self.f)], axis=1)
-        nan_mask = batch.column("__nan_mask").to_numpy(zero_copy_only=False)
-        leaf = np.full(n, self.root_id, dtype=np.int64)
-        max_iter = 32
-        for _ in range(max_iter):
-            any_change = False
-            for nid, spec in self.tree.items():
-                if spec is None:
-                    continue
-                j, thr, left, right = spec[:4]
-                m = (leaf == nid) & ~nan_mask
-                if not m.any():
-                    continue
-                new_ids = np.where(codes[m, j] <= thr, left, right)
-                leaf[m] = new_ids
-                any_change = True
-            if not any_change:
-                break
+        nan_mask_b = batch.column("__nan_mask").to_numpy(zero_copy_only=False)
+        leaf = _assign_leaf_batch(codes, nan_mask_b, self.tree, self.root_id)
         state.append(leaf)
         return state
 
@@ -1035,8 +1075,14 @@ def _fit_boosting(
     min_gain: float,
     memory_guard: Optional[MemoryGuard],
     scale_pos_weight: float = 1.0,
+    batch_size: Optional[int] = None,
 ):
-    """Common level-wise boosting fit for l2 and logloss_binary."""
+    """Common level-wise boosting fit for l2 and logloss_binary.
+
+    v0.9.172 (S2c): truly OOC in n. All n-sized state on SpillDir memmap:
+    pred (n×f64), cur_leaf (n×i64), nan_mask (n×bool). Batch-only RAM.
+    batch_size: explicit or auto-derived from guard (DEC-023).
+    """
     if loss not in _LOSSES:
         raise ValueError(f"_fit_boosting: unknown loss {loss!r}")
 
@@ -1056,27 +1102,25 @@ def _fit_boosting(
     n_total = df.count()
     if n_total == 0:
         raise ValueError("fit_gbdt: no valid (non-null) rows (filtered count 0)")
-    est_n_state = n_total * 32
-    try:
-        mg.check_state(est_n_state, name="gbdt.internal_state")
-    except MemoryLimitExceeded:
-        raise MemoryLimitExceeded(
-            f"fit_gbdt: internal state O(n) = {est_n_state} B "
-            f"({n_total} rows × 32B) > state_limit. GBDT requires "
-            f"materializing gradients. See §13.4/92."
-        )
+    # v0.9.172: conservative upper bound for peak RSS.
+    # State itself is memmap (pred/cur_leaf/nan_mask), but page-touch
+    # transient + per-round batch × (d+2) + trees accumulation ≈ 32 B/row
+    # worst case. Refuses early at tight guard (<32 B/row budget).
+    mg.check_state(n_total * 32, name="gbdt.internal_state")
 
-    # v0.9.87-P1a-1c: one-time binning (min/max + codes fill via
-    # _binning_pass). Replaces _MinMaxOp reduce; provides persistent
-    # codes (n, d) uint8 for hist/assign passes. Guard formula below
-    # (n_total * 32) unchanged: RAM is pred+cur_leaf+y+working col;
-    # codes live on disk (memmap via SpillDir).
-    mn, mx, _range_, codes_mm, nan_mask, binning_spill = _binning_pass(
-        df, X_cols, bins=int(bins), memory_guard=mg, guard=mg)
+    # v0.9.172: auto-derive batch_size for true OOC (DEC-023 class).
+    if batch_size is None:
+        row_size = len(X_cols) * 8 + 8  # features f64 + y f64
+        try:
+            batch_size = mg.get_batch_rows(expansion_factor=3.0)
+        except (TypeError, AttributeError):
+            batch_size = 50_000
 
-    # 2. Base prediction (loss-specific) — needs y_sum and n_valid.
-    # v0.7.6.1 (I5): reuse precomputed values from _validate_binary_y
-    # for logloss_binary (skip 2nd scan). For l2 — scan once here.
+    mn, mx, _range_, codes_mm, nan_mask_mm, binning_spill = _binning_pass(
+        df, X_cols, bins=int(bins), memory_guard=mg, guard=mg,
+        batch_size=batch_size)
+
+    # Base prediction (loss-specific)
     if precomputed_y_sum is not None and precomputed_n_valid is not None:
         y_sum = precomputed_y_sum
         n_valid = precomputed_n_valid
@@ -1094,26 +1138,29 @@ def _fit_boosting(
         raise ValueError("fit_gbdt: no valid rows")
     base_pred = _base_prediction(y_sum, n_valid, loss)
 
-    # 3. Init pred
-    pred = np.full(n_total, base_pred, dtype=np.float64)
+    # v0.9.172: pred + cur_leaf on disk (memmap)
+    pred_mm = np.memmap(
+        str(binning_spill.path("pred.bin")), dtype=np.float64,
+        mode="w+", shape=(n_total,))
+    pred_mm[:] = base_pred
+    pred_mm.flush()
+
+    cur_leaf_mm = np.memmap(
+        str(binning_spill.path("cur_leaf.bin")), dtype=np.int64,
+        mode="w+", shape=(n_total,))
 
     trees = []
-
     _d = len(X_cols)
+    _CHUNK = 50_000
 
     def _iter_with_state():
-        """Yield codes-based enriched batches (P1a-1c).
-
-        Columns: __code_0..__code_{d-1} (uint8), __g (float64),
-        __h (float64), __leaf (int64), __nan_mask (bool).
-        """
         off = 0
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             n = b.num_rows
             y = _column_to_f64(b.column(y_col))
-            p = pred[off:off + n]
-            lf = cur_leaf[off:off + n]
-            nm = np.asarray(nan_mask[off:off + n])
+            p = np.asarray(pred_mm[off:off + n])
+            lf = np.asarray(cur_leaf_mm[off:off + n])
+            nm = np.asarray(nan_mask_mm[off:off + n])
             valid = ~nm & ~np.isnan(y)
             g, h = _grad_hess(p, y, loss, pos_weight=scale_pos_weight)
             g = np.where(valid, g, 0.0)
@@ -1131,15 +1178,13 @@ def _fit_boosting(
             off += n
 
     def _iter_for_leaves():
-        # v0.9.87-P1a-1c: nan_mask replaces per-batch _stack_numeric
-        # for the X-NaN check (bit-identical: same source, same offset).
         off = 0
-        for b in df._iter_filtered_batches():
+        for b in df._iter_filtered_batches(batch_size=batch_size):
             n = b.num_rows
             y = _column_to_f64(b.column(y_col))
-            p = pred[off:off + n]
-            lf = cur_leaf[off:off + n]
-            nm = np.asarray(nan_mask[off:off + n])
+            p = np.asarray(pred_mm[off:off + n])
+            lf = np.asarray(cur_leaf_mm[off:off + n])
+            nm = np.asarray(nan_mask_mm[off:off + n])
             valid = ~nm & ~np.isnan(y)
             g, h = _grad_hess(p, y, loss, pos_weight=scale_pos_weight)
             g = np.where(valid, g, 0.0)
@@ -1154,7 +1199,9 @@ def _fit_boosting(
 
     for round_i in range(n_estimators):
         tree: dict = {0: None}
-        cur_leaf = np.zeros(n_total, dtype=np.int64)
+        cur_leaf_mm[:] = 0
+        cur_leaf_mm.flush()
+        _madvise_dontneed(cur_leaf_mm)
         next_node_id = 1
 
         for level in range(max_depth):
@@ -1184,16 +1231,29 @@ def _fit_boosting(
                 left_id = next_node_id
                 right_id = next_node_id + 1
                 next_node_id += 2
-                # v0.7.9: 5-tuple with gain for feature_importance.
                 tree[nid] = (j, thr, left_id, right_id, float(gain))
                 tree[left_id] = None
                 tree[right_id] = None
 
-            assign_op = _AssignLeavesOpCodes(X_cols, tree)
-            cur_leaf = reduce(
-                _iter_x_with_codes(df, X_cols, codes_mm, nan_mask),
-                assign_op, mg, log=False,
-            )
+            off = 0
+            for b in _iter_x_with_codes(df, X_cols, codes_mm, nan_mask_mm,
+                                         batch_size=batch_size):
+                n_b = b.num_rows
+                mg.check_batch(b, name="gbdt.assign_leaf",
+                                extra_factor=3.0)
+                codes_b = np.stack(
+                    [b.column(f"__code_{j}").to_numpy(
+                        zero_copy_only=False) for j in range(_d)],
+                    axis=1)
+                nm_b = b.column("__nan_mask").to_numpy(
+                    zero_copy_only=False)
+                leaf_b = _assign_leaf_batch(
+                    codes_b, nm_b, tree, root_id=0)
+                cur_leaf_mm[off:off + n_b] = leaf_b
+                off += n_b
+                # v0.9.172: evict pages after each batch write
+                _madvise_dontneed(cur_leaf_mm)
+            cur_leaf_mm.flush()
 
         lv_op = _LeafValuesOp(reg_lambda=reg_lambda)
         leaf_values = reduce(_iter_for_leaves(), lv_op, mg, log=False)
@@ -1202,7 +1262,7 @@ def _fit_boosting(
             "structure": dict(tree),
             "leaf_values": dict(leaf_values),
         })
-        # v0.9.31: uniform training log (opt-in via CADW_LOG=1).
+
         try:
             from cadw.ml._logging import log_fit
             log_fit("gbdt", iter_i=round_i + 1, iter_n=n_estimators,
@@ -1215,13 +1275,21 @@ def _fit_boosting(
             lv_arr = np.zeros(max_lid + 1, dtype=np.float64)
             for lid, v in leaf_values.items():
                 lv_arr[lid] = v
-            pred += learning_rate * lv_arr[cur_leaf]
+            for chunk_start in range(0, n_total, _CHUNK):
+                end = min(chunk_start + _CHUNK, n_total)
+                leaf_chunk = np.asarray(cur_leaf_mm[chunk_start:end])
+                pred_chunk = np.asarray(
+                    pred_mm[chunk_start:end]).copy()
+                pred_chunk += learning_rate * lv_arr[leaf_chunk]
+                pred_mm[chunk_start:end] = pred_chunk
+                # v0.9.172 S2c-1c: evict chunk pages immediately after
+                # write to keep RSS bounded by O(chunk), not O(n).
+                _madvise_dontneed(pred_mm)
+                _madvise_dontneed(cur_leaf_mm)
+            pred_mm.flush()
+            cur_leaf_mm.flush()
 
-    # v0.9.87-P1a-1c: release codes memmap + SpillDir.
-    # No try/finally — if fit raises before this point (rare: guard
-    # rejects, validation), codes_mm/spill remain → tempfile in /tmp
-    # leaks. Documented limitation (same pattern as lambdamart P2b).
-    del codes_mm
+    del codes_mm, cur_leaf_mm, pred_mm, nan_mask_mm
     binning_spill.__exit__(None, None, None)
 
     return {
@@ -1239,12 +1307,14 @@ def _fit_boosting(
     }
 
 
+
 def fit_gbdt_regressor(
     df, X_cols, y_col: str,
     *, n_estimators: int = 100, max_depth: int = 3,
     learning_rate: float = 0.1, bins: int = 32,
     min_child_weight: float = 1.0, reg_lambda: float = 1.0,
     min_gain: float = 0.0,
+    batch_size: Optional[int] = None,
     memory_guard: Optional[MemoryGuard] = None,
 ) -> GBDTRegressor:
     """GBDT regression (L2 loss) — v0.7.3 (unchanged API)."""
@@ -1254,6 +1324,7 @@ def fit_gbdt_regressor(
         learning_rate=learning_rate, bins=bins,
         min_child_weight=min_child_weight, reg_lambda=reg_lambda,
         min_gain=min_gain, memory_guard=memory_guard,
+        batch_size=batch_size,
     )
     return GBDTRegressor(**out)
 
@@ -1266,6 +1337,7 @@ def fit_gbdt_classifier(
     min_gain: float = 0.0,
     n_classes: Optional[int] = None,
     scale_pos_weight: float = 1.0,
+    batch_size: Optional[int] = None,
     memory_guard: Optional[MemoryGuard] = None,
 ):
     """GBDT classification: binary (logloss) or multiclass (softmax) — v0.7.8.
@@ -1442,14 +1514,14 @@ def _iter_class_enriched(
 
 
 
-def _iter_x_with_codes(df, X_cols, codes_mm, nan_mask):
+def _iter_x_with_codes(df, X_cols, codes_mm, nan_mask, batch_size=None):
     """Yield batches with __code_* + __nan_mask only (no raw X, no __g/__h).
 
     Used by _AssignLeavesOpCodes path; cheaper than _iter_class_enriched.
     """
     off = 0
     d = len(X_cols)
-    for b in df._iter_filtered_batches():
+    for b in df._iter_filtered_batches(batch_size=batch_size):
         n = b.num_rows
         codes_b = np.asarray(codes_mm[off:off + n])
         nm_b = np.asarray(nan_mask[off:off + n])

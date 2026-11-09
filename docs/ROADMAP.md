@@ -332,7 +332,7 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
-**v0.9.171 (S2b-2a: chains/meta/uplift/ordinal subsample cap):**
+**v0.9.172 (S2c-1: GBDT fit memmap refactor — partial, DEC-065):**\n- `_fit_boosting` (binary + regression): pred/cur_leaf/nan_mask\n  on SpillDir memmap. `_binning_pass`: nan_mask -> bool memmap.\n- Extract `_assign_leaf_batch` helper (bit-identical to\n  _AssignLeavesOpCodes.update). Shared between ReduceOp and direct\n  memmap-write loop.\n- `batch_size` param on public fit_gbdt_classifier/regressor\n  (DEC-023 class gap; auto-derived from guard if None). Propagated\n  through _binning_pass + _fit_boosting + _iter_x_with_codes.\n- `_madvise_dontneed` helper (Linux MADV_DONTNEED; insufficient at\n  scale — memmap dirty pages not evicted).\n- **Honest outcome (DEC-065)**: ~1.6x RSS improvement (32 B/row ->\n  ~20 B/row) but NOT true OOC. CW-5 40x n ratio = 24-36 (linear).\n- Tests: CW-2 state_nbytes_independent_of_n + batch_size param\n  accepted + memmap_writes_do_not_leak_into_state. CW-5 skipped.\n- YAML: 5 GBDT cards keep bounded_by_domain (refined reason +\n  fit_transient_note; v0.9.172 improvement documented).\n- Refactor to true OOC deferred v0.9.173+ (posix_fadvise or direct\n  file I/O).\n\n**v0.9.171 (S2b-2a: chains/meta/uplift/ordinal subsample cap):**
 - Code: `max_samples=20000` param + warning on subsample for:
   fit_chains, fit_meta_learner, _fit_uplift_two_model,
   fit_ordinal_logit. fit_uplift: warning added (had max_samples).
