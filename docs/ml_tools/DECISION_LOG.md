@@ -2378,3 +2378,135 @@ probe `walked vs state_nbytes` (not AST) before `status: verified`.
 ---
 
 <!-- end DEC-063 -->
+
+
+---
+
+## DEC-064 (2026-11-09, v0.9.169) — S2a audit: 40 bounded_by_domain cards classified
+
+**Q:** S1 audit (DEC-063) fixed 3 bugs but didn't fully classify the 43
+`bounded_by_domain` cards. User policy: "bounded_by_domain is TEMPORARY
+only. Others need OOC solutions."
+
+**A:** S2a audit (AST + runtime probe) classified all 43 into 8 classes.
+Only 4 classes are actual technical debt; 4 are permanent (domain bound /
+intrinsic).
+
+### Class 1: AP2_COLLECT — real `_collect` vstack (10 cards → S2b)
+
+Fit uses `list.append` + `np.vstack` (AI_CONSTITUTION §5 AP2). Guard
+refuses at state_limit (honest, not OOC).
+
+| Card | cadw_function | Code anchor |
+|---|---|---|
+| ClassifierChains | fit_chains | chains.py _collect: Xs.append + vstack |
+| OneVsRest_Logistic | fit_chains | same |
+| OrdinalLogit | fit_ordinal_logit | ordinal.py _collect |
+| T_learner | fit_meta_learner | meta_learners.py _collect |
+| S_learner | fit_meta_learner | same |
+| T_learner_uplift | _fit_uplift_two_model | uplift.py _collect_cls |
+| CausalTree | fit_uplift | uplift.py _collect_cls |
+| MutualInfoSelect | fit_feature_select | feature_select.py _collect |
+| VarianceThreshold | fit_feature_select | same |
+| BorutaSelect | fit_feature_select | same |
+
+**S2b refactor:** replace `list.append + vstack` with `SpillDir` memmap
+(precedent `patch_memory_ad` v0.9.87). After refactor: bounded_state=true,
+remove bounded_by_domain.
+
+### Class 2: GBDT_FIT_TRANSIENT — n-sized grad/hess/pred (5 cards → S2c)
+
+Fit `_fit_boosting` uses `np.full(n_total)` (pred), `np.zeros(n_total)`
+(grad/hess) in RAM; `codes_mm` already SpillDir memmap. **Not persistent**:
+model state = trees only (correct, bounded_state=true after v0.9.159 fix).
+Fit transient = O(n·90B) — at n=1e5 ~9 MB, at n=1e6 ~90 MB.
+
+| Card | cadw_function |
+|---|---|
+| GBDT | fit_gbdt_classifier |
+| GBDT_L2 | fit_gbdt_regressor |
+| GBDT_multiclass | fit_gbdt_multiclass |
+| GBDT_scale_pos_weight ×2 | fit_gbdt_classifier |
+
+**S2c refactor:** SpillDir memmap for grad_mm, hess_mm, pred_mm (precedent
+LambdaMART v0.9.87-P2b-full-2). After refactor: fit peak O(batch), remove
+bounded_by_domain, `fit_transient_note`.
+
+### Class 3: OUTPUT_N — persistent (n,) model state (9 cards → S2f)
+
+`state_nbytes()` returns 3 n-sized output arrays:
+`decision_scores (n)·f64 + labels (n)·i64 + window_scores (n_w·~n)·f64`.
+This is **output**, not fit transient. Model can't be OOC unless output
+spills.
+
+| Card | cadw_function | Current output param |
+|---|---|---|
+| Sub-PCA | fit_sub_pca | memory default |
+| KShapeAD | fit_kshape | memory default |
+| Autoencoder | fit_autoencoder | memory default |
+| PatchMemoryAD | fit_patch_memory_ad | memory default |
+| T-squared+Q | fit_t2q | memory default |
+| S2G | fit_s2g | memory default |
+| EIF | fit_eif | memory default (×2 cards) |
+| KMeansAD | fit_kmeans_ad | memory default (×2 cards) |
+| BOCPD | fit_bocpd | memory default (×2 cards) |
+
+**S2f refactor:** change default `output='memory'` → `output='auto'` (uses
+AutoArrayResult/SpillArray; spills to disk when guard small). After
+refactor: bounded_state=true (state = model), output on disk.
+
+### Class 4: PARAM_FLIP — 1 card (→ S2f small)
+
+- **DWT-MLEAD**: `output='memory'` default (SpillArray only "is v0.9.116+",
+  comment in code). Flip default to `'auto'`.
+- **CUSUM**: already `output='auto'` default (AutoArrayResult). **No code
+  change needed** — just YAML flip `bounded_state: true, bounded_by_domain
+  removed`.
+
+### Class 5-8: Permanent (no refactor; DEC-011 domain bound)
+
+- **SINGLE_SERIES** (12): Naive, ETS, AutoETS, Theta, AutoTheta, SARIMA,
+  GBDTForecaster, EnsembleForecaster, VAR, OTMThetaForecaster,
+  TemporalHierarchy, TransformedTargetForecaster. All use
+  `_extract_series` — single-series intrinsic O(n). DEC-011 accepted
+  n≤1e6 with guard-refuse.
+- **N_EVENTS** (1): CoxPH — baseline_t_/baseline_h_ O(n_events),
+  n_events ≤ n. Honest.
+- **INTRINSIC_DP** (1): PELT — per-id DP (`_collect_series` id-aware, not
+  generic vstack). Intrinsic O(longest series).
+- **Duplicate cards** in D_time_series (EIF, Sub-PCA, KMeansAD, Autoencoder
+  each ×2; PELT ×2) — dedupe.
+
+### Refactor roadmap
+
+| Session | Scope | Cards → truly OOC |
+|---|---|---|
+| **S2b** | `_collect` vstack → SpillDir for 5 functions (chains, ordinal, meta_learners, uplift ×2, feature_select) | 10 |
+| **S2c** | GBDT fit SpillDir (grad/hess/pred, LambdaMART precedent) | 5 |
+| **S2f** | Anomaly `output='memory'` → `'auto'` + CUSUM/DWT YAML/param flip | 11 |
+| **Permanent** | 14 cards (12 single-series + 1 CoxPH + 1 PELT-DP) | 0 |
+
+**Total: ~5.5 sessions** to full honest OOC. Permanent = DEC-011 domain
+bound (not implementation gap).
+
+### Post-S2 honest counts
+
+| State | Count |
+|---|---|
+| Verified cards | ~84 |
+| Truly OOC (persistent + transient bounded by batch) | ~70 |
+| Permanent domain bound (DEC-011) | 14 |
+| Fit transient refactor pending | 5 (S2c) |
+| AP2 refactor pending | 10 (S2b) |
+| Output-spill refactor pending | 11 (S2f) |
+
+### Audit methodology established (permanent)
+
+For every `bounded_by_domain` card: classify via AST probe
+(`_collect`, `np.full(n)`, `SpillArray`, `_extract_series`, DP patterns)
++ runtime probe (`walked vs state_nbytes`, `fit_peak vs state`). Only
+4 classes are technical debt; 4 are permanent domain bounds.
+
+---
+
+<!-- end DEC-064 -->

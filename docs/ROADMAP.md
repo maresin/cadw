@@ -332,6 +332,18 @@ Component-wise verify per pending card. Some have `status: None` legacy
 
 ## Session history (v0.9.105-128 — condensed)
 
+**v0.9.169 (S2a audit: 40 bounded_by_domain classified, DEC-064):**
+- S2a completed: 43 cards classified into 8 classes.
+- 4 classes = technical debt (S2b/S2c/S2f refactor):
+  AP2_COLLECT=10 (fit vstack); GBDT_FIT_TRANSIENT=5 (grad/hess);
+  OUTPUT_N=9 (n-sized persistent output); PARAM_FLIP=1 (DWT).
+- 4 classes = permanent domain bound (DEC-011): SINGLE_SERIES=12,
+  N_EVENTS=1 (CoxPH), INTRINSIC_DP=1 (PELT).
+- CUSUM: already OOC (output='auto' default); YAML flip only.
+- Refactor roadmap ~5.5 sessions (S2b 2 + S2c 2 + S2f 1.5).
+- Audit methodology formalized: AST probe + runtime probe
+  (walked vs state_nbytes + fit_peak vs state).
+
 **v0.9.168 (OOC audit: 3 bugs + leaf-layer docs, DEC-063):**
 - Bug #1 fix: GBDTForecaster.state_nbytes() — includes _y/_X/_idx/
   _tail_features (was ~3x under-report at n=1k, ~2500x at n=1e6).
