@@ -1083,6 +1083,43 @@ Violations caught by **G18** (`tests/test_constitution_gates.py`).
 pattern from last W_eff is a valid semantic variant (pelt precedent,
 DEC-067 §3/§6). Do NOT declare intrinsic without checking window first.
 
+### §D. Testing discipline — targeted after changes, full before tag
+
+Per-session rule (v0.9.192, user feedback):
+
+| Change | Run |
+|---|---|
+| Model-specific code | that model's tests + `test_ml_tools_schema.py` |
+| Shared primitive | its tests + 1-2 representative consumers |
+| YAML flip | `test_ml_tools_schema.py` + `test_constitution_gates.py` + affected model tests |
+| Version bump / release tag | **full regression** (`pytest -q -m "not slow"`) — once |
+
+**Why:** models are isolated (distinct code paths, distinct tests). Full
+suite after each sub-commit costs ~3 min × N per session with zero
+additional signal. Full suite is meaningful once, before tag.
+
+**Anti-pattern:** running full suite after every c1/c2/c3 sub-commit
+"just in case". In v0.9.188-191 this wasted ~30 min.
+
+### §E. G18 is formal, not semantic
+
+G18 checks:
+- streaming_variant != null
+- OR window_truncatable != null
+- OR intrinsic_bound != null
+- AND reason >= 20 chars
+
+It does NOT check **whether intrinsic_bound is semantically justified**
+(e.g. `_ses` (otm) had intrinsic_bound in v0.9.189-c1 — formally valid
+for G18, semantically wrong per DEC-072 §3; caught only by manual review
+in v0.9.191).
+
+**Rule:** before using `intrinsic_bound`, apply self-check from §C
+(window? disk 2-pass? then intrinsic). Manual review required for any
+new intrinsic_bound. G18 is a sanity net, not a semantic gate.
+
+---
+
 ### §C. Intrinsic primitives (closed, no streaming possible)
 
 Only those where full-n is mathematically required with no valid
