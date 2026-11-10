@@ -2964,4 +2964,79 @@ Reference: DEC-067 (work front), AI_CONSTITUTION R1, R7, AP24 (silent approximat
 
 ---
 
+---
+
+## DEC-070 (2026-11-10, v0.9.185) — primitives-first; honest YAML policy
+
+**Q:** v0.9.182-184 refactored 5 TS models (Naive, Theta, OTMTheta, ETS,
+AutoETS) — persistent state to O(model) (264-416 B vs ~1.4 KB), verified
+bit-identical. YAML flipped to `bounded_state: true` + `n_scalability:
+constant` + `ram_formula: "period*f64 + 256"`. But fit-peak is still O(n)
+because leaf primitives (`_extract_series`, `_ses_fit`, `stl_decompose`)
+are not streaming. Was the YAML honest?
+
+**A:** No. v0.9.185 corrects the honesty gap. The refactor itself is
+correct (persistent state IS O(model)); the YAML metadata was **wrong**
+(fit-peak O(n), not O(model)).
+
+### Policy (permanent, applies to all future model refactors)
+
+**Rule: primitives first.** Order of work for any Wave-N refactor:
+
+1. **PrimitiveCard + streaming variant** for each leaf primitive used by
+   the model (`_extract_series`, `_ses_fit`, `stl_decompose`, etc.)
+2. **Wire streaming in fit** (model uses `_iter_target_batches` /
+   `_ses_fit_streaming` instead of `_extract_series` / full `_ses_fit`)
+3. **Only then** flip YAML: `bounded_state: true` + `n_scalability:
+   constant` + `ram_formula: "<state-only>"` + `bounded_state_dims`.
+
+Until all 3 done: `bounded_state: false` (fit transient O(n)),
+`bounded_by_domain: {axis: n, bound: 1e6}` (honest), `ram_formula`
+includes full fit transient.
+
+### Streaming-variant complexity by primitive (backlog)
+
+| Primitive | Streaming possible? | Bit-identical? | Effort |
+|---|---|---|---|
+| `_extract_series` (no group) | Yes — `_iter_target_batches` | Yes (yield per-batch) | 1-2h |
+| `_ses_fit` (s=1, no trend) | Yes — ring buffer | Yes (O(1) state) | 1h |
+| `_ses_fit` (HW, s>1) | No easy — `_initial_seasonal` needs full y (k=n//s periods) | No (1-pass ≠ 2-pass) | 4h+ (2-pass) |
+| `stl_decompose` | Hard — multiple LOESS iterations | No (irregular) | 4h+ |
+
+### Why this matters
+
+- **AP21 (atomic closure)** — verified card means ALL of §2/§3/§4 pass.
+  `n_scalability: constant` with leaf O(n) transitive dependencies is
+  silent-dishonest.
+- **R2 (always process)** — honest `bounded_by_domain` = guard refuses
+  at fit_transient budget; user sees clear error, not OOM or false claim.
+- **R4 (formula from code)** — `ram_formula` must reflect fit-peak from
+  code, not just persistent state.
+
+### Migration path
+
+- **v0.9.185** (this session): YAML honesty revert + PrimitiveCard
+  registration for 4 leaf primitives + `streaming_variant: null`
+  (backlog markers).
+- **v0.9.190+**: implement streaming variants in priority order
+  `_extract_series` → `_ses_fit`(s=1) → `_ses_fit`(HW) → `stl_decompose`.
+  After each: model can be honestly flipped to `bounded_state: true +
+  n_scalability: constant`.
+- **Wave 2 continuation (v0.9.186+)**: for SARIMA, VAR, etc. — **do not
+  flip** `bounded_state: true` until all transitive leaf primitives are
+  streaming. Use `bounded_by_domain` + honest formula.
+
+### v0.9.185 delivered
+
+- 4 leaf PrimitiveCards registered (`_extract_series`, `_ses_fit_simple`,
+  `_ses_fit_hw`, `stl_decompose`) — honest `intrinsic_bound: {axis: n,
+  bound: 1e6}`, `streaming_variant: null`.
+- 5 model YAML reverted: `bs=false, ns=linear, ram≈N*n*f64+..., bounded_by_domain
+  restored, migration_target=v0.9.190+`.
+- state_class O(model) kept — real improvement (persistent state).
+
+---
+
+<!-- end DEC-070 -->
+
 <!-- end DEC-066 -->

@@ -33,12 +33,12 @@ subtypes:
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "period * f64 + 256"
+    ram_formula: "2 * n * f64 + period * f64 + 256"
     formula_evidence:
       state: "models.py:211 -- NaiveForecaster.y_ = y (np.ndarray, n*f64)"
       header: "models.py -- +256 model header"
       guard: "models.py:218 -- _check(df._memory_guard, batch, ...)"
-    min_ram_formula: "f64 + 256"
+    min_ram_formula: "2 * f64 + f64 + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -49,10 +49,14 @@ subtypes:
       cells_passed: "3/3"
       runtime_sec: "~2"
     state_class: O(model)
-    bounded_state_dims: {period: 1}
+    bounded_state_dims: {n: 1, period: 1}
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "v0.9.185 honest: full-series fit via _extract_series (leaf, O(n)); streaming primitives backlog v0.9.190+"
+    n_scalability: linear
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. no multi-pass; single extract."
       predict: "closed-form extrapolation; O(1) RAM."
@@ -89,17 +93,17 @@ subtypes:
   - name: ETS
     cadw_module: cadw.ts.ets
     cadw_function: ETSForecaster
-    migration_target: v0.9.185
+    migration_target: v0.9.190+
     input_api: df
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "seasonal_period * f64 + 256"
+    ram_formula: "3 * n * f64 + seasonal_period * f64 + 256"
     formula_evidence:
       state: "ets.py:170-172 -- y_.nbytes + fitted_.nbytes + season_.nbytes + 256"
       header: "ets.py:172 -- +256"
       guard: "ets.py:fit -- extract_series guards per batch"
-    min_ram_formula: "f64 + 256"
+    min_ram_formula: "3 * f64 + f64 + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -109,11 +113,15 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
-    bounded_state_dims: {seasonal_period: 1}
+    bounded_state_dims: {n: 1, seasonal_period: 1}
     state_class: O(model)
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "v0.9.185 honest: _extract_series + _ses_fit fitted (leaf); streaming backlog v0.9.190+"
+    n_scalability: linear
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. Nelder-Mead grid transient."
       predict: "closed-form extrapolation; O(1) RAM."
@@ -181,17 +189,17 @@ subtypes:
   - name: AutoETS
     cadw_module: cadw.ts.auto_ets
     cadw_function: AutoETSForecaster
-    migration_target: v0.9.185
+    migration_target: v0.9.190+
     input_api: df
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "seasonal_period * f64 + 256"
+    ram_formula: "3 * n * f64 + seasonal_period * f64 + 256"
     formula_evidence:
       state: "auto_ets.py:284 -- best_model_.state_nbytes() (delegated)"
       header: "auto_ets.py:284 -- delegated +256"
       guard: "auto_ets.fit -- extract_series guards per batch"
-    min_ram_formula: "f64 + 256"
+    min_ram_formula: "3 * f64 + f64 + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -201,11 +209,15 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
-    bounded_state_dims: {seasonal_period: 1}
+    bounded_state_dims: {n: 1, seasonal_period: 1}
     state_class: O(model)
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "v0.9.185 honest: peak = single inner ETS fit; leaf primitives; streaming backlog v0.9.190+"
+    n_scalability: linear
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. up to 9 sequential ETS fits."
       predict: "closed-form extrapolation; O(1) RAM."
@@ -271,17 +283,17 @@ subtypes:
   - name: Theta
     cadw_module: cadw.ts.theta
     cadw_function: ThetaForecaster
-    migration_target: v0.9.184
+    migration_target: v0.9.190+
     input_api: df
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "seasonal_period * f64 + 256"
+    ram_formula: "4 * n * f64 + seasonal_period * f64 + 256"
     formula_evidence:
       state: "theta.py:221-223 -- y_.nbytes + fitted_.nbytes + 256"
       header: "theta.py:223 -- +256"
       guard: "theta.fit -- extract_series + stl_decompose guard"
-    min_ram_formula: "f64 + 256"
+    min_ram_formula: "4 * f64 + f64 + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -291,11 +303,15 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
-    bounded_state_dims: {seasonal_period: 1}
+    bounded_state_dims: {n: 1, seasonal_period: 1}
     state_class: O(model)
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "v0.9.185 honest: _extract_series + stl_decompose + _ses_fit (leaf); streaming backlog v0.9.190+"
+    n_scalability: linear
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. STL decompose + SES transient."
       predict: "closed-form extrapolation; O(1) RAM."
@@ -676,7 +692,7 @@ subtypes:
       seasonal_period: int
     cadw_module: cadw.ts
     cadw_function: OTMThetaForecaster
-    migration_target: v0.9.184
+    migration_target: v0.9.190+
     input_api: df
     fit_batched: false
     predict_batched: false
@@ -693,7 +709,7 @@ subtypes:
       metric: mase
       value: null
       note: 'M3 winner family (Makridakis 2000); OTM weights optimized per series.'
-    ram_formula: "seasonal_period * f64 + 256"
+    ram_formula: "34 * n * f64 + seasonal_period * f64 + 256"
     formula_evidence:
       persistent_state: "otm.py:228-231 state_nbytes: y_.nbytes + fitted_.nbytes + 256 = 2*n*f64 + 256"
       grid_ses_fits: "otm.py:153-158 ses_fits = {alpha: _ses(theta_2, alpha)} -- 19 arrays (ALPHA_GRID len 19) of n*f64"
@@ -703,7 +719,7 @@ subtypes:
       finalize: "otm.py:184-188 fitted (n*f64) + resid (n*f64)"
       guard: "otm.py:141 check_state(31*n*8 + 256, name='otm.fit') -- matches formula"
       header: "otm.py:231 +256"
-    min_ram_formula: "f64 + 256"
+    min_ram_formula: "34 * f64 + f64 + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -714,11 +730,15 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
       cells_passed: "5/5"
       runtime_sec: "~1"
-    bounded_state_dims: {seasonal_period: 1}
+    bounded_state_dims: {n: 1, seasonal_period: 1}
     state_class: O(model)
     state_type: aggregation
-    bounded_state: true
-    n_scalability: constant
+    bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "v0.9.185 honest: grid search 19 SES fits + stl_decompose + _extract_series (leaf); streaming backlog v0.9.190+"
+    n_scalability: linear
     streaming_strategy:
       fit: 'Streaming full-series extraction (batch check_batch); OOC post-fit state O(seasonal_period). y_ + fitted_ = O(n) persistent. Grid search holds 19 SES fitted arrays (19n) + t'
       predict: 'closed-form theta extrapolation; O(1) RAM.'

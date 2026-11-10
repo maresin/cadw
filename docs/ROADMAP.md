@@ -2,7 +2,81 @@
 
 Last updated: 2026-11-08 (after v0.9.141).
 
-## Current: v0.9.175 — OOC batched work front (DEC-067)
+## Current: v0.9.185 — primitives-first correction (DEC-070)
+
+**Why:** v0.9.182-184 flips were dishonest — persistent state O(model)
+correct, but fit transient O(n) via leaf primitives (`_extract_series`,
+`_ses_fit`, `stl_decompose`). YAML claimed `n_scalability: constant` when
+fit-peak scales linearly.
+
+### v0.9.185 — honest correction
+
+- **DEC-070** primitives-first policy (permanent).
+- **4 leaf PrimitiveCards** registered: `_extract_series`, `_ses_fit_simple`,
+  `_ses_fit_hw`, `stl_decompose`. All honest `layer: leaf`,
+  `streaming_variant: null`, `intrinsic_bound: {axis: n, bound: 1e6}`.
+- **5 model YAML reverted** (Naive, Theta, OTMTheta, ETS, AutoETS):
+  `bounded_state: false`, `n_scalability: linear`, honest `ram_formula`
+  with fit-transient term, `bounded_by_domain` restored,
+  `migration_target: v0.9.190+`.
+- **state_class O(model)** kept — persistent state IS O(model); real
+  improvement over pre-v0.9.182.
+- **Bit-identical tests** for state_nbytes + predict + in_sample: all
+  pass with `save_y=True` legacy.
+
+### Wave 2 continuation policy (v0.9.186+)
+
+**Do not flip** `bounded_state: true` + `n_scalability: constant` in YAML
+until all 3 conditions hold:
+
+1. PrimitiveCard registered with **streaming variant** for every leaf
+   primitive used.
+2. Model's fit path uses **streaming** primitive (not `_extract_series`).
+3. Bit-identical verification of streaming vs full (test exists).
+
+Until then: `bounded_state: false`, `bounded_by_domain: {axis: n}`,
+`ram_formula` includes fit transient. Migration target on ROADMAP.
+
+### Streaming primitives backlog (v0.9.190+)
+
+| Priority | Primitive | Effort | Unblocks |
+|---|---|---|---|
+| **P1** | `_extract_series` → `_iter_target_batches` | 1-2h | All TS fit paths |
+| **P2** | `_ses_fit(s=1)` → ring-buffer variant | 1h | Naive, ETS(s=1), AutoETS(s=1) |
+| **P3** | `_ses_fit(HW, s>1)` → 2-pass streaming | 4h | ETS(s>1), AutoETS(s>1) |
+| **P4** | `stl_decompose` → streaming STL | 4h+ | Theta/OTM/ETS seasonal |
+
+Each primitive streaming unlock → flip YAML for affected models + bit-
+identical verification + retag.
+
+### Wave 2 remaining (v0.9.186+)
+
+| Version | Models | Approach |
+|---|---|---|
+| **v0.9.186** | SARIMA + VAR | Refactor state to O(params); honest YAML flip only after streaming primitives (v0.9.190+) |
+| **v0.9.187** | TemporalHierarchy + TransformedTarget | Composite; honest bounds |
+| **v0.9.188** | Ensemble (final) | Already passes df through; honest YAML |
+| **v0.9.189** | GBDTForecaster + GBDT_multiseries | Deferred training + lag matrix SpillDir |
+
+---
+
+## Next 3 sessions (v0.9.186-188 — Wave 2 continuation)
+
+### v0.9.186 — SARIMA + VAR refactor (0.5-1 session)
+State to O(params) (SARIMA: coefs + seasonal_cycle; VAR: B + k*p buffer).
+Honest YAML bounds (bounded_by_domain until streaming primitives land).
+Tests bit-identical + state_nbytes O(model).
+
+### v0.9.187 — TemporalHierarchy + TransformedTarget (1 session)
+Composite: pass-through df + per-inner state O(model). Honest bounds.
+
+### v0.9.188 — Ensemble + GBDTForecaster (1-1.5 sessions)
+Ensemble final pass-through; GBDTForecaster deferred training +
+lag matrix on SpillDir. Honest bounds.
+
+---
+
+## Historical: v0.9.175 — OOC batched work front (DEC-067)
 
 **Big picture:** ~40 cards are not OOC batched (`bounded_by_domain` or `draft`).
 User requirement (2026-11-10): OOC for **all** models/primitives/functions with
@@ -44,7 +118,7 @@ impossibility or absurd params).
 
 ---
 
-## Next 3 sessions (v0.9.176-178 — infrastructure wave)
+## Historical: Next 3 sessions (v0.9.176-178 — infrastructure wave)
 
 ### v0.9.176 — Infrastructure (1.5 sessions)
 MemoryGuard.get_window_size(), ApproximationInfo, ApproximationWarning, BudgetTier enum, resolve_params() 6-level auto-switch, ModelCard.bounded_by_window field, PrimitiveCard + DataFrameOpCard dataclasses, result.approximation field in TS bases. G12-G17 gate skeletons.

@@ -105,3 +105,90 @@ primitives:
     Leaf: caller passes full y (n). For OOC regression, use fit_linear
     (Reduce-based). This helper is for short-series (forecaster) fits
     where n is bounded by model context (typically <= 1e6).
+# ====================================================================
+# Leaf-layer v0.9.185 (from cadw/ts/ during Wave 2 refactor)
+# Streaming variants not yet implemented (backlog v0.9.190+); all are
+# honest leaf-layer with intrinsic_bound O(n). Models using them stay
+# bounded_by_domain until streaming variants exist.
+# ====================================================================
+
+- name: _extract_series
+  cadw_function: cadw.ts.models._extract_series
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 3.5 * batch * row_size + 256"
+  min_ram_formula: "1 * f64 + 3.5 * row_size + 256"
+  formula_evidence:
+    prealloc: "models.py:74 -- np.empty(n_total, dtype=np.float64)"
+    guard: "models.py:71 -- check_state(n_total*8, name='ts.extract_series')"
+    batch_transient: "models.py -- to_pylist() per batch (3.5x factor)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "np.empty(n) full-series alloc"}
+  streaming_variant: null
+  consumers: [NaiveForecaster, ThetaForecaster, OTMThetaForecaster, ETSForecaster, AutoETSForecaster, SARIMAForecaster, VAR, VECM, BVAR, TemporalHierarchy, TransformedTargetForecaster, EnsembleForecaster, GBDTForecaster]
+  notes: >-
+    Full-series target extraction. Leaf-layer: O(n) transient in caller.
+    Streaming variant `_iter_target_batches` requires algorithm support
+    (not yet wired). Backlog v0.9.190+.
+
+- name: _ses_fit_simple
+  cadw_function: cadw.ts.theta._ses_fit
+  module: cadw.ts.theta
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 256"
+  min_ram_formula: "1 * f64 + 256"
+  formula_evidence:
+    fitted_alloc: "theta.py:71 -- fitted = np.empty(n, dtype=np.float64)"
+    note: "returns (lvl, fitted, sse); fitted is n-sized"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "np.empty(n) transient"}
+  streaming_variant: null
+  consumers: [ThetaForecaster, _MultiplicativeWrapper]
+  notes: >-
+    Simple SES (no seasonal, no trend). Streaming variant possible for
+    s=1 (bit-identical, O(1) RAM); blocked by _initial_seasonal requiring
+    full y for seasonal models. Backlog v0.9.190+. AP22: not unified
+    with ets._ses_fit (different signatures: simple vs Holt-Winters).
+
+- name: _ses_fit_hw
+  cadw_function: cadw.ts.ets._ses_fit
+  module: cadw.ts.ets
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 2 * seasonal_period * f64 + 256"
+  min_ram_formula: "2 * f64 + 2 * f64 + 256"
+  formula_evidence:
+    fitted_alloc: "ets.py:57 -- fitted = np.empty(n); _initial_seasonal O(s*k)"
+    note: "returns (lvl, tr, season, sse, fitted); fitted n-sized"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "np.empty(n) transient"}
+  streaming_variant: null
+  consumers: [ETSForecaster, AutoETSForecaster]
+  notes: >-
+    Holt-Winters (damped + trend + seasonal). Streaming variant requires
+    2-pass (initial seasonal from first k=n//s periods; not bit-identical
+    from 1-pass). Backlog v0.9.190+. AP22: distinct from theta._ses_fit
+    (HW vs simple SES).
+
+- name: stl_decompose
+  cadw_function: cadw.ts._decomposition.stl_decompose
+  module: cadw.ts._decomposition
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "4 * n * f64 + 512"
+  min_ram_formula: "4 * 2 * seasonal_period * f64 + 512"
+  formula_evidence:
+    arrays: "_decomposition.py:155 -- trend + seasonal + remainder + work O(n)"
+    loess: "per-iter O(n) working set; n_iter=2 default"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "O(n) LOESS iterations"}
+  streaming_variant: null
+  consumers: [ThetaForecaster, OTMThetaForecaster, ETSForecaster]
+  notes: >-
+    STL (Cleveland et al. 1990). Streaming STL is hard (multiple LOESS
+    passes on full y with periodic re-estimation). Backlog v0.9.190+
+    (hard, 1-2 sessions). Seasonal models (Theta/OTM/ETS with s>1)
+    remain bounded_by_domain until then.
+

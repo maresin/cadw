@@ -4693,6 +4693,45 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.185] — 2026-11-10 (primitives-first correction, DEC-070)
+
+### v0.9.185 — honest YAML revert + leaf PrimitiveCards
+
+**Correction:** v0.9.182-184 flipped bounded_state:true +
+n_scalability:constant for 5 TS models, but fit-peak remained
+O(n) via leaf primitives (_extract_series, _ses_fit,
+stl_decompose). Refactors correct (state IS O(model),
+bit-identical); YAML metadata dishonest.
+
+- DEC-070 (permanent policy): primitives-first. Order:
+  1. PrimitiveCard + streaming variant for each leaf primitive
+  2. Wire streaming in fit
+  3. Only then flip YAML bounded_state:true + constant
+
+- 4 leaf PrimitiveCards registered: _extract_series,
+  _ses_fit_simple (theta), _ses_fit_hw (ets), stl_decompose.
+  Honest layer=leaf, intrinsic_bound {axis: n, bound: 1e6},
+  streaming_variant: null (backlog v0.9.190+).
+
+- 5 model YAML reverted:
+  Naive: 2*n*f64 + period*f64 + 256
+  Theta: 4*n*f64 + seasonal_period*f64 + 256
+  OTMTheta: 34*n*f64 + seasonal_period*f64 + 256
+  ETS: 3*n*f64 + seasonal_period*f64 + 256
+  AutoETS: 3*n*f64 + seasonal_period*f64 + 256
+  All: bs=false, n_scalability=linear, bounded_by_domain
+  restored (axis: n, bound: 1e6), migration_target=v0.9.190+.
+
+- state_class O(model) kept — persistent state IS O(model) after
+  v0.9.182-184 refactor (state_nbytes 264-416 B at n=1e5).
+  Real improvement retained; only n_scalability was wrong.
+
+- ROADMAP: streaming primitives backlog v0.9.190+ (P1-P4:
+  _extract_series, _ses_fit(s=1), _ses_fit(HW), stl_decompose).
+  Wave 2 continuation: honest bounds until streaming exists.
+
+Full OOC unlock at v0.9.190+ after streaming primitives land.
+
 ## [0.9.184] — 2026-11-10 (Wave 2: ETS + AutoETS OOC)
 
 ### v0.9.184 — ETS/AutoETS OOC (drop y_ + fitted_)
