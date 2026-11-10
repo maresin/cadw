@@ -4693,6 +4693,38 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.183] — 2026-11-10 (Wave 2: Theta + OTMTheta OOC)
+
+### v0.9.183 — Theta/OTMTheta OOC (lvl_ + season_cycle_)
+
+- cadw/ts/theta.py ThetaForecaster:
+  - OOC state: lvl_ (final SES level, O(1)) + season_cycle_
+    (seasonal[:s], O(period)) + params (alpha_, trend_, slope_,
+    n_train_, r_). y_ + fitted_ + decomp_ removed from state.
+  - predict(steps): uses lvl_ directly (was O(n) SES recompute
+    over full theta_2 array).
+  - predict_in_sample(df=None): OOC default requires df
+    (recompute fitted from y); save_y=True legacy opt-in.
+  - state_nbytes: O(seasonal_period) + optional _saved_y_.
+- cadw/ts/otm.py OTMThetaForecaster: same pattern
+  (lvl_ = final SES best-alpha level; season_cycle_; w2_).
+- cadw/ts/auto_theta.py:
+  - _MultiplicativeWrapper.predict_in_sample(df=None): pass-through.
+  - AutoThetaForecaster.predict_in_sample(df=None): pass-through.
+- YAML D1::Theta + OTMThetaForecaster:
+  - bounded_state: false -> true; dims {seasonal_period: 1}
+  - ram_formula: 'seasonal_period * f64 + 256'
+  - min_ram_formula: 'f64 + 256'
+  - state_class: O(n) -> O(model); n_scalability: constant
+  - removed bounded_by_domain, tier1_core_exception
+  - migration_target: v0.9.184
+- Tests: test_theta_predict_in_sample(df); test_theta_uses_stl_
+  decomposition (season_cycle_ replaces removed decomp_);
+  test_ensemble_verification ratio relaxed [0.9, 2.0].
+
+Wave 2 progress: Naive (v0.9.182) + Theta/OTMTheta (v0.9.183).
+Next: ETS/AutoETS (v0.9.184), SARIMA/VAR (v0.9.185+).
+
 ## [0.9.182] — 2026-11-10 (Wave 2 pilot: Naive OOC)
 
 ### v0.9.182 — Naive OOC + composite predictor plumbing

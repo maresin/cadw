@@ -86,18 +86,29 @@ class OTMThetaForecaster(ForecasterBase):
                 "OTMThetaForecaster: seasonal_period must be >= 1")
         self.seasonal_period = int(seasonal_period)
         self.n_iter = int(n_iter)
-        self.y_ = None
-        self.season_ = None
+        # v0.9.183 OOC state
+        self.last_k_ = None
+        self.lvl_ = None
+        self.n_train_ = None
+        self.r_ = None
+        self.season_cycle_ = None
         self.w2_ = None
         self.alpha_ = None
         self.trend_ = None
         self.slope_ = None
         self.sigma2_ = None
-        self.fitted_ = None
-        self.decomp_ = None
         self.selection_mse_ = None
+        self.target_col_ = None
+        self.time_col_ = None
+        self._saved_y_ = None
 
-    def fit(self, df, target_col, *, time_col=None, group_col=None):
+    def fit(self, df, target_col, *, time_col=None, group_col=None,
+            save_y=False):
+        """Fit OTM Theta forecast.
+
+        v0.9.183 OOC: save_y=False (default) keeps only O(seasonal_period)
+        state (last_k_, lvl_, season_cycle_, params). save_y=True legacy.
+        """
         _check_df(df, target_col, time_col, group_col)
         y = _extract_series(df, target_col, time_col=time_col)
         if y.size < 4:
@@ -112,35 +123,36 @@ class OTMThetaForecaster(ForecasterBase):
                 f"OTMThetaForecaster: need at least 2*seasonal_period="
                 f"{2*s} obs for seasonal mode")
 
-        # v0.9.129: guard before O(n) transients (G2, AP4).
-        # Peak = 31*n*8 + 256 (grid search: 19 SES fitted arrays +
-        # temporaries). bounded_by_domain: n<=1e6 -> peak<=248 MB.
         _mg = getattr(df, "_memory_guard", None)
         if _mg is not None:
             _mg.check_state(31 * y.size * 8 + 256, name="otm.fit")
+
+        self.target_col_ = target_col
+        self.time_col_ = time_col
+        n = int(y.size)
 
         # 1. Decompose
         if s > 1:
             decomp = stl_decompose(y, period=s, n_iter=self.n_iter)
             seasonal = decomp.seasonal
             y_ds = y - seasonal
-            self.decomp_ = decomp
+            season_cycle = seasonal[:s].copy()
         else:
             seasonal = None
             y_ds = y.copy()
+            season_cycle = None
 
         # 2. Theta lines
         a, b = _ols_fit(y_ds)
-        n = y.size
         x = np.arange(n, dtype=np.float64)
         theta_0 = a + b * x
         theta_2 = 2.0 * y_ds - theta_0
 
-        # 3. Precompute SES fits per alpha (O(n) each)
+        # 3. Precompute SES fits per alpha
         ses_fits = {alpha: _ses(theta_2, alpha)
                     for alpha in self.ALPHA_GRID}
 
-        # 4. Grid search (w2, alpha) minimizing in-sample MSE on y_ds
+        # 4. Grid search (w2, alpha)
         best_mse = float("inf")
         best_w2 = 0.5
         best_alpha = 0.5
@@ -155,7 +167,7 @@ class OTMThetaForecaster(ForecasterBase):
                     best_alpha = alpha
 
         # 5. Final in-sample
-        _, theta_2_fit_best = ses_fits[best_alpha]
+        lvl_best, theta_2_fit_best = ses_fits[best_alpha]
         fit_ds = (1.0 - best_w2) * theta_0 + best_w2 * theta_2_fit_best
         if s > 1 and seasonal is not None:
             fitted = fit_ds + seasonal
@@ -164,41 +176,86 @@ class OTMThetaForecaster(ForecasterBase):
         resid = y - fitted
         self.sigma2_ = float(np.mean(resid * resid))
 
-        self.y_ = y
-        self.season_ = seasonal
+        # v0.9.183: store O(model) state
+        k = 1 if s <= 1 else s
+        self.last_k_ = y[-k:].copy()
+        self.lvl_ = float(lvl_best)
+        self.n_train_ = n
+        self.r_ = n % s if s > 1 else 0
+        self.season_cycle_ = season_cycle
         self.w2_ = best_w2
         self.alpha_ = best_alpha
         self.trend_ = a
         self.slope_ = b
-        self.fitted_ = fitted
         self.selection_mse_ = best_mse
+        self._saved_y_ = y if save_y else None
         self._is_fitted = True
         return self
 
     def predict(self, steps):
-        y = self.y_
-        n = y.size
-        if self.seasonal_period > 1 and self.season_ is not None:
-            y_ds = y - self.season_
-        else:
-            y_ds = y
+        """v0.9.183 OOC: uses stored lvl_ (O(1)), not full y_ (was O(n))."""
+        n = self.n_train_
         a, b = self.trend_, self.slope_
-        x = np.arange(n, dtype=np.float64)
-        theta_0 = a + b * x
-        theta_2 = 2.0 * y_ds - theta_0
-        lvl, _ = _ses(theta_2, self.alpha_)
         h = np.arange(1, steps + 1, dtype=np.float64)
         theta_0_f = a + b * (n - 1 + h)
-        theta_2_f = np.full(steps, lvl, dtype=np.float64)
+        theta_2_f = np.full(steps, self.lvl_, dtype=np.float64)
         combined = (1.0 - self.w2_) * theta_0_f + self.w2_ * theta_2_f
-        if self.seasonal_period > 1 and self.season_ is not None:
-            s = self.seasonal_period
-            idx = (n + np.arange(steps)) % s
-            return combined + self.season_[idx]
+        s = self.seasonal_period
+        if s > 1 and self.season_cycle_ is not None:
+            idx = (self.r_ + np.arange(steps)) % s
+            return combined + self.season_cycle_[idx]
         return combined
 
-    def predict_in_sample(self):
-        return self.fitted_.copy()
+    def predict_in_sample(self, df=None):
+        """v0.9.183: OOC default requires df (or save_y=True legacy)."""
+        if not self._is_fitted:
+            raise RuntimeError(
+                f"{type(self).__name__}.predict_in_sample called before fit"
+            )
+        if df is not None:
+            y = _extract_series(df, self.target_col_,
+                                 time_col=self.time_col_)
+            return self._recompute_in_sample(y)
+        if self._saved_y_ is not None:
+            return self._recompute_in_sample(self._saved_y_)
+        raise TypeError(
+            f"{type(self).__name__}.predict_in_sample: df is required "
+            f"(OOC default since v0.9.183). Use fit(..., save_y=True) for "
+            f"legacy no-df calls (adds O(n) persistent state)."
+        )
+
+    def _recompute_in_sample(self, y):
+        """Recompute fitted values from y (bit-identical for training y)."""
+        s = self.seasonal_period
+        if s > 1:
+            decomp = stl_decompose(y, period=s, n_iter=self.n_iter)
+            seasonal = decomp.seasonal
+            y_ds = y - seasonal
+        else:
+            seasonal = None
+            y_ds = y.copy()
+        a, b = _ols_fit(y_ds)
+        x = np.arange(y.size, dtype=np.float64)
+        theta_0 = a + b * x
+        theta_2 = 2.0 * y_ds - theta_0
+        ses_fits = {alpha: _ses(theta_2, alpha) for alpha in self.ALPHA_GRID}
+        best_w2 = 0.5
+        best_alpha = 0.5
+        best_mse = float("inf")
+        for w2 in self.W2_GRID:
+            for alpha in self.ALPHA_GRID:
+                _, theta_2_fit = ses_fits[alpha]
+                fit_ds = (1.0 - w2) * theta_0 + w2 * theta_2_fit
+                mse = float(np.mean((y_ds - fit_ds) ** 2))
+                if mse < best_mse:
+                    best_mse = mse
+                    best_w2 = w2
+                    best_alpha = alpha
+        _, theta_2_fit_best = ses_fits[best_alpha]
+        fit_ds = (1.0 - best_w2) * theta_0 + best_w2 * theta_2_fit_best
+        if s > 1 and seasonal is not None:
+            return fit_ds + seasonal
+        return fit_ds
 
     def prediction_interval(self, steps, level=0.95):
         z = math.sqrt(2.0) * _erfinv(2.0 * (0.5 + level / 2.0) - 1.0)
@@ -209,7 +266,14 @@ class OTMThetaForecaster(ForecasterBase):
         return f - band, f + band
 
     def state_nbytes(self):
-        if self.y_ is None:
+        """v0.9.183 OOC: O(seasonal_period) + optional _saved_y_."""
+        if not self._is_fitted:
             return 0
-        return int(self.y_.nbytes + self.fitted_.nbytes + 256)
+        sz = 256
+        if self.season_cycle_ is not None:
+            sz += self.season_cycle_.nbytes
+        sz += 8 * 8  # alpha_, sigma2_, trend_, slope_, lvl_, w2_, mse_, n_, r_
+        if self._saved_y_ is not None:
+            sz += self._saved_y_.nbytes
+        return int(sz)
 

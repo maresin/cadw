@@ -36,11 +36,16 @@ def test_state_positive():
 
 
 def test_state_grows_linearly():
-    """n=500 -> n=2000 (4x) -> state ratio in [3.0, 5.5]."""
+    """v0.9.183: members OOC (Naive O(1)) -> total state constant.
+
+    Historically ratio 3.0-5.5 (expected ~4x linear in n). After Wave 2
+    Naive/Theta OOC refactor, member state is O(model) not O(n), so
+    ensemble total is constant across n. Assert bounded, not linear.
+    """
     m1 = _build().fit(_make_df(500, seed=0), "y")
     m2 = _build().fit(_make_df(2000, seed=0), "y")
     ratio = m2.state_nbytes() / m1.state_nbytes()
-    assert 3.0 <= ratio <= 5.5, f"ratio={ratio:.2f} (expected ~4)"
+    assert 0.9 <= ratio <= 2.0, f"ratio={ratio:.2f} (expected ~1.0, OOC)"
 
 
 def test_guard_refuses_at_domain_bound():

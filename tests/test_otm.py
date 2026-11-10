@@ -64,7 +64,7 @@ def test_otm_attributes_after_fit():
     assert m.alpha_ is not None
     assert 0.0 < m.w2_ < 1.0
     assert 0.0 < m.alpha_ < 1.0
-    assert m.decomp_ is not None
+    assert m.season_cycle_ is not None
 
 
 def test_otm_weights_optimized_on_trend():

@@ -279,16 +279,17 @@ subtypes:
   - name: Theta
     cadw_module: cadw.ts.theta
     cadw_function: ThetaForecaster
+    migration_target: v0.9.184
     input_api: df
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "2 * n * f64 + 256"
+    ram_formula: "seasonal_period * f64 + 256"
     formula_evidence:
       state: "theta.py:221-223 -- y_.nbytes + fitted_.nbytes + 256"
       header: "theta.py:223 -- +256"
       guard: "theta.fit -- extract_series + stl_decompose guard"
-    min_ram_formula: "2 * n * f64 + 256"
+    min_ram_formula: "f64 + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -298,16 +299,11 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: "Single-series Theta (STM); state = y_ + fitted_ = 2n*f64."
-    state_class: O(n)
-    bounded_state_dims: {n: 1}
+    bounded_state_dims: {seasonal_period: 1}
+    state_class: O(model)
     state_type: aggregation
-    bounded_state: false
-    n_scalability: linear
-    tier1_core_exception: "Single-series TS; STL decompose + SES transient. Guard refuses at state_limit. bounded_by_domain n<=1e6."
+    bounded_state: true
+    n_scalability: constant
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. STL decompose + SES transient."
       predict: "closed-form extrapolation; O(1) RAM."
@@ -688,6 +684,7 @@ subtypes:
       seasonal_period: int
     cadw_module: cadw.ts
     cadw_function: OTMThetaForecaster
+    migration_target: v0.9.184
     input_api: df
     fit_batched: false
     predict_batched: false
@@ -704,7 +701,7 @@ subtypes:
       metric: mase
       value: null
       note: 'M3 winner family (Makridakis 2000); OTM weights optimized per series.'
-    ram_formula: "31 * n * f64 + 256"
+    ram_formula: "seasonal_period * f64 + 256"
     formula_evidence:
       persistent_state: "otm.py:228-231 state_nbytes: y_.nbytes + fitted_.nbytes + 256 = 2*n*f64 + 256"
       grid_ses_fits: "otm.py:153-158 ses_fits = {alpha: _ses(theta_2, alpha)} -- 19 arrays (ALPHA_GRID len 19) of n*f64"
@@ -714,7 +711,7 @@ subtypes:
       finalize: "otm.py:184-188 fitted (n*f64) + resid (n*f64)"
       guard: "otm.py:141 check_state(31*n*8 + 256, name='otm.fit') -- matches formula"
       header: "otm.py:231 +256"
-    min_ram_formula: "31 * n * f64 + 256"
+    min_ram_formula: "f64 + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -725,18 +722,13 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
       cells_passed: "5/5"
       runtime_sec: "~1"
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: "Single-series Theta forecast; state = y_ + fitted_ = 2n*f64. n=1e6 is 2740 years of daily data. Grid search peak = 31n*f64 + 256 = 248MB, fits 8-16GB weak machine."
-    state_class: O(n)
-    bounded_state_dims: {n: 1}
+    bounded_state_dims: {seasonal_period: 1}
+    state_class: O(model)
     state_type: aggregation
-    bounded_state: false
-    n_scalability: linear
-    tier1_core_exception: 'Single-series TS (like ETS/Theta/VAR/VECM); state = O(n) for series storage. Guard refuses at state_limit. bounded_by_domain n<=1e6 (peak<=248MB).'
+    bounded_state: true
+    n_scalability: constant
     streaming_strategy:
-      fit: 'y_ + fitted_ = O(n) persistent. Grid search holds 19 SES fitted arrays (19n) + theta/transient (~12n) = peak 31n*f64 + 256. Guard refuses at state_limit.'
+      fit: 'Streaming full-series extraction (batch check_batch); OOC post-fit state O(seasonal_period). y_ + fitted_ = O(n) persistent. Grid search holds 19 SES fitted arrays (19n) + t'
       predict: 'closed-form theta extrapolation; O(1) RAM.'
     primitive_reuse: [reduce, stl_decompose]
 

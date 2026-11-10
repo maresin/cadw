@@ -108,8 +108,19 @@ class _MultiplicativeWrapper(ForecasterBase):
         log_f = self._inner.predict(steps)
         return np.exp(log_f)
 
-    def predict_in_sample(self):
-        log_f = self._inner.predict_in_sample()
+    def predict_in_sample(self, df=None):
+        import inspect
+        accepts_df = False
+        if df is not None:
+            try:
+                sig = inspect.signature(self._inner.predict_in_sample)
+                accepts_df = "df" in sig.parameters
+            except (ValueError, TypeError):
+                accepts_df = False
+        if accepts_df:
+            log_f = self._inner.predict_in_sample(df)
+        else:
+            log_f = self._inner.predict_in_sample()
         return np.exp(log_f)
 
     def prediction_interval(self, steps, level=0.95):
@@ -272,7 +283,17 @@ class AutoThetaForecaster(ForecasterBase):
     def predict(self, steps):
         return self.best_model_.predict(steps)
 
-    def predict_in_sample(self):
+    def predict_in_sample(self, df=None):
+        import inspect
+        accepts_df = False
+        if df is not None:
+            try:
+                sig = inspect.signature(self.best_model_.predict_in_sample)
+                accepts_df = "df" in sig.parameters
+            except (ValueError, TypeError):
+                accepts_df = False
+        if accepts_df:
+            return self.best_model_.predict_in_sample(df)
         return self.best_model_.predict_in_sample()
 
     def prediction_interval(self, steps, level=0.95):

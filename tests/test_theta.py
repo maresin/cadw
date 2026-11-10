@@ -126,27 +126,41 @@ def test_theta_predict_in_sample():
     full = _seasonal(seed=6)
     y, _ = full[:-12], full[-12:]
     m = ThetaForecaster(seasonal_period=12).fit(_df(y), "y")
-    fit = m.predict_in_sample()
+    fit = m.predict_in_sample(_df(y))
     assert fit.shape == y.shape
 
 
 # ── STL integration: improvement over classical decomposition ───
 
 def test_theta_uses_stl_decomposition():
-    """After fit on seasonal data, decomp_ attribute is populated."""
+    """v0.9.183 OOC: decomp_ replaced by season_cycle_ (O(period) state).
+
+    Full decomp_ (trend + seasonal, O(n)) removed from persistent state;
+    only season_cycle_ = seasonal[:s] kept (needed for predict step idx).
+    STL is still called during fit (and predict_in_sample(df)).
+    """
     full = _seasonal(seed=7)
     y, _ = full[:-12], full[-12:]
-    m = ThetaForecaster(seasonal_period=12).fit(_df(y), "y")
-    assert m.decomp_ is not None
-    assert m.decomp_.period == 12
-    assert m.decomp_.trend.shape == y.shape
+    df = _df(y)
+    m = ThetaForecaster(seasonal_period=12).fit(df, "y")
+    # season_cycle_ is O(period) state, not full decomp_
+    assert m.season_cycle_ is not None
+    assert m.season_cycle_.shape == (12,)
+    # Legacy decomp_ absent from persistent state
+    assert not hasattr(m, "decomp_")
+    # predict works via lvl_ + season_cycle_
+    fc = m.predict(12)
+    assert fc.shape == (12,)
+    # predict_in_sample(df) recomputes from df (OOC)
+    insample = m.predict_in_sample(df)
+    assert insample.shape == y.shape
 
 
 def test_theta_no_stl_when_no_seasonal():
     """seasonal_period=1 -> no STL; decomp_ None."""
     y = _flat(n=100, seed=8)
     m = ThetaForecaster(seasonal_period=1).fit(_df(y), "y")
-    assert m.decomp_ is None
+    assert m.season_cycle_ is None
 
 
 def test_theta_stl_improves_trend_leak():
