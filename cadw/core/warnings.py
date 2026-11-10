@@ -47,3 +47,32 @@ class SlowOperationRequiresConfirm(RuntimeError):
     Used with `strict_slow=True` (CI/automation) — no warnings to ignore.
     """
     pass
+
+class ApproximationWarning(CadwWarning):
+    """Auto-adjustment happened (v0.9.176, DEC-067/068).
+
+    Fires when: window auto-reduced, solver switched, output upgraded to
+    spill, subsample applied, streaming switched, etc. Always accompanied
+    by ``result.approximation: list[ApproximationInfo]``.
+
+    Suppression: ``warnings.filterwarnings("ignore",
+    category=ApproximationWarning)`` or ``suppress_approximation_warnings=True``
+    on fit call (result.approximation still populated).
+
+    See AI_CONSTITUTION §4.0 R6, AP24.
+    """
+
+
+class ApplySafetyWarning(CadwWarning):
+    """df.apply(func) detected dangerous pattern (v0.9.176, DEC-069).
+
+    Detected via AST scan of ``func.__code__``: closure mutation
+    (``.append``/``.add``/``.extend`` on captured names), global mutation,
+    ``np.concatenate``/``vstack``/``hstack`` on closure args.
+
+    Not raised by default — user must use ``apply_checked`` for runtime
+    detection, or ``apply_safe`` for MG-aware func contract.
+
+    See DEC-069, DF_OPERATIONS_SPEC.
+    """
+

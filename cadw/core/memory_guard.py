@@ -376,7 +376,36 @@ def measure_peak_traced(
 
 
 class MemoryLimitExceeded(RuntimeError):
-    """Превышен лимит памяти."""
+    """Превышен лимит памяти (v0.9.176: enriched with actionable fields).
+
+    Backward-compatible: ``MemoryLimitExceeded("msg")`` still works.
+    Enriched constructor accepts optional fields for R2-compliant refuse
+    (DEC-067: model, params, min_required_bytes, available_bytes, options).
+
+    Attributes (all optional, default None/[]):
+        model             — fit function name (e.g., "fit_gbdt_classifier")
+        params            — user-supplied params dict (the ones that didn't fit)
+        min_required_bytes — minimum RAM for best variant (analytical)
+        available_bytes   — current MemoryGuard.available_bytes()
+        options           — actionable suggestions list[str]
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model: str | None = None,
+        params: dict | None = None,
+        min_required_bytes: int | None = None,
+        available_bytes: int | None = None,
+        options: list[str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.model = model
+        self.params = params
+        self.min_required_bytes = min_required_bytes
+        self.available_bytes = available_bytes
+        self.options = list(options) if options else []
 
 
 class MemoryGuard:
@@ -661,6 +690,47 @@ class MemoryGuard:
         logger.debug("get_batch_rows: usable=%d row=%d ef=%.2f -> %d rows",
                      usable, row_bytes, ef, rows)
         return rows
+
+    def get_window_size(
+        self,
+        *,
+        unit_bytes: int,
+        name: str = "window",
+        target_fraction: float = 0.25,
+    ) -> int:
+        """Largest W s.t. W * unit_bytes <= state_limit * target_fraction.
+
+        v0.9.176 (DEC-067/068): bound on algorithm **state** (window size for
+        MLE-forecasters, max_window for pelt, etc.).
+
+        Different from ``get_batch_rows`` (I/O granularity, ~1-10k rows).
+        This returns algorithmic state capacity (~10^5-10^7 observations
+        depending on budget).
+
+        Parameters
+        ----------
+        unit_bytes : int
+            Bytes per unit of window (e.g., 8 for f64 series).
+        name : str
+            Diagnostic label.
+        target_fraction : float
+            Fraction of state_limit to allocate for window. Default 0.25
+            (leaves 0.75 for other state + batch + temp arrays).
+
+        Returns
+        -------
+        int
+            Window size (>= 2). Returns 2 if state_limit is trivially small
+            (guard refuses with min_history check elsewhere).
+        """
+        if unit_bytes < 1:
+            raise ValueError(f"unit_bytes must be >= 1; got {unit_bytes}")
+        if not (0 < target_fraction < 1):
+            raise ValueError(
+                f"target_fraction must be in (0, 1); got {target_fraction}"
+            )
+        target = int(self._state_limit() * target_fraction)
+        return max(2, target // unit_bytes)
 
     def min_batch_rows(self) -> int:
         return self._min_batch_rows

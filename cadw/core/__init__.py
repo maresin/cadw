@@ -24,6 +24,14 @@ from .planner import (
     propagate_chars,
 )
 
+from .approximation import ApproximationInfo, BudgetTier
+from .params_resolver import resolve_params
+from .warnings import (
+    ApplySafetyWarning,
+    ApproximationWarning,
+    CadwWarning,
+)
+
 __all__ = [
     "MemoryGuard",
     "MemoryLimitExceeded",
@@ -52,4 +60,9 @@ __all__ = [
     "StepPlan",
     "plan_pipeline",
     "propagate_chars",
+    "ApproximationInfo",
+    "BudgetTier",
+    "ApproximationWarning",
+    "ApplySafetyWarning",
+    "resolve_params",
 ]
