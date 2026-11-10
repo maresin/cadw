@@ -512,7 +512,10 @@ def test_R2_verified_requires_ram_formula():
         # and guard.row_size_bytes). Not constants (vary per call),
         # not axes in bounded_state_dims (describe peak, not state).
         # Formula system gained these 2 implicit names in v0.9.105.
-        allowed = constants | set(dims.keys()) | {"batch", "row_size"}
+        # v0.9.189 (DEC-072): W_eff auto-injected for bounded_by_window
+        # models (window size derived from guard at runtime, not a model
+        # hyperparam).
+        allowed = constants | set(dims.keys()) | {"batch", "row_size", "W_eff"}
         extra = names - allowed
         if extra:
             bad.append(f"{label}: ram_formula names {sorted(extra)} "
