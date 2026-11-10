@@ -593,4 +593,24 @@ primitives:
     v0.9.188 (DEC-070 P2): streaming simple SES (no fitted array).
     Bit-identical to theta._ses_fit for (lvl, sse). Streaming variant
     of _ses_fit_simple (leaf O(n)).
+- name: _collect_last_w
+  cadw_function: cadw.ts.models._collect_last_w
+  module: cadw.ts.models
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "W_eff * f64 + 3.5 * batch * row_size + 256"
+  min_ram_formula: "2 * f64 + 3.5 * row_size + 256"
+  formula_evidence:
+    ring: "models.py -- buf = np.zeros(W); ring overwrite"
+    loss: "returns (y_used, n_total, lost_range); n_total > W -> lost=(0,n-W)"
+    batch: "driven by _iter_target_batches (batch_size from guard)"
+  primitive_reuse: [_iter_target_batches]
+  consumers: [ETSForecaster, AutoETSForecaster, ThetaForecaster(s>1), OTMThetaForecaster(s>1)]
+  notes: >-
+    v0.9.189 (DEC-072 P3): window-truncation building block. Bit-identical
+    to _extract_series when n <= W; truncation to last W otherwise
+    (disclosed via lost_range). Enables bounded_by_window YAML flip on
+    models using HW/STL (whose legacy _initial_seasonal / LOESS requires
+    full-y context; window is semantically valid per pelt precedent).
 

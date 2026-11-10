@@ -195,6 +195,58 @@ def _iter_target_batches(
         yield arr
 
 
+def _collect_last_w(
+    df, target_col, W, *, time_col=None, group_col=None,
+    group_value=None, batch_size=None,
+):
+    """v0.9.189 (DEC-072): streaming buffer of last W observations.
+
+    Ring buffer, O(W) RAM. Returns (y_used, n_total, lost_range):
+    - n_total <= W: y_used = full y (bit-identical to _extract_series),
+      lost_range = None.
+    - n_total > W: y_used = last W observations (truncation);
+      lost_range = (0, n_total - W).
+
+    Callers: ETS/AutoETS (HW + grid search on last W),
+    Theta/OTM s>1 (stl_decompose on last W).
+
+    YAML flip to bounded_state:true + n_scalability:bounded_by_window
+    uses this primitive; W_eff from guard.get_window_size() (typically
+    target_fraction=0.25, unit_bytes = state_bytes + batch transient).
+    """
+    W = int(W)
+    if W < 2:
+        raise ValueError(f"_collect_last_w: W must be >= 2, got {W}")
+
+    buf = np.zeros(W, dtype=np.float64)
+    filled = 0
+    head = 0
+    n_total = 0
+
+    for arr in _iter_target_batches(
+            df, target_col, time_col=time_col,
+            group_col=group_col, group_value=group_value,
+            batch_size=batch_size):
+        if arr.size == 0:
+            continue
+        # Fast path: if batch fully fills remaining buffer and no overflow
+        for v in arr:
+            buf[head] = float(v)
+            head = (head + 1) % W
+            if filled < W:
+                filled += 1
+            n_total += 1
+
+    if filled < W:
+        y_used = buf[:filled].copy()
+    else:
+        # Linearize ring: [head:W] + [0:head]
+        y_used = np.concatenate([buf[head:], buf[:head]])
+
+    lost = (0, n_total - filled) if n_total > filled else None
+    return y_used, n_total, lost
+
+
 class ForecasterBase(ApproximationMixin):
     """Abstract forecaster contract (v0.9.24).
 
