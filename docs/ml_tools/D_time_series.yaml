@@ -477,13 +477,17 @@ subtypes:
     depends_on: []
     ram_formula: '(p + q + d + s + 4) * f64 + 3.5 * batch * row_size + 256'
     formula_evidence:
-      state: "models.py:1089-1120 -- _precompute_predict_state:
-        _last_p_y_centered_ (p*f64) + _last_q_e_ (q*f64) +
-        _y_levels_ (d*f64) + _seas_last_ (s*f64). Releases _yd and
-        (unless save_y) _y_centered_recent_ -> state O(model)."
+      state_p: "models.py:1096-1099 -- _last_p_y_centered_.nbytes (p*f64)"
+      state_q: "models.py:1102-1109 -- _last_q_e_.nbytes (q*f64)"
+      state_d: "models.py:1112-1119 -- _y_levels_.nbytes (d*f64)"
+      state_s: "models.py:1121-1129 -- _seas_last_.nbytes (s*f64)"
+      coeffs: "4*f64 -- self._ar, self._ma, self._y_mean_, self._sigma2"
       header: "models.py:1188 -- +256 in state_nbytes()"
-      guard: "models.py -- _extract_series + _collect_last_w use
-        _check(df._memory_guard, ...); _fit_manual window path"
+      batch_term: "3.5 * batch * row_size -- _extract_series +
+        _collect_last_w use _check(df._memory_guard, ...)"
+      released_after_fit: "_precompute_predict_state releases _yd
+        (n*f64) and (unless save_y) the full-y buffer; O(n) state is
+        not persistent after fit."
     min_ram_formula: '4 * f64 + 3.5 * row_size + 256'
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
