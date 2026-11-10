@@ -69,6 +69,9 @@ subtypes:
       batch_term: "logistic.py:update -- X + X_aug + T1(X_aug*w); a=3.05 (iter-3 C)"
       state_term: "logistic.py:update -- hess + hess_new + temp; b=3.97 (iter-3 C)"
       guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
+    min_ram_formula: "2 * 1 * row_size + 4 * d * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -183,6 +186,9 @@ subtypes:
       batch_term: "naive_bayes.py:update -- O3 fix keeps Xb bool; a=2.0 (iter-5)"
       state_term: "state 8+8d per class; finalize 2*C*d*f64 (n_c, count_ones)"
       guard: "naive_bayes.py:_BernoulliStatsOp.batch_memory_factor = 3.0 (post-O3)"
+    min_ram_formula: "2 * 1 * row_size + 2 * C * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
@@ -490,6 +496,9 @@ subtypes:
       batch_term: "naive_bayes.py:update -- _stack_numeric + X[valid]; a=2.0 (iter-3 A2)"
       state_term: "state dict: 8+16d per class (loop); finalize allocates n_c/mean/var (3*C*d*f64) -- iter-4"
       guard: "naive_bayes.py:_GaussianStatsOp.batch_memory_factor = 3.0"
+    min_ram_formula: "2 * 1 * row_size + 3 * C * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
@@ -576,6 +585,9 @@ subtypes:
       batch_term: "linear.py:245-246 -- X from _stack_numeric; X[mask] copy; a=1.92 (iter-1)"
       state_term: "linear.py:88 -- xtx + X.T@X creates 2*d^2 (old + new); b=1.0"
       guard: "linear.py:XTXOp.batch_memory_factor = 3.0 (2*batch + allocator)"
+    min_ram_formula: "2 * 1 * row_size + 2 * d * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true

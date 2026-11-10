@@ -42,6 +42,9 @@ subtypes:
           state_counts: "kmeans.py:61 -- np.zeros(k) counts; k*f64"
           state_inertia: "kmeans.py:62 -- inertia float; f64"
           header: "kmeans.py -- KMeansModel metadata; 256"
+        min_ram_formula: "2 * k * 1 * row_size + k * d * f64 + k * f64 + f64 + 256"
+        min_ram_evidence:
+          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
         measurement:
           status: "pending (v0.9.124)"
           note: "Formula from code (AP23); measurement plan: component-wise (DEC-033)."
