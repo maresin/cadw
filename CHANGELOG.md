@@ -4693,6 +4693,29 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.192] — 2026-11-10 (DEC-074: auto-mode honesty)
+
+### v0.9.192 — honest correction of ETS/AutoETS v0.9.189 flip
+
+v0.9.189-c2/c3 claimed bounded_by_window for ETS + AutoETS,
+but auto mode (params='auto', merged v0.9.190) runs
+_extract_series + AICc enumeration over full y — O(n) transient.
+Same dishonesty pattern as v0.9.182-184. G18 didn't catch
+(checks primitive cards, not _fit_auto self-body).
+
+- schema.py: bounded_by_window.applies_to field. 'all'/null
+  (default) = full-scope; 'params=<value>' = partial scope.
+- ETS + AutoETS YAML: n_scalability: linear (worst-case auto),
+  ram_formula = n*f64 + ... (auto path), bounded_by_window
+  kept with applies_to='params=manual', fit_transient_note.
+- R2: n allowed iff n_scalability linear/quadratic.
+- G20 gate: partial applies_to -> n_scalability must be linear.
+
+Theta/OTM (v0.9.191) unchanged — those ARE honest (no
+params='auto' mode yet; only manual fit uses _collect_last_w).
+Merge (v0.9.193) will inherit auto-mode, forcing honest YAML
+then — G20 will enforce.
+
 ## [0.9.191] — 2026-11-10 (DEC-072 P4: Theta + OTM window)
 
 ### v0.9.191 — Theta/OTM(s>1) bounded_by_window
