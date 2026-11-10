@@ -162,6 +162,14 @@ class ModelCard:
     # text field. {axis: str, bound: int, reason: str}. When present,
     # tier1_core + bounded_state:false is accepted.
     bounded_by_domain: dict | None = None
+    # v0.9.176 (DEC-067/068): window-bounded algorithms (pelt, ETS, Theta,
+    # SARIMA, VAR, ARIMA, GBDTForecaster). Orthogonal to bounded_state.
+    # Shape: {axis: "n", window_param: "max_window"|"window",
+    #         auto_from_guard: bool, truncation_loss: str}.
+    # Semantics: fit-transient is O(W), W = MemoryGuard.get_window_size().
+    # After TS refactor (v0.9.182-186): bounded_state:true + bounded_by_window.
+    # Before refactor: bounded_by_domain (deprecated per DEC-067).
+    bounded_by_window: dict | None = None
     transient_factor: float = 1.0
     # tier1_core + bounded_state=false exception (METHODOLOGY §7, §10)
     tier1_core_exception: str | None = None
@@ -350,6 +358,7 @@ def _parse_model(m: dict) -> ModelCard:
         depends_on_status=m.get("depends_on_status"),
         bounded_state_dims=m.get("bounded_state_dims"),
         bounded_by_domain=m.get("bounded_by_domain"),
+        bounded_by_window=m.get("bounded_by_window"),
         transient_factor=(
             float(m["transient_factor"])
             if m.get("transient_factor") is not None else 1.0
@@ -574,6 +583,26 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
                 err(f"{m_label}: bounded_by_domain.bound must be positive int")
             if not isinstance(bdd.get("reason"), str) or not bdd.get("reason"):
                 err(f"{m_label}: bounded_by_domain.reason must be non-empty str")
+    if m.bounded_by_window is not None:
+        if not isinstance(m.bounded_by_window, dict):
+            err(f"{m_label}: bounded_by_window must be dict, got "
+                f"{type(m.bounded_by_window).__name__}")
+        else:
+            bbw = m.bounded_by_window
+            required_keys = ("axis", "window_param", "auto_from_guard",
+                             "truncation_loss")
+            for k in required_keys:
+                if k not in bbw:
+                    err(f"{m_label}: bounded_by_window missing key {k!r}")
+            if "axis" in bbw and not isinstance(bbw["axis"], str):
+                err(f"{m_label}: bounded_by_window.axis must be str")
+            if "window_param" in bbw and not isinstance(bbw["window_param"], str):
+                err(f"{m_label}: bounded_by_window.window_param must be str")
+            if "auto_from_guard" in bbw and not isinstance(bbw["auto_from_guard"], bool):
+                err(f"{m_label}: bounded_by_window.auto_from_guard must be bool")
+            if "truncation_loss" in bbw and not isinstance(bbw["truncation_loss"], str):
+                err(f"{m_label}: bounded_by_window.truncation_loss must be str")
+
     if m.bounded_state is not None and not isinstance(m.bounded_state, bool):
         err(f"{m_label}: bounded_state must be bool, "
             f"got {type(m.bounded_state).__name__}")
