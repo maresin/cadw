@@ -839,6 +839,28 @@ dishonest (wrong axis, misleads `min_ram_formula` derivations).
 **Reference:** DEC-075; regression test `test_integrate_back_predict_leaf`.
 
 
+### AP31. Dishonest tag — files missing from tagged release
+
+`git tag vX.Y.Z` on HEAD implies "the tag reflects release vX.Y.Z". But:
+- Tests run against **working tree**, not against the tagged commit.
+- `git commit` may have missed files (`git add <specific files>` without `-A`).
+- Patch scripts that touch multiple files + `git add` with explicit list can silently skip.
+
+**Symptom:** tag says "Part B merged" but `git show vX.Y.Z:cadw/ts/theta.py | grep _fit_auto` returns 0. Discovery usually weeks later, when someone tries `pip install` from tag.
+
+**Real case:** v0.9.194 tag `11af2aa` contained only version bumps + `_theta_common.py` (create mode in commit `b689bbf` labeled "fix"); core Part B files (`theta.py` dispatchers, `auto_theta.py` shim, `D_time_series.yaml`, `test_auto_theta.py`) were **uncommitted**. Fixed in `9e1241b v0.9.194-d`.
+
+**Rule (mandatory before every `git tag`):**
+
+1. `git status --short` → **empty**. If not, `git add <missing>` + `git commit` (or `git stash` + investigate).
+2. `git diff <prev-tag>..HEAD --name-only` → contains all expected files (from CHANGELOG features).
+3. For each CHANGELOG feature, `git show HEAD:<file> | grep <marker>` — e.g. new class name, new method, new function.
+4. Then `git tag`.
+
+Enforced in CHAT_PROTOCOL §6.5 (pre-tag checklist). Manual check (no automated gate yet — v0.9.196 backlog: `scripts/verify_tag.py`).
+
+**Anti-pattern:** `git tag` immediately after `git commit` without `git status --short`. Tests green ≠ tag honest.
+
 ### §5.1. Single source of truth (one fact, one place)
 
 Every concept has exactly one canonical location:

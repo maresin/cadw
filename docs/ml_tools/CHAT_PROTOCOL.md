@@ -134,6 +134,20 @@ its own patch script.
 
 ---
 
+
+### §6.5. Pre-tag verification (AP31)
+
+Before `git tag`, ALL must pass:
+
+1. `git status --short` → **empty** (nothing uncommitted).
+2. `git diff <prev-tag>..HEAD --name-only` → contains **all expected files** for the release.
+3. For each feature in CHANGELOG: `git show HEAD:<file> | grep <marker>` (e.g. new class/method/function name) → must be present.
+4. `git describe --tags` → shows the new tag.
+
+**Why:** tests run against **working tree**, not against tag. A tag can be honest (tests pass) but **dishonest** (tag missing files). v0.9.194 shipped this way — Part B (Theta+AutoTheta merge) was uncommitted at tag time; fixed in v0.9.194-d.
+
+**Anti-pattern:** `git tag` after `git commit` without `git status --short`. Never trust "tests are green" as proof of tag correctness.
+
 ## §7. When AI is uncertain
 
 Format:
