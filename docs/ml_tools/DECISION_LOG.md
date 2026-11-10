@@ -3121,6 +3121,103 @@ unique cards.**)
 
 ---
 
+---
+
+## DEC-072 (2026-11-10, v0.9.189) — enforcement of primitives-before-models; P3/P4 window-truncatable
+
+**Q:** v0.9.182-184 (flip without primitives) + v0.9.188 discussion
+(proposing "intrinsic closure" for P3/P4 without checking window
+truncation) both violated DEC-067 §3/§6 and R2. Policy alone doesn't
+prevent repetition — what structural enforcement?
+
+**A:** R0 in AI_CONSTITUTION §4.0 (mandatory order) + G18 gate test +
+ROADMAP §Permanent discipline. P3/P4 are **window-truncatable**, not
+intrinsic.
+
+### §1. Why policy alone failed
+
+- DEC-070 (v0.9.185) already said "primitives first" — violated in
+  v0.9.188 discussion.
+- DEC-067 §3 (§5.2 of AI_CONSTITUTION) already said "bounded_by_domain
+  is NOT final" — proposed "intrinsic closure" ignored this.
+
+Root: **no gate at merge time**. Doc rules don't self-enforce.
+
+### §2. R0 + G18 enforcement
+
+**R0** (AI_CONSTITUTION §4.0, before R1): mandatory order; forbids
+`bounded_state: true` while transitive leaf has `streaming_variant: null`
+AND no `bounded_by_window` on model.
+
+**G18** (`tests/test_constitution_gates.py::test_G18_primitives_before_models`):
+- Scan each verified model with `bounded_state: true`.
+- Read model's source imports (`from cadw.ts.X import _y`).
+- Look up each `_y` in PRIMITIVES.yaml.
+- If `streaming_variant == null` AND `intrinsic_bound == null` →
+  violation.
+- If `intrinsic_bound` present but `reason` empty → violation.
+
+Catches future v0.9.182-184-class flips at merge. Currently passes:
+only Naive has `bounded_state: true` (all leaf primitives it uses have
+`streaming_variant` set).
+
+### §3. P3/P4 are window-truncatable (NOT intrinsic)
+
+**P3 `_ses_fit_hw` (Holt-Winters):**
+- Legacy: `_initial_seasonal(y, s)` uses all `k = n // s` periods.
+- v0.9.189: `_ses_fit_hw_streaming(y_iter, ..., initial_periods=K=10)`.
+  - n ≤ K*s → **bit-identical** (full initial context available).
+  - n > K*s → **truncation** (disclosed): `initial_seasonal` from last
+    K periods; HW recursion over all n (recursion is streaming by nature).
+  - RAM: O(K*s + batch); state: O(s).
+  - `ApproximationInfo(type="window_truncated", lost_range=(0, n-K*s),
+    accuracy_impact="initial seasonal from K=10 recent periods")`.
+- Semantic validity: K-period warm-start is standard practice
+  (statsmodels ETS `initialization_method='estimated'|'heuristic'` uses
+  similarly bounded context). This is **not approximation** — it's a
+  different valid model (pelt `max_window` precedent).
+
+**P4 `stl_decompose`:**
+- Legacy: `stl_decompose(y)` full-n LOESS.
+- v0.9.190: `stl_decompose_streaming(y_iter, ..., max_window="auto")`.
+  - n ≤ W_eff → bit-identical.
+  - n > W_eff → truncation to last W_eff; STL on that window.
+  - Semantic validity: STL local stationarity — fit on last W is
+    standard (prophet, MSTL restricted).
+
+### §4. Impact on model YAML
+
+After v0.9.189 (P3) and v0.9.190 (P4):
+
+- ETS(s>1) / AutoETS(s>1) / Theta(s>1) / OTM(s>1):
+  - `bounded_state: true`
+  - `n_scalability: bounded_by_window` (NOT `constant`)
+  - `bounded_by_window: {axis: n, window_param: max_window|initial_periods, auto_from_guard: true, truncation_loss: "..."}`
+  - `bounded_state_dims: {seasonal_period: 1}` (never `n`)
+
+`n_scalability: constant` reserved for truly streamable leaf (like P1
+`_extract_series` in Naive).
+
+### §5. Naming
+
+- `bounded_by_window` = fit transient O(W_eff); W_eff from guard; with
+  `auto_from_guard: true`.
+- `n_scalability: constant` = fully streamable (bit-identical, no
+  truncation possible).
+- `n_scalability: bounded_by_window` = window truncation possible.
+
+### §6. Forbidden without gate check
+
+- `bounded_state: true` with transitive `streaming_variant: null` leaf
+  AND no `bounded_by_window` → **G18 fail**.
+- `intrinsic_bound` without `reason` → **G18 fail**.
+- Declaring "intrinsic" without window-truncation check → **manual
+  review rule** (not gated; documented in R0).
+
+---
+
+<!-- end DEC-072 -->
+
 <!-- end DEC-071 -->
 
 <!-- end DEC-070 -->

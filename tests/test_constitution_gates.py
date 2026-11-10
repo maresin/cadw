@@ -1155,3 +1155,85 @@ def test_G17_bounded_by_domain_is_draft():
     """
     pytest.skip("TODO v0.9.179+: G17 enable after bounded_by_domain migration")
 
+# ============================================================================
+# G18 (v0.9.189, DEC-070/072): bounded_state=true must have all transitive
+# leaf primitives streaming OR window-truncation on model.
+# ============================================================================
+
+def test_G18_primitives_before_models():
+    """G18 (DEC-070/072): bounded_state=true requires each transitive leaf
+    primitive to have streaming_variant != null OR model declares
+    bounded_by_window. intrinsic_bound without reason = violation.
+    """
+    import re
+    import yaml
+    from pathlib import Path
+    from cadw.core.cards import load_primitive_cards
+
+    root = Path(__file__).resolve().parent.parent
+    cards = load_primitive_cards(root / "docs/ml_tools/PRIMITIVES.yaml")
+    by_short = {}
+    for c in cards:
+        short = c.cadw_function.rsplit(".", 1)[-1]
+        by_short[short] = c
+
+    ml_tools = root / "docs/ml_tools"
+    violations = []
+    checked = 0
+
+    for yf in sorted(ml_tools.glob("[A-Z]_*.yaml")):
+        try:
+            data = yaml.safe_load(yf.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for st in data.get("subtypes") or []:
+            for m in st.get("models") or []:
+                status = (m.get("implementation_status") or {}).get("status")
+                if status != "verified":
+                    continue
+                if not m.get("bounded_state"):
+                    continue
+                module = m.get("cadw_module", "")
+                if not module:
+                    continue
+                mod_path = root / module.replace(".", "/")
+                if mod_path.suffix != ".py":
+                    mod_path = mod_path.with_suffix(".py")
+                if not mod_path.exists():
+                    continue
+                checked += 1
+                src = mod_path.read_text()
+                # Find imports from cadw.(ts|ops).X import ...
+                for im in re.findall(
+                    r"from cadw\.(?:ts|ops)[\w.]* import ([^\n(]+)",
+                    src,
+                ):
+                    for name in re.findall(r"\b(_[a-z][a-z0-9_]*)\b", im):
+                        c = by_short.get(name)
+                        if c is None:
+                            continue  # audit test catches unregistered
+                        if (c.streaming_variant is None
+                                and c.intrinsic_bound is None):
+                            violations.append(
+                                f"{yf.name}::{m.get('name')}: bounded_state="
+                                f"true imports {name} which has streaming_"
+                                f"variant=null AND no intrinsic_bound. "
+                                f"Require streaming OR bounded_by_window "
+                                f"on model (G18, DEC-070/072)."
+                            )
+                        if c.intrinsic_bound is not None:
+                            reason = (c.intrinsic_bound or {}).get("reason", "")
+                            if not reason or len(str(reason).strip()) < 20:
+                                violations.append(
+                                    f"{yf.name}::{m.get('name')}: {name} "
+                                    f"intrinsic_bound.reason empty/short "
+                                    f"({reason!r}); must explain why window-"
+                                    f"truncation was rejected (G18, DEC-072)."
+                                )
+
+    assert not violations, (
+        f"G18: {len(violations)} primitives-before-models violations "
+        f"across {checked} verified bounded_state=true models:\n"
+        + "\n".join(f"  {v}" for v in violations[:15])
+    )
+

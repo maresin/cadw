@@ -1053,6 +1053,57 @@ Per STREAMING §6.1 — won't-fix with rationale:
 
 ---
 
+## Permanent discipline (apply EVERY session, v0.9.189+)
+
+### §A. Order: primitives → wire → honest YAML flip
+
+For any model refactor (see AI_CONSTITUTION §4.0 R0):
+
+1. **PrimitiveCard + streaming_variant** (or window-truncation) for
+   EACH transitive leaf primitive. Register BEFORE touching model code.
+2. **Wire streaming/window in fit path.**
+3. **Bit-identical test** (n≤W_eff, 3 strategies × 3 n) + **OOC peak test**
+   (n=10k→100k, ratio<4).
+4. **Only then** flip model YAML: `bounded_state: true` +
+   `n_scalability: bounded_by_window|constant`. `bounded_state_dims` =
+   state axes only.
+
+Violations caught by **G18** (`tests/test_constitution_gates.py`).
+
+### §B. Pending streaming primitives (DEC-070 backlog)
+
+| Prim | Status | Target |
+|---|---|---|
+| `_ses_fit_hw` (HW, s>1) | P3: window-truncation with `initial_periods=K` (default K=10); bit-identical n≤K*s, disclosed truncation otherwise | v0.9.189 |
+| `stl_decompose` | P4: window-truncation `max_window="auto"` | v0.9.190 |
+| GBDTForecaster `_build_lag_matrix` | SpillDir memmap | v0.9.191 |
+| SARIMA `_ar_fit`, `_arma_forecast`, etc. | refactor (honest bounds until) | v0.9.192+ |
+
+**P3/P4 are window-truncatable, NOT intrinsic** (DEC-072): seasonal/STL
+pattern from last W_eff is a valid semantic variant (pelt precedent,
+DEC-067 §3/§6). Do NOT declare intrinsic without checking window first.
+
+### §C. Intrinsic primitives (closed, no streaming possible)
+
+Only those where full-n is mathematically required with no valid
+window-truncation:
+- `chol_solve` — n² factor
+- `eclat` — vertical tid sets (uses sum|tx|)
+- `ranknet_grad` / `listnet_grad` / `lambdarank_grad` — pairwise per
+  query (O(n_q²))
+- `mst` — full edge list required
+
+**Self-check before declaring intrinsic:**
+1. Can it use `max_window` (pelt-style truncation to last W)? → use
+   `bounded_by_window` on model.
+2. Can it be 2-pass with SpillDir (disk, bit-identical)? → use
+   `bounded_by_disk` (new category if needed).
+3. If neither → `intrinsic_bound` legit.
+
+`intrinsic_bound` MUST have non-empty `reason` (G18 checks).
+
+---
+
 ## Session discipline
 
 - Before commit: `pytest -q <affected files>` (focused, ~20s).

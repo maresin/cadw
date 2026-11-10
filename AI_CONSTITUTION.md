@@ -208,6 +208,36 @@ After:
 Every `fit_*` / `predict_*` / `transform_*` / df-method / primitive MUST satisfy
 R1-R7. Verified status requires all pass. Normative, not advisory.
 
+### R0. Primitives before models (v0.9.189, DEC-070/072) — MANDATORY
+
+Every model refactor MUST follow this order. G18 enforces.
+
+1. **Enumerate leaf primitives** in fit/predict/predict_in_sample path:
+   imports (`from cadw.(ts|ops).X import _y`) + local `^def _y(` used
+   transitively.
+2. **For each leaf primitive, ensure coverage:**
+   - a) `streaming_variant` implemented (bit-identical full-n), OR
+   - b) window-truncation (`max_window="auto"`, bit-identical n≤W_eff,
+        disclosed truncation n>W_eff via `ApproximationInfo`), OR
+   - c) `intrinsic_bound.reason` in PrimitiveCard AND model **remains**
+        `bounded_state: false` (honest — never flip).
+3. **Only then** flip model YAML:
+   - `bounded_state: true`
+   - `n_scalability: bounded_by_window` (fit transient O(W_eff)) OR
+     `constant` (fully streaming)
+   - `bounded_state_dims` = **state axes only** (never `n`)
+
+**Forbidden (G18 catches):**
+- `bounded_state: true` while ANY transitive leaf has `streaming_variant:
+  null` AND no `bounded_by_window` on the model (v0.9.182-184 class).
+- Declaring "intrinsic" without checking window-truncation
+  (DEC-067 §3/§6: bounded_by_domain is NOT final; refuse = debt with
+  target version; window/streaming must be tried first).
+- YAML flip without both: bit-identical test (n≤W_eff, 3 strategies ×
+  3 n) + OOC peak test (n=10k→100k, ratio <4).
+
+---
+
 ### R1. RAM = O(batch + state)
 
 `peak(n=10^6) / peak(n=10^3) < 2.0` at fixed batch (STABILITY_PROTOCOL §2.1).
