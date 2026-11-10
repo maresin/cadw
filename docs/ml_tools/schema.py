@@ -561,7 +561,7 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
         "aggregation", "iterative", "partitioned", "cross_row",
         "windowed", "elementwise", "mixed",
     }
-    VALID_N_SCAL = {"constant", "linear", "quadratic", "refuse_at_guard"}
+    VALID_N_SCAL = {"constant", "linear", "quadratic", "refuse_at_guard", "bounded_by_window"}
 
     if m.state_class is not None and m.state_class not in VALID_STATE_CLASS:
         err(f"{m_label}: state_class={m.state_class!r} not in "

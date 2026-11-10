@@ -20,8 +20,9 @@ from typing import Optional
 import numpy as np
 
 from cadw.ml._logging import log_fit
+from cadw.core.approximation import ApproximationInfo
 from cadw.ts.models import (
-    ForecasterBase, _check_df, _extract_series,
+    ForecasterBase, _check_df, _extract_series, _collect_last_w,
 )
 
 
@@ -137,25 +138,101 @@ class ETSForecaster(ForecasterBase):
         self._saved_y_ = None
 
     def fit(self, df, target_col, *, time_col=None, group_col=None,
-            save_y=False):
+            save_y=False, max_window: "str | int | None" = "auto",
+            strict: bool = False):
         """Fit ETS.
 
-        v0.9.184 OOC: save_y=False (default) keeps O(seasonal_period) state
-        (lvl_, tr_, season_, params). y_ and fitted_ removed from persistent
-        state; predict_in_sample(df) recomputes fitted from df.
+        v0.9.189 (DEC-072): s>1 path uses _collect_last_w (window
+        truncation). W_eff from guard.get_window_size (target_fraction=0.25,
+        unit_bytes=2*s+transient). Bit-identical when n <= W_eff; truncation
+        disclosed via ApproximationInfo otherwise.
+
+        max_window:
+          - "auto" (default): W_eff from guard.
+          - int W: W_eff = min(W, n); strict=True -> refuse if W < n.
+          - None: full fit (bounded_by_domain; no truncation).
         """
         _check_df(df, target_col, time_col, group_col)
-        y = _extract_series(df, target_col, time_col=time_col)
-        if y.size < 4:
-            raise ValueError("ETSForecaster: need at least 4 observations")
-        if np.any(~np.isfinite(y)):
-            raise ValueError("ETSForecaster: series contains non-finite values")
         s = self.seasonal_period
-        if s > 1 and y.size < 2 * s:
-            raise ValueError(f"ETSForecaster: need at least 2*seasonal_period={2*s} obs")
         self.target_col_ = target_col
         self.time_col_ = time_col
-        self.n_train_ = int(y.size)
+        self._clear_approximation()
+
+        if s == 1 or max_window is None:
+            # Full-fit path (s=1 fast path; or explicit full-fit s>1)
+            y = _extract_series(df, target_col, time_col=time_col)
+            if y.size < 4:
+                raise ValueError("ETSForecaster: need at least 4 observations")
+            if np.any(~np.isfinite(y)):
+                raise ValueError("ETSForecaster: series contains non-finite values")
+            if s > 1 and y.size < 2 * s:
+                raise ValueError(
+                    f"ETSForecaster: need at least 2*seasonal_period={2*s} obs")
+            n_total = int(y.size)
+        else:
+            # s>1 window path: W_eff from guard
+            mg = getattr(df, "_memory_guard", None)
+            if mg is None:
+                # No guard -> full-fit fallback
+                y = _extract_series(df, target_col, time_col=time_col)
+                n_total = int(y.size)
+            else:
+                # Reserve budget for state (season s) + HW recursion transient
+                state_bytes = 2 * s * 8 + 512
+                transient_bytes = 2 * s * 8 * 4  # conservative 4x
+                W_max = mg.get_window_size(
+                    unit_bytes=state_bytes + transient_bytes,
+                    target_fraction=0.25,
+                )
+                if max_window == "auto":
+                    W_eff = W_max
+                elif isinstance(max_window, int):
+                    if strict and max_window > int(df.count()):
+                        from cadw.core.memory_guard import MemoryLimitExceeded
+                        raise MemoryLimitExceeded(
+                            f"ETSForecaster.fit: max_window={max_window} > "
+                            f"n_rows; strict=True refuses.",
+                            model="ETSForecaster",
+                            params={"max_window": max_window, "strict": True},
+                        )
+                    W_eff = min(int(max_window), W_max)
+                else:
+                    raise ValueError(
+                        f"ETSForecaster: max_window must be 'auto'|int|None, "
+                        f"got {type(max_window).__name__}"
+                    )
+                if W_eff < 2 * s:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"ETSForecaster.fit: W_eff={W_eff} < 2*seasonal_period="
+                        f"{2*s}. Increase budget or reduce seasonal_period.",
+                        model="ETSForecaster",
+                        params={"seasonal_period": s},
+                    )
+                y_used, n_total, lost = _collect_last_w(
+                    df, target_col, W_eff, time_col=time_col)
+                if lost is not None:
+                    self._record_approximation(ApproximationInfo(
+                        type="window_truncated",
+                        axis="n",
+                        requested=max_window,
+                        effective=W_eff,
+                        reason="budget_limit" if max_window == "auto"
+                               else "explicit",
+                        lost_range=lost,
+                        accuracy_impact=(
+                            f"HW fit on last {W_eff} obs; initial seasonal "
+                            f"from last {W_eff // s} periods"
+                        ),
+                    ))
+                y = y_used
+                if y.size < 2 * s:
+                    raise ValueError(
+                        f"ETSForecaster: need at least 2*seasonal_period={2*s} obs")
+
+        if np.any(~np.isfinite(y)):
+            raise ValueError("ETSForecaster: series contains non-finite values")
+        self.n_train_ = n_total
         if not self.trend and s == 1:
             alphas = np.linspace(0.05, 0.95, 19)
             best = (np.inf, None)
