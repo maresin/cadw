@@ -122,7 +122,7 @@ class ETSForecaster(ForecasterBase):
         self.seasonal = seasonal
         self.trend = bool(trend)
         self.damped = bool(damped)
-        self.y_ = None
+        # v0.9.184 OOC state
         self.lvl_ = None
         self.tr_ = None
         self.season_ = None
@@ -131,9 +131,19 @@ class ETSForecaster(ForecasterBase):
         self.gamma_ = None
         self.phi_ = None
         self.sigma2_ = None
-        self.fitted_ = None
+        self.n_train_ = None
+        self.target_col_ = None
+        self.time_col_ = None
+        self._saved_y_ = None
 
-    def fit(self, df, target_col, *, time_col=None, group_col=None):
+    def fit(self, df, target_col, *, time_col=None, group_col=None,
+            save_y=False):
+        """Fit ETS.
+
+        v0.9.184 OOC: save_y=False (default) keeps O(seasonal_period) state
+        (lvl_, tr_, season_, params). y_ and fitted_ removed from persistent
+        state; predict_in_sample(df) recomputes fitted from df.
+        """
         _check_df(df, target_col, time_col, group_col)
         y = _extract_series(df, target_col, time_col=time_col)
         if y.size < 4:
@@ -143,9 +153,10 @@ class ETSForecaster(ForecasterBase):
         s = self.seasonal_period
         if s > 1 and y.size < 2 * s:
             raise ValueError(f"ETSForecaster: need at least 2*seasonal_period={2*s} obs")
-        self.y_ = y
+        self.target_col_ = target_col
+        self.time_col_ = time_col
+        self.n_train_ = int(y.size)
         if not self.trend and s == 1:
-            # simple SES: alpha only
             alphas = np.linspace(0.05, 0.95, 19)
             best = (np.inf, None)
             for a in alphas:
@@ -160,22 +171,28 @@ class ETSForecaster(ForecasterBase):
             y, self.alpha_, self.beta_, self.gamma_, self.phi_, s,
             self.seasonal, self.damped)
         self.lvl_, self.tr_, self.season_ = lvl, tr, season
-        self.fitted_ = fitted
         self.sigma2_ = float(sse / max(1, y.size))
+        self._saved_y_ = y if save_y else None
         self._is_fitted = True
         log_fit("ets", loss=sse, state_bytes=self.state_nbytes())
         return self
 
     def state_nbytes(self):
-        if self.y_ is None:
+        """v0.9.184 OOC: O(seasonal_period) + optional _saved_y_."""
+        if not self._is_fitted:
             return 0
-        return int(self.y_.nbytes + self.fitted_.nbytes + self.season_.nbytes + 256)
+        sz = 256 + 8 * 7  # lvl_, tr_, alpha_, beta_, gamma_, phi_, sigma2_
+        if self.season_ is not None:
+            sz += self.season_.nbytes
+        if self._saved_y_ is not None:
+            sz += self._saved_y_.nbytes
+        return int(sz)
 
     def _predict(self, steps):
         s = self.seasonal_period
         out = np.empty(steps, dtype=np.float64)
         lvl, tr = self.lvl_, self.tr_
-        n = self.y_.size
+        n = self.n_train_  # v0.9.184: O(1) instead of self.y_.size
         phi = self.phi_
         for h in range(steps):
             idx = (n + h) % s if s > 1 else 0
@@ -186,8 +203,30 @@ class ETSForecaster(ForecasterBase):
             out[h] = f
         return out
 
-    def _predict_in_sample(self):
-        return self.fitted_.copy()
+    def predict_in_sample(self, df=None):
+        """v0.9.184: OOC default requires df (or save_y=True legacy)."""
+        if not self._is_fitted:
+            raise RuntimeError(
+                f"{type(self).__name__}.predict_in_sample called before fit"
+            )
+        if df is not None:
+            y = _extract_series(df, self.target_col_,
+                                 time_col=self.time_col_)
+            return self._recompute_in_sample(y)
+        if self._saved_y_ is not None:
+            return self._recompute_in_sample(self._saved_y_)
+        raise TypeError(
+            f"{type(self).__name__}.predict_in_sample: df is required "
+            f"(OOC default since v0.9.184). Use fit(..., save_y=True) for "
+            f"legacy no-df calls (adds O(n) persistent state)."
+        )
+
+    def _recompute_in_sample(self, y):
+        """Recompute fitted via _ses_fit forward pass (bit-identical)."""
+        _, _, _, _, fitted = _ses_fit(
+            y, self.alpha_, self.beta_, self.gamma_, self.phi_,
+            self.seasonal_period, self.seasonal, self.damped)
+        return fitted
 
     def prediction_interval(self, steps, level=0.95):
         """Gaussian 95% interval around the point forecasts."""

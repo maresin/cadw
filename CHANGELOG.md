@@ -4693,6 +4693,40 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.184] — 2026-11-10 (Wave 2: ETS + AutoETS OOC)
+
+### v0.9.184 — ETS/AutoETS OOC (drop y_ + fitted_)
+
+- cadw/ts/ets.py ETSForecaster:
+  - OOC state: lvl_, tr_, season_ (O(seasonal_period)) + params
+    (alpha_, beta_, gamma_, phi_, sigma2_, n_train_). y_ and
+    fitted_ removed from persistent state.
+  - _predict uses n_train_ (O(1)) instead of self.y_.size.
+  - predict_in_sample(df=None): OOC default requires df
+    (recompute fitted via _ses_fit forward pass, bit-identical);
+    save_y=True legacy opt-in.
+  - state_nbytes: O(seasonal_period) + optional _saved_y_.
+- cadw/ts/auto_ets.py AutoETSForecaster:
+  - _aicc: recompute fitted from y via _recompute_in_sample
+    (was model.fitted_ — now removed).
+  - predict_in_sample(df=None): signature-aware pass-through to
+    best_model_ (inner ETS accepts df after v0.9.184).
+  - Removed self.y_ assignment (best_model_ owns state).
+- YAML D1::ETS + AutoETS:
+  - bounded_state: false -> true; dims {seasonal_period: 1}
+  - ram_formula: 'seasonal_period * f64 + 256'
+  - min_ram_formula: 'f64 + 256'
+  - state_class: O(n) -> O(model); n_scalability: constant
+  - removed bounded_by_domain, tier1_core_exception
+  - streaming_strategy.fit: streaming keyword (R13).
+  - migration_target: v0.9.185
+- Tests: test_ets predict_in_sample(_df(y)).
+
+Wave 2 progress: Naive (v0.9.182), Theta/OTMTheta (v0.9.183),
+ETS/AutoETS (v0.9.184). 4 forecasters OOC; next: SARIMA/VAR
+(v0.9.185), TemporalHierarchy/TransformedTarget/Ensemble
+(v0.9.186-187), GBDTForecaster (v0.9.187-188).
+
 ## [0.9.183] — 2026-11-10 (Wave 2: Theta + OTMTheta OOC)
 
 ### v0.9.183 — Theta/OTMTheta OOC (lvl_ + season_cycle_)

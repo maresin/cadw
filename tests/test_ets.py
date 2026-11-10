@@ -91,7 +91,7 @@ def test_in_sample_reasonable():
     full = _seasonal(seed=5)
     y = full[:-12]
     m = ETSForecaster(seasonal_period=12).fit(_df(y), "y")
-    pred = m.predict_in_sample()
+    pred = m.predict_in_sample(_df(y))
     assert pred.shape == y.shape
     sse = np.sum((pred - y) ** 2)
     assert np.sqrt(sse / y.size) < 3.0

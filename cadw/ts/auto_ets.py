@@ -139,7 +139,10 @@ class AutoETSForecaster(ForecasterBase):
     def _aicc(self, y: np.ndarray, model: ETSForecaster,
               has_season: bool) -> float:
         n = y.size
-        resid = y - model.fitted_
+        # v0.9.184: model.fitted_ removed from persistent state (OOC refactor).
+        # Recompute fitted from y via stored params (bit-identical, O(n) transient).
+        fitted = model._recompute_in_sample(y)
+        resid = y - fitted
         sse = float(np.sum(resid * resid))
         sse = max(sse, 1e-12)
         k = 1  # sigma^2
@@ -261,7 +264,7 @@ class AutoETSForecaster(ForecasterBase):
         self.aicc_scores_ = aicc_scores
         self.best_aicc_ = best_aicc
         self.fit_duration_s_ = elapsed
-        self.y_ = y
+        # v0.9.184: self.y_ = y removed (best_model_ holds OOC state).
         self._is_fitted = True
         return self
 
@@ -270,7 +273,19 @@ class AutoETSForecaster(ForecasterBase):
     def predict(self, steps):
         return self.best_model_.predict(steps)
 
-    def predict_in_sample(self):
+    def predict_in_sample(self, df=None):
+        """v0.9.184: df pass-through to best_model_ if accepts df."""
+        import inspect
+        accepts_df = False
+        if df is not None:
+            try:
+                sig = inspect.signature(
+                    self.best_model_.predict_in_sample)
+                accepts_df = "df" in sig.parameters
+            except (ValueError, TypeError):
+                accepts_df = False
+        if accepts_df:
+            return self.best_model_.predict_in_sample(df)
         return self.best_model_.predict_in_sample()
 
     def prediction_interval(self, steps, level=0.95):
@@ -281,6 +296,9 @@ class AutoETSForecaster(ForecasterBase):
         return f, f
 
     def state_nbytes(self):
+        """v0.9.184: state = best_model_.state_nbytes() (O(model) when
+        best_model_ is ETSForecaster v0.9.184+; O(n) if best is NaiveForecaster
+        without save_y refactor yet)."""
         if self.best_model_ is None:
             return 0
         return int(self.best_model_.state_nbytes())
