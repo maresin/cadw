@@ -4693,6 +4693,51 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.189] — 2026-11-10 (DEC-072: window-truncation P3)
+
+### v0.9.189 — R0 enforcement + P3 window-truncation + ETS/AutoETS
+
+Structural fix for repeated primitives-before-models violations
+(v0.9.182-184 + v0.9.188 discussion). Policy alone doesn't
+self-enforce — added gate at merge time.
+
+- AI_CONSTITUTION §4.0: R0 (primitives before models) BEFORE R1.
+  Mandatory order: primitive (streaming | window-truncatable |
+  intrinsic.reason) -> wire -> tests -> THEN flip YAML.
+- ROADMAP: §Permanent discipline (apply every session).
+  §A order; §B pending streaming (P3 _ses_fit_hw, P4 stl);
+  §C intrinsic list.
+- DEC-072: P3/P4 are WINDOW-TRUNCATABLE, not intrinsic.
+  Seasonal/STL on last W_eff is valid semantic variant (pelt
+  precedent, DEC-067 §3/§6). YAML: bounded_state:true +
+  n_scalability:bounded_by_window.
+- G18 test: every verified bounded_state=true model -> scan
+  transitive leaf imports; each must have streaming_variant OR
+  window_truncatable OR intrinsic_bound.reason (>=20 chars).
+
+- cadw/core/cards.py: PrimitiveCard.window_truncatable field +
+  validation (XOR intrinsic_bound, reason required).
+- PRIMITIVES.yaml: _ses_fit_hw / _initial_seasonal / stl_decompose
+  swapped intrinsic_bound -> window_truncatable (caller_prim:
+  _collect_last_w). 16 intrinsic_bound.reason extended >=20 chars.
+- cadw/ts/models.py: NEW _collect_last_w primitive.
+- cadw/ts/ets.py: ETSForecaster.fit(s>1) uses _collect_last_w +
+  max_window='auto'|int|None + strict. ApproximationInfo when
+  truncated; insufficient W_eff -> MemoryLimitExceeded.
+- cadw/ts/auto_ets.py: propagate ApproximationInfo from
+  best_model_ to AutoETS.
+- docs/ml_tools/schema.py: VALID_N_SCAL += 'bounded_by_window'.
+- YAML D1::ETS + AutoETS: bounded_state:true,
+  n_scalability:bounded_by_window, bounded_by_window{...},
+  dims {seasonal_period:1}. Removed bounded_by_domain.
+- tests/test_ml_tools_schema.py: W_eff auto-injected name
+  (runtime-derived, like batch/row_size).
+- tests: test_ets_window.py (7 new), test_collect_last_w.py
+  (8 new), test_primitive_card.py (4 new).
+
+First models (ETS + AutoETS) pass G18 via window_truncatable
+primitives + bounded_by_window. Theta/OTM(s>1) next (v0.9.190).
+
 ## [0.9.188] — 2026-11-10 (DEC-070 P2: streaming SES + OLS)
 
 ### v0.9.188 — 2 streaming primitives + Theta(s=1) OOC
