@@ -1514,6 +1514,7 @@ subtypes:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact for memory path (256 + 2*n*8); test_state_spilled_is_o1: 256 B (disk, O(1))"
       bit_identical: "test_bit_identical_df_vs_legacy"
       ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n"
       spill: "test_spill_auto_small_guard + test_disk_forces_spill"
@@ -2132,6 +2133,7 @@ subtypes:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact for memory path (256 + 2*n*8); test_state_spilled_is_o1: 256 B (disk, O(1))"
       bit_identical: "test_bit_identical_df_vs_legacy"
       ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n"
       spill: "test_spill_auto_small_guard + test_disk_forces_spill"
@@ -2930,6 +2932,7 @@ subtypes:
     measurement:
       output_ooc: "output=\"disk\" forces immediate spill (SpillArray spill_ratio=0.0); peak ratio < 2.0 at fixed batch (v0.9.173 S2f-1; CUSUM is reference impl)."
       verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact for memory path (256 + 2*n*8); test_state_spilled_is_o1: 256 B (disk, O(1))"
       bit_identical: "test_bit_identical_df_vs_legacy"
       ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n (output linear)"
       spill: "test_spill_auto_small_guard + test_disk_forces_spill"
@@ -3094,6 +3097,7 @@ subtypes:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: bit-exact for memory path (256 + 2*n*8); test_state_spilled_is_o1: 256 B (disk, O(1))"
       bit_identical: "test_bit_identical_df_vs_legacy"
       ooc: "test_ooc_df_path: peak ratio < 5.0 at 10x n"
       spill: "test_spill_auto_small_guard + test_disk_forces_spill"

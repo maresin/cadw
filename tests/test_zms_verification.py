@@ -134,3 +134,36 @@ def test_legacy_np_path_unchanged():
         r = fit_zms(x, window_size=50, output=out)
         assert isinstance(r.decision_scores, np.ndarray)
         assert not r.is_spilled
+
+# ---- S1.5 (v0.9.194): CW-1 state_nbytes exact (DEC-033 proper) ----
+
+@pytest.mark.parametrize("n", [500, 2000, 5000])
+def test_state_nbytes_exact(n):
+    """CW-1: memory path formula bit-exact (256 + 2*n*8)."""
+    from cadw.core.memory_guard import MemoryGuard
+    x = _series(n, seed=0)
+    r = fit_zms(
+        x, window_size=30, contamination=None,
+        guard=MemoryGuard(max_memory_mb=500), output="memory")
+    assert not r.is_spilled
+    expected = (256
+                + int(r.decision_scores.nbytes)
+                + int(r.labels.nbytes))
+    assert r.state_nbytes() == expected, (
+        f"n={n}: state={r.state_nbytes()} expected={expected}")
+
+
+def test_state_spilled_is_o1():
+    """Spilled output -> O(1) RAM state (256 B); disk not counted.
+
+    df path + output='disk' guarantees is_spilled=True regardless of n
+    (see test_disk_forces_spill).
+    """
+    from cadw.core.memory_guard import MemoryGuard
+    x = _series(2000, seed=4)
+    df = _make_df(x)
+    r = fit_zms(df, "v", window_size=50, output="disk",
+                guard=MemoryGuard(max_memory_mb=500))
+    assert r.is_spilled
+    assert r.state_nbytes() == 256
+

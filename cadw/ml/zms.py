@@ -39,6 +39,26 @@ class ZMSResult:
     contamination: Optional[float]
     is_spilled: bool = False
 
+    def state_nbytes(self) -> int:
+        """v0.9.194 (S1.5): honest memory state for DEC-033 CW-1.
+
+        Memory path (np.ndarray or InMemoryArrayResult):
+            256 + n*8 (decision_scores) + n*8 (labels)
+        Spilled path (OnDiskArrayResult): 256 (state O(1), disk O(n))
+        """
+        sz = 256
+        if self.is_spilled:
+            return sz
+        for arr in (self.decision_scores, self.labels):
+            if isinstance(arr, np.ndarray):
+                sz += int(arr.nbytes)
+            elif hasattr(arr, "to_numpy"):
+                try:
+                    sz += int(arr.to_numpy().nbytes)
+                except Exception:
+                    pass
+        return int(sz)
+
 
 def _resolve_chunk_nw_zms(w: int, guard=None) -> int:
     """v0.9.91-S6a: chunk size so peak RAM stays O(chunk*w).

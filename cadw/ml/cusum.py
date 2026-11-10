@@ -44,6 +44,26 @@ class CUSUMResult:
     contamination: Optional[float]
     is_spilled: bool = False
 
+    def state_nbytes(self) -> int:
+        """v0.9.194 (S1.5): honest memory state for DEC-033 CW-1.
+
+        Memory path (np.ndarray or InMemoryArrayResult):
+            256 + n*8 (decision_scores) + n*8 (labels)
+        Spilled path (OnDiskArrayResult): 256 (state O(1), disk O(n))
+        """
+        sz = 256
+        if self.is_spilled:
+            return sz
+        for arr in (self.decision_scores, self.labels):
+            if isinstance(arr, np.ndarray):
+                sz += int(arr.nbytes)
+            elif hasattr(arr, "to_numpy"):
+                try:
+                    sz += int(arr.to_numpy().nbytes)
+                except Exception:
+                    pass
+        return int(sz)
+
 
 # v0.9.130 (DEC-054): _probe_memory_limit_mb -> 
 # cadw.core.memory_guard.probe_limit_mb (single source of truth).
