@@ -4693,6 +4693,42 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.186] — 2026-11-10 (DEC-070 P1: streaming _extract_series)
+
+### v0.9.186 — first streaming primitive + Naive pilot
+
+First DEC-070-compliant refactor: primitive -> wire -> honest
+YAML flip (correct order).
+
+- cadw/ts/models.py:
+  - NEW `_iter_target_batches(df, target_col, *, time_col,
+    group_col, group_value, batch_size)` — streaming per-batch
+    float64 arrays. Cap derived batch at min(guard, 10_000)
+    to force multi-batch (DEC-023 fix: guard default ~1.3M >>
+    n -> single batch = n).
+  - NaiveForecaster.fit streaming: tail deque (last `s`) +
+    drift_sum/count accumulation. No _extract_series full
+    materialization. Tail optimized (arr[-s:].tolist() when
+    batch >= s, avoiding 640 KB tolist transient). Bit-
+    identical predict + in_sample vs save_y=True baseline.
+- PRIMITIVES.yaml:
+  - NEW PrimitiveCard `_iter_target_batches` (layer: batch,
+    status: verified, ram='3.5*batch*row_size + 256').
+  - `_extract_series.streaming_variant: null ->
+    _iter_target_batches` (P1 backlog landed).
+- YAML D1::NaiveForecaster honest flip:
+  - bounded_state: true, n_scalability: constant,
+    fit_batched: true.
+  - ram_formula: 'period*f64 + 3.5*batch*row_size + 256'
+    (fit peak, was 2*n*f64 for bounded_by_domain).
+  - bounded_state_dims {period: 1}; bounded_by_domain removed.
+- Tests: tests/test_naive_streaming.py (10 new): bit-identical
+  (n=10/100/1000 × last/seasonal/drift) + OOC peak ratio <4
+  (n=10k->100k, fixed internal batch 10k, median-of-3).
+
+Wave 2 continues with same pattern: P2 _ses_fit(s=1) ->
+ETS/AutoETS streaming -> honest flip; then P3 HW, P4 stl.
+
 ## [0.9.185] — 2026-11-10 (primitives-first correction, DEC-070)
 
 ### v0.9.185 — honest YAML revert + leaf PrimitiveCards

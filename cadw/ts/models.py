@@ -121,6 +121,80 @@ def _check_df(df, target_col, time_col=None, group_col=None):
         raise KeyError(f"group_col {group_col!r} not in df")
 
 
+def _iter_target_batches(
+    df, target_col, *, time_col=None, group_col=None, group_value=None,
+    batch_size=None,
+):
+    """v0.9.186 (DEC-070): streaming target extraction — yields per-batch
+    float64 arrays.
+
+    Companion to ``_extract_series`` (which materializes full O(n) array).
+    Use when caller has an O(1)/O(model) accumulator (e.g. Naive's last_k
+    deque + drift_mean). For full-array consumers (stl_decompose,
+    _ses_fit's `fitted`), use ``_extract_series``.
+
+    Parameters
+    ----------
+    df : CadwDataFrame
+    target_col : str
+    time_col : str | None
+        If set, sorts df by time_col (external sort, OOC-safe).
+    group_col : str | None
+    group_value : Any | None
+        If both set, filters df to that group. Falls back to non-streaming
+        ``_extract_series`` (small per-series).
+    batch_size : int | None
+        Passed to ``_iter_filtered_batches``.
+
+    Yields
+    ------
+    np.ndarray, shape (b,) — one batch (float64); b <= batch_size.
+    """
+    if target_col not in df._columns:
+        raise KeyError(f"target column {target_col!r} not in df")
+    if time_col is not None and time_col not in df._columns:
+        raise KeyError(f"time_col {time_col!r} not in df")
+    if group_col is not None and group_col not in df._columns:
+        raise KeyError(f"group_col {group_col!r} not in df")
+
+    if time_col is not None:
+        keys = ([group_col] if group_col is not None else []) + [time_col]
+        df = df.sort_values(keys)
+
+    if group_col is not None and group_value is not None:
+        # Group-filtered: fall back to non-streaming (small per-series).
+        yield _extract_series(
+            df, target_col, time_col=None,
+            group_col=group_col, group_value=group_value)
+        return
+
+    mg = getattr(df, "_memory_guard", None)
+
+    # v0.9.186 (DEC-023 fix): derive batch_size from memory_guard when None.
+    # MemoryGuard returns ~1.3M for single-f64 (8 B/row) at 500 MB budget;
+    # that's >> n and yields 1 batch = n (full materialization). Cap at
+    # 10_000 to force streaming multi-batch (100+ batches for n=1e6).
+    if batch_size is None:
+        derived = None
+        if mg is not None:
+            try:
+                derived = mg.get_batch_rows(expansion_factor=3.5)
+            except (AttributeError, TypeError):
+                derived = None
+        if derived and derived > 0:
+            batch_size = min(int(derived), 10_000)
+        else:
+            batch_size = 10_000
+
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None:
+            mg.check_batch(
+                b, name="ts.iter_target_batches", extra_factor=3.5)
+        arr = b.column(target_col).to_numpy(zero_copy_only=False).astype(
+            np.float64, copy=False)
+        yield arr
+
+
 class ForecasterBase(ApproximationMixin):
     """Abstract forecaster contract (v0.9.24).
 
@@ -218,38 +292,81 @@ class NaiveForecaster(ForecasterBase):
             save_y=False):
         """Fit Naive baseline.
 
-        v0.9.182 (OOC default): save_y=False keeps only last_k_ (O(period)),
-        not the full y_ (O(n)). predict(steps) uses last_k_ + drift_mean_.
-        predict_in_sample() requires df unless fit(..., save_y=True).
+        v0.9.186 (DEC-070): streaming fit — O(batch + period) RAM.
+        - No _extract_series full-array materialization in fit.
+        - Tail buffer keeps last `s` values (period for seasonal; 1 otherwise).
+        - Drift mean from streaming diff accumulation (NaN-safe).
+        - save_y=True opt-in: accumulates full y for legacy no-df
+          predict_in_sample() (adds O(n) state).
         """
         _check_df(df, target_col, time_col, group_col)
-        y = _extract_series(df, target_col, time_col=time_col)
-        if len(y) < 2:
-            raise ValueError(
-                "NaiveForecaster: need at least 2 observations to fit"
-            )
         self.target_col_ = target_col
         self.time_col_ = time_col
 
+        s = self.period if self.strategy == "seasonal" else 1
+
+        tail_buf: list = []  # last up to s values (Python list; s small)
+        n_total = 0
+        diff_sum = 0.0
+        diff_count = 0
+        prev_val = None
+        saved_parts = [] if save_y else None
+
+        for arr in _iter_target_batches(
+                df, target_col, time_col=time_col, batch_size=None):
+            if arr.size == 0:
+                continue
+            # Cross-batch diff (NaN-safe)
+            if prev_val is not None and not (
+                    np.isnan(prev_val) or np.isnan(arr[0])):
+                diff_sum += float(arr[0]) - prev_val
+                diff_count += 1
+            # Within-batch diff (NaN-safe; uses sum(diff)=last-first)
+            if arr.size > 1:
+                diffs = np.diff(arr)
+                mask = ~np.isnan(diffs)
+                diff_sum += float(np.sum(diffs[mask]))
+                diff_count += int(mask.sum())
+            prev_val = float(arr[-1])
+            # Tail buffer (last up to s values) — avoid tolist() on full
+            # batch when batch >= s (10k Python floats = 640 KB transient).
+            if arr.size >= s:
+                tail_buf = arr[-s:].tolist()  # only last s (~64 B for s=1)
+            else:
+                tail_buf.extend(arr.tolist())
+                if len(tail_buf) > s:
+                    tail_buf = tail_buf[-s:]
+            n_total += arr.size
+            if save_y:
+                saved_parts.append(arr)
+
+        if n_total < 2:
+            raise ValueError(
+                "NaiveForecaster: need at least 2 observations to fit"
+            )
+
+        last_k_arr = np.array(tail_buf, dtype=np.float64)
+
         if self.strategy == "last":
-            self.last_k_ = y[-1:].copy()
+            self.last_k_ = last_k_arr[-1:].copy()
             self.drift_mean_ = None
         elif self.strategy == "seasonal":
-            s = self.period
-            if len(y) < s:
+            if n_total < s:
                 raise ValueError(
                     f"NaiveForecaster seasonal: need len(y) >= period; "
-                    f"len(y)={len(y)}, s={s}"
+                    f"len(y)={n_total}, s={s}"
                 )
-            self.last_k_ = y[-s:].copy()
+            self.last_k_ = last_k_arr.copy()
             self.drift_mean_ = None
         else:  # drift
-            self.last_k_ = y[-1:].copy()
-            diffs = np.diff(y)
-            diffs = diffs[~np.isnan(diffs)]
-            self.drift_mean_ = float(diffs.mean()) if len(diffs) else 0.0
+            self.last_k_ = last_k_arr[-1:].copy()
+            self.drift_mean_ = (diff_sum / diff_count
+                                if diff_count > 0 else 0.0)
 
-        self._saved_y_ = y if save_y else None
+        self._saved_y_ = (
+            np.concatenate(saved_parts)
+            if save_y and saved_parts else None
+        )
         self._is_fitted = True
         return self
 

@@ -105,6 +105,27 @@ primitives:
     Leaf: caller passes full y (n). For OOC regression, use fit_linear
     (Reduce-based). This helper is for short-series (forecaster) fits
     where n is bounded by model context (typically <= 1e6).
+
+- name: _iter_target_batches
+  cadw_function: cadw.ts.models._iter_target_batches
+  module: cadw.ts.models
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + 256"
+  min_ram_formula: "3.5 * row_size + 256"
+  formula_evidence:
+    guard: "models.py:XXX -- mg.check_batch(b, extra_factor=3.5) per batch"
+    per_batch_numpy: "b.column(target).to_numpy() O(batch)"
+  primitive_reuse: []
+  consumers: [NaiveForecaster]
+  notes: >-
+    v0.9.186 (DEC-070 P1): streaming target extraction. Yields per-batch
+    float64 arrays. Caller OOC iff accumulator is O(1)/O(model) (Naive:
+    tail buffer + drift_sum). For full-array consumers (stl_decompose,
+    _ses_fit's fitted array), use _extract_series (leaf).
+    Streaming variant of _extract_series.
+
 # ====================================================================
 # Leaf-layer v0.9.185 (from cadw/ts/ during Wave 2 refactor)
 # Streaming variants not yet implemented (backlog v0.9.190+); all are
@@ -125,7 +146,7 @@ primitives:
     guard: "models.py:71 -- check_state(n_total*8, name='ts.extract_series')"
     batch_transient: "models.py -- to_pylist() per batch (3.5x factor)"
   intrinsic_bound: {axis: n, bound: 1000000, reason: "np.empty(n) full-series alloc"}
-  streaming_variant: null
+  streaming_variant: _iter_target_batches
   consumers: [NaiveForecaster, ThetaForecaster, OTMThetaForecaster, ETSForecaster, AutoETSForecaster, SARIMAForecaster, VAR, VECM, BVAR, TemporalHierarchy, TransformedTargetForecaster, EnsembleForecaster, GBDTForecaster]
   notes: >-
     Full-series target extraction. Leaf-layer: O(n) transient in caller.
