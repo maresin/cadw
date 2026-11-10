@@ -43,6 +43,9 @@ subtypes:
           finalize_cov: "reduce.py:428-438 -- CovarianceMeanOp.finalize: cov (d,d) + mean (d,)"
           eigh: "pca.py:405 -- np.linalg.eigh(cov) -> eigvals (d,), eigvecs (d,d); sort copies both"
           header: "pca.py -- PCA class header; 256"
+        min_ram_formula: "2 * 1 * row_size + 3 * d * d * f64 + 4 * d * f64 + 264"
+        min_ram_evidence:
+          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
         measurement:
           status: "pending (v0.9.124)"
           note: "Formula from code (AP23); eigh transient (d²) dominant at large d."
@@ -146,6 +149,9 @@ subtypes:
           header: "cadw/ml/nmf.py -- NMFModel.state_nbytes(): +128"
           dense_X: "cadw/ml/nmf.py -- _coo_to_dense: np.zeros((n_docs, V)); n_docs <= batch"
           arrow: "cadw/ml/nmf.py -- batch read: 3 x i64 (doc,term,cnt) + mask"
+        min_ram_formula: "k * vocab_size * f64 + 128 + 1 * vocab_size * f64 + 4 * 1 * row_size"
+        min_ram_evidence:
+          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
         measurement:
           verification_mode: "component-wise (DEC-033)"
           state_check: "test_state_nbytes_exact: bit-exact, 4 (k,V) parametrized"

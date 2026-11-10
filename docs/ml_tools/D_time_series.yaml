@@ -38,6 +38,9 @@ subtypes:
       state: "models.py:211 -- NaiveForecaster.y_ = y (np.ndarray, n*f64)"
       header: "models.py -- +256 model header"
       guard: "models.py:218 -- _check(df._memory_guard, batch, ...)"
+    min_ram_formula: "n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
@@ -100,6 +103,9 @@ subtypes:
       state: "ets.py:170-172 -- y_.nbytes + fitted_.nbytes + season_.nbytes + 256"
       header: "ets.py:172 -- +256"
       guard: "ets.py:fit -- extract_series guards per batch"
+    min_ram_formula: "3 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
@@ -193,6 +199,9 @@ subtypes:
       state: "auto_ets.py:284 -- best_model_.state_nbytes() (delegated)"
       header: "auto_ets.py:284 -- delegated +256"
       guard: "auto_ets.fit -- extract_series guards per batch"
+    min_ram_formula: "3 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
@@ -284,6 +293,9 @@ subtypes:
       state: "theta.py:221-223 -- y_.nbytes + fitted_.nbytes + 256"
       header: "theta.py:223 -- +256"
       guard: "theta.fit -- extract_series + stl_decompose guard"
+    min_ram_formula: "2 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
@@ -363,6 +375,9 @@ subtypes:
       state: "auto_theta.py:284-286 -- best_model_.state_nbytes() (delegated)"
       header: "auto_theta.py:286 -- delegated +256"
       guard: "auto_theta.fit -- extract_series guards per batch"
+    min_ram_formula: "2 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
@@ -461,6 +476,9 @@ subtypes:
       state: "models.py:495-503 -- y_raw_ = y.copy() (n*f64) + _y_centered_ = y - _y_mean (n*f64)"
       header: "models.py -- +256 in state_nbytes()"
       guard: "models.py:_extract_series -- _check(df._memory_guard, batch, ...)"
+    min_ram_formula: "2 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
@@ -523,6 +541,9 @@ subtypes:
       trees: "cadw.ts.models:_NumpyReg (GBDTRegressor per horizon) -- state_nbytes per tree _deep_nbytes"
       forecaster: "cadw.ts.models:GBDTForecaster.state_nbytes -- sum over self._models"
       header: "cadw.ts.models:GBDTForecaster.state_nbytes -- +256"
+    min_ram_formula: "n * d * f64 + n * f64 + n * f64 + n_horizons * n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
@@ -598,6 +619,9 @@ subtypes:
       ensemble: "ensemble.py:319-320 -- EnsembleForecaster.state_nbytes: sum(p.state_nbytes() for p in self._pipelines)"
       member_bases: "models.py:NaiveForecaster.state_nbytes = n*f64+256; theta.py = 2n*f64+256; ets.py = 3n*f64+256"
       stationarizer: "transforms.py:148-155 -- AutoStationarizer.state_nbytes: tail_regular_ (n*f64) + tail_seasonal_ (n*f64) for seasonal configs"
+    min_ram_formula: "5 * n_members * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_state_positive: state = sum(pipelines.state_nbytes())"
@@ -695,6 +719,9 @@ subtypes:
       finalize: "otm.py:184-188 fitted (n*f64) + resid (n*f64)"
       guard: "otm.py:141 check_state(31*n*8 + 256, name='otm.fit') -- matches formula"
       header: "otm.py:231 +256"
+    min_ram_formula: "31 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: 2*n*8 + 256, parametrized n=[100,500,2000]"
@@ -765,6 +792,9 @@ subtypes:
       guard: "thf.py:182-186 check_state(n*(1+sum1/m_k)*8, name='thf.fit_one') -- cumulative across groups"
       formula_bound: "sum(1/m_k) <= levels; [1,7,30] exact 1.18n, bound 4n"
       header: "thf.py:208-209 +256 (implicit)"
+    min_ram_formula: "n * (1 + levels) * f64 + levels * 4096 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_lower_bound: n*8 + n*(1+sum1/m)*8 <= state <= 3x upper (K=3, Naive fallback)"
@@ -835,6 +865,9 @@ subtypes:
       guard: "transforms.py:299-303 check_state((3 + 8*K)*n*8 + 4096, name='ttf.fit')"
       formula_bound: "8x per-transformer is conservative: Differencer actual ~2n, STL ~10n; bound never underestimates. Peak = (3+8*n_transformers)*n*f64+4096."
       header: "transforms.py:345 +256"
+    min_ram_formula: "(3 + 8 * n_transformers) * n * f64 + 4096 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_differencer_state_exact + test_stl_transformer_state_exact + test_mstl_transformer_state_exact + test_autostationarizer_state_exact + test_ttf_state_composition"
@@ -1147,6 +1180,9 @@ subtypes:
       state: "var.py:112-116 -- state_nbytes: Y_.nbytes (n*k*f64) + k*k*p*8 + k*8 + 256"
       header: "var.py:116 -- +256"
       guard: "var.py:fit -- _extract_series guards per column"
+    min_ram_formula: "n * k * f64 + k * k * p * f64 + k * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
@@ -1222,6 +1258,9 @@ subtypes:
       trees: "cadw.ts.models:_NumpyReg per horizon × per group -- state_nbytes"
       forecaster: "cadw.ts.models:GBDTForecaster.state_nbytes -- sum"
       header: "cadw.ts.models:GBDTForecaster.state_nbytes -- +256"
+    min_ram_formula: "n_horizons * n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
@@ -1302,6 +1341,9 @@ subtypes:
       batch_transient: "bvar.py:126 check_batch(extra_factor=2.0) per batch; 2 * batch * row_size"
       fit_guard_state: "bvar.py:117 check_state(est_state) where est_state = (m*m+m*k+k*k+k*p+512)*8 (conservative upper bound)"
       fit_guard_batch: "bvar.py:126 check_batch(extra_factor=2.0)"
+    min_ram_formula: "((1 + k * p) * k + k * p + 256) * f64 + 2 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: ((1+k*p)*k + k*p + 256) * 8, parametrized (k,p)"
@@ -1353,6 +1395,9 @@ subtypes:
       batch_transient: "vecm.py:131 check_batch(extra_factor=2.0) per batch"
       fit_guard_state: "vecm.py:105 check_state(est_state) conservative upper bound"
       fit_guard_batch: "vecm.py:131 check_batch(extra_factor=2.0)"
+    min_ram_formula: "(4 * k * k + k * r + 256) * f64 + 2 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: (4*k*k + k*r + 256) * 8, parametrized (k,r,p)"
@@ -1460,6 +1505,9 @@ subtypes:
       batch_chunk: "zms.py -- _resolve_chunk_nw_zms chunk*w*f64*2"
       batch_scores: "zms.py -- scores = |x-mu|/sigma, 3*chunk*f64"
       header: "zms.py -- +256 constant"
+    min_ram_formula: "3 * 1 * row_size + 2 * w * f64 + 3 * 1 * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       bit_identical: "test_bit_identical_df_vs_legacy"
@@ -1558,6 +1606,9 @@ subtypes:
       batch_term: "iforest.py -- fit loop: arrays list + np.column_stack + X_b[mask] per batch; coef 2.77 measured (isolated sweep d=200, batch 1000-4000), ceil(2.77*1.15)=3.5 for guard safety"
       X_fit: "iforest.py -- X_fit[idx] temporary during _Tree.build; S*d*f64"
       ef_guard: "expansion_factor=3.0 in derive (matches coef 2.77 rounded up to 3; safety margin via state_upper overestimate ~5x)"
+    min_ram_formula: "n_trees * 2 * subsample_size * 40 + 3.5 * 1 * row_size + subsample_size * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_bounded: actual <= n_trees*2*S*40 AND >= 10% of upper (actual ~20-25% of upper; Python int cache)"
@@ -1637,6 +1688,9 @@ subtypes:
       znorm_and_ref: "matrix_profile.py:28-33,140 -- out + X-mu + abs + ref"
       meta_arrays: "matrix_profile.py:142-144 -- prof, idx, sq"
       assumes: "S <= 15625 (block=256) and n >= S + w - 1"
+    min_ram_formula: "S * f64 * (771 + 5 * w) + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     streaming_strategy:
       fit: 'windows + distance profile per query, reduce min.'
       predict: 'per-batch distance to nearest neighbor.'
@@ -1650,6 +1704,9 @@ subtypes:
       is_anomaly: "dwt_mlead.py -- is_anomaly = anomaly_counts >= min_consistency = (n,) bool = n*bool"
       level_counts: "dwt_mlead.py -- level_counts = np.zeros(max_level, i64) = max_level*i64"
       header: "dwt_mlead.py -- 4 scalars collapsed (8) + dataclass header 256 = 264"
+    min_ram_formula: "n * f64 + n * bool + max_level * i64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized (n=500/2000/5000)"
@@ -1727,6 +1784,9 @@ subtypes:
       components: "sub_pca.py -- components (n_components, window_size) f64"
       mean: "sub_pca.py -- mean_w (window_size,) f64"
       header: "sub_pca.py -- threshold 8 + dataclass header 256 = 264"
+    min_ram_formula: "2 * n * f64 + n_components * window_size * f64 + window_size * f64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
@@ -1804,6 +1864,9 @@ subtypes:
       labels: "kshape.py -- labels = (decision_scores > threshold).astype(int) = (n,) i64 (n*f64 size)"
       centroids: "kshape.py -- centroids = (k, w) f64 = k*w*f64"
       header: "kshape.py -- threshold 8 + dataclass header 256 = 264"
+    min_ram_formula: "2 * n * f64 + k * w * f64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 (n,k,w) parametrized"
@@ -1901,6 +1964,9 @@ subtypes:
       header: "eif.py -- EIFResult: scalar fields +256"
       forest_not_included: "eif.py -- _EIFForest: n_estimators*psi Python objects, ~O(model) not O(n); excluded from state_nbytes (honest separate from output)"
       batch_input: "eif.py -- chunked fit via _iter_window_chunks_eif; peak O(chunk*d) + n_estimators*psi*d (fixed forest gather)"
+    min_ram_formula: "3 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact via EIFResult.state_nbytes()"
@@ -1960,6 +2026,9 @@ subtypes:
       decision_scores: "hampel.py -- HampelResult.decision_scores = (n,) f64 = n*f64"
       labels: "hampel.py -- labels = (scores > threshold).astype(int) = (n,) i64 (n*f64 size)"
       header: "hampel.py -- threshold 8 + dataclass header 256 = 264"
+    min_ram_formula: "2 * n * f64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
@@ -2054,6 +2123,9 @@ subtypes:
       batch_chunk: "zms.py -- _resolve_chunk_nw_zms chunk*w*f64*2"
       batch_scores: "zms.py -- scores = |x-mu|/sigma, 3*chunk*f64"
       header: "zms.py -- +256 constant"
+    min_ram_formula: "3 * 1 * row_size + 2 * w * f64 + 3 * 1 * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       bit_identical: "test_bit_identical_df_vs_legacy"
@@ -2157,6 +2229,9 @@ subtypes:
       kth_nn_transient: "stray.py _kth_nn_distances: chunk_size * n * 8 per chunk (max_mb bounded); not state"
       header: "stray.py: +256 header"
       fit_guard: "stray.py fit_stray: est_bytes = 8*n*d*min(n, 4*k); explicit MemoryLimitExceeded if > max_mb"
+    min_ram_formula: "2 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: 2n*8 + 256, parametrized n"
@@ -2187,6 +2262,9 @@ subtypes:
       encoder_weights: "autoencoder.py -- W1+b1+W2+b2, f64"
       decoder_weights: "autoencoder.py -- W3+b3+W4+b4, f64"
       header: "autoencoder.py -- threshold 8 + dataclass header 256 = 264"
+    min_ram_formula: "3 * n * f64 + n_epochs * 32 + (2 * window_size * hidden_size + 2 * hidden_size + 2 * hidden_size * latent_size + window_size + latent_size) * f64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
@@ -2282,6 +2360,9 @@ subtypes:
       centroids: "kmeans_ad.py -- centroids (k,d)*8"
       header: "kmeans_ad.py -- +256 constant"
       batch_input: "kmeans_ad.py -- chunked Lloyd via _iter_window_chunks_km; peak O(chunk*d) plus n_w output arrays"
+    min_ram_formula: "n * f64 * 4 + k * d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact via KMeansADResult.state_nbytes()"
@@ -2343,6 +2424,9 @@ subtypes:
       memory_bank: "pma.py -- memory_bank (n_memory, latent_size) f64"
       encoder_weights: "pma.py -- W1(window_size,hidden)+b1(hidden)+W2(hidden,latent)+b2(latent), all f64"
       header: "pma.py -- threshold 8 + dataclass header 256 = 264"
+    min_ram_formula: "3 * n * f64 + n_epochs * 32 + n_memory * latent_size * f64 + (window_size * hidden_size + hidden_size + hidden_size * latent_size + latent_size) * f64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized (n=300/600/1200)"
@@ -2621,6 +2705,9 @@ subtypes:
       run_length_posterior: "bocpd.py -- BOCPDResult: run_length_posterior (_keep, max_run+1)*f64; default posterior_keep=64 -> ~103KB constant, NOT O(n)"
       header: "bocpd.py -- BOCPDResult: scalars +256"
       not_included: "bocpd.py -- changepoints (sparse np.flatnonzero(labels), subset of labels) + R/mu/beta working arrays (O(max_run) hyperparameter)"
+    min_ram_formula: "3 * n * f64 + posterior_keep * max_run * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact via BOCPDResult.state_nbytes()"
@@ -2671,6 +2758,7 @@ subtypes:
       predict: 'one-step posterior update per new point.'
     primitive_reuse: [reduce]
   - name: PELT
+    min_ram_pending: "legacy bounded_by_domain (DEC-011); refactor to bounded_by_window (max_window='auto', DEC-067) in v0.9.179. G14 skips with this marker."
     tier: sota
     tier_level: tier1_core
     implementation_status:
@@ -2776,6 +2864,9 @@ subtypes:
       header: "tspq.py: +256 header"
       chunked_fit: "tspq.py:270-290 _iter_window_chunks_tspq; est_bytes = chunk*d*8*3 + 2*n_s*8 + d*d*8*3"
       output_guard: "tspq.py v0.9.140: check_state(4*n*8, name='tspq.output') before post-aggregation arrays"
+    min_ram_formula: "4 * n * f64 + k * d * f64 + k * f64 + d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: 4n*8 + k*d*8 + k*8 + d*8 + 256, parametrized n"
@@ -2823,6 +2914,9 @@ subtypes:
       batch_scores: "cusum.py -- scores_b (nb,) + z_b (nb,) per batch (transient)"
       state_constant: "cusum.py -- s_pos_cur, s_neg_cur, Welford (n, mean, M2), total 64B"
       header: "cusum.py -- +256 constant"
+    min_ram_formula: "3 * 1 * row_size + 2 * 1 * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       output_ooc: "output=\"disk\" forces immediate spill (SpillArray spill_ratio=0.0); peak ratio < 2.0 at fixed batch (v0.9.173 S2f-1; CUSUM is reference impl)."
       verification_mode: "component-wise (DEC-033)"
@@ -2985,6 +3079,9 @@ subtypes:
       batch_chunk: "zms.py -- _resolve_chunk_nw_zms chunk*w*f64*2"
       batch_scores: "zms.py -- scores = |x-mu|/sigma, 3*chunk*f64"
       header: "zms.py -- +256 constant"
+    min_ram_formula: "3 * 1 * row_size + 2 * w * f64 + 3 * 1 * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       bit_identical: "test_bit_identical_df_vs_legacy"
@@ -3087,6 +3184,9 @@ subtypes:
       znorm_and_ref: "matrix_profile.py:28-33,140 -- out + X-mu + abs + ref"
       meta_arrays: "matrix_profile.py:142-144 -- prof, idx, sq"
       assumes: "S <= 15625 (block=256) and n >= S + w - 1"
+    min_ram_formula: "S * f64 * (771 + 5 * w) + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     streaming_strategy:
       fit: 'windows + distance profile per query.'
       predict: 'top-k discord scores per batch.'
@@ -3118,6 +3218,9 @@ subtypes:
     formula_evidence:
       per_kernel: "minirocket.py:84-85 -- state_nbytes: len(kernels_)*(KERNEL_LEN*8+8)+1024; KERNEL_LEN=9 at line 37"
       header: "minirocket.py:85 -- +1024 constant"
+    min_ram_formula: "num_kernels * (9*f64 + f64) + 1024"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: num_kernels*(9*8+8)+1024, bit-exact"
@@ -3181,6 +3284,9 @@ subtypes:
       header: "eif.py -- EIFResult: scalar fields +256"
       forest_not_included: "eif.py -- _EIFForest: n_estimators*psi Python objects, ~O(model) not O(n); excluded from state_nbytes (honest separate from output)"
       batch_input: "eif.py -- chunked fit via _iter_window_chunks_eif; peak O(chunk*d) + n_estimators*psi*d (fixed forest gather)"
+    min_ram_formula: "3 * n * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact via EIFResult.state_nbytes()"
@@ -3251,6 +3357,9 @@ subtypes:
       components: "sub_pca.py -- components (n_components, window_size) f64"
       mean: "sub_pca.py -- mean_w (window_size,) f64"
       header: "sub_pca.py -- threshold 8 + dataclass header 256 = 264"
+    min_ram_formula: "2 * n * f64 + n_components * window_size * f64 + window_size * f64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
@@ -3360,6 +3469,9 @@ subtypes:
       centroids: "kmeans_ad.py -- centroids (k,d)*8"
       header: "kmeans_ad.py -- +256 constant"
       batch_input: "kmeans_ad.py -- chunked Lloyd via _iter_window_chunks_km; peak O(chunk*d) plus n_w output arrays"
+    min_ram_formula: "n * f64 * 4 + k * d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact via KMeansADResult.state_nbytes()"
@@ -3431,6 +3543,9 @@ subtypes:
       encoder_weights: "autoencoder.py -- W1+b1+W2+b2, f64"
       decoder_weights: "autoencoder.py -- W3+b3+W4+b4, f64"
       header: "autoencoder.py -- threshold 8 + dataclass header 256 = 264"
+    min_ram_formula: "3 * n * f64 + n_epochs * 32 + (2 * window_size * hidden_size + 2 * hidden_size + 2 * hidden_size * latent_size + window_size + latent_size) * f64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
@@ -3525,6 +3640,9 @@ subtypes:
       transition_matrix: "s2g.py -- W = (n_nodes, n_nodes) f64"
       degrees: "s2g.py -- deg = (n_nodes,) f64"
       header: "s2g.py -- threshold 8 + dataclass header 256 = 264"
+    min_ram_formula: "5 * n * f64 + n_nodes * n_nodes * f64 + n_nodes * f64 + 264"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 n parametrized"
@@ -3748,6 +3866,9 @@ subtypes:
     formula_evidence:
       per_kernel: "minirocket.py:84-85 -- state_nbytes: len(kernels_)*(KERNEL_LEN*8+8)+1024; KERNEL_LEN=9 at line 37"
       header: "minirocket.py:85 -- +1024 constant"
+    min_ram_formula: "num_kernels * (9*f64 + f64) + 1024"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: num_kernels*(9*8+8)+1024, bit-exact"
@@ -3952,6 +4073,9 @@ subtypes:
       detect_concat: "pelt.py _collect_series: np.concatenate(vals) = n*f64 transient (single-series)"
       detect_dp: "pelt.py pelt(): DP array over n (intrinsic; refuse_at_guard via check_state n*8)"
       fit_guard: "pelt.py fit_pelt: _collect_series pre-pass check_batch/check_state; n=1e6 + tight -> MLE"
+    min_ram_formula: "256 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033, container + detect)"
       state_check: "test_state_nbytes_exact: 256 always (validation-only container)"

@@ -61,6 +61,9 @@ subtypes:
       tree_nodes: "lambdamart.py:588-598 -- state_nbytes: n_nodes * 96 + n_features * 4096 (exact node byte count)"
       node_byte: "96 B/node -- CPython _Node object with left/right/feat/thr/leaf (5 fields + header)"
       feature_cache: "n_features * 4096 -- per-feature binning scratch (mn_/mx_/range_ + bins)"
+    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 96 + d * f64 * 512 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"

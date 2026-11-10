@@ -32,6 +32,9 @@ subtypes:
       vocab_str: "tfidf.py -- each str: py_str_overhead_bytes + avg_word_len (upper bound 24)"
       index_dict: "tfidf.py -- _index = dict[str, int], V entries = d*dict_entry_bytes"
       header: "tfidf.py -- params_ dict + fitted_ + Python obj header = 512"
+    min_ram_formula: "d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact vs formula (V parametrized)"
@@ -134,6 +137,9 @@ subtypes:
       classes: "cadw/ml/complement_nb.py -- ComplementNBModel.classes_: (C,) int64"
       header: "cadw/ml/complement_nb.py -- _HEADER_BYTES=256"
       batch_term: "cadw/ml/complement_nb.py -- _CNBStatsOp.update: 3 to_numpy + linear idx + 2 masked copies"
+    min_ram_formula: "n_classes * vocab_size * f64 + 3 * n_classes * f64 + 256 + 4.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 4 (C,V) parametrized"
@@ -295,6 +301,9 @@ subtypes:
       L_def: "L = min(d, n_components + n_oversamples); formula assumes d >= k+p"
       derive_batch: "randsvd.py -- get_batch_rows(ef=3.0, state_est=5*d*L*8 + L^2*8)"
       measurement: "v0.9.109c sweep: coef=3.000, d-sweep ratios 0.97-1.12, OOC ratio 1.00"
+    min_ram_formula: "3 * 1 * row_size + 5 * d * (n_components + n_oversamples) * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -454,6 +463,9 @@ subtypes:
       vocab_str: "lda.py -- each str: py_str_overhead_bytes + avg_word_len (upper bound 24)"
       index_dict: "lda.py -- _index = dict[str, int], V entries = d*dict_entry_bytes"
       header: "lda.py -- params_ dict + fitted_ + Python object header = 512"
+    min_ram_formula: "k * d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact vs formula (k, V) parametrized"
@@ -559,6 +571,9 @@ subtypes:
       header: "cadw/ml/nmf.py -- NMFModel.state_nbytes(): +128"
       dense_X: "cadw/ml/nmf.py -- _coo_to_dense: np.zeros((n_docs, V)); n_docs <= batch"
       arrow: "cadw/ml/nmf.py -- batch read: 3 x i64 (doc,term,cnt) + mask"
+    min_ram_formula: "k * vocab_size * f64 + 128 + 1 * vocab_size * f64 + 4 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 4 (k,V) parametrized"

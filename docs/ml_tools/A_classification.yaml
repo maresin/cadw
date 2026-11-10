@@ -93,6 +93,9 @@ subtypes:
       minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2 * d * f64"
       header: "gbdt.py:_STATE_HEADER_BYTES=256"
       state_nbytes: "gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree"
+    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
       verification_mode: "component-wise (DEC-033)"
@@ -237,6 +240,9 @@ subtypes:
       batch_term: "naive_bayes.py:_MultinomialStatsOp.update -- X + X[valid]; a=2.0 (iter-3 A2)"
       state_term: "state 8+8d per class; finalize 2*C*d*f64 (n_c, feature_sum)"
       guard: "naive_bayes.py:_MultinomialStatsOp.batch_memory_factor = 3.0"
+    min_ram_formula: "2 * 1 * row_size + 2 * C * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
@@ -341,6 +347,9 @@ subtypes:
       batch_term: "same (multiclass, d=C*(len+1)); a=3.05"
       state_term: "b=3.97 (state per class multiplied by C)"
       guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
+    min_ram_formula: "2 * 1 * row_size + 4 * d * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -362,6 +371,9 @@ subtypes:
       minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
       header: "gbdt.py:_STATE_HEADER_BYTES=256 + K*8 base_prediction"
       state_nbytes: "gbdt.py:GBDTMulticlassClassifier.state_nbytes -- _trees_nbytes + base_pred"
+    min_ram_formula: "n_estimators * n_classes * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + n_classes * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
       verification_mode: "component-wise (DEC-033)"
@@ -637,6 +649,9 @@ subtypes:
       batch_term: "same as fit_linear (routes to XTXOp); a=1.92"
       state_term: "same XTXOp; iter-2 D confirms l1==closed"
       guard: "linear.py:XTXOp.batch_memory_factor = 3.0"
+    min_ram_formula: "2 * 1 * row_size + 2 * d * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -689,6 +704,9 @@ subtypes:
       batch_term: "same as fit_linear (XTXOp); a=1.92"
       state_term: "same XTXOp; iter-2 D confirms l1==closed"
       guard: "linear.py:XTXOp.batch_memory_factor = 3.0"
+    min_ram_formula: "2 * 1 * row_size + 2 * d * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "delegated to fit_linear (v0.9.107 verified)"
       reference: "test_elasticnet_l1_ratio_0_equals_ridge + test_elasticnet_l1_ratio_1_equals_lasso (test_linear_lasso.py)"
@@ -715,6 +733,9 @@ subtypes:
       minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
       header: "gbdt.py:_STATE_HEADER_BYTES=256"
       state_nbytes: "gbdt.py:GBDTRegressor.state_nbytes -- _deep_nbytes per tree"
+    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
       verification_mode: "component-wise (DEC-033)"
@@ -841,6 +862,9 @@ subtypes:
     formula_evidence:
       per_estimator: "chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64"
       header: "chains.py -- label_cols list + feature_cols list + params dict = 512"
+    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       subsample_note: "Subsample cap 20000 rows (S2b-2a); state = sum(GBDT trees) + d."
       verification_mode: "component-wise (DEC-033)"
@@ -898,6 +922,9 @@ subtypes:
     formula_evidence:
       per_estimator: "chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64"
       header: "chains.py -- label_cols list + feature_cols list + params dict = 512"
+    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       subsample_note: "Subsample cap 20000 rows (S2b-2a); state = sum(GBDT trees) + d."
       verification_mode: "component-wise (DEC-033)"
@@ -1005,6 +1032,9 @@ subtypes:
       beta: "ordinal.py -- OrdinalLogitModel.beta_ = (d,) f64 = d*f64"
       theta: "ordinal.py -- OrdinalLogitModel.theta_ = (K-1,) f64 = (K-1)*f64"
       header: "ordinal.py -- classes_ ndarray + feature_cols list + params dict = 256"
+    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       subsample_note: "Subsample cap 20000 rows (S2b-2a); state = beta(d) + theta(K-1) + 512."
       verification_mode: "component-wise (DEC-033)"
@@ -1171,6 +1201,9 @@ subtypes:
       batch_term: "same (class_weight); a=3.05"
       state_term: "b=3.97"
       guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
+    min_ram_formula: "2 * 1 * row_size + 4 * d * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -1192,6 +1225,9 @@ subtypes:
       minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
       header: "gbdt.py:_STATE_HEADER_BYTES=256"
       state_nbytes: "gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree"
+    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
       verification_mode: "component-wise (DEC-033)"

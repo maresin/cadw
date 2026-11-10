@@ -56,6 +56,9 @@ subtypes:
           em_mstep_temp: "gmm.py -- M-step: diff = X - means[j]; r[:,j:j+1]*diff*diff -> 4*S*d*f64 (diff + 3 intermediates)"
           coef_batch: "gmm.py -- fit loop: arrays list + np.column_stack; 2 physical copies of row_size. Measured 1.73-2.0 (first-batch allocator reuse biases slope low)."
           ef_guard: "expansion_factor=3.0 = ceil(2.0*1.15) per AP23 round-up"
+        min_ram_formula: "k * (1 + 2 * d) * f64 + 5 * max_samples * d * f64 + 2.0 * 1 * row_size + 256"
+        min_ram_evidence:
+          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
         measurement:
           verification_mode: "component-wise (DEC-033)"
           state_check: "test_state_nbytes_exact: k*(1+2d)*8, (K,d) in {(2,10),(3,50),(5,100),(3,200)}"
@@ -93,6 +96,9 @@ subtypes:
           centers: "cadw/ml/kernel_density.py -- _reservoir_k: np.empty((K, d)) f64"
           header: "cadw/ml/kernel_density.py -- _HEADER_BYTES=128 (RAM) / 256 (spilled)"
           batch_term: "cadw/ml/kernel_density.py -- _reservoir_k: column_stack + mask + rng probs"
+        min_ram_formula: "n_centers * d * f64 + 128 + 4.0 * 1 * row_size"
+        min_ram_evidence:
+          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
         measurement:
           verification_mode: "component-wise (DEC-033)"
           state_check: "test_state_nbytes_exact: bit-exact, 4 (K,d) parametrized"
@@ -137,6 +143,12 @@ subtypes:
         depends_on: []
 
         ram_formula: "branching_factor * ((2*d+1)*f64 + 32) + k*d*f64 + 512 + 3*batch*row_size"
+
+        min_ram_formula: "branching_factor * ((2*d+1)*f64 + 32) + k*d*f64 + 512 + 3*1*row_size"
+
+        min_ram_evidence:
+
+          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
         formula_evidence:
           per_cf: "birch.py:104 -- state_nbytes: cf_count * ((2d+1)*8 + 32); cf_count <= branching_factor by split policy"
           centers: "birch.py:105 -- centers_.nbytes = k*d*8 (k=min(n_clusters, cf_count))"

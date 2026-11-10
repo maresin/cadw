@@ -385,6 +385,9 @@ subtypes:
       header: "cadw/ml/one_hot_encoder.py -- _HEADER_BYTES=256"
       transform: "cadw/ml/one_hot_encoder.py -- transform_batches: np.zeros((n, total)) f64"
       batch_term: "cadw/ml/one_hot_encoder.py -- to_pylist per cat col + per-row dict lookup"
+    min_ram_formula: "total_categories * 200 + n_cats_cols * 128 + 256 + 1 * total_categories * f64 + 4.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: sys.getsizeof-based, categories exact"
@@ -561,6 +564,9 @@ subtypes:
     formula_evidence:
       source: "feature_select.py:38-50 -- _collect: Xs/ys append (AP2), mg.check_state(n*(d*8+8)) per batch"
       state: "feature_select.py:139-140 -- FeatureSelectorModel.state_nbytes: scores_.nbytes + 512"
+    min_ram_formula: "d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact"
@@ -640,6 +646,9 @@ subtypes:
     formula_evidence:
       source: "feature_select.py:38-50 -- _collect (AP2) + _variance_selector (numpy var axis=0)"
       state: "feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512"
+    min_ram_formula: "d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "bounded_by_domain (DEC-011)"
       state_check: "test_*_state_formula_exact"
@@ -695,6 +704,9 @@ subtypes:
     formula_evidence:
       source: "feature_select.py:38-50 -- _collect (AP2) + _boruta_selector: Xa = hstack(X, shadows) 2d, GBDT fit"
       state: "feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512"
+    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       subsample_note: "v0.9.174 S2b-2b: subsample cap 20000 rows (precedent S2b-2a chains/meta/uplift). Boruta iter loop needs full X|shadows in RAM; HStack per iter 2*d*n. Cap fixes OOC."
       verification_mode: "bounded_by_domain (DEC-011)"
@@ -879,6 +891,9 @@ subtypes:
       params: "cadw/ml/stratified_split.py -- StratifiedSplitModel: 3 dataclass fields"
       header: "cadw/ml/stratified_split.py -- _HEADER_BYTES=128"
       batch_term: "cadw/cv.py -- KFold.split: per-batch filter(_iter_filtered_batches) + splitmix64"
+    min_ram_formula: "128 + 4.0 * 1 * row_size + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 (n_splits) parametrized"
@@ -939,6 +954,9 @@ subtypes:
       sample: "cadw/ops/sampling.py -- reservoir_sample: np.empty((k, d)) f64"
       header: "cadw/ml/reservoir_sample.py -- ReservoirSampleModel.state_nbytes(): +256"
       batch_term: "cadw/ops/sampling.py -- reservoir_sample: column_stack + mask + rng draws"
+    min_ram_formula: "k * d * f64 + 256 + 4.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: bit-exact, 3 (k,d,n) parametrized"
@@ -1437,6 +1455,9 @@ subtypes:
     formula_evidence:
       source: "drift.py:127-129 -- DriftABModel(kind='drift', config); state_nbytes() = 256"
       state: "drift.py:DriftABModel.state_nbytes -- kind='drift' -> return 256"
+    min_ram_formula: "256 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_*_state_formula_exact"
@@ -1650,6 +1671,9 @@ subtypes:
       state_per_arm: "drift.py:237 — _ArmStatsOp.state_nbytes: 3*f64 + 6*dict_entry_bytes per arm"
       state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
       num_arms: "drift.py:155 — arms_=2 (binary treatment)"
+    min_ram_formula: "2 * (3 * f64 + 6 * dict_entry_bytes) + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact (t): 1696 bit-exact"
@@ -1721,6 +1745,9 @@ subtypes:
       rank_scan_state: "drift.py:352-355 — _mann_whitney_ooc: r0,r1,n0,n1,rank_pos,cur_val = 5*f64"
       state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
       note_old: "prior draft said [reduce, external_sort]; mw uses ONLY external_sort"
+    min_ram_formula: "5 * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact (mw): 296 bit-exact"
@@ -1782,6 +1809,9 @@ subtypes:
       state_per_arm: "drift.py:290 — _CupedStatsOp.state_nbytes: 6*f64 + 6*dict_entry_bytes per arm"
       state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
       num_arms: "drift.py:155 — arms_=2 (binary treatment)"
+    min_ram_formula: "2 * (6 * f64 + 6 * dict_entry_bytes) + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact (cuped): 1744 bit-exact"

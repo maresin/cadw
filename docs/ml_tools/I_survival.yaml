@@ -95,6 +95,9 @@ subtypes:
       info_matrix: "coxph.py -- info (d,d) + S2 (d,d) transient during Newton, O(d^2)"
       batch_input: "coxph.py -- fit_coxph pre-pass + _checked_iter: check_batch(extra_factor=3.0)"
       header: "coxph.py -- +256 constant"
+    min_ram_formula: "d*d*f64 + n_events*2*f64 + 2*d*d*f64 + 3*1*row_size + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: coef + cov + baseline_t + baseline_h + 256"
@@ -147,6 +150,9 @@ subtypes:
       cap: "cadw/ml/kaplan_meier.py -- cap = max(1024, state_limit_bytes // 40)"
       header: "cadw/ml/kaplan_meier.py -- KaplanMeierModel.state_nbytes(): +128 (RAM) / +256 (spilled)"
       batch_term: "cadw/ml/kaplan_meier.py -- external_sort read batch + 2 to_numpy + mask"
+    min_ram_formula: "5 * n_unique * f64 + 128 + 4.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_km_state_nbytes_exact: bit-exact, 3 (n,n_unique) parametrized"
@@ -208,6 +214,9 @@ subtypes:
       header: "cadw/ml/weibull_aft.py -- _HEADER_BYTES=128"
       model_beta: "cadw/ml/weibull_aft.py -- WeibullAFTModel.state_nbytes(): d*8 + 8 + 128"
       batch_term: "cadw/ml/weibull_aft.py -- _AFTStatsOp.update: X column_stack + t + e + logt + X.T@logt"
+    min_ram_formula: "d * d * f64 + 3 * d * f64 + 128 + 4.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_waft_state_nbytes_exact: bit-exact, 4 (d) parametrized"

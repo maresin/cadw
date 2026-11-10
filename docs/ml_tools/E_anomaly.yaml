@@ -110,6 +110,9 @@ subtypes:
       batch_term: "iforest.py -- fit loop: arrays list + np.column_stack + X_b[mask] per batch; coef 2.77 measured (isolated sweep d=200, batch 1000-4000), ceil(2.77*1.15)=3.5 for guard safety"
       X_fit: "iforest.py -- X_fit[idx] temporary during _Tree.build; S*d*f64"
       ef_guard: "expansion_factor=3.0 in derive (matches coef 2.77 rounded up to 3; safety margin via state_upper overestimate ~5x)"
+    min_ram_formula: "n_trees * 2 * subsample_size * 40 + 3.5 * 1 * row_size + subsample_size * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_bounded: actual <= n_trees*2*S*40 AND >= 10% of upper (actual ~20-25% of upper; Python int cache)"
@@ -242,6 +245,9 @@ subtypes:
       batch_term: "same (anomaly class-weighted); a=3.05"
       state_term: "b=3.97"
       guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
+    min_ram_formula: "2 * 1 * row_size + 4 * d * d * f64 + 512"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
@@ -263,6 +269,9 @@ subtypes:
       minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
       header: "gbdt.py:_STATE_HEADER_BYTES=256"
       state_nbytes: "gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree"
+    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
       verification_mode: "component-wise (DEC-033)"

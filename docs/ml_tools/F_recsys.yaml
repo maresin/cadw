@@ -76,6 +76,9 @@ subtypes:
       index_lists_and_dicts: "als.py:47-50 -- user_index_ + item_index_ (lists) + _u_pos + _i_pos (dicts), v0.9.112 extension"
       header: "als.py -- +256 constant (v0.9.112 extension)"
       batch: "als.py:120, 174 -- check_batch(b, extra_factor=8.0); batch_size kwarg propagates at v0.9.112"
+    min_ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*1*row_size + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: (U+I)*k*8 + (U+I)*(dict_b+str_b) + 256"
@@ -197,6 +200,9 @@ subtypes:
       index_lists_and_dicts: "als.py:47-50 -- user_index_ + item_index_ (lists) + _u_pos + _i_pos (dicts), v0.9.112 extension"
       header: "als.py -- +256 constant (v0.9.112 extension)"
       batch: "als.py:120, 174 -- check_batch(b, extra_factor=8.0); batch_size kwarg propagates at v0.9.112"
+    min_ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*1*row_size + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_state_nbytes_exact: (U+I)*k*8 + (U+I)*(dict_b+str_b) + 256"
@@ -257,6 +263,9 @@ subtypes:
       state_nbytes: "hybrid_mf.py:74-75 -- state_nbytes: base_.state_nbytes() + B_.nbytes + C_.nbytes"
       breakdown: "als.py:ALSModel.state_nbytes -- U*K*f64 + I*K*f64 + K*K*f64 + 256"
       B_C: "hybrid_mf.py:fit -- B = solve(C^T C + ridge I, C^T Y); C = content_matrix(I, F); B.shape=(F, K)"
+    min_ram_formula: "(n_users + n_items) * n_factors * f64 + n_factors * n_factors * f64 + n_items * n_content * f64 + n_content * n_factors * f64 + 256"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       verification_mode: "component-wise (DEC-033)"
       state_check: "test_*_state_bounded: actual > 0"

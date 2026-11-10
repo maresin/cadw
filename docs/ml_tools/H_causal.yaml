@@ -61,6 +61,9 @@ subtypes:
       fit_transient: "meta_learners.py _collect: Xs.append + np.vstack (AP2); n*d*f64 peak, backlog v0.9.142"
       collect_guard: "meta_learners.py _collect: check_batch(extra_factor=2.0) + check_state(n*(d*8+16)) per batch"
       fit_guard: "meta_learners.py fit_meta_learner: check_state via _collect"
+    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       subsample_note: "Subsample cap 20000 rows (S2b-2a); state = 2×GBDT + propensity(d)."
       verification_mode: "component-wise (DEC-033)"
@@ -123,6 +126,9 @@ subtypes:
       header: "meta_learners.py: +1024"
       fit_transient: "meta_learners.py _collect: Xs.append + np.vstack (AP2); n*(d+1)*f64 peak (treatment as feature); backlog v0.9.142"
       collect_guard: "meta_learners.py _collect: check_batch(extra_factor=2.0) + check_state(n*(d*8+16)) per batch"
+    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       subsample_note: "Subsample cap 20000 rows (S2b-2a); state = GBDT + propensity(d)."
       verification_mode: "component-wise (DEC-033)"
@@ -230,6 +236,9 @@ subtypes:
       state_nbytes: "uplift.py:371-372 -- _TLearnerShim.state_nbytes: m1_.state_nbytes() + m0_.state_nbytes()"
       breakdown: "uplift.py:_fit_uplift_two_model -- 2 separate fit_gbdt_classifier calls (arm=1.0, arm=0.0)"
       B_C: ""
+    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       subsample_note: "Subsample cap 20000 rows (S2b-2a); state = 2×GBDT trees + 256."
       verification_mode: "component-wise (DEC-033)"
@@ -286,6 +295,9 @@ subtypes:
       state_nbytes: "uplift.py:219-220 -- UpliftModel.state_nbytes: sum(tr.state_nbytes()) + 1024"
       breakdown: "uplift.py:_CausalTree -- honest leaf: separate train/holdout split; state = tree nodes"
       B_C: ""
+    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+    min_ram_evidence:
+      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
       subsample_note: "Subsample cap 20000 rows (S2b-2a); state = sum(causal trees) + 1024."
       verification_mode: "component-wise (DEC-033)"

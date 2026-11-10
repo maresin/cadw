@@ -84,6 +84,9 @@ subtypes:
           model_centers: "minibatch.py:73 -- centers_ (k,d); k*d*f64"
           model_counts: "minibatch.py:74 -- counts_ (k,); k*f64"
           header: "minibatch.py -- MiniBatchKMeansModel header; 256"
+        min_ram_formula: "3 * 1 * row_size + 10 * 1 * (d * f64 + f64) + k * d * f64 + k * f64 + 256"
+        min_ram_evidence:
+          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
         measurement:
           status: "pending (v0.9.124)"
           note: "Formula from code (AP23); reservoir (10*batch) dominates at small k."

@@ -4693,6 +4693,23 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.177] — 2026-11-10 (min_ram_formula rollout + G14)
+
+### v0.9.177 (2026-11-10) — bottom-bound migration
+
+- ModelCard: ram_formula, min_ram_formula, min_ram_evidence,
+  formula_evidence formalized (were YAML-only); + new field
+  min_ram_pending (declarative exemption from G14).
+- scripts/migrate_min_ram.py: batch->1 + auto +512 header.
+  --dry-run / --pilot / --all / --section. Position-based
+  block scan (handles duplicate-name cards).
+- 97/98 verified cards migrated. 1 pending: PELT D3.2 (legacy
+  bounded_by_domain; refactor to bounded_by_window v0.9.179).
+- G14 enforced: verified + ram_formula => min_ram_formula
+  required, unless min_ram_pending set.
+- Enables R2 (AI_CONSTITUTION §4.0): budget < min_ram(best_variant)
+  -> honest refuse with options; budget >= min_ram -> auto-switch.
+
 ## [0.9.176] — 2026-11-10 (infrastructure: core + schema + cards)
 
 ### v0.9.176 (2026-11-10) — infrastructure wave (DEC-067/068/069)

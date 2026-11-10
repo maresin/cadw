@@ -165,6 +165,7 @@ class ModelCard:
     ram_formula: str | None = None
     min_ram_formula: str | None = None
     min_ram_evidence: dict[str, str] | None = None
+    min_ram_pending: str | None = None
     formula_evidence: dict[str, str] | None = None
     # v0.9.103 (DEC-011): structured replacement for tier1_core_exception
     # text field. {axis: str, bound: int, reason: str}. When present,
@@ -368,6 +369,7 @@ def _parse_model(m: dict) -> ModelCard:
         ram_formula=m.get("ram_formula"),
         min_ram_formula=m.get("min_ram_formula"),
         min_ram_evidence=m.get("min_ram_evidence"),
+        min_ram_pending=m.get("min_ram_pending"),
         formula_evidence=m.get("formula_evidence"),
         bounded_by_domain=m.get("bounded_by_domain"),
         bounded_by_window=m.get("bounded_by_window"),
@@ -652,6 +654,16 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
         if m.implementation_status.verified_in_cadw:
             err(f"{m_label}: reference_impl_ready and verified_in_cadw "
                 f"are mutually exclusive")
+    # v0.9.177 (DEC-067, G14): verified + ram_formula => min_ram_formula.
+    # Skips: min_ram_pending marker set (refactor deferred).
+    if (m.implementation_status.status == "verified"
+            and m.ram_formula
+            and not m.min_ram_formula
+            and not m.min_ram_pending):
+        err(f"{m_label}: verified + ram_formula present requires "
+            f"min_ram_formula (v0.9.177 G14). Run migrate_min_ram.py "
+            f"--pilot {m.name}, or set # min_ram_pending: <reason>.")
+
     # METHODOLOGY §10 / DEC-011: tier1_core + bounded_state:false
     # requires EITHER tier1_core_exception (legacy text) OR
     # bounded_by_domain (structured, preferred).
