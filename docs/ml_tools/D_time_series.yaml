@@ -2609,9 +2609,8 @@ subtypes:
     tier: baseline
     tier_level: tier1_core
     implementation_status:
+      status: verified
       verified_in_cadw: true
-      status: draft
-      draft_reason: "external cumsum not done; intrinsic O(n); v0.9.105"
       verified_by_agent: false
       described_only: false
     roles:
@@ -2623,11 +2622,11 @@ subtypes:
       n_bkps: int
     cadw_module: cadw.ml.binseg
     cadw_function: fit_binseg
+    migration_target: v0.9.185
     input_api: series
     fit_batched: false
     predict_batched: false
     depends_on: []
-    migration_target: v0.9.116
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -2661,14 +2660,19 @@ subtypes:
     evaluation_scope: synthetic
     dgp_source: synthetic_alternating_mean_shifts
     state_class: O(n)
+    ram_formula: "5 * n * f64 + 512"
     bounded_state_dims: {n: 1}
+    min_ram_formula: "5 * 2 * min_size * f64 + 512"
     transient_factor: 3.0
     state_type: iterative
     bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "5*n*f64 (x + cs + cs2 + scores + labels); streaming+SpillArray refactor v0.9.185+ (wave 5 anomaly-output)"
     n_scalability: linear
-    tier1_core_exception: 'DP-based changepoint: DP array is O(n). n<=1e6 typical.'
     streaming_strategy:
-      fit: 'DP array over n positions.'
+      fit: 'series input (caller materializes np.ndarray); streaming fit_binseg_streaming v0.9.185+ (wave 5 anomaly-output)'
       predict: 'report changepoint positions.'
     primitive_reuse: []
   - name: BOCPD
@@ -3968,9 +3972,8 @@ subtypes:
     tier: baseline
     tier_level: tier1_core
     implementation_status:
+      status: verified
       verified_in_cadw: true
-      status: draft
-      draft_reason: "external cumsum not done; intrinsic O(n); v0.9.105"
       verified_by_agent: false
       described_only: false
     roles:
@@ -3982,11 +3985,11 @@ subtypes:
       n_bkps: int
     cadw_module: cadw.ml.binseg
     cadw_function: fit_binseg
+    migration_target: v0.9.185
     input_api: series
     fit_batched: false
     predict_batched: false
     depends_on: []
-    migration_target: v0.9.116
     benchmark_results:
     - benchmark: UCR_Anomaly
       benchmark_url: https://www.cs.ucr.edu/~eamonn/time_series_data_2018/
@@ -4020,15 +4023,20 @@ subtypes:
     evaluation_scope: synthetic
     dgp_source: synthetic_alternating_mean_shifts
     state_class: O(n)
+    ram_formula: "5 * n * f64 + 512"
     bounded_state_dims: {n: 1}
+    min_ram_formula: "5 * 2 * min_size * f64 + 512"
     transient_factor: 1.0
     state_type: iterative
     bounded_state: false
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: "5*n*f64 (x + cs + cs2 + scores + labels); streaming+SpillArray refactor v0.9.185+ (wave 5 anomaly-output)"
     n_scalability: linear
-    tier1_core_exception: 'DP-based segmentation: DP array is O(n). n<=1e6 typical.'
     streaming_strategy:
-      fit: 'DP over n.'
-      predict: 'report positions.'
+      fit: 'series input (caller materializes np.ndarray); streaming fit_binseg_streaming v0.9.185+ (wave 5 anomaly-output)'
+      predict: 'report changepoint positions.'
     primitive_reuse: []
   - name: PELT
     tier: sota

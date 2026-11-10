@@ -4693,6 +4693,34 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.181] — 2026-11-10 (Wave 1: binseg cumsum fix + honest)
+
+### v0.9.181 — binseg O(n²)→O(n·n_bkps) + honest bounds
+
+- cadw/ml/binseg.py:
+  - **Real bug fix**: `_best_split(x[lo:hi])` recomputed
+    `np.cumsum(x[lo:hi])` per segment per iteration (O(n²)
+    time, O(n·n_bkps) transient). Now global cs/cs2 computed
+    ONCE; `_best_split_from_cs(cs, cs2, lo, hi, min_size)`
+    O(1)-per-query. Bit-identical output.
+  - Explicit two-path guard: MemoryGuard.check_state(5*n*8)
+    (x+cs+cs2+scores+labels), duck-typed fallback for fake MB.
+  - `_best_split()` kept as legacy wrapper (bit-identical).
+- YAML D3.2 + D5 BinarySegmentation:
+  - Removed false `tier1_core_exception: 'DP-based...'`
+    (binseg is greedy recursive, not DP).
+  - Dedupe duplicate `status:` (was: verified + draft).
+  - bounded_by_domain {n: 1e6} honest (5*n*f64 state).
+  - ram_formula '5*n*f64+512' + min_ram_formula.
+  - streaming_strategy.fit: honest series-input note.
+  - Removed stale bounded_state_dims {n: 1} + migration_target.
+- Tests: 7 new (test_binseg_ooc.py: cumsum-once, guard, bit-
+  identical vs pre-v0.9.181) + 14 existing pass.
+
+Note: streaming OOC fit_binseg (SpillArray output + disk
+prefix) deferred to v0.9.185+ (wave 5 anomaly-output),
+grouped with kshape/sub_pca/tspq (common pattern).
+
 ## [0.9.180] — 2026-11-10 (coxph concordance honesty)
 
 ### v0.9.180 — c-index honesty fix

@@ -51,31 +51,75 @@ def _segment_cost(x: np.ndarray) -> float:
     return float(((x - mu) ** 2).sum())
 
 
-def _best_split(x: np.ndarray, min_size: int) -> tuple[int, float]:
-    """Return (split_index, gain) maximizing cost reduction, or (-1, 0)."""
-    n = len(x)
-    if n < 2 * min_size:
+def _best_split_from_cs(
+    cs: np.ndarray, cs2: np.ndarray,
+    lo: int, hi: int, min_size: int,
+) -> tuple[int, float]:
+    """Return (split_index_global, gain) using global prefix arrays.
+
+    v0.9.181: replaces per-call np.cumsum(x[lo:hi]) (O(hi-lo) alloc each
+    call, cumulatively O(n*n_bkps) temporaries) with O(1)-per-query access
+    on precomputed global prefix arrays.
+
+    Parameters
+    ----------
+    cs : np.ndarray, shape (n,)
+        Global prefix sums: cs[i] = sum(x[0:i+1]).
+    cs2 : np.ndarray, shape (n,)
+        Global prefix sums of squares: cs2[i] = sum(x[0:i+1]^2).
+    lo, hi : int
+        Segment boundaries: segment = x[lo:hi], 0 <= lo < hi <= n.
+    min_size : int
+        Minimum segment length.
+
+    Returns
+    -------
+    (split_index_global, gain) or (-1, 0.0) if no valid split.
+    """
+    n_seg = hi - lo
+    if n_seg < 2 * min_size:
         return -1, 0.0
-    parent = _segment_cost(x)
-    # Precompute prefix sums of x and x^2 to get cost(left)+cost(right) in O(1)
-    cs = np.cumsum(x)
-    cs2 = np.cumsum(x * x)
-    total = cs[-1]
-    total2 = cs2[-1]
+
+    cs_lo_minus_1 = float(cs[lo - 1]) if lo > 0 else 0.0
+    cs2_lo_minus_1 = float(cs2[lo - 1]) if lo > 0 else 0.0
+
+    s_parent = float(cs[hi - 1]) - cs_lo_minus_1
+    s2_parent = float(cs2[hi - 1]) - cs2_lo_minus_1
+    parent_cost = s2_parent - s_parent * s_parent / n_seg
+
     best_i, best_gain = -1, 0.0
-    for i in range(min_size, n - min_size + 1):
-        # left: [0:i], right: [i:n]
-        s_l = cs[i - 1]
-        s2_l = cs2[i - 1]
-        cost_l = s2_l - s_l * s_l / i
-        n_r = n - i
-        s_r = total - s_l
-        s2_r = total2 - s2_l
+    for i in range(lo + min_size, hi - min_size + 1):
+        n_l = i - lo
+        n_r = hi - i
+        s_l = float(cs[i - 1]) - cs_lo_minus_1
+        s2_l = float(cs2[i - 1]) - cs2_lo_minus_1
+        cost_l = s2_l - s_l * s_l / n_l
+        s_r = s_parent - s_l
+        s2_r = s2_parent - s2_l
         cost_r = s2_r - s_r * s_r / n_r
-        gain = parent - cost_l - cost_r
+        gain = parent_cost - cost_l - cost_r
         if gain > best_gain:
             best_gain, best_i = gain, i
     return best_i, best_gain
+
+
+def _best_split(x: np.ndarray, min_size: int) -> tuple[int, float]:
+    """Legacy wrapper (v0.9.181): returns local split index for x[0:n].
+
+    Kept for backward-compat with tests that call _best_split directly.
+    Internally uses _best_split_from_cs (single cumsum build per call —
+    acceptable for one-off utility calls, not in the fit loop).
+    """
+    x = np.asarray(x, dtype=np.float64).ravel()
+    n = len(x)
+    if n < 2 * min_size:
+        return -1, 0.0
+    cs = np.cumsum(x)
+    cs2 = np.cumsum(x * x)
+    gi, gain = _best_split_from_cs(cs, cs2, 0, n, min_size)
+    if gi < 0:
+        return -1, 0.0
+    return gi, gain  # gi is local index because lo=0
 
 
 def fit_binseg(
@@ -114,33 +158,46 @@ def fit_binseg(
     if min_size < 1:
         raise ValueError(f"min_size must be >= 1, got {min_size}")
 
+    # v0.9.181: explicit two-path guard. Peak = x + cs + cs2 + scores + labels
+    # = 5 * n * f64 (+ 512 header); decision_scores + labels materialized
+    # O(n) in RAM by design (streaming refactor v0.9.185+).
+    est_bytes = 5 * n * 8 + 512
     if guard is not None:
-        est_bytes = 8 * n * 3
-        limit_mb = _probe_memory_limit_mb(guard)
-        if limit_mb is not None and limit_mb > 0:
-            if est_bytes > limit_mb * 1024 * 1024:
-                from cadw.core.memory_guard import MemoryLimitExceeded
-                raise MemoryLimitExceeded(
-                    f"BinSeg estimated {est_bytes} bytes > "
-                    f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+        has_check_state = (
+            hasattr(guard, "check_state") and callable(guard.check_state))
+        if has_check_state:
+            guard.check_state(est_bytes, name="binseg.state")
+        else:
+            limit_mb = _probe_memory_limit_mb(guard)
+            if limit_mb is not None and limit_mb > 0:
+                if est_bytes > limit_mb * 1024 * 1024:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"BinSeg estimated {est_bytes} bytes > "
+                        f"guard {limit_mb * 1024 * 1024:.0f} bytes")
+
+    # v0.9.181: global prefix arrays computed ONCE (previously _best_split
+    # recomputed np.cumsum(x[lo:hi]) per segment per iteration).
+    cs = np.cumsum(x)
+    cs2 = np.cumsum(x * x)
 
     segments: list[tuple[int, int]] = [(0, n)]
     while len(segments) < n_bkps + 1:
         best_seg_idx = -1
-        best_split_local = -1
+        best_split_global = -1
         best_gain = 0.0
         for k, (lo, hi) in enumerate(segments):
-            i, g = _best_split(x[lo:hi], min_size)
-            if i < 0:
+            gi, g = _best_split_from_cs(cs, cs2, lo, hi, min_size)
+            if gi < 0:
                 continue
             if g > best_gain:
                 best_gain = g
                 best_seg_idx = k
-                best_split_local = i
+                best_split_global = gi
         if best_seg_idx < 0 or best_gain <= 1e-12:
             break
         lo, hi = segments[best_seg_idx]
-        mid = lo + best_split_local
+        mid = best_split_global
         segments[best_seg_idx] = (lo, mid)
         segments.insert(best_seg_idx + 1, (mid, hi))
 
