@@ -4693,6 +4693,29 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.193] — 2026-11-10 (MultiplicativeWrapper streaming)
+
+### v0.9.193 — _MultiplicativeWrapper streaming refactor
+
+Remove self.y_ persistent O(n); streaming log-transform via
+_iter_target_batches + Dataset.from_batches.
+
+- cadw/ts/auto_theta.py _MultiplicativeWrapper:
+  - fit: streaming log_df on disk (no self.y_); max_window/
+    strict propagate to inner Theta/OTM.
+  - predict_in_sample(df): OOC; TypeError without df unless
+    save_y=True.
+  - state_nbytes honest (was under-reporting self.y_).
+  - ApproximationInfo propagation from inner.
+  - n_total_ = total pre-truncation (was inner.n_train_).
+  - Helpers _log_transform_batches + _mk_log_df.
+- YAML AutoTheta: bounded_by_domain reason + fit_transient_
+  note; migration_target v0.9.194 (merge into Theta params=auto).
+- tests/test_multiplicative_wrapper.py (10 new).
+
+Unblocks Theta+AutoTheta merge (v0.9.194). CV holdout still
+O(n) transient (honest n_scalability: linear per G20).
+
 ## [0.9.192] — 2026-11-10 (DEC-074: auto-mode honesty)
 
 ### v0.9.192 — honest correction of ETS/AutoETS v0.9.189 flip
