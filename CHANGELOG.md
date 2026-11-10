@@ -4693,6 +4693,35 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.196] — 2026-11-11 (SARIMA Option B — state O(model))
+
+Closes v0.9.195-b migration_target=v0.9.196 (SARIMA bs=false
+-> bs=true, ns=linear -> constant).
+
+- cadw/ts/models.py:
+  - NEW _arma_forecast_short: predict-time O(steps) from
+    O(p+q) precomputed state (bit-identical to full
+    _arma_forecast out-of-sample, atol=1e-12).
+  - SARIMAForecaster._precompute_predict_state(): extracts
+    _last_p_y_centered_ + _last_q_e_ + _y_levels_ +
+    _seas_last_; releases _yd and _y_centered_recent_
+    (unless save_y).
+  - _predict: O(steps) via short ARMA.
+  - predict_in_sample(df=None): df required (OOC);
+    save_y=True legacy uses _saved_y_. Otherwise TypeError.
+  - state_nbytes: (p+q+d+s)*f64 + 256 (+_saved_y_ if legacy).
+- YAML SARIMA: bs=true, ns=constant, bww=null, bbd=null,
+  migration_target=null (v0.9.195 debt closed).
+- PRIMITIVES.yaml: _arma_forecast_short card (leaf, draft,
+  intrinsic_bound: null, per existing _integrate_back
+  convention).
+- Tests: CW-1/CW-5 updated for O(model); CW-10..13 new;
+  test_ts_models pis tests use df arg.
+
+Smoke: state_nbytes=264 (order=(1,0,0)) constant for n in
+{100, 500, 1000, 5000}. _y_centered_recent_=None, _yd=None.
+Focused: 577 passed. Schema+gates: 466 passed.
+
 ## [0.9.195] — 2026-11-11 (SARIMA refactor + THF pre-existing fix)
 
 ### v0.9.195-a — YAML consistency + AP29/DEC-075
