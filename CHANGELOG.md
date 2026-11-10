@@ -4693,6 +4693,45 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.195] — 2026-11-11 (SARIMA refactor + THF pre-existing fix)
+
+### v0.9.195-a — YAML consistency + AP29/DEC-075
+
+- AutoETS.notes: DEPRECATED message (was None since v0.9.190)
+- AutoETS.migration_target: v0.9.189 -> null (merge done)
+- AutoTheta.bounded_by_window: mirror Theta (v0.9.194 Part B bug)
+- PRIMITIVES.yaml _integrate_back.intrinsic_bound {n:1e6} -> null
+  (predict-time O(steps), not fit-time; axis was wrong)
+- DEC-075: predict_leaf vs fit_leaf vs intrinsic classification
+- AI_CONSTITUTION AP29: intrinsic_bound semantic self-check
+- test_primitives_yaml::test_integrate_back_predict_leaf
+
+### v0.9.195-b — SARIMA refactor (DEC-070)
+
+- params="auto"|"manual" dispatch (mirrors Theta v0.9.194 / ETS
+  v0.9.192). auto= deprecated (DeprecationWarning).
+- _fit_auto: full y (AICc grid); _fit_manual: _collect_last_w
+  window truncation + ApproximationInfo on truncation
+- _predict / predict_in_sample(df=None): use
+  _y_centered_recent_ (W_eff manual / n auto). df optional:
+  streaming when given, save_y=True legacy when not.
+- state_nbytes: honest (recent + yd + 256 + optional saved)
+- YAML: bs=false (auto O(n) honest), ns=linear, bww partial
+  (params=manual), bbd (auto mode), migration_target=v0.9.196
+  (Option B: state O(model) via precomputed predict levels)
+- test_sarima_verification.py: 9 CW-tests
+
+### v0.9.195-c — THF WLS pre-existing fix (since v0.9.182)
+
+- THF _fit_one calls f.predict_in_sample() without df since
+  v0.9.182/v0.9.183 OOC default. This raised TypeError -> THF
+  fell back to OLS -> WLS-residual-variance tests red for 13
+  tags (v0.9.182..v0.9.194). Discovered in Part B focused run
+  (not a Part B regression — stash + rerun at v0.9.195-a
+  confirmed).
+- Fix: pass df_k to predict_in_sample(df_k). OOC-friendly
+  (no save_y=True). Legacy forecasters fallback preserved.
+
 ## [0.9.194] — 2026-11-11 (S1.5 + Theta/AutoTheta merge)
 
 ### v0.9.194-a — S1.5: ZMS/CUSUM Result.state_nbytes honesty (DEC-033 CW-1)
