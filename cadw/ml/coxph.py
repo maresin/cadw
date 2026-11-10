@@ -182,25 +182,59 @@ class CoxPHModel:
     def concordance_index(self, df, time_col, event_col, X_cols=None):
         """Harrell's c-index (higher risk = shorter survival).
 
-        v0.9.97 audit (brief v0.9.96 §8 was inaccurate):
+        v0.9.180 honest re-audit:
 
-        RAM complexity is O(n), NOT O(n^2). T/E/R arrays are
-        O(n) each (concatenated from batches); pair matrix is
-        computed in row-chunks of ~8 MB (`chunk = 1_000_000 // n`).
-        Peak transient = O(chunk * n) bytes, bounded independent
-        of n.
+        RAM = 3 * n * f64 (T, E, R arrays) + O(chunk * n) transient
+        for the vectorized pair matrix.
 
-        A true streaming version would need external sort on
-        (risk_score, time) and Fenwick-tree inversion —
-        O(n log n) I/O, stable RAM. NOT implemented: Harrell's
-        c-index is statistically unstable at n > 10^6 anyway,
-        and the current chunked version already handles the
-        practical range.
+        chunk = max(1, 1_000_000 // n):
+          - n <= 1e6: chunk >= 1, transient chunk*n = 1e6 elements
+            (~1 MB) — bounded, honest O(1 MB).
+          - n > 1e6: chunk = 1, transient = n elements — grows with n
+            (10 MB at n=1e7, 100 MB at n=1e8). NOT O(1).
+        Main bottleneck: 3 arrays = 24*n bytes (24 MB at 1e6,
+        240 MB at 1e7, 2.4 GB at 1e8).
 
-        See docs/SESSION_BRIEF_v0.9.97.md §4 and
-        docs/ROADMAP.md 'Do not re-solve' (v0.9.97 addition).
+        Explicit guard refuses at n > 1e6:
+          - c-index is statistically unstable above 1e6 (Harrell 1982,
+            Uno et al. 2011); the point estimate is dominated by noise.
+          - 24 MB fits weak machine; above 1e6 it's both slow and
+            statistically uninformative.
+        Bound: bounded_by_domain {n: 1e6}.
+
+        True streaming (exact) requires Fenwick over R-ranks →
+        O(n_distinct_R) RAM = O(n) for continuous R — no true OOC.
+        True OOC possible only via approximation (K R-bins, warning);
+        planned as `approximate=True` in v0.9.181.
         """
         cols = list(X_cols) if X_cols is not None else self.feature_names_
+        mg = getattr(df, "_memory_guard", None)
+        n_total = int(df.count())
+
+        # v0.9.180: explicit guard (statistical bound 1e6, 24 MB T/E/R).
+        if n_total > 1_000_000:
+            from cadw.core.memory_guard import MemoryLimitExceeded
+            raise MemoryLimitExceeded(
+                f"concordance_index: n={n_total} > 1e6. Harrell's c-index "
+                f"is statistically unstable above 1e6 (point estimate "
+                f"noise-dominated); RAM = 24*n = {24 * n_total / 1e6:.0f} MB. "
+                f"approximate=True (streaming K-bin) planned v0.9.181.",
+                model="concordance_index",
+                params={"n": n_total},
+                min_required_bytes=24 * n_total,
+                available_bytes=(mg.available_bytes()
+                                 if mg is not None else None),
+                options=[
+                    "reduce n via sampling / CV splits",
+                    "use Uno's IPCW c-index (statistically valid > 1e6; "
+                    "planned v0.9.182+)",
+                    "wait for approximate=True (v0.9.181, K=10000 bins)",
+                ],
+            )
+        if mg is not None:
+            mg.check_state(
+                3 * n_total * 8 + 256, name="coxph.concordance.TER")
+
         Ts, Es, Rs = [], [], []
         for b in df._iter_filtered_batches():
             Ts.append(b.column(time_col).to_numpy(zero_copy_only=False))

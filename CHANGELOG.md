@@ -4693,6 +4693,27 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.180] — 2026-11-10 (coxph concordance honesty)
+
+### v0.9.180 — c-index honesty fix
+
+- cadw/ml/coxph.py concordance_index:
+  - Explicit statistical bound: n > 1e6 -> MemoryLimitExceeded
+    with options (approximate=True v0.9.181 planned; Uno's IPCW
+    v0.9.182+). Harrell's c-index is statistically unstable
+    above 1e6 (point estimate noise-dominated).
+  - Explicit mg.check_state(3 * n * 8) before T/E/R alloc
+    (was silent OOM at n=1e8 + tight budget).
+  - Docstring honesty: chunked pair matrix is O(chunk*n) =
+    O(n) at n > 1e6 (was documented as O(1 MB) — false).
+- Tests: test_coxph_concordance_guard.py (2 new).
+- YAML: coxph bounded_by_domain n<=1e6 unchanged (honest per
+  DEC-011 statistical bound).
+
+Reality: exact c-index is intrinsically O(n_distinct_R) RAM
+(Fenwick) = O(n) for continuous R — no true OOC. True OOC only
+via approximation (K bins, warning) planned v0.9.181.
+
 ## [0.9.179] — 2026-11-10 (Wave 1: PELT true OOC)
 
 ### v0.9.179 — PELT streaming (true OOC, DEC-067)
