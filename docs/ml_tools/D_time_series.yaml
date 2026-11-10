@@ -306,7 +306,7 @@ subtypes:
     bounded_by_domain:
       axis: n
       bound: 1000000
-      reason: "v0.9.185 honest: _extract_series + stl_decompose + _ses_fit (leaf); streaming backlog v0.9.190+"
+      reason: "v0.9.188: s=1 path streaming (_ols_fit_streaming + _ses_fit_streaming); s>1 path leaf (stl_decompose + _ses_fit fitted); s>1 streaming backlog v0.9.192+"
     n_scalability: linear
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. STL decompose + SES transient."

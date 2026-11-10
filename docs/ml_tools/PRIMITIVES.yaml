@@ -98,7 +98,7 @@ primitives:
   formula_evidence:
     fn: "linalg.py:30 -- def ols_fit(y: np.ndarray) -> Tuple[float, float]:"
     state: "returns (slope, intercept); input y fully materialized by caller"
-  streaming_variant: null
+  streaming_variant: _ols_fit_streaming
   primitive_reuse: []
   consumers: [OTMThetaForecaster, ThetaForecaster]
   notes: >-
@@ -165,7 +165,7 @@ primitives:
     fitted_alloc: "theta.py:71 -- fitted = np.empty(n, dtype=np.float64)"
     note: "returns (lvl, fitted, sse); fitted is n-sized"
   intrinsic_bound: {axis: n, bound: 1000000, reason: "np.empty(n) transient"}
-  streaming_variant: null
+  streaming_variant: _ses_fit_streaming
   consumers: [ThetaForecaster, _MultiplicativeWrapper]
   notes: >-
     Simple SES (no seasonal, no trend). Streaming variant possible for
@@ -558,4 +558,39 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "low-pass filter O(n * seasonal_window)"}
   streaming_variant: null
   consumers: [stl_decompose]
+- name: _ols_fit_streaming
+  cadw_function: cadw.ops.linalg.ols_fit_streaming
+  module: cadw.ops.linalg
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "3 * f64 + 3.5 * batch * row_size + 256"
+  min_ram_formula: "3 * f64 + 3.5 * row_size + 256"
+  formula_evidence:
+    state: "linalg.py -- sum_y, sum_iy, n_total (3 f64)"
+    batch: "per-batch sum(y), sum(j*y_j) (O(batch))"
+  primitive_reuse: []
+  consumers: [ThetaForecaster (s=1)]
+  notes: >-
+    v0.9.188 (DEC-070 P2): streaming OLS via sufficient statistics
+    (sum_y, sum_iy, n). Bit-identical to ols_fit for full y. Streaming
+    variant of ols_fit (leaf O(n)).
+
+- name: _ses_fit_streaming
+  cadw_function: cadw.ts.theta._ses_fit_streaming
+  module: cadw.ts.theta
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "2 * f64 + 3.5 * batch * row_size + 256"
+  min_ram_formula: "2 * f64 + 3.5 * row_size + 256"
+  formula_evidence:
+    state: "theta.py -- lvl, sse (2 f64)"
+    batch: "per-batch element-wise SES recursion"
+  primitive_reuse: []
+  consumers: [ThetaForecaster (s=1)]
+  notes: >-
+    v0.9.188 (DEC-070 P2): streaming simple SES (no fitted array).
+    Bit-identical to theta._ses_fit for (lvl, sse). Streaming variant
+    of _ses_fit_simple (leaf O(n)).
 

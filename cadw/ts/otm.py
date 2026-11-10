@@ -35,7 +35,7 @@ import numpy as np
 
 from cadw.ts._decomposition import stl_decompose
 from cadw.ts.models import (
-    ForecasterBase, _check_df, _extract_series,
+    ForecasterBase, _check_df, _extract_series, _iter_target_batches,
 )
 
 # v0.9.132 (DEC-054): _ols_fit + _erfinv -> cadw.ops.numeric

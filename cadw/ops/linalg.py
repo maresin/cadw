@@ -47,6 +47,55 @@ def ols_fit(y: np.ndarray) -> Tuple[float, float]:
     return ym - b * xm, b
 
 
+def ols_fit_streaming(y_iter):
+    """v0.9.188: streaming OLS (intercept, slope) on y[t] vs t.
+
+    Bit-identical (atol 1e-9) to ``ols_fit(y)`` for full y.
+    O(1) RAM: accumulate sum_y, sum_iy, n. Closed-form:
+      xm = (n-1)/2, ym = sum_y/n
+      num = sum_iy - xm*sum_y               (since sum(i*y_i) - xm*sum_y)
+      den = n*(n*n - 1)/12                  (sum((i - xm)^2))
+      b = num/den, a = ym - b*xm
+
+    Parameters
+    ----------
+    y_iter : iterable of 1-D np.ndarray (batches, ordered)
+
+    Returns
+    -------
+    (a, b, n) — intercept, slope, count.
+    """
+    sum_y = 0.0
+    sum_iy = 0.0
+    n_total = 0
+    for b in y_iter:
+        if b.size == 0:
+            continue
+        # sum(y)
+        sum_y += float(np.sum(b))
+        # sum(i * y_i) for global index i = n_total + local_j
+        # = n_total * sum(b) + sum(j * b_j) for j in [0, b.size)
+        local_sum = float(np.sum(b))
+        j = np.arange(b.size, dtype=np.float64)
+        local_iy = float(np.sum(j * b))
+        sum_iy += n_total * local_sum + local_iy
+        n_total += b.size
+
+    if n_total < 2:
+        # Degenerate: n=0 -> (0,0,0); n=1 -> (mean, 0, 1)
+        return (sum_y / max(1, n_total) if n_total else 0.0, 0.0, n_total)
+
+    xm = (n_total - 1) / 2.0
+    ym = sum_y / n_total
+    den = n_total * (n_total * n_total - 1) / 12.0
+    if den < 1e-12:
+        return ym, 0.0, n_total
+    num = sum_iy - xm * sum_y
+    b = num / den
+    a = ym - b * xm
+    return float(a), float(b), n_total
+
+
 def sq_dists(z: np.ndarray, mem: np.ndarray) -> np.ndarray:
     """Squared Euclidean distances between rows of z and rows of mem.
 

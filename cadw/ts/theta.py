@@ -46,7 +46,7 @@ import numpy as np
 
 from cadw.ts._decomposition import stl_decompose
 from cadw.ts.models import (
-    ForecasterBase, _check_df, _extract_series,
+    ForecasterBase, _check_df, _extract_series, _iter_target_batches,
 )
 
 # v0.9.132 (DEC-054): _ols_fit + _erfinv -> cadw.ops.numeric
@@ -77,6 +77,37 @@ def _ses_fit(y: np.ndarray, alpha: float
         sse += err * err
         lvl = lvl + alpha * err
     return lvl, fitted, sse
+
+
+def _ses_fit_streaming(y_iter, alpha):
+    """v0.9.188: streaming simple SES — O(1) RAM (no `fitted`).
+
+    Bit-identical (atol 1e-12) to ``_ses_fit(y, alpha)[0::2]`` (lvl, sse).
+    Returns (lvl, sse, n) — NO fitted array (that was the O(n) leaf part).
+
+    Init: first y as lvl (per _ses_fit v0.9.183 convention).
+
+    Parameters
+    ----------
+    y_iter : iterable of 1-D np.ndarray (batches, ordered)
+    alpha : float
+    """
+    lvl = None
+    sse = 0.0
+    n_total = 0
+    for b in y_iter:
+        if b.size == 0:
+            continue
+        for v in b:
+            y_t = float(v)
+            if lvl is None:
+                lvl = y_t
+            else:
+                err = y_t - lvl
+                sse += err * err
+                lvl = lvl + alpha * err
+            n_total += 1
+    return (float(lvl) if lvl is not None else 0.0, sse, n_total)
 
 
 def _best_alpha(y: np.ndarray) -> float:
@@ -141,6 +172,17 @@ class ThetaForecaster(ForecasterBase):
         legacy y_ (O(n) extra) for predict_in_sample() no-df.
         """
         _check_df(df, target_col, time_col, group_col)
+        self.target_col_ = target_col
+        self.time_col_ = time_col
+        s = self.seasonal_period
+
+        # v0.9.188: s=1 streaming path (DEC-070 P2). No full y_ materialization.
+        if s == 1 and not save_y:
+            self._fit_streaming_s1(df, target_col, time_col=time_col)
+            self._is_fitted = True
+            return self
+
+        # s>1 (stl_decompose leaf) or save_y=True: non-streaming path.
         y = _extract_series(df, target_col, time_col=time_col)
         if y.size < 4:
             raise ValueError(
@@ -148,14 +190,10 @@ class ThetaForecaster(ForecasterBase):
         if np.any(~np.isfinite(y)):
             raise ValueError(
                 "ThetaForecaster: series contains non-finite values")
-        s = self.seasonal_period
         if s > 1 and y.size < 2 * s:
             raise ValueError(
                 f"ThetaForecaster: need at least 2*seasonal_period="
                 f"{2*s} obs for seasonal mode")
-
-        self.target_col_ = target_col
-        self.time_col_ = time_col
         n = int(y.size)
 
         # 1. Optional STL decomposition
@@ -219,6 +257,112 @@ class ThetaForecaster(ForecasterBase):
             idx = (self.r_ + np.arange(steps)) % s
             return combined + self.season_cycle_[idx]
         return combined
+
+    def _fit_streaming_s1(self, df, target_col, *, time_col=None):
+        """v0.9.188: s=1 streaming fit (DEC-070 P2).
+
+        Pass 1: _ols_fit_streaming -> (a, b, n)
+        Pass 2: grid alpha on theta_2 = 2*y_i - (a + b*i) via 19
+                _ses_fit_streaming running in parallel (O(19) state)
+        Final: _ses_fit_streaming(theta_2, best_alpha) -> (lvl, sse)
+
+        State after fit: a, b, alpha, lvl, sigma2, n_train, last_k.
+        """
+        from cadw.ops.linalg import ols_fit_streaming
+
+        # Pass 1: OLS on raw y (s=1: y_ds = y)
+        def _batches():
+            return _iter_target_batches(
+                df, target_col, time_col=time_col, batch_size=None)
+
+        a, b, n = ols_fit_streaming(_batches())
+        if n < 4:
+            raise ValueError(
+                "ThetaForecaster: need at least 4 observations")
+        self.trend_ = float(a)
+        self.slope_ = float(b)
+        self.n_train_ = int(n)
+
+        # Pass 2: grid search alpha over [0.05, 0.95] step 0.05
+        alphas = [i / 20.0 for i in range(1, 20)]
+        # State per alpha: (lvl, sse, n_seen)
+        states = {al: [None, 0.0, 0] for al in alphas}
+
+        g_idx = 0
+        for arr in _batches():
+            if arr.size == 0:
+                continue
+            # theta_2 = 2*y - a - b*i, per-element with global index
+            idx = np.arange(g_idx, g_idx + arr.size, dtype=np.float64)
+            theta_2_b = 2.0 * arr - (a + b * idx)
+            for al in alphas:
+                st = states[al]
+                lvl = st[0]
+                sse = st[1]
+                for v in theta_2_b:
+                    y_t = float(v)
+                    if lvl is None:
+                        lvl = y_t
+                    else:
+                        err = y_t - lvl
+                        sse += err * err
+                        lvl = lvl + al * err
+                st[0] = lvl
+                st[1] = sse
+                st[2] += arr.size
+            g_idx += arr.size
+
+        # Best alpha by sse
+        best_alpha = 0.5
+        best_sse = float("inf")
+        for al in alphas:
+            if states[al][1] < best_sse:
+                best_sse = states[al][1]
+                best_alpha = al
+
+        # Final lvl from best alpha
+        best_lvl = states[best_alpha][0]
+        self.alpha_ = float(best_alpha)
+        self.lvl_ = float(best_lvl) if best_lvl is not None else 0.0
+
+        # sigma2: recompute residuals in-sample (2-pass) — O(n) compute, O(1) RAM
+        # resid_t = y_t - (0.5*theta_0_t + 0.5*theta_2_fit_t)
+        # theta_0_t = a + b*t; theta_2_fit_t = previous lvl (or first y)
+        resid_sse = 0.0
+        theta_2_lvl = None
+        g_idx = 0
+        for arr in _batches():
+            if arr.size == 0:
+                continue
+            idx = np.arange(g_idx, g_idx + arr.size, dtype=np.float64)
+            theta_0_b = a + b * idx
+            theta_2_b = 2.0 * arr - theta_0_b
+            for i_v, v in enumerate(theta_2_b):
+                y_t = float(v)
+                if theta_2_lvl is None:
+                    fit_t2 = y_t  # convention: first pred = first y
+                    theta_2_lvl = y_t
+                else:
+                    fit_t2 = theta_2_lvl
+                    err = y_t - theta_2_lvl
+                    theta_2_lvl = theta_2_lvl + best_alpha * err
+                # combined in-sample pred
+                pred = 0.5 * float(theta_0_b[i_v]) + 0.5 * fit_t2
+                # actual y at this t is arr[i_v]
+                resid_sse += (float(arr[i_v]) - pred) ** 2
+            g_idx += arr.size
+        self.sigma2_ = resid_sse / max(1, n)
+
+        # last_k_ (for predict; s=1 -> 1 value)
+        last_v = None
+        for arr in _batches():
+            if arr.size > 0:
+                last_v = float(arr[-1])
+        self.last_k_ = np.array([last_v], dtype=np.float64)
+        self.r_ = 0
+        self.season_cycle_ = None
+        self._saved_y_ = None
+        # _is_fitted set by caller
 
     def predict_in_sample(self, df=None):
         """v0.9.183: OOC default requires df (or save_y=True legacy)."""

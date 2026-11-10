@@ -4693,6 +4693,38 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.188] — 2026-11-10 (DEC-070 P2: streaming SES + OLS)
+
+### v0.9.188 — 2 streaming primitives + Theta(s=1) OOC
+
+- cadw/ops/linalg.py: NEW `ols_fit_streaming(y_iter)` —
+  sufficient-statistics OLS (sum_y, sum_iy, n) -> (a, b, n).
+  Bit-identical (atol 1e-9) to ols_fit. O(1) RAM.
+- cadw/ts/theta.py: NEW `_ses_fit_streaming(y_iter, alpha)` —
+  O(1) simple SES -> (lvl, sse, n). Bit-identical (atol 1e-10)
+  to theta._ses_fit. No `fitted` array.
+- ThetaForecaster: `_fit_streaming_s1` for s=1 path.
+  - Pass 1: _ols_fit_streaming -> (a, b, n)
+  - Pass 2: 19 parallel _ses_fit_streaming on theta_2 for
+    best-alpha grid search
+  - Pass 3: sigma2 via 2-pass residual recompute
+  - _iter_target_batches drives all 3 passes (O(batch) RAM)
+  - Bit-identical predict + in_sample vs save_y=True baseline.
+  - s>1 path unchanged (stl_decompose leaf, bounded_by_domain).
+- PRIMITIVES.yaml: 32 -> 34 cards.
+  - NEW `_ols_fit_streaming` (layer: batch, verified).
+  - NEW `_ses_fit_streaming` (layer: batch, verified).
+  - `ols_fit.streaming_variant: _ols_fit_streaming`.
+  - `_ses_fit_simple.streaming_variant: _ses_fit_streaming`.
+- YAML Theta: bounded_by_domain reason updated (s=1 streaming;
+  s>1 leaf backlog v0.9.192+). bound stays n<=1e6 (s>1
+  stl_decompose + fitted array).
+- Tests: tests/test_theta_streaming.py (20 new).
+
+NOTE: ETS(s=1) streaming deferred — ets._ses_fit uses
+tr=y[1]-y[0] init + pred=lvl+tr (not pure SES). Requires
+separate `_ses_fit_hw_streaming` (DEC-070 P3 backlog).
+
 ## [0.9.187] — 2026-11-10 (DEC-071 audit closure)
 
 ### v0.9.187 — 23 primitives registered + audit test
