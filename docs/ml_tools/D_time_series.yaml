@@ -387,10 +387,11 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
+      fit_transient_note: "CV fits each candidate on train_df; _MultiplicativeWrapper streaming since v0.9.193 (no self.y_); CV holdout needs full y (O(n) transient). Merge to Theta(params=auto) v0.9.194 inherits."
     bounded_by_domain:
       axis: n
       bound: 1000000
-      reason: "CV-selected STM vs OTM; only best_model_ retained."
+      reason: "CV-selection over STM/OTM × additive/multiplicative; CV needs full y for holdout split (O(n) transient). _MultiplicativeWrapper refactored v0.9.193: streaming log-transform, no self.y_ persistent. Inner Theta/OTM uses max_window (v0.9.191). Merge to ThetaForecaster(params='auto') in v0.9.194 inherits CV transient (honest linear)."
     state_class: O(n)
     bounded_state_dims: {n: 1}
     state_type: aggregation
