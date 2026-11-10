@@ -4693,6 +4693,51 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.194] — 2026-11-11 (S1.5 + Theta/AutoTheta merge)
+
+### v0.9.194-a — S1.5: ZMS/CUSUM Result.state_nbytes honesty (DEC-033 CW-1)
+
+Closes DEC-033 gap for 4 verified cards (ZMS, zscore x2, CUSUM):
+YAML claimed `component-wise` but Result classes had no
+`state_nbytes()` and tests had no `test_state_nbytes_exact`.
+
+- ZMSResult.state_nbytes / CUSUMResult.state_nbytes: 256+2*n*8
+  (memory); 256 (spilled, O(1) state, disk O(n)).
+- +2 tests each (CW-1 bit-exact + spilled-O(1)).
+- 4 YAML cards state_check populated.
+
+### v0.9.194-b — Theta + AutoTheta merge (DEC-070)
+
+AutoThetaForecaster merged into ThetaForecaster(params='auto')
+as DeprecationWarning shim (removed v1.0.0). ETS v0.9.192
+pattern.
+
+- cadw/ts/_theta_common.py (NEW): extracted helpers to break
+  circular import (_naive_seasonal_mae, _mase,
+  _log_transform_batches, _mk_log_df, _MultiplicativeWrapper).
+- ThetaForecaster: params='manual'|'auto', val_steps; fit
+  dispatches _fit_manual vs _fit_auto. Auto mode propagates
+  ApproximationInfo from best_model_ + max_window/strict to
+  winner refit. Rejects save_y=True in auto (CV needs inner
+  save_y).
+- AutoThetaForecaster(ThetaForecaster): DeprecationWarning +
+  parent delegate.
+- YAML: Theta (bounded_state=true, n_scalability=linear,
+  bounded_by_window applies_to='params=manual'); AutoTheta
+  alias card.
+
+### v0.9.194-c — fix missing _check_df import + semantic test
+
+- _theta_common.py: import _check_df + _extract_series (was
+  missing, caused _MultiplicativeWrapper.fit NameError at
+  line 128; caught by _fit_auto's try/except -> multiplicative
+  candidates silently dropped).
+- 3 new theta tests rewritten self-contained.
+- Semantic test test_auto_selects_multiplicative_on_multiplicative_series:
+  asserts multiplicative candidates have val_mase (no error)
+  and win on multiplicative y. Passes post-fix, would fail
+  pre-fix -> silent bug eliminated.
+
 ## [0.9.193] — 2026-11-10 (MultiplicativeWrapper streaming)
 
 ### v0.9.193 — _MultiplicativeWrapper streaming refactor
