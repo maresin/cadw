@@ -1061,3 +1061,97 @@ def test_g11_transitive_migration(path):
         f"  - pa.Table.from_batches(list(batches)) to convert back if needed\n"
         f"  - assert isinstance(result, CadwDataFrame) — CORRECT type check\n"
     )
+
+# ============================================================================
+# G12-G17 (v0.9.178, DEC-067/068/069)
+# ============================================================================
+
+def test_G12_bounded_state_implies_batched():
+    """G12 (DEC-067): bounded_state=True requires fit_batched AND
+    predict_batched (or documented exception in streaming_strategy).
+
+    Skeleton: enable v0.9.179+ after TS refactor.
+    """
+    pytest.skip("TODO v0.9.179+: G12 enable after TS refactor")
+
+
+def test_G13_approximation_disclosed():
+    """G13 (DEC-067, R6): fit/predict with approximation emits
+    ApproximationInfo on result + ApproximationWarning.
+
+    Skeleton: enable v0.9.179+ after approximation wire-up in fit paths.
+    """
+    pytest.skip("TODO v0.9.179+: G13 enable after approximation wire-up")
+
+
+def test_G14_verified_has_min_ram():
+    """G14 (DEC-067, v0.9.177): verified + ram_formula => min_ram_formula
+    or min_ram_pending. REAL gate (rollout completed 97/98)."""
+    import yaml
+    from pathlib import Path
+
+    ml_tools = Path(__file__).resolve().parent.parent / "docs" / "ml_tools"
+    violations = []
+    total_verified = 0
+    with_min_ram = 0
+    with_pending = 0
+
+    for yp in sorted(ml_tools.glob("[A-Z]_*.yaml")):
+        data = yaml.safe_load(yp.read_text()) or {}
+        for st in data.get("subtypes") or []:
+            for m in st.get("models") or []:
+                status = (m.get("implementation_status") or {}).get("status")
+                if status != "verified":
+                    continue
+                total_verified += 1
+                ram = m.get("ram_formula")
+                if not ram:
+                    continue  # no ram_formula: not subject to G14
+                min_ram = m.get("min_ram_formula")
+                pending = m.get("min_ram_pending")
+                if min_ram:
+                    with_min_ram += 1
+                elif pending:
+                    with_pending += 1
+                else:
+                    violations.append(f"{yp.stem}::{m.get('name')}")
+
+    assert not violations, (
+        f"G14 violations ({len(violations)}): verified + ram_formula "
+        f"requires min_ram_formula or min_ram_pending:\n  "
+        + "\n  ".join(violations[:10])
+    )
+    assert total_verified >= 90, (
+        f"Expected >=90 verified cards, got {total_verified}"
+    )
+    assert with_min_ram + with_pending >= total_verified - 5, (
+        f"Coverage too low: {with_min_ram} migrated + {with_pending} "
+        f"pending of {total_verified} verified"
+    )
+
+
+def test_G15_auto_switch_registry():
+    """G15 (DEC-067): models with O(d^2) state (linear/logistic/PCA)
+    declare auto_switch registry in YAML.
+
+    Skeleton: enable v0.9.179+ after auto-switch registry wire-up.
+    """
+    pytest.skip("TODO v0.9.179+: G15 enable after auto-switch registry")
+
+
+def test_G16_state_nbytes_includes_output():
+    """G16 (DEC-067, R1): n-sized persistent output must be included in
+    state_nbytes() (AST scan of fit methods).
+
+    Skeleton: enable v0.9.179+ after AST scan implementation.
+    """
+    pytest.skip("TODO v0.9.179+: G16 enable after AST scan")
+
+
+def test_G17_bounded_by_domain_is_draft():
+    """G17 (DEC-067): bounded_by_domain => status:draft (visible debt).
+
+    Skeleton: enable v0.9.179+ after bounded_by_domain migration.
+    """
+    pytest.skip("TODO v0.9.179+: G17 enable after bounded_by_domain migration")
+
