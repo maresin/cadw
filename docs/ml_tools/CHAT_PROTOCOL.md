@@ -148,6 +148,26 @@ Before `git tag`, ALL must pass:
 
 **Anti-pattern:** `git tag` after `git commit` without `git status --short`. Never trust "tests are green" as proof of tag correctness.
 
+### §6.5.1. AP31 probe pitfalls (v0.9.194-196)
+
+AP31's first iterations produced 3 false positives of its own. Before trusting an AP31 probe, verify it against these 5 classes:
+
+**P1. Verify with `git show HEAD:file`, not `cat file`.** `cat` reads working tree; uncommitted changes look tagged. If `git status --short` is non-empty, investigate first — do not proceed to `git tag`.
+
+**P2. Substring vs exact match.** Renamed attributes have substring collisions: `_y_centered_recent_` contains `_y_centered_`. A grep/`in` check fails incorrectly. Use word-boundary regex:
+- Python: `re.search(r'(?<!\w)_y_centered_(?!\w)', text)` — before non-word AND after non-word.
+- Or split on whitespace + `.` + `,`: `set(text.replace('.',' ').replace(',',' ').split())`.
+
+**P3. Booleans must be monotone.** `all_ok = all_ok and not stale` must be **outside** if/else branches. Putting it inside `else:` means `stale=True` never triggers overall FAIL. Test the probe with a deliberately-bad input to confirm it fails.
+
+**P4. awk range with shared start/end pattern.** `/name: X/,/^  - name:/` — if the start line also matches end pattern (e.g. `name: X` at indent matching), range is empty. Use Python YAML parse instead: `yaml.safe_load(git show ...)` and walk `.get("subtypes")[i]["models"]`.
+
+**P5. Patch scripts embedding YAML in f-strings must escape braces.** f-string `f"{axis: n}"` → NameError (axis undefined). Either `f"...{{axis: n}}..."` (escape) or `.format(i=indent)` with `{{` `}}`. Prefer `.replace()` or `.format()` over raw f-string for YAML content. v0.9.196 P54 crashed on this; fix was `.format(i=indent)` with `{{...}}`.
+
+**When the probe fails on `>>> ALL: FAIL`:** do not tag. Fix the probe first (if false positive) or the artifact (if real). Log the false positive class here.
+
+**Long-term:** `scripts/verify_tag.py` (backlog v0.9.197+) automates §6.5 with Python YAML parse — no awk, no f-string.
+
 ## §7. When AI is uncertain
 
 Format:

@@ -861,6 +861,20 @@ Enforced in CHAT_PROTOCOL §6.5 (pre-tag checklist). Manual check (no automated 
 
 **Anti-pattern:** `git tag` immediately after `git commit` without `git status --short`. Tests green ≠ tag honest.
 
+#### AP31.1 Probe pitfalls (v0.9.194-196)
+
+AP31 probe itself can be broken. Before trusting a FAIL, check:
+
+| # | Pitfall | Correct |
+|---|---|---|
+| P1 | `cat file` (working tree) instead of `git show HEAD:file` | Always `git show HEAD:<file>` after `git status --short` empty check |
+| P2 | Substring collision: `_y_centered_recent_` matches `_y_centered_` | Regex `(?<!\w)X(?!\w)`, or whitespace/punct split set-membership |
+| P3 | `all_ok = all_ok and not stale` inside `else:` | Put boolean composition **outside** if/else — test with deliberately bad input |
+| P4 | awk `/name: X/,/^  - name:/` — empty if start=end line | Python YAML parse: `yaml.safe_load(git show ...)` |
+| P5 | f-string `{axis: n}` -> NameError in patch scripts | Escape `{{axis: n}}` or `.format(i=indent)` with `{{...}}` |
+
+**Rule:** every AP31 FAIL must be triaged against P1-P5 before "fix the artifact". Three false positives in v0.9.196 (P1, P2, P3) + one real bug (P4/P5 crash in P54) wasted 3 iterations. Log each false positive class; accumulate into probe test suite (v0.9.197+ `scripts/verify_tag.py`).
+
 ### §5.1. Single source of truth (one fact, one place)
 
 Every concept has exactly one canonical location:
