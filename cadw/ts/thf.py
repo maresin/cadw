@@ -54,6 +54,7 @@
 # Independent of N (training series length) at predict time. Forecaster
 # fit goes through the existing MemoryGuard-aware machinery.
 from __future__ import annotations
+from cadw.core.approximation import ApproximationMixin
 
 import numpy as np
 import pyarrow as pa
@@ -77,7 +78,7 @@ def _aggregate(y, m, agg):
     return red
 
 
-class TemporalHierarchy:
+class TemporalHierarchy(ApproximationMixin):
     """Temporal Hierarchical Forecasting (v0.9.24).
 
     Parameters:

@@ -35,6 +35,7 @@
 # make_features / _extract_series helpers. GBDT additionally uses
 # cadw.ml.gbdt (which routes Reduce ops through the guard).
 from __future__ import annotations
+from cadw.core.approximation import ApproximationMixin
 
 from typing import Optional
 
@@ -120,7 +121,7 @@ def _check_df(df, target_col, time_col=None, group_col=None):
         raise KeyError(f"group_col {group_col!r} not in df")
 
 
-class ForecasterBase:
+class ForecasterBase(ApproximationMixin):
     """Abstract forecaster contract (v0.9.24).
 
     Subclasses MUST implement fit, predict, predict_in_sample. All

@@ -79,3 +79,64 @@ class BudgetTier(Enum):
 
     OPERATIONAL = "operational"
     INSUFFICIENT_NO_ALT = "insufficient_no_alt"
+
+class ApproximationMixin:
+    """Mixin for result classes: discloses approximations (v0.9.178).
+
+    Any model/result class inherits this to expose:
+      self.approximation: list[ApproximationInfo] | None
+
+    - None: exact (no adjustments).
+    - [info]: one auto-adjustment.
+    - [info1, info2]: cascaded (e.g., window_adjusted + window_truncated).
+
+    Helpers:
+      _clear_approximation() — reset before fit (idempotent).
+      _record_approximation(info) — append + emit ApproximationWarning
+      (R6: silent approximation = AP24 violation).
+
+    Users:
+      - cadw.ts.models.ForecasterBase (all TS forecasters)
+      - cadw.ts.thf.TemporalHierarchy
+
+    See DEC-067/068, AI_CONSTITUTION §4.0 R6, AP24.
+    """
+
+    # Class-level default; instance attr set on first record.
+    approximation: "list[ApproximationInfo] | None" = None
+
+    def _clear_approximation(self) -> None:
+        """Reset approximation to None (call at start of fit)."""
+        self.approximation = None
+
+    def _record_approximation(self, info: "ApproximationInfo") -> None:
+        """Append one ApproximationInfo + emit ApproximationWarning.
+
+        Parameters
+        ----------
+        info : ApproximationInfo
+            The adjustment record (window_adjusted, solver_switch, ...).
+
+        Raises
+        ------
+        TypeError
+            If info is not ApproximationInfo.
+        """
+        if not isinstance(info, ApproximationInfo):
+            raise TypeError(
+                f"_record_approximation: expected ApproximationInfo, "
+                f"got {type(info).__name__}"
+            )
+
+        if self.approximation is None:
+            self.approximation = []
+        self.approximation.append(info)
+
+        # Emit warning (caller can suppress via warnings.filterwarnings)
+        import warnings as _warnings
+        from cadw.core.warnings import ApproximationWarning
+        _warnings.warn(
+            ApproximationWarning(str(info)),
+            stacklevel=3,
+        )
+
