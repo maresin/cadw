@@ -4693,6 +4693,36 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.190] — 2026-11-10 (DEC-073: ETS + AutoETS merge)
+
+### v0.9.190 — batch-family merge (ETS only)
+
+DEC-068 §5 / DEC-073: merge ETS + AutoETS into single class
+with params='manual'|'auto'.
+
+- cadw/ts/ets.py ETSForecaster:
+  - __init__: params='manual' (default), warn_slow_fit,
+    slow_fit_threshold_s.
+  - fit: dispatches to _fit_single or _fit_auto based on params.
+  - _fit_auto: enumerate configs (3 trend × 3 seasonal),
+    fit each via inner ETSForecaster(params='manual') with
+    shared max_window; AICc selects best. Fallback to
+    NaiveForecaster(last) when no config valid.
+  - _predict, predict_in_sample, state_nbytes: dispatch to
+    best_model_ in auto mode.
+  - ApproximationInfo propagation from best inner model.
+- cadw/ts/auto_ets.py: AutoETSForecaster -> deprecated shim
+  subclass of ETSForecaster with params='auto'; DeprecationWarning
+  on __init__. Removed in v1.0.0 (per DEC-073).
+
+Bit-identical behavior: ETSForecaster(params='auto') produces
+identical predict / predict_in_sample / state_nbytes to legacy
+AutoETSForecaster.
+
+Theta + AutoTheta merge deferred (v0.9.193): _MultiplicativeWrapper
+uses O(n) persistent self.y_ (bounded_by_domain); R0 requires
+wrapper refactor first (v0.9.192).
+
 ## [0.9.189] — 2026-11-10 (DEC-072: window-truncation P3)
 
 ### v0.9.189 — R0 enforcement + P3 window-truncation + ETS/AutoETS
