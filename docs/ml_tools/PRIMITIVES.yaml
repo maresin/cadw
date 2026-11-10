@@ -212,4 +212,350 @@ primitives:
     passes on full y with periodic re-estimation). Backlog v0.9.190+
     (hard, 1-2 sessions). Seasonal models (Theta/OTM/ETS with s>1)
     remain bounded_by_domain until then.
+# ====================================================================
+# Session v0.9.187 register (DEC-071 §5): 5 batch + 18 leaf primitives
+# from v0.9.179-186 + pre-existing SARIMA/decomposition/GBDTF helpers.
+# ====================================================================
+
+# --- A. Batch layer (verified, true OOC) — 5 ---
+
+- name: _pelt_streaming_batches
+  cadw_function: cadw.ml.pelt._pelt_streaming_batches
+  module: cadw.ml.pelt
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "3 * W_eff * f64 + 2 * batch * row_size + 256"
+  min_ram_formula: "3 * 2 * f64 + 2 * row_size + 256"
+  formula_evidence:
+    ring_buffer: "pelt.py -- cs_buf, cs2_buf, F_buf each W_eff+1 f64"
+    batch: "per-batch check_batch(extra_factor=2.0)"
+    guard: "pelt.py -- streaming DP ring buffer; W_eff from guard.get_window_size"
+  primitive_reuse: [chunked_strided]
+  consumers: [PELTModel.detect]
+  notes: >-
+    Streaming PELT DP with O(W_eff) ring buffer + backtrack to file.
+    Bit-identical to full-series pelt() for state outputs (v0.9.179).
+
+- name: _iter_series_batches
+  cadw_function: cadw.ml.pelt._iter_series_batches
+  module: cadw.ml.pelt
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "3.5 * batch * row_size + 256"
+  min_ram_formula: "3.5 * row_size + 256"
+  formula_evidence:
+    per_batch: "pelt.py -- single-column RecordBatch per df batch"
+    guard: "pelt.py -- check_batch(extra_factor=1.5)"
+  consumers: [PELTModel.detect]
+  notes: >-
+    Streaming single-series iterator. Yields (None, single-col batch).
+    Group-filtered path falls back to _collect_series (small per-series).
+
+- name: _breslow_streaming
+  cadw_function: cadw.ml.coxph._breslow_streaming
+  module: cadw.ml.coxph
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "2 * d * d * f64 + batch * (d + 2) * f64 + 256"
+  min_ram_formula: "2 * d * d * f64 + (d + 2) * f64 + 256"
+  formula_evidence:
+    state: "coxph.py -- S0, S1(d), S2(d,d), grad(d), info(d,d), ll"
+    batch: "per-batch sorted reader; check_batch"
+  consumers: [fit_coxph]
+  notes: >-
+    Streaming Breslow reduce for CoxPH Newton. Bit-identical to _breslow
+    (v0.9.87-P5a-fix-coxph).
+
+- name: _baseline_hazard_streaming
+  cadw_function: cadw.ml.coxph._baseline_hazard_streaming
+  module: cadw.ml.coxph
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "2 * n_events * f64 + batch * (d + 2) * f64 + 256"
+  min_ram_formula: "2 * f64 + (d + 2) * f64 + 256"
+  formula_evidence:
+    baseline: "coxph.py -- baseline_t / baseline_h each n_events-sized"
+    batch: "per-batch reader"
+  consumers: [fit_coxph]
+  notes: >-
+    Streaming Breslow baseline cumulative hazard. n_events <= n (events
+    only). bounded_by_domain via coxph (n_events <= n <= 1e6).
+
+- name: _sgd_coxph
+  cadw_function: cadw.ml.coxph._sgd_coxph
+  module: cadw.ml.coxph
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "2 * d * d * f64 + batch * (d + 2) * f64 + 256"
+  min_ram_formula: "2 * d * d * f64 + (d + 2) * f64 + 256"
+  formula_evidence:
+    state: "coxph.py -- coef(d) + momentum / Hessian-diag(d)"
+    batch: "sorted reader per epoch"
+  consumers: [fit_coxph solver='sgd']
+  notes: >-
+    SGD path for CoxPH (solver='sgd'). O(d^2) state for momentum; batch
+    streaming.
+
+# --- B. Leaf layer (draft, intrinsic_bound n<=1e6) — 18 ---
+
+- name: _collect_series
+  cadw_function: cadw.ml.pelt._collect_series
+  module: cadw.ml.pelt
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 3.5 * batch * row_size + 256"
+  min_ram_formula: "1 * f64 + 3.5 * row_size + 256"
+  formula_evidence:
+    buffer: "pelt.py -- per-series buffer accumulated then np.asarray"
+    guard: "pelt.py -- check_state(sum(size)*8)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "per-series numpy array; group-filtered pelt path"}
+  streaming_variant: null
+  consumers: [PELTModel.detect group mode, PELTModel.fit]
+  notes: >-
+    Grouped series collector. Single-series (id_col=None) path uses
+    _iter_series_batches (streaming) instead. Group path = leaf.
+
+- name: _best_split_from_cs
+  cadw_function: cadw.ml.binseg._best_split_from_cs
+  module: cadw.ml.binseg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "4 * n * f64 + 256"
+  min_ram_formula: "4 * 2 * min_size * f64 + 256"
+  formula_evidence:
+    cumsum: "binseg.py -- global cs/cs2 computed once (v0.9.181 fix)"
+    loop: "O(hi-lo) scan per segment"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "global cumsum O(n)"}
+  streaming_variant: null
+  consumers: [fit_binseg]
+  notes: >-
+    Prefix-sum scan. v0.9.181 fix: O(n^2) -> O(n * n_bkps) by caching
+    cs/cs2 globally (was recomputed per-segment).
+
+- name: _segment_cost
+  cadw_function: cadw.ml.binseg._segment_cost
+  module: cadw.ml.binseg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 256"
+  min_ram_formula: "1 * f64 + 256"
+  formula_evidence:
+    alloc: "binseg.py -- ((x - mu)**2).sum() creates n-sized temp"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "n-sized temp in SSE sum"}
+  streaming_variant: null
+  consumers: [fit_binseg legacy _best_split]
+
+- name: _breslow
+  cadw_function: cadw.ml.coxph._breslow
+  module: cadw.ml.coxph
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * (d + 2) * f64 + d * d * f64 + 256"
+  min_ram_formula: "1 * (d + 2) * f64 + d * d * f64 + 256"
+  formula_evidence:
+    alloc: "coxph.py -- full X (n,d) + T + E + eta + w"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "full-array Breslow (non-streaming)"}
+  streaming_variant: _breslow_streaming
+  consumers: [fit_coxph legacy path]
+
+- name: _baseline_hazard
+  cadw_function: cadw.ml.coxph._baseline_hazard
+  module: cadw.ml.coxph
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "3 * n * f64 + d * f64 + 256"
+  min_ram_formula: "3 * 1 * f64 + d * f64 + 256"
+  formula_evidence:
+    alloc: "coxph.py -- eta(n) + w(n) + argsort(n)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "full-array baseline hazard (non-streaming)"}
+  streaming_variant: _baseline_hazard_streaming
+  consumers: [fit_coxph legacy path]
+
+- name: _stack_num
+  cadw_function: cadw.ml.coxph._stack_num
+  module: cadw.ml.coxph
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "batch * d * f64 + 256"
+  min_ram_formula: "d * f64 + 256"
+  formula_evidence:
+    alloc: "coxph.py -- np.column_stack([b.column(c).to_numpy() for c in cols])"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "per-batch stack (leaf; caller batches)"}
+  streaming_variant: null
+  consumers: [concordance_index, CoxPHModel.predict_risk]
+
+- name: _initial_seasonal
+  cadw_function: cadw.ts.ets._initial_seasonal
+  module: cadw.ts.ets
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 2 * s * f64 + 256"
+  min_ram_formula: "2 * s * f64 + 2 * s * f64 + 256"
+  formula_evidence:
+    alloc: "ets.py -- k = n//s, means[k], reshape (k, s)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "k=n//s periods required for classical decomposition"}
+  streaming_variant: null
+  consumers: [_ses_fit_hw]
+  notes: >-
+    Classical decomposition initial seasonal. Requires full y (k=n//s).
+    Blocks streaming _ses_fit for s>1 (backlog P3 in DEC-070).
+
+- name: _ses
+  cadw_function: cadw.ts.otm._ses
+  module: cadw.ts.otm
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 256"
+  min_ram_formula: "1 * f64 + 256"
+  formula_evidence:
+    alloc: "otm.py -- fitted = np.empty(n)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "n-sized fitted in OTM SES"}
+  streaming_variant: null
+  consumers: [OTMThetaForecaster]
+  notes: >-
+    AP22: distinct from theta._ses_fit (returns (lvl, fitted) 2-tuple).
+    Card _ses_fit_simple covers theta variant.
+
+# --- SARIMA helpers (7) ---
+
+- name: _ar_fit
+  cadw_function: cadw.ts.models._ar_fit
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "2 * n * f64 + d * f64 + 256"
+  min_ram_formula: "2 * 1 * f64 + d * f64 + 256"
+  formula_evidence:
+    alloc: "models.py -- Yule-Walker / Hannan-Rissanen with full X (n,p)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA full-series fit"}
+  streaming_variant: null
+  consumers: [SARIMAForecaster]
+
+- name: _arma_forecast
+  cadw_function: cadw.ts.models._arma_forecast
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "2 * n * f64 + 256"
+  min_ram_formula: "2 * max(p, q) * f64 + 256"
+  formula_evidence:
+    alloc: "models.py -- full y + residual buffer"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA forecast computation"}
+  streaming_variant: null
+  consumers: [SARIMAForecaster]
+
+- name: _hannan_rissanen
+  cadw_function: cadw.ts.models._hannan_rissanen
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "4 * n * f64 + 256"
+  min_ram_formula: "4 * 1 * f64 + 256"
+  formula_evidence:
+    alloc: "models.py -- multi-pass ARMA fit (residuals, X, y)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA multi-pass ARMA"}
+  streaming_variant: null
+  consumers: [SARIMAForecaster]
+
+- name: _integrate_back
+  cadw_function: cadw.ts.models._integrate_back
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 256"
+  min_ram_formula: "1 * f64 + 256"
+  formula_evidence:
+    alloc: "models.py -- reverse differencing arrays"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "reverse-diff O(n)"}
+  streaming_variant: null
+  consumers: [SARIMAForecaster]
+
+- name: _difference
+  cadw_function: cadw.ts.models._difference
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 256"
+  min_ram_formula: "2 * f64 + 256"
+  formula_evidence:
+    alloc: "models.py -- out = y.copy() per order d"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "differencing O(n)"}
+  streaming_variant: null
+  consumers: [SARIMAForecaster]
+
+- name: _seasonal_difference
+  cadw_function: cadw.ts.models._seasonal_difference
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + 256"
+  min_ram_formula: "s * f64 + 256"
+  formula_evidence:
+    alloc: "models.py -- out = y.copy() per order D"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "seasonal differencing O(n)"}
+  streaming_variant: null
+  consumers: [SARIMAForecaster]
+
+- name: _build_lag_matrix
+  cadw_function: cadw.ts.models._build_lag_matrix
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * d * f64 + n * i64 + 256"
+  min_ram_formula: "max_lag * d * f64 + max_lag * i64 + 256"
+  formula_evidence:
+    alloc: "models.py -- X = np.empty((n - max_lag, n_features))"
+  intrinsic_bound: {axis: n, bound: 100000, reason: "GBDTForecaster lag matrix; bounded_by_domain n<=1e5"}
+  streaming_variant: null
+  consumers: [GBDTForecaster]
+
+# --- decomposition helpers (2) ---
+
+- name: _loess_local_linear
+  cadw_function: cadw.ts._decomposition._loess_local_linear
+  module: cadw.ts._decomposition
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * f64 + w * f64 + 256"
+  min_ram_formula: "w * f64 + w * f64 + 256"
+  formula_evidence:
+    alloc: "_decomposition.py -- per-point LOESS weight vec (w) + output (n)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "LOESS O(n * w) compute, w = window"}
+  streaming_variant: null
+  consumers: [stl_decompose]
+
+- name: _low_pass_seasonal_cycles
+  cadw_function: cadw.ts._decomposition._low_pass_seasonal_cycles
+  module: cadw.ts._decomposition
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "2 * n * f64 + 256"
+  min_ram_formula: "2 * seasonal_window * f64 + 256"
+  formula_evidence:
+    alloc: "_decomposition.py -- 2x low-pass filters (input + output)"
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "low-pass filter O(n * seasonal_window)"}
+  streaming_variant: null
+  consumers: [stl_decompose]
 

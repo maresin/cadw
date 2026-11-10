@@ -3037,6 +3037,92 @@ includes full fit transient.
 
 ---
 
+---
+
+## DEC-071 (2026-11-10, v0.9.187) — primitive definition + exemption list
+
+**Q:** DEC-070 requires "PrimitiveCard + streaming variant" for each leaf
+primitive used by a model. But `cadw/ts/` and `cadw/ml/` contain 34+ `def
+_x(` helpers — which must be registered, which are exempt? Without a
+precise rule, DEC-070 audit-trail drifts (as happened v0.9.179-186: 34
+unregistered).
+
+**A:** Strict primitive definition + explicit exemption list.
+
+### §1. Definition
+
+**Primitive** = module-level function `^def _name(` that is:
+
+1. **Cross-module** — called from ≥2 different modules, OR
+2. **Leaf-critical** — allocated O(n)/O(n²)/O(n·k) state in fit/predict/
+   predict_in_sample path, so that it constrains the model's OOC claim.
+
+**PrimitiveCard REQUIRED** for each. Layer (`batch`/`leaf`/`intrinsic`),
+`ram_formula`, `intrinsic_bound` (if leaf/intrinsic), `streaming_variant`
+(if any).
+
+### §2. Exemption list (permanent)
+
+Not primitives — exempt from PrimitiveCard:
+
+| Category | Examples | Reason |
+|---|---|---|
+| Methods | `self._predict`, `self._recompute_in_sample` | Not module-level defs |
+| O(1) utility | `_check_df`, `_resolve_w_eff` | No n-sized alloc |
+| Small-k helper | `_mase`, `_naive_mae_train`, `_naive_seasonal_mae` | O(k) metric (k = folds/configs, ≤ 19); hyperparam selection |
+| O(steps) forecast | `_ols_forecast` | O(steps), not O(n) |
+| Alias / wrapper | `_best_split` (wraps `_best_split_from_cs`) | 3-line forwarder; impl has own card |
+| Nested 1-site | `_best_alpha`, `_grid_search` | 19× `_ses_fit` inside; cost = `_ses_fit` cost (already carded) |
+
+### §3. Alias / name convention
+
+When two modules have distinct `_ses_fit` (theta vs ets — AP22 different
+signatures), PrimitiveCard `name` is unique descriptive, `cadw_function`
+is the actual dotted path:
+
+- Card `_ses_fit_simple` → `cadw_function: cadw.ts.theta._ses_fit`
+- Card `_ses_fit_hw` → `cadw_function: cadw.ts.ets._ses_fit`
+
+Loader does **not** validate `name == function.__name__`; card name is
+identifier, `cadw_function` is ground truth.
+
+### §4. Audit test (mandatory)
+
+`tests/test_primitives_audit.py::test_all_module_helpers_registered`:
+
+- Scan `cadw/ml/*.py`, `cadw/ts/*.py` for `^def _name(`.
+- Each must be: in `PRIMITIVES.yaml` (by `cadw_function` OR `name`),
+  OR in DEC-071 §2 exemption set (hardcoded frozenset).
+- Catches future v0.9.179-186-style drifts on merge.
+
+### §5. v0.9.187 registration
+
+Following §1, register:
+
+**A. Batch (verified, true OOC) — 5:**
+`_pelt_streaming_batches`, `_iter_series_batches` (pelt);
+`_breslow_streaming`, `_baseline_hazard_streaming`, `_sgd_coxph` (coxph).
+
+**B. Leaf (draft, intrinsic_bound: n) — 23:**
+pelt: `_collect_series`;
+binseg: `_best_split_from_cs`, `_segment_cost`;
+coxph: `_breslow`, `_baseline_hazard`, `_stack_num`;
+theta: `_ses_fit` (already as `_ses_fit_simple`), `_best_alpha`(→§2), `_ols_forecast`(→§2);
+ets: `_ses_fit` (already as `_ses_fit_hw`), `_initial_seasonal`, `_grid_search`(→§2 nested);
+otm: `_ses` (variant, separate card);
+SARIMA: `_ar_fit`, `_arma_forecast`, `_hannan_rissanen`, `_integrate_back`,
+`_difference`, `_seasonal_difference`;
+GBDTForecaster: `_build_lag_matrix`;
+decomposition: `_loess_local_linear`, `_low_pass_seasonal_cycles`,
+`_nextodd`, `_tricube`.
+
+(**actual register count depends on AP22 duplicates — those split into
+unique cards.**)
+
+---
+
+<!-- end DEC-071 -->
+
 <!-- end DEC-070 -->
 
 <!-- end DEC-066 -->

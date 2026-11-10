@@ -4693,6 +4693,50 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.187] — 2026-11-10 (DEC-071 audit closure)
+
+### v0.9.187 — 23 primitives registered + audit test
+
+DEC-071: strict primitive definition + exemption list.
+Closes v0.9.179-186 audit gap (34 unregistered helpers in
+session files).
+
+- DEC-071 (permanent policy):
+  - Primitive = module-level `^def _name(` AND (cross-module
+    OR leaf-critical O(n)/O(n²)/O(n·k) alloc in fit/predict/
+    predict_in_sample path).
+  - §2 exemption list: methods, O(1) utilities, O(steps),
+    O(k) metrics, aliases, nested 1-site helpers covered by
+    registered primitive (e.g. _best_alpha via _ses_fit).
+  - §3 alias convention: card `name` is descriptive identifier;
+    `cadw_function` is ground truth (e.g. `_ses_fit_simple`
+    -> cadw.ts.theta._ses_fit; `_ses_fit_hw` -> cadw.ts.ets._ses_fit).
+
+- PRIMITIVES.yaml: 23 new cards (10 -> 32):
+  - Batch (verified, true OOC) — 5:
+    _pelt_streaming_batches, _iter_series_batches (pelt);
+    _breslow_streaming, _baseline_hazard_streaming, _sgd_coxph
+    (coxph).
+  - Leaf (draft, intrinsic_bound {axis: n, bound: 1e6}) — 18:
+    _collect_series (pelt); _best_split_from_cs, _segment_cost
+    (binseg); _breslow, _baseline_hazard, _stack_num (coxph);
+    _initial_seasonal, _ses (otm variant); _ar_fit,
+    _arma_forecast, _hannan_rissanen, _integrate_back,
+    _difference, _seasonal_difference, _build_lag_matrix
+    (SARIMA/GBDTForecaster); _loess_local_linear,
+    _low_pass_seasonal_cycles (decomposition).
+  - _breslow / _baseline_hazard carry streaming_variant
+    pointers to their _streaming counterparts.
+
+- tests/test_primitives_audit.py: scan cadw/ml/, cadw/ts/
+  session files for module-level helpers; assert each is
+  registered OR in DEC-071 §2 EXEMPT set. Catches future
+  v0.9.179-186-style drift on merge.
+
+No behavioral changes; metadata + audit-test only. Wave 2
+continues: P2 _ses_fit(s=1) streaming -> ETS/AutoETS honest
+flip -> P3 HW -> P4 stl_decompose.
+
 ## [0.9.186] — 2026-11-10 (DEC-070 P1: streaming _extract_series)
 
 ### v0.9.186 — first streaming primitive + Naive pilot
