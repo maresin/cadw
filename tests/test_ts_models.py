@@ -368,7 +368,7 @@ def test_sarima_predict_in_sample_length_and_scale():
     y = 100.0 + rng.normal(size=n)
     df = _mk_df(y)
     m = SARIMAForecaster(order=(1, 0, 0), auto=False).fit(df, "y")
-    preds = m.predict_in_sample()
+    preds = m.predict_in_sample(df)
     assert len(preds) == len(y), (
         f"len(predict_in_sample)={len(preds)} != n_train={len(y)} "
         f"(contract violation, bug #3)"
@@ -388,7 +388,7 @@ def test_sarima_predict_in_sample_d1_returns_nan():
     y = np.cumsum(rng.normal(size=n)) + 100.0
     df = _mk_df(y)
     m = SARIMAForecaster(order=(0, 1, 0), auto=False).fit(df, "y")
-    preds = m.predict_in_sample()
+    preds = m.predict_in_sample(df)
     assert len(preds) == len(y)
     assert np.all(np.isnan(preds)), (
         "d>0 predict_in_sample must be all-NaN (documented); "

@@ -491,6 +491,24 @@ primitives:
   streaming_variant: null
   consumers: [SARIMAForecaster]
 
+- name: _arma_forecast_short
+  cadw_function: cadw.ts.models._arma_forecast_short
+  module: cadw.ts.models
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "(p + q + 4) * f64 + steps * f64 + 256"
+  min_ram_formula: "4 * f64 + 256"
+  formula_evidence:
+    alloc: "models.py -- short ARMA predict: (p+q)*f64 + steps*f64 + 256; no full y"
+  # v0.9.196 (AP29): predict-time O(steps); caller precomputes
+  # _last_p_y_centered_ + _last_q_e_ via
+  # SARIMAForecaster._precompute_predict_state. Bit-identical to
+  # _arma_forecast out-of-sample (atol=1e-12) for len(y)>=max(p,q)+p.
+  intrinsic_bound: null
+  streaming_variant: null
+  consumers: ['SARIMAForecaster']
+
 - name: _hannan_rissanen
   cadw_function: cadw.ts.models._hannan_rissanen
   module: cadw.ts.models

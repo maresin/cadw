@@ -475,12 +475,12 @@ subtypes:
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: '2 * n * f64 + 2 * (p + q + 4) * f64 + 3.5 * batch * row_size + 256'
+    ram_formula: '(p + q + d + s + 4) * f64 + 3.5 * batch * row_size + 256'
     formula_evidence:
       state: "models.py:495-503 -- y_raw_ = y.copy() (n*f64) + _y_centered_ = y - _y_mean (n*f64)"
       header: "models.py -- +256 in state_nbytes()"
       guard: "models.py:_extract_series -- _check(df._memory_guard, batch, ...)"
-    min_ram_formula: '2 * max(p, s*D, q, 4) * f64 + 2 * (p + q + 4) * f64 + 3.5 * row_size + 256'
+    min_ram_formula: '4 * f64 + 3.5 * row_size + 256'
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -491,12 +491,12 @@ subtypes:
       cells_passed: "3/3"
       runtime_sec: "~3"
       fit_transient_note: "params='auto' (default): AICc grid full y (O(n) transient). params='manual': O(W_eff) via _collect_last_w."
-    bounded_by_domain: {axis: n, bound: 1000000, reason: "Auto mode (default, same as legacy auto=True): _y_centered_recent_ = n persistent for in-sample predict + integration levels. Manual mode: W_eff via _collect_last_w. Option B refactor v0.9.196 flips to bounded_state=true (state O(model) via precomputed predict levels)."}
+    bounded_by_domain: null
     state_class: O(n)
-    bounded_state_dims: {n: 1, p: 1, q: 1}
+    bounded_state_dims: {p: 1, q: 1, d: 1, s: 1}
     state_type: aggregation
-    bounded_state: false
-    n_scalability: linear
+    bounded_state: true
+    n_scalability: constant
     tier1_core_exception: "Single-series TS; auto=True grid: p,q in 0..2, d in 0..1 (18 combos, no seasonal); each fit ~n residual transient (peak 18*3n, sequential). Guard refuses at state_limit. bounded_by_domain n<=1e6."
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. auto=True grid: p,q in 0..2, d in 0..1 (18 combos, no seasonal); each fit ~n residual transient (peak 18*3n, sequential)."
@@ -531,8 +531,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
-    bounded_by_window: {axis: n, window_param: max_window, auto_from_guard: true, truncation_loss: 'SARIMA fit on last W_eff (bit-identical n<=W_eff)', applies_to: 'params=manual'}
-    migration_target: v0.9.196
+    bounded_by_window: null
+    migration_target: null
 
   - name: GBDTForecaster
     cadw_module: cadw.ts.models

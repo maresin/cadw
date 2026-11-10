@@ -605,6 +605,39 @@ def _hannan_rissanen(y, p, q, ar_m=None):
     return ar, ma, sigma2
 
 
+def _arma_forecast_short(last_p_y, last_q_e, ar, ma, steps):
+    """v0.9.196: out-of-sample ARMA forecast from O(p+q) state.
+
+    Bit-identical to _arma_forecast(y, ar, ma, sigma2, steps) for
+    out-of-sample when len(y) >= max(p, q) + p (P53c verified atol=1e-12).
+
+    Requires only:
+      last_p_y: last p of y_clean (= yd[valid])
+      last_q_e: last q of residuals (from _ar_fit(y_clean, max(p,q)+p))
+    """
+    p = len(ar)
+    q = len(ma)
+    y_ext = list(last_p_y)
+    e_ext = list(last_q_e)
+    if len(y_ext) < p:
+        raise ValueError(
+            f"_arma_forecast_short: last_p_y len {len(y_ext)} < p={p}")
+    if len(e_ext) < q:
+        raise ValueError(
+            f"_arma_forecast_short: last_q_e len {len(e_ext)} < q={q}")
+    fc = np.empty(steps, dtype=np.float64)
+    for h in range(steps):
+        val = 0.0
+        for i in range(p):
+            val += ar[i] * y_ext[-i - 1]
+        for i in range(q):
+            val += ma[i] * e_ext[-i - 1]
+        fc[h] = val
+        y_ext.append(val)
+        e_ext.append(0.0)
+    return fc
+
+
 def _arma_forecast(y, ar, ma, sigma2, steps, in_sample=False):
     """Recursive ARMA forecast using the fitted coefficients."""
     p = len(ar)
@@ -737,6 +770,11 @@ class SARIMAForecaster(ForecasterBase):
         self.target_col_ = None
         self.time_col_ = None
         self._saved_y_ = None
+        # v0.9.196: precomputed predict state (O(model))
+        self._last_p_y_centered_ = None
+        self._last_q_e_ = None
+        self._y_levels_ = None
+        self._seas_last_ = None
 
     def fit(self, df, target_col, *, time_col=None, group_col=None,
             save_y=False, max_window: "str | int | None" = "auto",
@@ -778,6 +816,7 @@ class SARIMAForecaster(ForecasterBase):
         self._y_centered_recent_ = y - self._y_mean_
         self._saved_y_ = None
         self._fit(self._y_centered_recent_)
+        self._precompute_predict_state()
         self._is_fitted = True
         return self
 
@@ -868,6 +907,7 @@ class SARIMAForecaster(ForecasterBase):
         self._y_centered_recent_ = y - self._y_mean_
         self._saved_y_ = y.copy() if save_y else None
         self._fit(self._y_centered_recent_)
+        self._precompute_predict_state()
         self._is_fitted = True
         return self
 
@@ -899,6 +939,75 @@ class SARIMAForecaster(ForecasterBase):
         sigma2_safe = max(sigma2, 1e-300)
         aic = n_valid * np.log(sigma2_safe) + 2 * n_params
         return (ar, ma, sigma2, yd), aic, sigma2, None
+
+    def _precompute_predict_state(self):
+        """v0.9.196: extract O(model) predict state from _yd / _y_centered_recent_.
+
+        After this, _predict needs only:
+          _last_p_y_centered_ (p), _last_q_e_ (q),
+          _y_levels_ (d), _seas_last_ (s).
+        Releases _yd (transient) and _y_centered_recent_ (unless save_y).
+        """
+        p = len(self._ar) if self._ar is not None else 0
+        q = len(self._ma) if self._ma is not None else 0
+        d = self._order_[1]
+        D = self._seasonal_order_[1]
+        s = self.s
+
+        # last p of y_clean (= yd[valid])
+        yd = self._yd
+        if yd is None:
+            self._last_p_y_centered_ = np.empty(0, dtype=np.float64)
+            self._last_q_e_ = np.empty(0, dtype=np.float64)
+            self._y_levels_ = np.empty(0, dtype=np.float64)
+            self._seas_last_ = np.empty(0, dtype=np.float64)
+            return
+        valid = ~np.isnan(yd)
+        y_clean = yd[valid]
+        self._last_p_y_centered_ = (
+            y_clean[-p:].copy() if p > 0
+            else np.empty(0, dtype=np.float64))
+
+        # last q residuals (from _ar_fit(y_clean, max(p,q)+p))
+        if q > 0:
+            m_len = max(p, q) + p
+            if len(y_clean) > m_len:
+                _, e = _ar_fit(y_clean, m_len)
+                e_fin = e[~np.isnan(e)]
+                self._last_q_e_ = (
+                    e_fin[-q:].copy() if len(e_fin) >= q
+                    else np.zeros(q, dtype=np.float64))
+            else:
+                self._last_q_e_ = np.zeros(q, dtype=np.float64)
+        else:
+            self._last_q_e_ = np.empty(0, dtype=np.float64)
+
+        # y_levels: last centered value at each regular-diff level
+        if d > 0:
+            levels = []
+            ycl = self._y_centered_recent_
+            for _ in range(d):
+                levels.append(float(ycl[-1]))
+                ycl = _difference(ycl, 1)
+            self._y_levels_ = np.array(levels, dtype=np.float64)
+        else:
+            self._y_levels_ = np.empty(0, dtype=np.float64)
+
+        # seas_last: last s of _difference(y_centered, d)
+        if D and s:
+            ycl = self._y_centered_recent_
+            for _ in range(d):
+                ycl = _difference(ycl, 1)
+            self._seas_last_ = (
+                ycl[-s:].copy() if len(ycl) >= s
+                else np.zeros(s, dtype=np.float64))
+        else:
+            self._seas_last_ = np.empty(0, dtype=np.float64)
+
+        # Release O(n) state (unless legacy save_y)
+        self._yd = None
+        if self._saved_y_ is None:
+            self._y_centered_recent_ = None
 
     def _fit(self, y):
         s = self.s
@@ -964,106 +1073,72 @@ class SARIMAForecaster(ForecasterBase):
         self._fit_info = best_info
 
     def state_nbytes(self):
-        """v0.9.195: honest state = _y_centered_recent_ + _yd + coefs+256.
+        """v0.9.196: O(model) honest.
 
-        auto mode (default): _y_centered_recent_ = n (O(n) persistent).
-        manual mode: W_eff (bounded_by_window when W_eff < n).
-        save_y=True legacy: + _saved_y_ (n*f64).
-        Option B v0.9.196: refactor to precomputed predict levels
-        (state O(model)), flipping to bounded_state=true.
+        = (p + q + d + s) * f64 + 256 (+ _saved_y_.nbytes if legacy).
+        After _precompute_predict_state: _yd / _y_centered_recent_ released.
         """
-        if self._y_centered_recent_ is None:
+        if self._ar is None:
             return 0
         sz = 256
-        sz += int(self._y_centered_recent_.nbytes)
-        if self._yd is not None:
-            sz += int(self._yd.nbytes)
+        for attr in ("_last_p_y_centered_", "_last_q_e_",
+                     "_y_levels_", "_seas_last_"):
+            v = getattr(self, attr, None)
+            if v is not None:
+                sz += int(v.nbytes)
         if self._saved_y_ is not None:
             sz += int(self._saved_y_.nbytes)
         return int(sz)
-
     def _predict(self, steps):
-        yd = self._yd
-        valid = ~np.isnan(yd)
-        if not valid.any():
-            raise RuntimeError("SARIMA: no valid observations after differencing")
-        y_clean = yd[valid]
-        fc_diff = _arma_forecast(y_clean, self._ar, self._ma, self._sigma2, steps)
+        """v0.9.196: O(steps) forecast from precomputed O(model) state."""
+        if self._last_p_y_centered_ is None:
+            raise RuntimeError("SARIMA: model not fitted")
+        fc_diff = _arma_forecast_short(
+            self._last_p_y_centered_, self._last_q_e_,
+            self._ar, self._ma, steps,
+        )
         p, d, q = self._order_
         P, D, Q = self._seasonal_order_
         s = self.s
         if d or D:
-            # v0.9.25a: build y_levels from centered series at each
-            # regular-diff level. For d=2+, prior code used 0.0 for
-            # levels >0 — structurally wrong (should be last diff value).
-            levels = []
-            yd_for_levels = self._y_centered_recent_
-            for lvl in range(d):
-                v = float(yd_for_levels[-1]) if len(yd_for_levels) else 0.0
-                levels.append(v)
-                yd_for_levels = _difference(yd_for_levels, 1)
-            # v0.9.25a: seasonal_period_last from _difference(y_centered, d)
-            # — the series BEFORE seasonal diff, AFTER regular diff.
-            # Prior code took self.y_raw_[-s:] — wrong for d>0.
-            # v0.9.195: uses _y_centered_recent_ (W_eff in manual mode,
-            # n in auto mode); same values as before for auto (full y).
-            if D and s:
-                yd_for_seas = (
-                    _difference(self._y_centered_recent_, d) if d
-                    else self._y_centered_recent_.copy()
-                )
-                seas_last = (yd_for_seas[-s:] if len(yd_for_seas) >= s
-                             else np.zeros(s, dtype=np.float64))
-            else:
-                seas_last = np.empty(0, dtype=np.float64)
             fc = _integrate_back(
-                fc_diff, tuple(levels), d, D, s, seas_last,
+                fc_diff, tuple(self._y_levels_), d, D, s,
+                self._seas_last_,
             )
         else:
             fc = fc_diff
-        # v0.9.25a: restore the mean (centered in fit).
         return (fc + self._y_mean_).astype(np.float64)
-
     def predict_in_sample(self, df=None):
-        """In-sample prediction (v0.9.25a contract; v0.9.195 df optional).
+        """In-sample prediction (v0.9.196: df required, state O(model)).
 
-        ForecasterBase contract: len=n_train, values in y scale.
-
-        - d>0 or D>0: returns all-NaN (documented limitation; each
-          point needs its own integration base; diff-head not invertible
-          in-sample without leakage). TemporalHierarchy falls back to
-          OLS when predict_in_sample returns all-NaN.
-        - df given: OOC — recompute on df via _extract_series (streaming
-          length matches self.n_train_).
-        - df=None + _saved_y_ (save_y=True legacy): use saved full y.
-        - df=None + auto mode (default): recent = full n, exact.
-        - df=None + manual mode + W_eff=n: exact.
-        - df=None + manual mode + W_eff<n: partial (finite tail W_eff,
-          NaN head). ApproximationInfo(window_truncated) already on self.
+        - df given: streaming (OOC) — recompute on df via _extract_series.
+        - df=None + save_y=True (legacy): uses _saved_y_.
+        - df=None otherwise: TypeError (OOC default; no persistent
+          full y since v0.9.196).
+        - d>0 or D>0: all-NaN (documented limitation; THF falls back
+          to OLS).
         """
         if not self._is_fitted:
             raise RuntimeError(
                 f"{type(self).__name__}.predict_in_sample called before fit")
-
+        n_out = int(self.n_train_)
         p, d, q = self._order_
         P, D, Q = self._seasonal_order_
-        n_out = int(self.n_train_)
         if d or D:
             return np.full(n_out, np.nan)
 
         if df is not None:
             y = _extract_series(df, self.target_col_,
                                  time_col=self.time_col_)
-            y_centered = y - self._y_mean_
-            return self._predict_in_sample_from(y_centered, n_out)
-
+            return self._predict_in_sample_from(
+                y - self._y_mean_, n_out)
         if self._saved_y_ is not None:
-            y_centered = self._saved_y_ - self._y_mean_
-            return self._predict_in_sample_from(y_centered, n_out)
-
-        # df=None: use recent (full n in auto; W_eff in manual)
-        return self._predict_in_sample_from(
-            self._y_centered_recent_, n_out)
+            return self._predict_in_sample_from(
+                self._saved_y_ - self._y_mean_, n_out)
+        raise TypeError(
+            f"{type(self).__name__}.predict_in_sample: df is required "
+            f"(OOC default since v0.9.196 — state O(model)). Use "
+            f"fit(..., save_y=True) for legacy no-df calls.")
 
     def _predict_in_sample_from(self, y_centered, n_out):
         """Compute in-sample preds on given centered y; returns len=n_out.
