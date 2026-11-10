@@ -201,3 +201,16 @@ def test_autotheta_no_bench_deps_in_source():
             assert top not in forbidden, (
                 f"forbidden import-from: {node.module}")
 
+# ---- v0.9.194: deprecation ----
+
+def test_auto_theta_emits_deprecation():
+    """AutoThetaForecaster emits DeprecationWarning in v0.9.194."""
+    import warnings
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        AutoThetaForecaster(seasonal_period=12)
+    dep = [x for x in w if issubclass(x.category, DeprecationWarning)]
+    assert dep, "expected DeprecationWarning; got: " + repr(w)
+    msg = str(dep[0].message)
+    assert "params='auto'" in msg or "v1.0.0" in msg
+

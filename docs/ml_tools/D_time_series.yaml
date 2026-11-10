@@ -290,7 +290,7 @@ subtypes:
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "4 * W_eff * f64 + seasonal_period * f64 + 3.5 * batch * row_size + 256"
+    ram_formula: 'n * f64 + 4 * seasonal_period * f64 + 3.5 * batch * row_size + 256'
     formula_evidence:
       state: "theta.py:221-223 -- y_.nbytes + fitted_.nbytes + 256"
       header: "theta.py:223 -- +256"
@@ -309,12 +309,8 @@ subtypes:
     state_class: O(model)
     state_type: aggregation
     bounded_state: true
-    bounded_by_window:
-      axis: n
-      window_param: max_window
-      auto_from_guard: true
-      truncation_loss: "STL + Theta fit on last W_eff (bit-identical n<=W_eff)"
-    n_scalability: bounded_by_window
+    bounded_by_window: {axis: n, window_param: max_window, auto_from_guard: true, truncation_loss: 'STL + Theta fit on last W_eff (bit-identical n<=W_eff)', applies_to: 'params=manual'}
+    n_scalability: linear
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. STL decompose + SES transient."
       predict: "closed-form extrapolation; O(1) RAM."
@@ -372,12 +368,12 @@ subtypes:
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "2 * n * f64 + 256"
+    ram_formula: 'n * f64 + 4 * seasonal_period * f64 + 3.5 * batch * row_size + 256'
     formula_evidence:
       state: "auto_theta.py:284-286 -- best_model_.state_nbytes() (delegated)"
       header: "auto_theta.py:286 -- delegated +256"
       guard: "auto_theta.fit -- extract_series guards per batch"
-    min_ram_formula: "2 * n * f64 + 256"
+    min_ram_formula: '4 * 2 * seasonal_period * f64 + 3.5 * row_size + 256'
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -393,9 +389,9 @@ subtypes:
       bound: 1000000
       reason: "CV-selection over STM/OTM × additive/multiplicative; CV needs full y for holdout split (O(n) transient). _MultiplicativeWrapper refactored v0.9.193: streaming log-transform, no self.y_ persistent. Inner Theta/OTM uses max_window (v0.9.191). Merge to ThetaForecaster(params='auto') in v0.9.194 inherits CV transient (honest linear)."
     state_class: O(n)
-    bounded_state_dims: {n: 1}
+    bounded_state_dims: {seasonal_period: 1}
     state_type: aggregation
-    bounded_state: false
+    bounded_state: true
     n_scalability: linear
     tier1_core_exception: "Single-series TS; CV folds sequential. Guard refuses at state_limit. bounded_by_domain n<=1e6."
     streaming_strategy:
@@ -467,6 +463,8 @@ subtypes:
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
     transient_factor: 1.0
+    notes: "DEPRECATED v0.9.194 - alias for ThetaForecaster(params='auto'). Functionally equivalent (shim); Theta card is canonical. Removed in v1.0.0."
+
   - name: SARIMA
     cadw_module: cadw.ts.models
     cadw_function: SARIMAForecaster

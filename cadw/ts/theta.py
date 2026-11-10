@@ -144,14 +144,29 @@ class ThetaForecaster(ForecasterBase):
     handles_multi_seasonality: bool = False
 
     def __init__(self, seasonal_period: int = 1, *,
-                 n_iter: int = 2):
+                 n_iter: int = 2, params: str = "manual",
+                 val_steps=None):
+        """v0.9.194: merged Theta+AutoTheta.
+
+        params:
+          - "manual" (default): single Theta fit, OOC via max_window
+            (v0.9.183 OOC state, v0.9.191 window truncation).
+          - "auto": CV-selected STM/OTM x additive/multiplicative
+            (was AutoThetaForecaster; now Theta(params="auto")).
+        """
         super().__init__()
         if seasonal_period < 1:
             raise ValueError(
                 "ThetaForecaster: seasonal_period must be >= 1")
+        if params not in ("manual", "auto"):
+            raise ValueError(
+                f"ThetaForecaster: params must be 'manual' or 'auto'; "
+                f"got {params!r}")
         self.seasonal_period = int(seasonal_period)
         self.n_iter = int(n_iter)
-        # v0.9.183 OOC state
+        self.params = params
+        self.val_steps = val_steps
+        # v0.9.183 OOC state (manual mode)
         self.last_k_ = None
         self.lvl_ = None
         self.n_train_ = None
@@ -164,8 +179,225 @@ class ThetaForecaster(ForecasterBase):
         self.target_col_ = None
         self.time_col_ = None
         self._saved_y_ = None
+        # v0.9.194 auto mode state
+        self.best_model_ = None
+        self.selected_config_ = None
+        self.cv_scores_ = []
+        self.best_mase_ = float("inf")
 
     def fit(self, df, target_col, *, time_col=None, group_col=None,
+            save_y=False, max_window="auto", strict=False):
+        """v0.9.194 dispatcher: manual vs auto."""
+        _check_df(df, target_col, time_col, group_col)
+        self.target_col_ = target_col
+        self.time_col_ = time_col
+        self._clear_approximation()
+        if self.params == "auto":
+            if save_y:
+                raise ValueError(
+                    "ThetaForecaster(params='auto').fit: save_y=True is "
+                    "not supported in auto mode (CV delegates to best_model_); "
+                    "use params='manual' for legacy no-df predict_in_sample.")
+            return self._fit_auto(
+                df, target_col, time_col=time_col, group_col=group_col,
+                max_window=max_window, strict=strict)
+        return self._fit_manual(
+            df, target_col, time_col=time_col, group_col=group_col,
+            save_y=save_y, max_window=max_window, strict=strict)
+
+    def _fit_auto(self, df, target_col, *, time_col=None, group_col=None,
+                  max_window="auto", strict=False):
+        """CV-selected STM vs OTM, additive vs multiplicative (v0.9.194).
+
+        Migrated from AutoThetaForecaster.fit (v0.9.78-193). Winner refit
+        on full df with max_window/strict propagated. ApproximationInfo
+        from best_model_ propagated to self.
+        """
+        import warnings as _warnings
+        from cadw.ts._theta_common import (
+            _MultiplicativeWrapper, _mase, _naive_seasonal_mae,
+        )
+        from cadw.ts.otm import OTMThetaForecaster
+        import pyarrow as pa
+        from cadw import CadwDataFrame
+
+        y = _extract_series(df, target_col, time_col=time_col)
+        n = y.size
+        if n < 4:
+            raise ValueError(
+                "ThetaForecaster (AutoTheta alias): need at least 4 "
+                "observations")
+        if np.any(~np.isfinite(y)):
+            raise ValueError(
+                "ThetaForecaster (AutoTheta alias): series contains "
+                "non-finite values")
+        s = self.seasonal_period
+        if s > 1 and n < 2 * s:
+            raise ValueError(
+                f"ThetaForecaster (AutoTheta alias): need at least "
+                f"2*seasonal_period={2*s} obs for seasonal mode")
+
+        if self.val_steps is None:
+            val_steps = max(s if s > 1 else 0, n // 5)
+        else:
+            val_steps = int(self.val_steps)
+        val_steps = max(1, min(val_steps, n - 4))
+        n_train = n - val_steps
+
+        y_train = y[:n_train]
+        y_val = y[n_train:]
+        denom = _naive_seasonal_mae(y_train, s)
+        has_positive = bool((y > 0).all())
+
+        n_iter_self = self.n_iter
+        cands = [
+            {"label": "STM_additive",
+             "factory": lambda s_: ThetaForecaster(
+                 seasonal_period=s_, n_iter=n_iter_self),
+             "note": "STM, additive decomposition"},
+            {"label": "OTM_additive",
+             "factory": lambda s_: OTMThetaForecaster(
+                 seasonal_period=s_, n_iter=n_iter_self),
+             "note": "OTM, additive decomposition"},
+        ]
+        if has_positive:
+            cands.append({
+                "label": "STM_multiplicative",
+                "factory": lambda s_: _MultiplicativeWrapper(
+                    lambda ss: ThetaForecaster(
+                        seasonal_period=ss, n_iter=n_iter_self), s_),
+                "note": "STM on log(y) (= multiplicative decomposition)",
+            })
+            cands.append({
+                "label": "OTM_multiplicative",
+                "factory": lambda s_: _MultiplicativeWrapper(
+                    lambda ss: OTMThetaForecaster(
+                        seasonal_period=ss, n_iter=n_iter_self), s_),
+                "note": "OTM on log(y) (= multiplicative decomposition)",
+            })
+
+        train_df = CadwDataFrame.from_table(
+            pa.table({target_col: pa.array(y_train)}))
+        val_h = y_val.size
+
+        best_mase = float("inf")
+        best_label = None
+        cv_scores = []
+        for cand in cands:
+            entry = {"label": cand["label"], "note": cand["note"]}
+            try:
+                model = cand["factory"](s)
+                model.fit(train_df, target_col)
+                pred = model.predict(val_h)
+                mase = _mase(y_val, pred, denom)
+                entry["val_mase"] = float(mase)
+                if mase < best_mase:
+                    best_mase = mase
+                    best_label = cand["label"]
+            except Exception as e:
+                entry["val_mase"] = None
+                entry["error"] = f"{type(e).__name__}: {e}"
+            cv_scores.append(entry)
+
+        if best_label is None:
+            _warnings.warn(
+                "ThetaForecaster(params='auto'): no candidate valid; "
+                "falling back to NaiveForecaster(last).", stacklevel=2)
+            from cadw.ts.models import NaiveForecaster as _Naive
+            best_model = _Naive(strategy="last")
+            best_model.fit(df, target_col, time_col=time_col,
+                           group_col=group_col)
+            selected = {"label": "fallback:NaiveForecaster(last)"}
+            best_mase = float("inf")
+        else:
+            winner = next(c for c in cands if c["label"] == best_label)
+            best_model = winner["factory"](s)
+            try:
+                best_model.fit(
+                    df, target_col, time_col=time_col,
+                    group_col=group_col,
+                    max_window=max_window, strict=strict)
+            except TypeError:
+                best_model.fit(
+                    df, target_col, time_col=time_col,
+                    group_col=group_col)
+            selected = {
+                "label": best_label, "note": winner["note"],
+                "val_mase": float(best_mase),
+            }
+
+        self.best_model_ = best_model
+        self.selected_config_ = selected
+        self.cv_scores_ = cv_scores
+        self.best_mase_ = float(best_mase)
+        inner_approx = getattr(best_model, "approximation", None)
+        if inner_approx:
+            for info in inner_approx:
+                self._record_approximation(info)
+        self._is_fitted = True
+        return self
+
+    def predict(self, steps):
+        """v0.9.194 dispatcher."""
+        if not self._is_fitted:
+            raise RuntimeError(
+                f"{type(self).__name__}.predict called before fit")
+        if not isinstance(steps, int):
+            raise TypeError(
+                f"{type(self).__name__}.predict: steps must be int")
+        if steps < 1:
+            raise ValueError(
+                f"{type(self).__name__}.predict: steps must be >= 1")
+        if self.params == "auto":
+            return self.best_model_.predict(steps)
+        return self._predict_manual(steps)
+
+    def predict_in_sample(self, df=None):
+        """v0.9.194 dispatcher."""
+        if not self._is_fitted:
+            raise RuntimeError(
+                f"{type(self).__name__}.predict_in_sample called before fit")
+        if self.params == "auto":
+            return self._predict_in_sample_auto(df)
+        return self._predict_in_sample_manual(df)
+
+    def _predict_in_sample_auto(self, df):
+        import inspect
+        if df is not None:
+            try:
+                sig = inspect.signature(
+                    self.best_model_.predict_in_sample)
+                if "df" in sig.parameters:
+                    return self.best_model_.predict_in_sample(df)
+            except (ValueError, TypeError):
+                pass
+        return self.best_model_.predict_in_sample()
+
+    def prediction_interval(self, steps, level=0.95):
+        """v0.9.194 dispatcher."""
+        if self.params == "auto":
+            if hasattr(self.best_model_, "prediction_interval"):
+                return self.best_model_.prediction_interval(steps, level)
+            f = self.predict(steps)
+            return f, f
+        return self._prediction_interval_manual(steps, level)
+
+    def state_nbytes(self):
+        """v0.9.194 dispatcher."""
+        if not self._is_fitted:
+            return 0
+        if self.params == "auto":
+            return self._state_nbytes_auto()
+        return self._state_nbytes_manual()
+
+    def _state_nbytes_auto(self):
+        if self.best_model_ is None:
+            return 0
+        sz = 256 + int(self.best_model_.state_nbytes())
+        sz += 128 * max(1, len(self.cv_scores_ or []))
+        return sz
+
+    def _fit_manual(self, df, target_col, *, time_col=None, group_col=None,
             save_y=False,
             max_window: "str | int | None" = "auto",
             strict: bool = False):
@@ -317,7 +549,7 @@ class ThetaForecaster(ForecasterBase):
         self._is_fitted = True
         return self
 
-    def predict(self, steps):
+    def _predict_manual(self, steps):
         """v0.9.183 OOC: uses stored lvl_ (O(1)), not full y_ (was O(n))."""
         n = self.n_train_
         a, b = self.trend_, self.slope_
@@ -438,7 +670,7 @@ class ThetaForecaster(ForecasterBase):
         self._saved_y_ = None
         # _is_fitted set by caller
 
-    def predict_in_sample(self, df=None):
+    def _predict_in_sample_manual(self, df=None):
         """v0.9.183: OOC default requires df (or save_y=True legacy)."""
         if not self._is_fitted:
             raise RuntimeError(
@@ -477,7 +709,7 @@ class ThetaForecaster(ForecasterBase):
             return fit_ds + seasonal
         return fit_ds
 
-    def prediction_interval(self, steps, level=0.95):
+    def _prediction_interval_manual(self, steps, level=0.95):
         z = math.sqrt(2.0) * _erfinv(2.0 * (0.5 + level / 2.0) - 1.0)
         f = self.predict(steps)
         sig = float(np.sqrt(max(self.sigma2_, 0.0)))
@@ -485,7 +717,7 @@ class ThetaForecaster(ForecasterBase):
         band = z * sig * np.sqrt(h)
         return f - band, f + band
 
-    def state_nbytes(self):
+    def _state_nbytes_manual(self):
         """v0.9.183 OOC: O(seasonal_period) + optional _saved_y_."""
         if not self._is_fitted:
             return 0
