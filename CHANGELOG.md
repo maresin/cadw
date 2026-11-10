@@ -4693,7 +4693,7 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
-## [0.9.177] — 2026-11-10 (min_ram_formula rollout + G14)
+## [0.9.178] — 2026-11-10 (TS approximation mixin + gates)\n\n### v0.9.178 (2026-11-10) — approximation infra + gate skeletons\n\n- ApproximationMixin (cadw/core/approximation.py): class attr\n  `approximation: list[ApproximationInfo] | None = None`;\n  `_clear_approximation()` reset; `_record_approximation(info)`\n  append + emit ApproximationWarning (R6, AP24).\n- ForecasterBase(ApproximationMixin): all 15 TS forecasters inherit\n  (Naive, SARIMA, GBDTForecaster, ETS, Theta, OTMTheta, AutoETS,\n  AutoTheta, Ensemble, TransformedTarget, AutoForecastPipeline,\n  BVAR, VECM, _MultiplicativeWrapper).\n- TemporalHierarchy(ApproximationMixin): separate hierarchy class.\n- G12-G17 gate skeletons in tests/test_constitution_gates.py.\n  G14 (min_ram_formula) is REAL (rollout 97/98); G12, G13, G15,\n  G16, G17 are pytest.skip with TODO v0.9.179+.\n- Tests: 10 new (test_ts_approximation.py) + 6 gates in\n  test_constitution_gates.py (5 skipped).\n\n## [0.9.177] — 2026-11-10 (min_ram_formula rollout + G14)
 
 ### v0.9.177 (2026-11-10) — bottom-bound migration
 
