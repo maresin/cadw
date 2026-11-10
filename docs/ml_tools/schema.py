@@ -158,6 +158,14 @@ class ModelCard:
     # v0.9.97: RAM formula components. {axis: power}; missing axis = 0.
     # est_bytes = sum(val**pow for axis,pow in dims.items()) * 8 * transient_factor
     bounded_state_dims: dict[str, int] | None = None
+
+    # v0.9.177 (DEC-067): RAM formula + analytical bottom-bound.
+    # Previously YAML-only (read via raw dict in cadw/ml/_memory_estimate.py);
+    # now formalized in ModelCard for G14 validation + tooling.
+    ram_formula: str | None = None
+    min_ram_formula: str | None = None
+    min_ram_evidence: dict[str, str] | None = None
+    formula_evidence: dict[str, str] | None = None
     # v0.9.103 (DEC-011): structured replacement for tier1_core_exception
     # text field. {axis: str, bound: int, reason: str}. When present,
     # tier1_core + bounded_state:false is accepted.
@@ -357,6 +365,10 @@ def _parse_model(m: dict) -> ModelCard:
         depends_on_backlog=m.get("depends_on_backlog"),
         depends_on_status=m.get("depends_on_status"),
         bounded_state_dims=m.get("bounded_state_dims"),
+        ram_formula=m.get("ram_formula"),
+        min_ram_formula=m.get("min_ram_formula"),
+        min_ram_evidence=m.get("min_ram_evidence"),
+        formula_evidence=m.get("formula_evidence"),
         bounded_by_domain=m.get("bounded_by_domain"),
         bounded_by_window=m.get("bounded_by_window"),
         transient_factor=(
