@@ -192,15 +192,28 @@ class TemporalHierarchy(ApproximationMixin):
         for y_k in y_per_level:
             f = self.forecaster_factory()
             t = pa.table({"__y__": pa.array(y_k, type=pa.float64())})
-            f.fit(CadwDataFrame.from_table(t), "__y__")
+            df_k = CadwDataFrame.from_table(t)
+            f.fit(df_k, "__y__")
             models.append(f)
             # In-sample residual variance for MinT-WLS only.
             if self.reconciliation != "optimal_wls":
                 continue
+            # v0.9.195-c: pass df_k (OOC-friendly). Since v0.9.182/v0.9.183
+            # forecasters have OOC default (predict_in_sample() without df
+            # raises TypeError). Passing df_k gives exact in-sample preds
+            # without save_y=True persistent state.
             try:
                 preds = np.asarray(
-                    f.predict_in_sample(), dtype=np.float64,
+                    f.predict_in_sample(df_k), dtype=np.float64,
                 )
+            except TypeError:
+                # Legacy forecaster without df kwarg; fall back to no-df.
+                try:
+                    preds = np.asarray(
+                        f.predict_in_sample(), dtype=np.float64,
+                    )
+                except Exception:
+                    preds = np.full(len(y_k), np.nan, dtype=np.float64)
             except Exception:
                 preds = np.full(len(y_k), np.nan, dtype=np.float64)
             if len(preds) != len(y_k):
