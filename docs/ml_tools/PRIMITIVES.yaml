@@ -439,18 +439,27 @@ primitives:
   cadw_function: cadw.ts.otm._ses
   module: cadw.ts.otm
   layer: leaf
-  status: draft
+  status: verified
   bounded_state: false
-  ram_formula: "n * f64 + 256"
-  min_ram_formula: "1 * f64 + 256"
+  ram_formula: "W_eff * f64 + 256"
+  min_ram_formula: "2 * f64 + 256"
   formula_evidence:
-    alloc: "otm.py -- fitted = np.empty(n)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "n-sized fitted array in OTM simple-SES; use _collect_last_w + caller-bounded variant"}
+    fitted_alloc: "otm.py -- fitted = np.empty(len(y_used)); y_used bounded by _collect_last_w"
+    caller_bounds: "OTM caller uses _collect_last_w -> len(y_used) <= W_eff"
+  window_truncatable:
+    axis: n
+    caller_prim: _collect_last_w
+    min_window: "2 * seasonal_period"
+    reason: "SES on last W_eff obs is valid semantic variant (DEC-072 §3); bit-identical n<=W_eff; AP22 distinct from theta._ses_fit (2-tuple vs 3-tuple returns)"
   streaming_variant: null
   consumers: [OTMThetaForecaster]
   notes: >-
-    AP22: distinct from theta._ses_fit (returns (lvl, fitted) 2-tuple).
-    Card _ses_fit_simple covers theta variant.
+    v0.9.191: window-truncatable per DEC-072. Caller bounds y_used to
+    W_eff via _collect_last_w. Bit-identical to legacy n<=W_eff. AP22:
+    distinct from theta._ses_fit (returns (lvl, fitted) 2-tuple; theta
+    returns (lvl, fitted, sse) 3-tuple). Previously intrinsic_bound
+    incorrectly (DEC-072 §3 violated, corrected here).
+
 
 # --- SARIMA helpers (7) ---
 

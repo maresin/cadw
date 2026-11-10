@@ -33,9 +33,11 @@ from __future__ import annotations
 import math
 import numpy as np
 
+from cadw.core.approximation import ApproximationInfo
 from cadw.ts._decomposition import stl_decompose
 from cadw.ts.models import (
     ForecasterBase, _check_df, _extract_series, _iter_target_batches,
+    _collect_last_w,
 )
 
 # v0.9.132 (DEC-054): _ols_fit + _erfinv -> cadw.ops.numeric
@@ -103,21 +105,94 @@ class OTMThetaForecaster(ForecasterBase):
         self._saved_y_ = None
 
     def fit(self, df, target_col, *, time_col=None, group_col=None,
-            save_y=False):
+            save_y=False,
+            max_window: "str | int | None" = "auto",
+            strict: bool = False):
         """Fit OTM Theta forecast.
 
-        v0.9.183 OOC: save_y=False (default) keeps only O(seasonal_period)
-        state (last_k_, lvl_, season_cycle_, params). save_y=True legacy.
+        v0.9.183 OOC state (lvl_, season_cycle_, params).
+        v0.9.191 (DEC-072 P4): window path via _collect_last_w:
+          - W_eff = min(max_window, W_max, n); W_max from guard
+            (OTM grid search holds 19 SES fitted + transients ~ 31 arrays).
+          - Bit-identical when n <= W_eff.
+          - ApproximationInfo(window_truncated) disclosed otherwise.
+
+        max_window: "auto" (default, guard-derived) | int W | None (full).
+        save_y: True forces full path (legacy no-df predict_in_sample).
+        strict: True -> refuse when auto-adjust would lose data.
         """
         _check_df(df, target_col, time_col, group_col)
-        y = _extract_series(df, target_col, time_col=time_col)
+        self.target_col_ = target_col
+        self.time_col_ = time_col
+        self._clear_approximation()
+        s = self.seasonal_period
+
+        if save_y and isinstance(max_window, int):
+            raise ValueError(
+                "OTMThetaForecaster.fit: save_y=True incompatible with "
+                f"max_window=int({max_window}). Use max_window=None.")
+
+        if save_y or max_window is None:
+            y = _extract_series(df, target_col, time_col=time_col)
+            n_total = int(y.size)
+        else:
+            mg = getattr(df, "_memory_guard", None)
+            if mg is None:
+                y = _extract_series(df, target_col, time_col=time_col)
+                n_total = int(y.size)
+            else:
+                # OTM grid search: 19 SES fitted arrays + theta_0/theta_2/ds
+                # + fitted ~ 31 f64 arrays per window row.
+                unit_bytes = 31 * 8
+                W_max = mg.get_window_size(
+                    unit_bytes=unit_bytes, target_fraction=0.25)
+                if max_window == "auto":
+                    W_eff = W_max
+                elif isinstance(max_window, int):
+                    if strict and max_window > int(df.count()):
+                        from cadw.core.memory_guard import MemoryLimitExceeded
+                        raise MemoryLimitExceeded(
+                            f"OTMThetaForecaster.fit: max_window={max_window}"
+                            f" > n_rows; strict=True refuses.",
+                            model="OTMThetaForecaster",
+                            params={"max_window": max_window, "strict": True},
+                        )
+                    W_eff = min(int(max_window), W_max)
+                else:
+                    raise ValueError(
+                        f"OTMThetaForecaster: max_window must be "
+                        f"'auto'|int|None, got {type(max_window).__name__}")
+                if W_eff < 2 * s:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"OTMThetaForecaster.fit: W_eff={W_eff} < "
+                        f"2*seasonal_period={2*s}. Increase budget or "
+                        f"reduce seasonal_period.",
+                        model="OTMThetaForecaster",
+                        params={"seasonal_period": s},
+                    )
+                y_used, n_total, lost = _collect_last_w(
+                    df, target_col, W_eff, time_col=time_col)
+                if lost is not None:
+                    self._record_approximation(ApproximationInfo(
+                        type="window_truncated",
+                        axis="n",
+                        requested=max_window,
+                        effective=W_eff,
+                        reason=("budget_limit" if max_window == "auto"
+                                else "explicit"),
+                        lost_range=lost,
+                        accuracy_impact=(
+                            f"STL + OTM grid fit on last {W_eff} obs"),
+                    ))
+                y = y_used
+
         if y.size < 4:
             raise ValueError(
                 "OTMThetaForecaster: need at least 4 observations")
         if np.any(~np.isfinite(y)):
             raise ValueError(
                 "OTMThetaForecaster: series contains non-finite values")
-        s = self.seasonal_period
         if s > 1 and y.size < 2 * s:
             raise ValueError(
                 f"OTMThetaForecaster: need at least 2*seasonal_period="
@@ -127,8 +202,6 @@ class OTMThetaForecaster(ForecasterBase):
         if _mg is not None:
             _mg.check_state(31 * y.size * 8 + 256, name="otm.fit")
 
-        self.target_col_ = target_col
-        self.time_col_ = time_col
         n = int(y.size)
 
         # 1. Decompose

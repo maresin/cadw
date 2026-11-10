@@ -45,8 +45,10 @@ import math
 import numpy as np
 
 from cadw.ts._decomposition import stl_decompose
+from cadw.core.approximation import ApproximationInfo
 from cadw.ts.models import (
     ForecasterBase, _check_df, _extract_series, _iter_target_batches,
+    _collect_last_w,
 )
 
 # v0.9.132 (DEC-054): _ols_fit + _erfinv -> cadw.ops.numeric
@@ -164,26 +166,98 @@ class ThetaForecaster(ForecasterBase):
         self._saved_y_ = None
 
     def fit(self, df, target_col, *, time_col=None, group_col=None,
-            save_y=False):
+            save_y=False,
+            max_window: "str | int | None" = "auto",
+            strict: bool = False):
         """Fit Theta (STM) forecast.
 
-        v0.9.183 OOC: save_y=False (default) keeps only O(seasonal_period)
-        state (last_k_, lvl_, season_cycle_, params). save_y=True preserves
-        legacy y_ (O(n) extra) for predict_in_sample() no-df.
+        v0.9.183 OOC state (lvl_, season_cycle_, params).
+        v0.9.188 s=1 streaming path (no full y).
+        v0.9.191 (DEC-072 P4) s>1 window path via _collect_last_w:
+          - W_eff = min(max_window, W_max, n); W_max from guard.
+          - Bit-identical when n <= W_eff (no truncation).
+          - ApproximationInfo(window_truncated) disclosed otherwise.
+
+        max_window: "auto" (default, guard-derived) | int W | None (full).
+        save_y: True forces full path (legacy no-df predict_in_sample).
+        strict: True -> refuse when auto-adjust would lose data.
         """
         _check_df(df, target_col, time_col, group_col)
         self.target_col_ = target_col
         self.time_col_ = time_col
+        self._clear_approximation()
         s = self.seasonal_period
 
-        # v0.9.188: s=1 streaming path (DEC-070 P2). No full y_ materialization.
+        # v0.9.191: save_y + explicit max_window=int -> semantic conflict
+        if save_y and isinstance(max_window, int):
+            raise ValueError(
+                "ThetaForecaster.fit: save_y=True incompatible with "
+                f"max_window=int({max_window}); save_y needs full y for "
+                "legacy no-df predict_in_sample. Use max_window=None.")
+
+        # v0.9.188: s=1 streaming path (O(1) state; no window needed).
         if s == 1 and not save_y:
             self._fit_streaming_s1(df, target_col, time_col=time_col)
             self._is_fitted = True
             return self
 
-        # s>1 (stl_decompose leaf) or save_y=True: non-streaming path.
-        y = _extract_series(df, target_col, time_col=time_col)
+        # s>1 (or save_y): window vs full.
+        if save_y or max_window is None:
+            y = _extract_series(df, target_col, time_col=time_col)
+            n_total = int(y.size)
+        else:
+            mg = getattr(df, "_memory_guard", None)
+            if mg is None:
+                # No guard: full fallback
+                y = _extract_series(df, target_col, time_col=time_col)
+                n_total = int(y.size)
+            else:
+                # STL uses 4 arrays (y, trend, seasonal, remainder); unit_bytes
+                # = 4 * f64. state_bytes ~ seasonal_period * f64 (constant).
+                unit_bytes = 4 * 8
+                W_max = mg.get_window_size(
+                    unit_bytes=unit_bytes, target_fraction=0.25)
+                if max_window == "auto":
+                    W_eff = W_max
+                elif isinstance(max_window, int):
+                    if strict and max_window > int(df.count()):
+                        from cadw.core.memory_guard import MemoryLimitExceeded
+                        raise MemoryLimitExceeded(
+                            f"ThetaForecaster.fit: max_window={max_window} > "
+                            f"n_rows; strict=True refuses.",
+                            model="ThetaForecaster",
+                            params={"max_window": max_window, "strict": True},
+                        )
+                    W_eff = min(int(max_window), W_max)
+                else:
+                    raise ValueError(
+                        f"ThetaForecaster: max_window must be 'auto'|int|None, "
+                        f"got {type(max_window).__name__}")
+                if W_eff < 2 * s:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"ThetaForecaster.fit: W_eff={W_eff} < "
+                        f"2*seasonal_period={2*s}. Increase budget or "
+                        f"reduce seasonal_period.",
+                        model="ThetaForecaster",
+                        params={"seasonal_period": s},
+                    )
+                y_used, n_total, lost = _collect_last_w(
+                    df, target_col, W_eff, time_col=time_col)
+                if lost is not None:
+                    self._record_approximation(ApproximationInfo(
+                        type="window_truncated",
+                        axis="n",
+                        requested=max_window,
+                        effective=W_eff,
+                        reason=("budget_limit" if max_window == "auto"
+                                else "explicit"),
+                        lost_range=lost,
+                        accuracy_impact=(
+                            f"STL + Theta fit on last {W_eff} obs"),
+                    ))
+                y = y_used
+
         if y.size < 4:
             raise ValueError(
                 "ThetaForecaster: need at least 4 observations")

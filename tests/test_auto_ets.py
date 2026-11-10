@@ -12,6 +12,10 @@ from cadw.ts.auto_ets import AutoETSForecaster
 from cadw.ts.ets import ETSForecaster
 from cadw.ts.models import NaiveForecaster
 
+# v0.9.191: AutoETSForecaster deprecated (use ETSForecaster(params='auto'));
+# filter DeprecationWarning to keep test output clean.
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
 
 def _seasonal(n=120, s=12, seed=0):
     t = np.arange(n + s)
