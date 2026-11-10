@@ -477,37 +477,52 @@ subtypes:
     depends_on: []
     ram_formula: '(p + q + d + s + 4) * f64 + 3.5 * batch * row_size + 256'
     formula_evidence:
-      state: "models.py:495-503 -- y_raw_ = y.copy() (n*f64) + _y_centered_ = y - _y_mean (n*f64)"
-      header: "models.py -- +256 in state_nbytes()"
-      guard: "models.py:_extract_series -- _check(df._memory_guard, batch, ...)"
+      state: "models.py:1089-1120 -- _precompute_predict_state:
+        _last_p_y_centered_ (p*f64) + _last_q_e_ (q*f64) +
+        _y_levels_ (d*f64) + _seas_last_ (s*f64). Releases _yd and
+        (unless save_y) _y_centered_recent_ -> state O(model)."
+      header: "models.py:1188 -- +256 in state_nbytes()"
+      guard: "models.py -- _extract_series + _collect_last_w use
+        _check(df._memory_guard, ...); _fit_manual window path"
     min_ram_formula: '4 * f64 + 3.5 * row_size + 256'
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
-      verification_mode: "bounded_by_domain (DEC-011)"
-      state_check: "test_*_state_formula_exact: bit-exact vs state_nbytes()"
-      state_ooc: "test_*_state_grows_linearly: 4x n -> ratio [3.0, 5.5]"
-      guard_refuse: "test_*_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
-      cells_passed: "3/3"
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_manual_exact: bit-exact
+        (p+q+d+s)*f64+256, parametrized 3 order/n; CW-1"
+      state_ooc: "test_state_nbytes_constant_in_n: state invariant
+        in n (264 B for order=(1,0,0)); CW-11"
+      approximation: "test_manual_max_window_truncates (CW-3);
+        test_bit_identical_windowed_vs_full (CW-4, atol=1e-9)"
+      predict: "test_predict_out_of_sample_ar1_manual (CW-10,
+        atol=1e-12); test_predict_in_sample_no_df_raises (CW-12);
+        test_predict_in_sample_save_y_legacy (CW-13)"
+      state_save_y: "test_state_save_y_adds_saved (CW-2, +n*f64)"
+      cells_passed: "6/6"
       runtime_sec: "~3"
-      fit_transient_note: "params='auto' (default): AICc grid full y (O(n) transient). params='manual': O(W_eff) via _collect_last_w."
+      fit_transient_note: "params='auto' (default): AICc grid full y
+        (O(n) transient). params='manual': O(W_eff) via _collect_last_w."
     bounded_by_domain: null
-    state_class: O(n)
+    state_class: O(model)
     bounded_state_dims: {p: 1, q: 1, d: 1, s: 1}
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
-    tier1_core_exception: "Single-series TS; auto=True grid: p,q in 0..2, d in 0..1 (18 combos, no seasonal); each fit ~n residual transient (peak 18*3n, sequential). Guard refuses at state_limit. bounded_by_domain n<=1e6."
     streaming_strategy:
-      fit: "batched extract_series (O(batch) streaming) + full-series fit. auto=True grid: p,q in 0..2, d in 0..1 (18 combos, no seasonal); each fit ~n residual transient (peak 18*3n, sequential)."
-      predict: "closed-form extrapolation; O(1) RAM."
-    primitive_reuse: [reduce]
+      fit: "manual: _collect_last_w (O(batch) streaming + W_eff fit).
+        auto: _extract_series full y (O(n) transient for AICc grid).
+        _precompute_predict_state extracts O(model) state, releases
+        _yd / _y_centered_recent_."
+      predict: "_arma_forecast_short: O(steps) from O(p+q) state."
+    primitive_reuse: [reduce, _collect_last_w, _arma_forecast_short,
+      _difference, _integrate_back]
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
+      
     roles:
     - temporal_dynamics
     purpose: Seasonal ARIMA via Hannan-Rissanen CSS; explicit AR/MA orders.
