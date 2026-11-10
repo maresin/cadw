@@ -140,3 +140,47 @@ class ApproximationMixin:
             stacklevel=3,
         )
 
+    def _record_approximations_batch(
+        self,
+        infos: "list[ApproximationInfo]",
+    ) -> None:
+        """Append multiple ApproximationInfo + emit one summary warning.
+
+        Use when N > 1 approximations happen in one fit/detect call
+        (e.g., per-series window adjustment for N series). Avoids N
+        warnings, keeps one actionable message.
+
+        Parameters
+        ----------
+        infos : list[ApproximationInfo]
+            Non-empty list. No-op if empty.
+
+        Raises
+        ------
+        TypeError
+            If any element is not ApproximationInfo.
+        """
+        if not infos:
+            return
+        for info in infos:
+            if not isinstance(info, ApproximationInfo):
+                raise TypeError(
+                    f"_record_approximations_batch: expected ApproximationInfo, "
+                    f"got {type(info).__name__}"
+                )
+
+        if self.approximation is None:
+            self.approximation = []
+        self.approximation.extend(infos)
+
+        import warnings as _warnings
+        from cadw.core.warnings import ApproximationWarning
+        if len(infos) == 1:
+            msg = str(infos[0])
+        else:
+            msg = (
+                f"{len(infos)} approximations applied "
+                f"(first: {infos[0]})"
+            )
+        _warnings.warn(ApproximationWarning(msg), stacklevel=3)
+

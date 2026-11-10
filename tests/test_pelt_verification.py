@@ -45,17 +45,28 @@ def test_state_independent_of_n():
     assert s_small == s_large == 256
 
 
-def test_fit_refuses_at_domain_bound():
-    """fit_pelt pre-passes _collect_series -> MLE at n=1e6 + tiny budget.
+def test_detect_ooc_at_tight_guard():
+    """v0.9.180: single-series PELT is true OOC (streaming).
 
-    Honest refuse-at-guard (bounded_by_domain n<=1e6). fit_pelt
-    validates via _collect_series _iter_filtered_batches loop;
-    check_batch/check_state fires before DP ever runs.
+    n=1e6 + tiny guard -> fit passes (no materialization);
+    detect uses streaming ring buffer (W_eff = W_max) + ApproximationWarning.
     """
+    import warnings
+    from cadw.core.warnings import ApproximationWarning
+
     df = _make_df(1_000_000)
-    df._memory_guard = MemoryGuard(max_memory_mb=1)  # < 8 MB for 1e6 f64
-    with pytest.raises(MemoryLimitExceeded):
-        fit_pelt(df, "y", memory_guard=df._memory_guard)
+    df._memory_guard = MemoryGuard(max_memory_mb=1)  # 1 MB, W_max ~54k
+    m = fit_pelt(df, "y", memory_guard=df._memory_guard)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        d = m.detect(df)
+    # Streaming path used (no MemoryLimitExceeded; result on out[0])
+    assert 0 in d
+    assert isinstance(d[0], list)
+    # W_eff < n_series -> truncation warning
+    assert any(issubclass(x.category, ApproximationWarning) for x in w)
+    assert m.approximation is not None
+    assert m.approximation[0].type == "window_truncated"
 
 
 def test_detect_ooc_for_n_below_bound():

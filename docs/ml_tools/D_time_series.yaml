@@ -2758,17 +2758,12 @@ subtypes:
       predict: 'one-step posterior update per new point.'
     primitive_reuse: [reduce]
   - name: PELT
-    min_ram_pending: "legacy bounded_by_domain (DEC-011); refactor to bounded_by_window (max_window='auto', DEC-067) in v0.9.179. G14 skips with this marker."
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
       status: verified
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: "single-series DP; n <= 1e6 typical (DEC-011); applies to detect() not fit()"
     roles:
     - temporal_dynamics
     purpose: Pruned exact linear time; exact O(n) with early pruning.
@@ -2797,13 +2792,20 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n)
-    bounded_state_dims: {n: 1}
+    bounded_state_dims: {W_eff: 1}
     transient_factor: 1.0
     state_type: iterative
-    bounded_state: false
-    n_scalability: linear
+    bounded_state: true
+    bounded_by_window:
+      axis: n
+      window_param: max_window
+      auto_from_guard: true
+      truncation_loss: "DP horizon capped at W; changepoints beyond W not detected"
+    ram_formula: "3 * W_eff * f64 + batch * row_size + 256"
+    min_ram_formula: "3 * 2 * min_size * f64 + row_size + 256"
+    n_scalability: constant
     streaming_strategy:
-      fit: 'DP array + pruning over n positions.'
+      fit: 'DP array + pruning over n positions. Streaming via _iter_filtered_batches; W_eff = max_window or min(n, W_max from guard).'
       predict: 'report positions.'
     primitive_reuse: []
   - name: T-squared+Q
@@ -4035,10 +4037,6 @@ subtypes:
       verified_in_cadw: true
       verified_by_agent: true
       status: verified
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: "single-series DP; n <= 1e6 typical (DEC-011); applies to detect() not fit()"
     roles:
     - temporal_dynamics
     purpose: See D3.2.
@@ -4066,14 +4064,12 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(n)
-    bounded_state_dims: {n: 1}
-    ram_formula: "256"
+    bounded_state_dims: {W_eff: 1}
     formula_evidence:
       container_state: "pelt.py PELTModel.state_nbytes: fixed 256B (validation-only; DP runs in detect())"
       detect_concat: "pelt.py _collect_series: np.concatenate(vals) = n*f64 transient (single-series)"
       detect_dp: "pelt.py pelt(): DP array over n (intrinsic; refuse_at_guard via check_state n*8)"
       fit_guard: "pelt.py fit_pelt: _collect_series pre-pass check_batch/check_state; n=1e6 + tight -> MLE"
-    min_ram_formula: "256 + 512"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -4086,10 +4082,17 @@ subtypes:
       runtime_sec: "~1"
     transient_factor: 1.0
     state_type: iterative
-    bounded_state: false
-    n_scalability: linear
+    bounded_state: true
+    bounded_by_window:
+      axis: n
+      window_param: max_window
+      auto_from_guard: true
+      truncation_loss: "DP horizon capped at W; changepoints beyond W not detected"
+    ram_formula: "3 * W_eff * f64 + batch * row_size + 256"
+    min_ram_formula: "3 * 2 * min_size * f64 + row_size + 256"
+    n_scalability: constant
     streaming_strategy:
-      fit: 'container only (256B); _collect_series pre-pass validates n_series and refuses at tight guard.'
+      fit: 'container only (256B); _collect_series pre-pass validates n_series and refuses at tight guard. Streaming via _iter_filtered_batches; W_eff = max_window or min(n, W_max from guard).'
       predict: 'report positions.'
     primitive_reuse: []
   metrics:
