@@ -86,7 +86,7 @@ def test_intrinsic_with_intrinsic_bound_ok():
     c = PrimitiveCard(**_minimal(
         layer="intrinsic", status="draft",
         intrinsic_bound={"axis": "n", "bound": 10000,
-                         "reason": "O(n^2) factor"},
+                         "reason": "O(n^2) factor (Cholesky dense, no window)"},
     ))
     assert _validate(c) == []
 

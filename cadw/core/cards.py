@@ -53,6 +53,14 @@ class PrimitiveCard:
     # Leaf-layer specifics
     streaming_variant: str | None = None
     intrinsic_bound: dict | None = None
+    # v0.9.189 (DEC-072): window-truncation. When set, caller bounds n by
+    # W_eff (via _collect_last_w or similar) before invoking this leaf;
+    # effective RAM = O(W_eff), not O(n). Shape:
+    #   {axis: "n", caller_prim: "_collect_last_w",
+    #    min_window: "<expr>", reason: "<why window is semantic>"}
+    # Mutually exclusive with intrinsic_bound (which claims window
+    # truncation rejected).
+    window_truncatable: dict | None = None
     refuse_above: int | None = None
     alternative: str | None = None
 
@@ -112,9 +120,32 @@ def _validate_primitive_card(c: PrimitiveCard) -> list[str]:
         errs.append("ram_formula set but formula_evidence empty")
 
     if c.layer == "intrinsic":
-        if c.intrinsic_bound is None and c.refuse_above is None:
+        if (c.intrinsic_bound is None and c.refuse_above is None
+                and c.window_truncatable is None):
             errs.append(
-                "layer=intrinsic requires intrinsic_bound or refuse_above"
+                "layer=intrinsic requires intrinsic_bound or refuse_above "
+                "or window_truncatable"
+            )
+
+    # v0.9.189 (DEC-072): intrinsic_bound and window_truncatable mutually
+    # exclusive; intrinsic_bound must explain WHY window rejected.
+    if c.intrinsic_bound is not None and c.window_truncatable is not None:
+        errs.append(
+            "intrinsic_bound and window_truncatable are mutually exclusive "
+            "(DEC-072: window check before intrinsic)"
+        )
+    if c.intrinsic_bound is not None:
+        reason = (c.intrinsic_bound or {}).get("reason", "")
+        if not reason or len(str(reason).strip()) < 20:
+            errs.append(
+                "intrinsic_bound.reason must be >=20 chars explaining why "
+                "window-truncation was rejected (DEC-072)"
+            )
+    if c.window_truncatable is not None:
+        reason = (c.window_truncatable or {}).get("reason", "")
+        if not reason or len(str(reason).strip()) < 20:
+            errs.append(
+                "window_truncatable.reason must be >=20 chars"
             )
 
     if c.layer == "batch" and c.status == "verified" and c.bounded_state is not True:

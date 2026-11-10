@@ -177,41 +177,57 @@ primitives:
   cadw_function: cadw.ts.ets._ses_fit
   module: cadw.ts.ets
   layer: leaf
-  status: draft
+  status: verified
   bounded_state: false
-  ram_formula: "n * f64 + 2 * seasonal_period * f64 + 256"
-  min_ram_formula: "2 * f64 + 2 * f64 + 256"
+  ram_formula: "2 * W_eff * f64 + 2 * seasonal_period * f64 + 256"
+  min_ram_formula: "2 * 2 * seasonal_period * f64 + 2 * f64 + 256"
   formula_evidence:
-    fitted_alloc: "ets.py:57 -- fitted = np.empty(n); _initial_seasonal O(s*k)"
-    note: "returns (lvl, tr, season, sse, fitted); fitted n-sized"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "np.empty(n) transient"}
+    caller_bounds: "Caller uses _collect_last_w -> y_used of len <= W_eff"
+    fitted_alloc: "ets.py:57 -- fitted = np.empty(len(y_used)) O(W_eff)"
+    initial_seasonal: "from y_used (W-bounded); k = len(y_used) // s"
+  window_truncatable:
+    axis: n
+    caller_prim: _collect_last_w
+    min_window: "2 * seasonal_period"
+    reason: "Holt-Winters on last W_eff obs is valid semantic variant (pelt precedent, DEC-072 §3); bit-identical when n <= W_eff"
   streaming_variant: null
-  consumers: [ETSForecaster, AutoETSForecaster]
+  consumers: [ETSForecaster (s>1 or trend=True), AutoETSForecaster]
   notes: >-
-    Holt-Winters (damped + trend + seasonal). Streaming variant requires
-    2-pass (initial seasonal from first k=n//s periods; not bit-identical
-    from 1-pass). Backlog v0.9.190+. AP22: distinct from theta._ses_fit
-    (HW vs simple SES).
+    Holt-Winters. v0.9.189 (DEC-072): window-truncatable via caller using
+    _collect_last_w. Caller computes W_eff from guard (typical
+    target_fraction=0.25), passes y_used = last min(n, W_eff) to this leaf.
+    Effective RAM = O(W_eff + batch). Bit-identical when n <= W_eff.
+    Window-rejected ONLY if caller explicitly disables truncation
+    (n > W_eff with max_window=None + strict=True -> MemoryLimitExceeded).
+    AP22: distinct from theta._ses_fit (HW vs simple SES).
+
 
 - name: stl_decompose
   cadw_function: cadw.ts._decomposition.stl_decompose
   module: cadw.ts._decomposition
   layer: leaf
-  status: draft
+  status: verified
   bounded_state: false
-  ram_formula: "4 * n * f64 + 512"
+  ram_formula: "4 * W_eff * f64 + 512"
   min_ram_formula: "4 * 2 * seasonal_period * f64 + 512"
   formula_evidence:
-    arrays: "_decomposition.py:155 -- trend + seasonal + remainder + work O(n)"
-    loess: "per-iter O(n) working set; n_iter=2 default"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "O(n) LOESS iterations"}
+    caller_bounds: "Caller passes y_used of len <= W_eff via _collect_last_w"
+    arrays: "trend/seasonal/remainder O(W_eff); LOESS per-iter O(W_eff)"
+    loess: "per-iter O(W_eff) working set; n_iter=2 default"
+  window_truncatable:
+    axis: n
+    caller_prim: _collect_last_w
+    min_window: "2 * seasonal_period"
+    reason: "STL on last W_eff obs is valid semantic variant; STL local stationarity standard (prophet, MSTL restricted; DEC-072 §3)"
   streaming_variant: null
-  consumers: [ThetaForecaster, OTMThetaForecaster, ETSForecaster]
+  consumers: [ThetaForecaster (s>1), OTMThetaForecaster (s>1), ETSForecaster (s>1)]
   notes: >-
-    STL (Cleveland et al. 1990). Streaming STL is hard (multiple LOESS
-    passes on full y with periodic re-estimation). Backlog v0.9.190+
-    (hard, 1-2 sessions). Seasonal models (Theta/OTM/ETS with s>1)
-    remain bounded_by_domain until then.
+    STL (Cleveland et al. 1990). v0.9.189 (DEC-072): window-truncatable
+    via caller using _collect_last_w. Caller bounds y_used to W_eff;
+    STL on W_eff window. Bit-identical when n <= W_eff. Prophet/MSTL
+    restricted precedent: STL is inherently local-stationarity, window
+    truncation semantically valid.
+
 # ====================================================================
 # Session v0.9.187 register (DEC-071 §5): 5 batch + 18 leaf primitives
 # from v0.9.179-186 + pre-existing SARIMA/decomposition/GBDTF helpers.
@@ -314,7 +330,7 @@ primitives:
   formula_evidence:
     buffer: "pelt.py -- per-series buffer accumulated then np.asarray"
     guard: "pelt.py -- check_state(sum(size)*8)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "per-series numpy array; group-filtered pelt path"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Per-series full array required by pelt(group); series length intrinsic to caller (no window alternative without semantic loss)"}
   streaming_variant: null
   consumers: [PELTModel.detect group mode, PELTModel.fit]
   notes: >-
@@ -332,7 +348,7 @@ primitives:
   formula_evidence:
     cumsum: "binseg.py -- global cs/cs2 computed once (v0.9.181 fix)"
     loop: "O(hi-lo) scan per segment"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "global cumsum O(n)"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Global prefix cumsum O(n) required for arbitrary segment splits; window on segment loses parent-segment context"}
   streaming_variant: null
   consumers: [fit_binseg]
   notes: >-
@@ -349,7 +365,7 @@ primitives:
   min_ram_formula: "1 * f64 + 256"
   formula_evidence:
     alloc: "binseg.py -- ((x - mu)**2).sum() creates n-sized temp"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "n-sized temp in SSE sum"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Full segment y required to compute SSE (mean over whole segment); no window truncation preserves exact cost"}
   streaming_variant: null
   consumers: [fit_binseg legacy _best_split]
 
@@ -363,7 +379,7 @@ primitives:
   min_ram_formula: "1 * (d + 2) * f64 + d * d * f64 + 256"
   formula_evidence:
     alloc: "coxph.py -- full X (n,d) + T + E + eta + w"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "full-array Breslow (non-streaming)"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Full X (n,d) + T + E required by non-streaming Breslow Newton reduce; use _breslow_streaming for O(batch) variant"}
   streaming_variant: _breslow_streaming
   consumers: [fit_coxph legacy path]
 
@@ -377,7 +393,7 @@ primitives:
   min_ram_formula: "3 * 1 * f64 + d * f64 + 256"
   formula_evidence:
     alloc: "coxph.py -- eta(n) + w(n) + argsort(n)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "full-array baseline hazard (non-streaming)"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Full eta(n) + w(n) + argsort(n) needed for reverse survival sort; use _baseline_hazard_streaming for O(batch) variant"}
   streaming_variant: _baseline_hazard_streaming
   consumers: [fit_coxph legacy path]
 
@@ -391,7 +407,7 @@ primitives:
   min_ram_formula: "d * f64 + 256"
   formula_evidence:
     alloc: "coxph.py -- np.column_stack([b.column(c).to_numpy() for c in cols])"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "per-batch stack (leaf; caller batches)"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Full per-batch (batch,d) stack; caller batches -> leaf by design"}
   streaming_variant: null
   consumers: [concordance_index, CoxPHModel.predict_risk]
 
@@ -399,18 +415,25 @@ primitives:
   cadw_function: cadw.ts.ets._initial_seasonal
   module: cadw.ts.ets
   layer: leaf
-  status: draft
+  status: verified
   bounded_state: false
-  ram_formula: "n * f64 + 2 * s * f64 + 256"
-  min_ram_formula: "2 * s * f64 + 2 * s * f64 + 256"
+  ram_formula: "W_eff * f64 + 2 * seasonal_period * f64 + 256"
+  min_ram_formula: "2 * seasonal_period * f64 + 2 * f64 + 256"
   formula_evidence:
-    alloc: "ets.py -- k = n//s, means[k], reshape (k, s)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "k=n//s periods required for classical decomposition"}
+    caller_bounds: "Caller passes y_used of len <= W_eff"
+    means: "y[i*s:(i+1)*s].mean() for k = len(y_used) // s (W-bounded)"
+  window_truncatable:
+    axis: n
+    caller_prim: _collect_last_w
+    min_window: "2 * seasonal_period"
+    reason: "Seasonal initial from last k periods; k bounded by W_eff//s. Local seasonality is valid semantic variant (DEC-072 §3)"
   streaming_variant: null
   consumers: [_ses_fit_hw]
   notes: >-
-    Classical decomposition initial seasonal. Requires full y (k=n//s).
-    Blocks streaming _ses_fit for s>1 (backlog P3 in DEC-070).
+    Classical decomposition initial seasonal. v0.9.189 (DEC-072):
+    window-truncatable via _collect_last_w. Caller bounds y_used to W_eff;
+    k = len(y_used) // s. Bit-identical when n <= W_eff.
+
 
 - name: _ses
   cadw_function: cadw.ts.otm._ses
@@ -422,7 +445,7 @@ primitives:
   min_ram_formula: "1 * f64 + 256"
   formula_evidence:
     alloc: "otm.py -- fitted = np.empty(n)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "n-sized fitted in OTM SES"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "n-sized fitted array in OTM simple-SES; use _collect_last_w + caller-bounded variant"}
   streaming_variant: null
   consumers: [OTMThetaForecaster]
   notes: >-
@@ -441,7 +464,7 @@ primitives:
   min_ram_formula: "2 * 1 * f64 + d * f64 + 256"
   formula_evidence:
     alloc: "models.py -- Yule-Walker / Hannan-Rissanen with full X (n,p)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA full-series fit"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA Yule-Walker/Hannan-Rissanen full X (n,p); recursion state p<<n but residual/pairwise O(n) intrinsic to ARMA"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
 
@@ -455,7 +478,7 @@ primitives:
   min_ram_formula: "2 * max(p, q) * f64 + 256"
   formula_evidence:
     alloc: "models.py -- full y + residual buffer"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA forecast computation"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA forecast: full residual buffer + state at n_train; caller must materialize full y for out-of-sample ref"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
 
@@ -469,7 +492,7 @@ primitives:
   min_ram_formula: "4 * 1 * f64 + 256"
   formula_evidence:
     alloc: "models.py -- multi-pass ARMA fit (residuals, X, y)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA multi-pass ARMA"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Multi-pass ARMA fit (residuals, X, y); passes require full n context; window loses residual correlation structure"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
 
@@ -483,7 +506,7 @@ primitives:
   min_ram_formula: "1 * f64 + 256"
   formula_evidence:
     alloc: "models.py -- reverse differencing arrays"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "reverse-diff O(n)"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Reverse differencing: requires full diffs chain from t=0 to n; truncation breaks cumulative integration"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
 
@@ -497,7 +520,7 @@ primitives:
   min_ram_formula: "2 * f64 + 256"
   formula_evidence:
     alloc: "models.py -- out = y.copy() per order d"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "differencing O(n)"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Differencing O(n) in-place; prefix context essential for d>1; window loses boundary diffs"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
 
@@ -511,7 +534,7 @@ primitives:
   min_ram_formula: "s * f64 + 256"
   formula_evidence:
     alloc: "models.py -- out = y.copy() per order D"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "seasonal differencing O(n)"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Seasonal differencing O(n) with lag s; needs full y for lag-s boundaries at all t"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
 
@@ -525,7 +548,7 @@ primitives:
   min_ram_formula: "max_lag * d * f64 + max_lag * i64 + 256"
   formula_evidence:
     alloc: "models.py -- X = np.empty((n - max_lag, n_features))"
-  intrinsic_bound: {axis: n, bound: 100000, reason: "GBDTForecaster lag matrix; bounded_by_domain n<=1e5"}
+  intrinsic_bound: {axis: n, bound: 100000, reason: "GBDTForecaster lag matrix (n,d); bounded_by_domain n<=1e5 in YAML; SpillDir refactor backlog v0.9.191+"}
   streaming_variant: null
   consumers: [GBDTForecaster]
 
@@ -541,7 +564,7 @@ primitives:
   min_ram_formula: "w * f64 + w * f64 + 256"
   formula_evidence:
     alloc: "_decomposition.py -- per-point LOESS weight vec (w) + output (n)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "LOESS O(n * w) compute, w = window"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "LOESS local linear per point; multi-pass via stl_decompose; streaming variant would need per-window independent refit (loss)"}
   streaming_variant: null
   consumers: [stl_decompose]
 
@@ -555,7 +578,7 @@ primitives:
   min_ram_formula: "2 * seasonal_window * f64 + 256"
   formula_evidence:
     alloc: "_decomposition.py -- 2x low-pass filters (input + output)"
-  intrinsic_bound: {axis: n, bound: 1000000, reason: "low-pass filter O(n * seasonal_window)"}
+  intrinsic_bound: {axis: n, bound: 1000000, reason: "Two low-pass filters over full seasonal window; needs full y for cyclic smoothness (window loses cycle boundaries)"}
   streaming_variant: null
   consumers: [stl_decompose]
 - name: _ols_fit_streaming
