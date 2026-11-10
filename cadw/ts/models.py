@@ -683,13 +683,38 @@ class SARIMAForecaster(ForecasterBase):
     DEFAULT_SQ_GRID = (0, 1)
 
     def __init__(
-        self, order=None, seasonal_order=None, s=None, auto=True,
+        self, order=None, seasonal_order=None, s=None, auto=None,
+        params: str = "auto",
     ):
+        """SARIMA forecaster (v0.9.195: params dispatch).
+
+        params:
+          - "auto" (default): AICc grid over (p,d,q)(P,D,Q). Needs full y
+            (O(n) transient). same as legacy auto=True.
+          - "manual": single order fit. Window-truncation via max_window
+            in fit() (O(W_eff), bounded_by_window).
+        auto: bool | None (deprecated; maps to params).
+        """
         super().__init__()
+        # v0.9.195: back-compat `auto=` -> `params=`.
+        if auto is not None:
+            import warnings as _w
+            _w.warn(
+                "SARIMAForecaster: `auto=` is deprecated in v0.9.195; "
+                "use params='auto'|'manual'. auto=True -> params='auto', "
+                "auto=False -> params='manual'. Removed in v1.0.0.",
+                DeprecationWarning, stacklevel=2,
+            )
+            params = "auto" if auto else "manual"
+        if params not in ("auto", "manual"):
+            raise ValueError(
+                f"SARIMAForecaster: params must be 'auto'|'manual', "
+                f"got {params!r}")
         self.order = order
         self.seasonal_order = seasonal_order
         self.s = s
-        self.auto = bool(auto)
+        self.params = params
+        self.auto = (params == "auto")  # back-compat introspection
         if order is not None and (not isinstance(order, tuple) or len(order) != 3):
             raise ValueError("order must be a 3-tuple (p,d,q)")
         if seasonal_order is not None and (
@@ -705,24 +730,144 @@ class SARIMAForecaster(ForecasterBase):
         if s is not None and (not isinstance(s, int) or s < 2):
             raise ValueError(f"SARIMA: s must be int >= 2; got {s}")
         self._fit_info = {}
+        # v0.9.195 OOC state (replaces y_raw_ / _y_centered_)
+        self._y_centered_recent_ = None
+        self._y_mean_ = 0.0
+        self.n_train_ = None
+        self.target_col_ = None
+        self.time_col_ = None
+        self._saved_y_ = None
 
-    def fit(self, df, target_col, *, time_col=None, group_col=None):
+    def fit(self, df, target_col, *, time_col=None, group_col=None,
+            save_y=False, max_window: "str | int | None" = "auto",
+            strict: bool = False):
+        """Fit SARIMA (v0.9.195: params dispatch).
+
+        params="auto" (default): AICc grid over (p,d,q)(P,D,Q). Full y
+        transient (O(n)); save_y irrelevant.
+        params="manual": single order fit. max_window applies:
+          - "auto" (default): W_eff from guard via _collect_last_w.
+          - int W: W_eff = min(W, n); strict=True -> refuse if W < n.
+          - None: full fit (bounded_by_domain fallback; no truncation).
+        """
+        _check_df(df, target_col, time_col, group_col)
+        self.target_col_ = target_col
+        self.time_col_ = time_col
+        self._clear_approximation()
+        if self.params == "auto":
+            if save_y:
+                raise ValueError(
+                    "SARIMAForecaster(params='auto').fit: save_y=True "
+                    "is not supported in auto mode (CV delegates to "
+                    "best config); use params='manual'.")
+            return self._fit_auto(
+                df, target_col, time_col=time_col, group_col=group_col)
+        return self._fit_manual(
+            df, target_col, time_col=time_col, group_col=group_col,
+            save_y=save_y, max_window=max_window, strict=strict)
+
+    def _fit_auto(self, df, target_col, *, time_col=None, group_col=None):
+        """Auto grid (AICc over (p,d,q)(P,D,Q)); full y transient."""
         _check_df(df, target_col, time_col, group_col)
         y = _extract_series(df, target_col, time_col=time_col)
         if len(y) < 4:
             raise ValueError("SARIMA: need at least 4 observations")
-        self.y_raw_ = y.copy()
-        # v0.9.25a: center to remove the mean. Hannan-Rissanen OLS has
-        # no intercept; fitting on raw y with mean≠0 makes ARMA predict
-        # toward 0 (e.g. ARIMA(0,0,0) on series with mean=100 predicted
-        # all zeros). Centering is exact: add _y_mean back after
-        # integration. For d>0 the integration level already captures
-        # the mean; the +_y_mean at the end is still correct (same
-        # offset in centered space).
+        self.n_train_ = int(y.size)
         y_clean = y[~np.isnan(y)]
-        self._y_mean = float(y_clean.mean()) if len(y_clean) else 0.0
-        self._y_centered_ = y - self._y_mean
-        self._fit(self._y_centered_)
+        self._y_mean_ = float(y_clean.mean()) if len(y_clean) else 0.0
+        self._y_centered_recent_ = y - self._y_mean_
+        self._saved_y_ = None
+        self._fit(self._y_centered_recent_)
+        self._is_fitted = True
+        return self
+
+    def _fit_manual(self, df, target_col, *, time_col=None, group_col=None,
+                    save_y=False, max_window="auto", strict=False):
+        """Single order fit; window-truncation via _collect_last_w."""
+        _check_df(df, target_col, time_col, group_col)
+        s = self.s
+
+        # save_y + max_window=int -> semantic conflict
+        if save_y and isinstance(max_window, int):
+            raise ValueError(
+                "SARIMAForecaster.fit: save_y=True incompatible with "
+                f"max_window=int({max_window}); use max_window=None.")
+
+        if save_y or max_window is None:
+            y = _extract_series(df, target_col, time_col=time_col)
+            n_total = int(y.size)
+            lost = None
+        else:
+            mg = getattr(df, "_memory_guard", None)
+            if mg is None:
+                y = _extract_series(df, target_col, time_col=time_col)
+                n_total = int(y.size)
+                lost = None
+            else:
+                # Unit bytes: y + y_centered + yd (each W_eff*f64) + X matrix
+                # (W_eff*p*f64, transient inside _ar_fit). Conservative: 4*f64.
+                unit_bytes = 4 * 8
+                W_max = mg.get_window_size(
+                    unit_bytes=unit_bytes, target_fraction=0.25)
+                if max_window == "auto":
+                    W_eff = W_max
+                elif isinstance(max_window, int):
+                    if strict and max_window > int(df.count()):
+                        from cadw.core.memory_guard import MemoryLimitExceeded
+                        raise MemoryLimitExceeded(
+                            f"SARIMAForecaster.fit: max_window={max_window} "
+                            f"> n_rows; strict=True refuses.",
+                            model="SARIMAForecaster",
+                            params={"max_window": max_window,
+                                    "strict": True},
+                        )
+                    W_eff = min(int(max_window), W_max)
+                else:
+                    raise ValueError(
+                        f"SARIMAForecaster: max_window must be "
+                        f"'auto'|int|None, got "
+                        f"{type(max_window).__name__}")
+                # Min W_eff for one HR fit: max(p, s*D, q) + 4
+                p_, d_, q_ = self.order or (0, 0, 0)
+                P_, D_, Q_ = self.seasonal_order or (0, 0, 0)
+                p_max = max(p_, P_ * (s or 1), q_, Q_ * (s or 1))
+                min_w = max(p_max, (s or 1) * D_ if D_ else 0, 4) + 4
+                if W_eff < min_w:
+                    from cadw.core.memory_guard import MemoryLimitExceeded
+                    raise MemoryLimitExceeded(
+                        f"SARIMAForecaster.fit: W_eff={W_eff} < "
+                        f"required min {min_w} (p / s*D / q). Increase "
+                        f"budget or reduce orders.",
+                        model="SARIMAForecaster",
+                        params={"order": self.order,
+                                "seasonal_order": self.seasonal_order,
+                                "s": s},
+                    )
+                y_used, n_total, lost = _collect_last_w(
+                    df, target_col, W_eff, time_col=time_col)
+                if lost is not None:
+                    from cadw.core.approximation import ApproximationInfo
+                    self._record_approximation(ApproximationInfo(
+                        type="window_truncated",
+                        axis="n",
+                        requested=max_window,
+                        effective=W_eff,
+                        reason=("budget_limit" if max_window == "auto"
+                                else "explicit"),
+                        lost_range=lost,
+                        accuracy_impact=(
+                            f"SARIMA(p,d,q)(P,D,Q) fit on last {W_eff} obs"),
+                    ))
+                y = y_used
+
+        if len(y) < 4:
+            raise ValueError("SARIMA: need at least 4 observations")
+        self.n_train_ = int(n_total)
+        y_clean = y[~np.isnan(y)]
+        self._y_mean_ = float(y_clean.mean()) if len(y_clean) else 0.0
+        self._y_centered_recent_ = y - self._y_mean_
+        self._saved_y_ = y.copy() if save_y else None
+        self._fit(self._y_centered_recent_)
         self._is_fitted = True
         return self
 
@@ -819,15 +964,23 @@ class SARIMAForecaster(ForecasterBase):
         self._fit_info = best_info
 
     def state_nbytes(self):
-        """SARIMA persistent state: y_raw_ + _y_centered_ (2n*f64) + coefs+256.
+        """v0.9.195: honest state = _y_centered_recent_ + _yd + coefs+256.
 
-        y_raw_ and _y_centered_ are O(n); coefs (ar_, ma_, intercept_,
-        sigma2_) are O(p+q+~10) -> covered by +256.
+        auto mode (default): _y_centered_recent_ = n (O(n) persistent).
+        manual mode: W_eff (bounded_by_window when W_eff < n).
+        save_y=True legacy: + _saved_y_ (n*f64).
+        Option B v0.9.196: refactor to precomputed predict levels
+        (state O(model)), flipping to bounded_state=true.
         """
-        if self.y_raw_ is None:
+        if self._y_centered_recent_ is None:
             return 0
-        n = int(self.y_raw_.size)
-        return int(2 * n * 8 + 256)
+        sz = 256
+        sz += int(self._y_centered_recent_.nbytes)
+        if self._yd is not None:
+            sz += int(self._yd.nbytes)
+        if self._saved_y_ is not None:
+            sz += int(self._saved_y_.nbytes)
+        return int(sz)
 
     def _predict(self, steps):
         yd = self._yd
@@ -844,7 +997,7 @@ class SARIMAForecaster(ForecasterBase):
             # regular-diff level. For d=2+, prior code used 0.0 for
             # levels >0 — structurally wrong (should be last diff value).
             levels = []
-            yd_for_levels = self._y_centered_
+            yd_for_levels = self._y_centered_recent_
             for lvl in range(d):
                 v = float(yd_for_levels[-1]) if len(yd_for_levels) else 0.0
                 levels.append(v)
@@ -852,12 +1005,15 @@ class SARIMAForecaster(ForecasterBase):
             # v0.9.25a: seasonal_period_last from _difference(y_centered, d)
             # — the series BEFORE seasonal diff, AFTER regular diff.
             # Prior code took self.y_raw_[-s:] — wrong for d>0.
+            # v0.9.195: uses _y_centered_recent_ (W_eff in manual mode,
+            # n in auto mode); same values as before for auto (full y).
             if D and s:
                 yd_for_seas = (
-                    _difference(self._y_centered_, d) if d
-                    else self._y_centered_.copy()
+                    _difference(self._y_centered_recent_, d) if d
+                    else self._y_centered_recent_.copy()
                 )
-                seas_last = yd_for_seas[-s:] if len(yd_for_seas) >= s                     else np.zeros(s, dtype=np.float64)
+                seas_last = (yd_for_seas[-s:] if len(yd_for_seas) >= s
+                             else np.zeros(s, dtype=np.float64))
             else:
                 seas_last = np.empty(0, dtype=np.float64)
             fc = _integrate_back(
@@ -866,38 +1022,71 @@ class SARIMAForecaster(ForecasterBase):
         else:
             fc = fc_diff
         # v0.9.25a: restore the mean (centered in fit).
-        return (fc + self._y_mean).astype(np.float64)
+        return (fc + self._y_mean_).astype(np.float64)
 
-    def _predict_in_sample(self):
-        """In-sample prediction (v0.9.25a contract fix).
+    def predict_in_sample(self, df=None):
+        """In-sample prediction (v0.9.25a contract; v0.9.195 df optional).
 
-        ForecasterBase.predict_in_sample contract: len=n_train, values
-        in original y scale.
+        ForecasterBase contract: len=n_train, values in y scale.
 
-        - d=0, D=0: returns one-step-ahead predictions in y scale.
-        - d>0 or D>0: returns all-NaN. In-sample prediction at original
-          y scale for a differenced model is not well-defined (each
-          point would require its own integration base; the diff-head
-          is not invertible in-sample without leakage). Documented
-          limitation; TemporalHierarchy._fit_one already falls back to
+        - d>0 or D>0: returns all-NaN (documented limitation; each
+          point needs its own integration base; diff-head not invertible
+          in-sample without leakage). TemporalHierarchy falls back to
           OLS when predict_in_sample returns all-NaN.
+        - df given: OOC — recompute on df via _extract_series (streaming
+          length matches self.n_train_).
+        - df=None + _saved_y_ (save_y=True legacy): use saved full y.
+        - df=None + auto mode (default): recent = full n, exact.
+        - df=None + manual mode + W_eff=n: exact.
+        - df=None + manual mode + W_eff<n: partial (finite tail W_eff,
+          NaN head). ApproximationInfo(window_truncated) already on self.
+        """
+        if not self._is_fitted:
+            raise RuntimeError(
+                f"{type(self).__name__}.predict_in_sample called before fit")
+
+        p, d, q = self._order_
+        P, D, Q = self._seasonal_order_
+        n_out = int(self.n_train_)
+        if d or D:
+            return np.full(n_out, np.nan)
+
+        if df is not None:
+            y = _extract_series(df, self.target_col_,
+                                 time_col=self.time_col_)
+            y_centered = y - self._y_mean_
+            return self._predict_in_sample_from(y_centered, n_out)
+
+        if self._saved_y_ is not None:
+            y_centered = self._saved_y_ - self._y_mean_
+            return self._predict_in_sample_from(y_centered, n_out)
+
+        # df=None: use recent (full n in auto; W_eff in manual)
+        return self._predict_in_sample_from(
+            self._y_centered_recent_, n_out)
+
+    def _predict_in_sample_from(self, y_centered, n_out):
+        """Compute in-sample preds on given centered y; returns len=n_out.
+
+        NaN padding at head if len(y_centered) < n_out (manual mode
+        W_eff < n_train).
         """
         p, d, q = self._order_
         P, D, Q = self._seasonal_order_
-        n = len(self.y_raw_)
-        if d or D:
-            return np.full(n, np.nan)
-        yd = self._yd
+        n_recent = len(y_centered)
+        yd = self._prep(y_centered, d, D, self.s)
         valid = ~np.isnan(yd)
         if not valid.any():
-            return np.full(n, np.nan)
+            return np.full(n_out, np.nan)
         y_clean = yd[valid]
         fc_diff = _arma_forecast(
             y_clean, self._ar, self._ma, self._sigma2, 0, in_sample=True,
         )
-        if len(fc_diff) != n:
-            return np.full(n, np.nan)
-        return (fc_diff + self._y_mean).astype(np.float64)
+        out = np.full(n_out, np.nan, dtype=np.float64)
+        if len(fc_diff) == n_recent:
+            offset = n_out - n_recent
+            out[offset:] = fc_diff + self._y_mean_
+        return out
 
 
 # ==================== GBDTForecaster ====================
