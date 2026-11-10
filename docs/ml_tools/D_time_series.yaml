@@ -186,17 +186,17 @@ subtypes:
   - name: AutoETS
     cadw_module: cadw.ts.auto_ets
     cadw_function: AutoETSForecaster
-    migration_target: v0.9.190+
+    migration_target: v0.9.189
     input_api: df
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "3 * n * f64 + seasonal_period * f64 + 256"
+    ram_formula: "3 * W_eff * f64 + 2 * seasonal_period * f64 + 3.5 * batch * row_size + 256"
     formula_evidence:
       state: "auto_ets.py:284 -- best_model_.state_nbytes() (delegated)"
       header: "auto_ets.py:284 -- delegated +256"
       guard: "auto_ets.fit -- extract_series guards per batch"
-    min_ram_formula: "3 * f64 + f64 + 256"
+    min_ram_formula: "3 * 2 * seasonal_period * f64 + 3.5 * row_size + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -206,15 +206,16 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
-    bounded_state_dims: {n: 1, seasonal_period: 1}
+    bounded_state_dims: {seasonal_period: 1}
     state_class: O(model)
     state_type: aggregation
-    bounded_state: false
-    bounded_by_domain:
+    bounded_state: true
+    bounded_by_window:
       axis: n
-      bound: 1000000
-      reason: "v0.9.185 honest: peak = single inner ETS fit; leaf primitives; streaming backlog v0.9.190+"
-    n_scalability: linear
+      window_param: max_window
+      auto_from_guard: true
+      truncation_loss: "best ETS candidate fitted on last W_eff (bit-identical n<=W_eff)"
+    n_scalability: bounded_by_window
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. up to 9 sequential ETS fits."
       predict: "closed-form extrapolation; O(1) RAM."

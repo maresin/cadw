@@ -261,6 +261,12 @@ class AutoETSForecaster(ForecasterBase):
 
         self.best_model_ = best_model
         self.selected_config_ = selected
+        # v0.9.189 (DEC-072): propagate ApproximationInfo from inner
+        # ETS (window-truncated when n > W_eff). User sees warning
+        # via AutoETS instance, not buried inner.
+        inner_approx = getattr(best_model, "approximation", None)
+        if inner_approx:
+            self.approximation = list(inner_approx)
         self.aicc_scores_ = aicc_scores
         self.best_aicc_ = best_aicc
         self.fit_duration_s_ = elapsed
