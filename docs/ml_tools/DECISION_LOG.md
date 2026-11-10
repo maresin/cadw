@@ -3282,3 +3282,48 @@ bounded_by_window.
 <!-- end DEC-070 -->
 
 <!-- end DEC-066 -->
+
+---
+
+## DEC-075 (2026-11-11, v0.9.195) — predict_leaf primitive classification
+
+**Q:** `_integrate_back` (SARIMA predict helper) was registered in
+PRIMITIVES.yaml as `intrinsic_bound {axis: n, bound: 1e6}`. But it
+takes `y_forecast` (steps) + small coefs; memory is O(steps), not
+O(n). Was the bound dishonest?
+
+**A:** Yes, semantically. `_integrate_back` allocates only
+`np.empty_like(y_forecast)` (O(steps)) + iterates. Its input size is
+**steps**, not n (training series). The `{n: 1e6}` bound was copied
+from neighbouring fit-time primitives.
+
+### Three primitive layers (refined from DEC-071)
+
+| Layer | Input size | intrinsic_bound | Examples |
+|---|---|---|---|
+| `fit_leaf` | n (training series) | **required** — caller truncates via `_collect_last_w` or accepts O(n) | `_ar_fit`, `_hannan_rissanen`, `_difference`, `_seasonal_difference` |
+| `intrinsic` | n (training series) | **required** — no window-truncation possible without algorithm change | `chol_solve`, `eclat`, `ranknet_grad` |
+| `predict_leaf` | steps (forecast horizon) or O(model) | **null** — O(steps) inherent, no n at predict time | `_integrate_back`, `_arma_forecast` (see note) |
+
+**Note on `_arma_forecast`:** currently intrinsic (calls `_ar_fit(y, m)`
+internally even for out-of-sample path, so O(n)). Kept as `intrinsic_bound
+{n: 1e6}`. Refactor to accept pre-trimmed y (caller passes only recent
+W_eff) would make it `predict_leaf`; migration target v0.9.196+.
+
+### v0.9.195 change
+
+`_integrate_back.intrinsic_bound` -> `null` (predict-time O(steps)).
+Regression test in `tests/test_primitives_yaml.py::test_integrate_back_predict_leaf`.
+
+### Anti-pattern prevented
+
+Copy-pasting `intrinsic_bound {axis: n}` from neighbouring entries without
+checking: (a) is the axis actually in the formula, (b) is the function
+fit-time or predict-time. Future primitive cards require:
+
+- `layer` explicitly set (was freeform before DEC-071, now required for new cards)
+- `intrinsic_bound: null` for predict-time; reason >= 20 chars for others
+- Self-check: does `np.empty((n, ...))` appear in the function body?
+
+See AP29 (new, AI_CONSTITUTION §5) for enforcement.
+

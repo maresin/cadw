@@ -518,6 +518,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Reverse differencing: requires full diffs chain from t=0 to n; truncation breaks cumulative integration"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
+  intrinsic_bound: null
+  # v0.9.195: predict-time O(steps), not O(n)
 
 - name: _difference
   cadw_function: cadw.ts.models._difference

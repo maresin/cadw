@@ -188,7 +188,7 @@ subtypes:
   - name: AutoETS
     cadw_module: cadw.ts.auto_ets
     cadw_function: AutoETSForecaster
-    migration_target: v0.9.189
+    migration_target: None
     input_api: df
     fit_batched: false
     predict_batched: false
@@ -282,6 +282,8 @@ subtypes:
     coverage: broad
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
     transient_factor: 1.0
+    notes: "DEPRECATED v0.9.190 - alias for ETSForecaster(params='auto'). Functionally equivalent (shim); ETS card is canonical. Removed in v1.0.0."
+
   - name: Theta
     cadw_module: cadw.ts.theta
     cadw_function: ThetaForecaster
@@ -464,6 +466,7 @@ subtypes:
     pareto_axes: [mase, fit_time_s, peak_rss_mb]
     transient_factor: 1.0
     notes: "DEPRECATED v0.9.194 - alias for ThetaForecaster(params='auto'). Functionally equivalent (shim); Theta card is canonical. Removed in v1.0.0."
+    bounded_by_window: {axis: n, window_param: max_window, auto_from_guard: true, truncation_loss: 'STL + Theta fit on last W_eff (bit-identical n<=W_eff)', applies_to: 'params=manual'}
 
   - name: SARIMA
     cadw_module: cadw.ts.models

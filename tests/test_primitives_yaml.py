@@ -57,3 +57,26 @@ def test_primitives_formula_evidence_has_line_ref():
                 assert isinstance(v, str) and v.strip(), (
                     f"{c.name}: evidence[{k!r}] empty"
                 )
+
+def test_integrate_back_predict_leaf():
+    """v0.9.195 (DEC-075, AP29): _integrate_back is predict-time O(steps).
+
+    Not O(n) fit-time. intrinsic_bound must be null.
+    """
+    import yaml
+    from pathlib import Path
+    data = yaml.safe_load(
+        Path("docs/ml_tools/PRIMITIVES.yaml").read_text())
+    cards = data.get("primitives") or data.get("cards") or []
+    found = False
+    for c in cards:
+        name = c.get("name", "")
+        fn = c.get("cadw_function", "")
+        if "_integrate_back" in str(name) or "_integrate_back" in str(fn):
+            found = True
+            ib = c.get("intrinsic_bound")
+            assert ib is None, (
+                f"_integrate_back must have intrinsic_bound: null "
+                f"(predict-time O(steps)); got {ib}")
+    assert found, "_integrate_back not found in PRIMITIVES.yaml"
+

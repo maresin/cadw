@@ -809,6 +809,36 @@ the latter). Schema test G14 enforces.
 
 Same as AP4 restated for §4.0 R3. AST gate G2 (test_guard_before_alloc.py) enforces.
 
+### AP29. intrinsic_bound without checking fit-time vs predict-time
+
+`intrinsic_bound {axis: n, bound: ...}` claims state grows with n. Only
+valid for **fit-time** primitives that materialize a training-series-sized
+array (`np.empty((n, ...))`, `np.full(n, ...)`) — and even then, caller
+may truncate via `_collect_last_w` (fit_leaf) or accept as intrinsic
+(chol_solve, eclat).
+
+**Invalid for predict-time helpers** (`_integrate_back`,
+`_arma_forecast`): their inputs are `steps` (forecast horizon) or
+coefficients, not `n`. Copying `{n: 1e6}` from neighbouring cards is
+dishonest (wrong axis, misleads `min_ram_formula` derivations).
+
+**Rule (v0.9.195, DEC-075):**
+
+- PrimitiveCard declares `layer: fit_leaf | intrinsic | predict_leaf`.
+- `predict_leaf` -> `intrinsic_bound: null` unless the function genuinely
+  calls a fit-time helper (then `intrinsic_bound` required, and `reason`
+  must mention the internal call — e.g. `_arma_forecast` calls `_ar_fit`).
+- `fit_leaf`/`intrinsic` -> `intrinsic_bound` required (reason >= 20 chars).
+
+**Self-check before adding a primitive card:**
+
+1. Does the function body allocate `np.empty((n, ...))` or `np.full(n, ...)` where n is the **training** size? If no -> `predict_leaf`, `intrinsic_bound: null`.
+2. If n-sized alloc is present, is it a training-series array? If it's `steps` (caller-controlled), it's still `predict_leaf`.
+3. Does the function call another primitive that IS fit-time? Document in `reason` and keep `intrinsic_bound`.
+
+**Reference:** DEC-075; regression test `test_integrate_back_predict_leaf`.
+
+
 ### §5.1. Single source of truth (one fact, one place)
 
 Every concept has exactly one canonical location:
