@@ -515,7 +515,15 @@ def test_R2_verified_requires_ram_formula():
         # v0.9.189 (DEC-072): W_eff auto-injected for bounded_by_window
         # models (window size derived from guard at runtime, not a model
         # hyperparam).
-        allowed = constants | set(dims.keys()) | {"batch", "row_size", "W_eff"}
+        # v0.9.192 (DEC-074): n allowed only when n_scalability is
+        # linear/quadratic — formula legitimately scales with n. Models
+        # with n_scalability=constant/bounded_by_window must NOT use n
+        # in state formula (would contradict bounded_state: true).
+        n_scal = (found or {}).get("n_scalability")
+        allowed = (constants | set(dims.keys())
+                   | {"batch", "row_size", "W_eff"})
+        if n_scal in ("linear", "quadratic"):
+            allowed = allowed | {"n"}
         extra = names - allowed
         if extra:
             bad.append(f"{label}: ram_formula names {sorted(extra)} "

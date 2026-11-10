@@ -3216,6 +3216,65 @@ After v0.9.189 (P3) and v0.9.190 (P4):
 
 ---
 
+---
+
+## DEC-074 (2026-11-10, v0.9.192) — auto-mode transient honesty; bounded_by_window.applies_to
+
+**Q:** v0.9.189-c2/c3 flipped ETS + AutoETS to `bounded_state: true +
+n_scalability: bounded_by_window`. But ETS(auto) (merged in v0.9.190)
+runs `_extract_series` + AICc enumeration over full y — O(n) transient.
+Was the flip honest?
+
+**A:** No. Same dishonesty pattern as v0.9.182-184. G18 didn't catch
+because it checks primitive cards, not `_fit_auto` self-body transient.
+`_extract_series` IS registered with streaming_variant, but is invoked
+without streaming inside `_fit_auto` for AICc context.
+
+### Fix
+
+- **Schema:** `bounded_by_window.applies_to` (optional str). "all"/null
+  (default) = full-scope claim. `"params=<value>"` = partial (only that
+  params mode is bounded_by_window; other modes are O(n)).
+- **YAML ETS + AutoETS:** `n_scalability: linear` (worst-case auto mode),
+  `ram_formula` = auto formula (`n * f64 + ...`), `bounded_by_window` kept
+  with `applies_to: "params=manual"`, `fit_transient_note` explains.
+- **G20 gate:** partial `applies_to` (not "all"/null) requires
+  `n_scalability: linear`.
+
+### Not fixed (out of v0.9.192 scope)
+
+- Auto-mode O(n) transient itself: AICc needs full y across configs.
+  Could be bounded_by_window via 2-pass disk or CV-slice refactor
+  (v0.9.193+, deferred).
+- **Theta + OTMTheta (v0.9.191) unchanged — those ARE honest.**
+  Theta/OTM have no params='auto' mode yet; their `bounded_by_window`
+  reflects their actual manual-mode fit which uses `_collect_last_w`.
+  Merge (v0.9.193+) will inherit auto-mode, forcing honest YAML then.
+
+### Applied v0.9.192
+
+- `docs/ml_tools/schema.py`: `bounded_by_window.applies_to` validation.
+- `docs/ml_tools/D_time_series.yaml`: ETS + AutoETS — `n_scalability:
+  linear`, `ram_formula` = auto (worst), `applies_to: "params=manual"`,
+  `fit_transient_note`.
+- `tests/test_constitution_gates.py::test_G20_partial_window_scope_requires_linear`.
+- No code change. No behavioral change.
+
+### Lesson
+
+Same pattern as v0.9.182-184. Structural enforcement (G18) caught
+missing `streaming_variant`/`window_truncatable` on primitives but not
+**worst-case mode mismatch inside merged classes**. G20 closes this:
+partial scope requires linear worst-case.
+
+**Self-check before any auto-mode merge:** does params='auto' avoid full
+y for CV/AICc? If no → honest status = bounded_by_domain (linear), not
+bounded_by_window.
+
+---
+
+<!-- end DEC-074 -->
+
 <!-- end DEC-072 -->
 
 <!-- end DEC-071 -->

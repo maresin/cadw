@@ -608,6 +608,13 @@ def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
             for k in required_keys:
                 if k not in bbw:
                     err(f"{m_label}: bounded_by_window missing key {k!r}")
+            # v0.9.192 (DEC-074): applies_to — optional scope. "all" (default)
+            # or "params=<value>" (partial — only that params mode is bounded).
+            applies_to = bbw.get("applies_to")
+            if applies_to is not None and not isinstance(applies_to, str):
+                err(f"{m_label}: bounded_by_window.applies_to must be str "
+                    f"(e.g. 'all' or 'params=manual'), got "
+                    f"{type(applies_to).__name__}")
             if "axis" in bbw and not isinstance(bbw["axis"], str):
                 err(f"{m_label}: bounded_by_window.axis must be str")
             if "window_param" in bbw and not isinstance(bbw["window_param"], str):

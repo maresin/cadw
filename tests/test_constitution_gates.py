@@ -1237,3 +1237,56 @@ def test_G18_primitives_before_models():
         + "\n".join(f"  {v}" for v in violations[:15])
     )
 
+# ============================================================================
+# G20 (v0.9.192, DEC-074): bounded_by_window.applies_to partial
+# (non-"all") requires n_scalability: linear (worst-case mode may be O(n)).
+# ============================================================================
+
+def test_G20_partial_window_scope_requires_linear():
+    """G20 (DEC-074): if bounded_by_window.applies_to is set to a specific
+    params value (not null/'all'), then n_scalability must be 'linear'
+    (worst-case mode outside the partial scope is O(n)).
+    """
+    import yaml
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    ml_tools = root / "docs" / "ml_tools"
+    violations = []
+    checked = 0
+
+    for yf in sorted(ml_tools.glob("[A-Z]_*.yaml")):
+        try:
+            data = yaml.safe_load(yf.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for st in data.get("subtypes") or []:
+            for m in st.get("models") or []:
+                status = (m.get("implementation_status") or {}).get("status")
+                if status != "verified":
+                    continue
+                bbw = m.get("bounded_by_window")
+                if not bbw:
+                    continue
+                checked += 1
+                applies_to = bbw.get("applies_to")
+                n_scal = m.get("n_scalability")
+                # Partial scope = specific params. Default 'all'/None means
+                # full-scope bounded_by_window; that's fine with
+                # n_scalability=bounded_by_window.
+                is_partial = (applies_to is not None
+                              and applies_to not in ("all", "params=all"))
+                if is_partial and n_scal != "linear":
+                    violations.append(
+                        f"{yf.name}::{m.get('name')}: bounded_by_window."
+                        f"applies_to={applies_to!r} (partial) but "
+                        f"n_scalability={n_scal!r}; must be 'linear' "
+                        f"(worst-case mode outside scope is O(n), DEC-074)."
+                    )
+
+    assert not violations, (
+        f"G20: {len(violations)} partial-window scope violations "
+        f"across {checked} cards with bounded_by_window:\n"
+        + "\n".join(f"  {v}" for v in violations[:10])
+    )
+

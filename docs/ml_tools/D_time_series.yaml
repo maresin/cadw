@@ -94,7 +94,7 @@ subtypes:
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "2 * W_eff * f64 + 2 * seasonal_period * f64 + 3.5 * batch * row_size + 256"
+    ram_formula: "n * f64 + 2 * seasonal_period * f64 + 3.5 * batch * row_size + 256"
     formula_evidence:
       state: "ets.py:170-172 -- y_.nbytes + fitted_.nbytes + season_.nbytes + 256"
       header: "ets.py:172 -- +256"
@@ -109,6 +109,7 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
+      fit_transient_note: "params='auto' (default for AutoETS): AICc config enumeration needs full y (_extract_series + _recompute_in_sample), O(n) transient. params='manual': O(W_eff) via _collect_last_w."
     bounded_state_dims: {seasonal_period: 1}
     state_class: O(model)
     state_type: aggregation
@@ -118,7 +119,8 @@ subtypes:
       window_param: max_window
       auto_from_guard: true
       truncation_loss: "HW/initial_seasonal on last W_eff (bit-identical n<=W_eff)"
-    n_scalability: bounded_by_window
+      applies_to: "params=manual"
+    n_scalability: linear
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. Nelder-Mead grid transient."
       predict: "closed-form extrapolation; O(1) RAM."
@@ -191,7 +193,7 @@ subtypes:
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "3 * W_eff * f64 + 2 * seasonal_period * f64 + 3.5 * batch * row_size + 256"
+    ram_formula: "n * f64 + 2 * seasonal_period * f64 + 3.5 * batch * row_size + 256"
     formula_evidence:
       state: "auto_ets.py:284 -- best_model_.state_nbytes() (delegated)"
       header: "auto_ets.py:284 -- delegated +256"
@@ -206,6 +208,7 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
+      fit_transient_note: "params='auto' (default for AutoETS): AICc config enumeration needs full y (_extract_series + _recompute_in_sample), O(n) transient. params='manual': O(W_eff) via _collect_last_w."
     bounded_state_dims: {seasonal_period: 1}
     state_class: O(model)
     state_type: aggregation
@@ -215,7 +218,8 @@ subtypes:
       window_param: max_window
       auto_from_guard: true
       truncation_loss: "best ETS candidate fitted on last W_eff (bit-identical n<=W_eff)"
-    n_scalability: bounded_by_window
+      applies_to: "params=manual"
+    n_scalability: linear
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. up to 9 sequential ETS fits."
       predict: "closed-form extrapolation; O(1) RAM."
