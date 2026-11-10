@@ -4693,6 +4693,28 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.191] — 2026-11-10 (DEC-072 P4: Theta + OTM window)
+
+### v0.9.191 — Theta/OTM(s>1) bounded_by_window
+
+- cadw/ts/theta.py ThetaForecaster.fit: max_window, strict;
+  s=1 streaming unchanged; s>1 _collect_last_w (STL 4*f64 unit);
+  ApproximationInfo when truncated; insufficient -> MLE;
+  save_y + int max_window -> ValueError.
+- cadw/ts/otm.py OTMThetaForecaster.fit: same; unit 31*f64.
+- YAML Theta + OTMThetaForecaster: bounded_state:true,
+  n_scalability:bounded_by_window, bounded_by_window, dims
+  {seasonal_period:1}. Removed bounded_by_domain.
+- PRIMITIVES.yaml: _ses (otm) intrinsic_bound -> window_
+  truncatable per DEC-072 §3 (was semantically wrong,
+  corrected).
+- tests/test_theta_otm_window.py (12 new).
+- tests/test_auto_ets.py: filterwarnings DeprecationWarning.
+
+Theta/OTM pass G18 honestly (no silent intrinsic).
+Next: _MultiplicativeWrapper refactor (v0.9.192) -> Theta+
+AutoTheta merge (v0.9.193).
+
 ## [0.9.190] — 2026-11-10 (DEC-073: ETS + AutoETS merge)
 
 ### v0.9.190 — batch-family merge (ETS only)
