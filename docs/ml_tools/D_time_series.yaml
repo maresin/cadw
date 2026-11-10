@@ -33,12 +33,12 @@ subtypes:
     fit_batched: false
     predict_batched: false
     depends_on: []
-    ram_formula: "n * f64 + 256"
+    ram_formula: "period * f64 + 256"
     formula_evidence:
       state: "models.py:211 -- NaiveForecaster.y_ = y (np.ndarray, n*f64)"
       header: "models.py -- +256 model header"
       guard: "models.py:218 -- _check(df._memory_guard, batch, ...)"
-    min_ram_formula: "n * f64 + 256"
+    min_ram_formula: "f64 + 256"
     min_ram_evidence:
       derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
     measurement:
@@ -48,16 +48,11 @@ subtypes:
       guard_refuse: "test_guard_refuses_at_domain_bound: n=500k + 2 MB -> MemoryLimitExceeded"
       cells_passed: "3/3"
       runtime_sec: "~2"
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: "Single-series naive baseline; state = y_ = n*f64. n=1e6 = 8 MB."
-    state_class: O(n)
-    bounded_state_dims: {n: 1}
+    state_class: O(model)
+    bounded_state_dims: {period: 1}
     state_type: aggregation
-    bounded_state: false
-    n_scalability: linear
-    tier1_core_exception: "Single-series TS; no multi-pass; single extract. Guard refuses at state_limit. bounded_by_domain n<=1e6."
+    bounded_state: true
+    n_scalability: constant
     streaming_strategy:
       fit: "batched extract_series (O(batch) streaming) + full-series fit. no multi-pass; single extract."
       predict: "closed-form extrapolation; O(1) RAM."

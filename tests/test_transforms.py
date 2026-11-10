@@ -143,9 +143,11 @@ def test_pipeline_predict_in_sample_shape():
         transformers=[Differencer(lags=1)],
         forecaster=NaiveForecaster(strategy="last"),
     )
-    pipeline.fit(_df(y), "y")
-    fit = pipeline.predict_in_sample()
-    assert fit.size == pipeline.forecaster.predict_in_sample().size
+    df = _df(y)
+    pipeline.fit(df, "y")
+    # v0.9.182: inner Naive OOC -> pass df to pipeline and inner.
+    fit = pipeline.predict_in_sample(df)
+    assert fit.size == pipeline.forecaster.predict_in_sample(df).size
 
 
 def test_pipeline_capability_flags():
@@ -516,10 +518,12 @@ def test_autopipeline_get_params():
 def test_autopipeline_predict_in_sample_shape():
     from cadw.ts.transforms import AutoForecastPipeline
     y = 10.0 + 0.5 * np.arange(50)
+    df = _df(y)
     pipe = AutoForecastPipeline(
         forecaster=NaiveForecaster(strategy="last"),
-    ).fit(_df(y), "y")
-    fit = pipe.predict_in_sample()
+    ).fit(df, "y")
+    # v0.9.182: inner Naive OOC -> pass df.
+    fit = pipe.predict_in_sample(df)
     assert fit.size > 0
 
 

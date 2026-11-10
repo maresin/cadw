@@ -170,12 +170,13 @@ def test_ensemble_capability_flags():
 
 def test_ensemble_predict_in_sample_shape():
     y = _trending(n=80, seed=7)
+    df = _df(y)
     m = EnsembleForecaster(
         members=[NaiveForecaster(strategy="last"),
                  NaiveForecaster(strategy="drift")],
         weights="equal",
-    ).fit(_df(y), "y")
-    fit = m.predict_in_sample()
+    ).fit(df, "y")
+    fit = m.predict_in_sample(df)
     assert fit.size > 0
 
 

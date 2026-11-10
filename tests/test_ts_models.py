@@ -101,7 +101,8 @@ def test_naive_in_sample():
     y = [1.0, 2.0, 3.0, 4.0]
     df = _mk_df(y)
     m = NaiveForecaster(strategy="last").fit(df, "y")
-    preds = m.predict_in_sample()
+    # v0.9.182: df required for OOC predict_in_sample
+    preds = m.predict_in_sample(df)
     assert math.isnan(preds[0])
     assert preds[1] == 1.0
     assert preds[3] == 3.0

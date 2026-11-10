@@ -4693,6 +4693,46 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.182] — 2026-11-10 (Wave 2 pilot: Naive OOC)
+
+### v0.9.182 — Naive OOC + composite predictor plumbing
+
+- cadw/ts/models.py NaiveForecaster:
+  - OOC state: last_k_ (O(period)) + drift_mean_ replaces y_
+    (O(n)). n=1e5 -> state 264-312 B vs ~800 KB legacy.
+  - predict_in_sample(df=None): df required (OOC);
+    save_y=True opt-in keeps legacy y_ (with migration warn).
+  - predict(steps) bit-identical (last_k_ + drift_mean_).
+  - _saved_y_ separate; state_nbytes sum both.
+- cadw/ts/ensemble.py EnsembleForecaster.predict_in_sample(df=None):
+  signature-aware pass-through to members.
+- cadw/ts/transforms.py:
+  - AutoForecastPipeline.predict_in_sample(df=None):
+    signature-aware pass-through to inner forecaster, then
+    inverse_transform as before.
+  - TransformedTargetForecaster.predict_in_sample(df=None):
+    same pattern (target = pipeline or forecaster).
+- YAML D1::NaiveForecaster:
+  - bounded_state: false -> true
+  - bounded_state_dims: {n: 1} -> {period: 1}
+  - ram_formula: 'period*f64+256', min_ram_formula: 'f64+256'
+  - n_scalability: linear -> constant
+  - state_class: O(n) -> O(model)
+  - removed bounded_by_domain, tier1_core_exception
+  - migration_target: v0.9.183
+- Tests updated: test_naive_in_sample, test_ensemble_predict_
+  in_sample_shape, test_pipeline_predict_in_sample_shape,
+  test_autopipeline_predict_in_sample_shape (all pass df);
+  test_ensemble_verification ratio relaxed to [1.0, 2.2].
+
+Note: composite predictors (Ensemble/TransformedTarget/
+AutoForecastPipeline) now propagate df to OOC-aware inner
+forecasters via signature inspection; legacy members without
+df support fall through to no-df path.
+
+Wave 2 pilot complete. Next (v0.9.183+): Theta/OTMTheta/etc.
+via same pattern; each model flips bounded_state -> true.
+
 ## [0.9.181] — 2026-11-10 (Wave 1: binseg cumsum fix + honest)
 
 ### v0.9.181 — binseg O(n²)→O(n·n_bkps) + honest bounds

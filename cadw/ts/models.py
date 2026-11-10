@@ -207,52 +207,97 @@ class NaiveForecaster(ForecasterBase):
                 )
         self.strategy = strategy
         self.period = int(period) if period is not None else None
-        self.y_ = None
+        # v0.9.182 OOC state
+        self.last_k_ = None
+        self.drift_mean_ = None
+        self._saved_y_ = None
+        self.target_col_ = None
+        self.time_col_ = None
 
-    def fit(self, df, target_col, *, time_col=None, group_col=None):
+    def fit(self, df, target_col, *, time_col=None, group_col=None,
+            save_y=False):
+        """Fit Naive baseline.
+
+        v0.9.182 (OOC default): save_y=False keeps only last_k_ (O(period)),
+        not the full y_ (O(n)). predict(steps) uses last_k_ + drift_mean_.
+        predict_in_sample() requires df unless fit(..., save_y=True).
+        """
         _check_df(df, target_col, time_col, group_col)
         y = _extract_series(df, target_col, time_col=time_col)
         if len(y) < 2:
             raise ValueError(
                 "NaiveForecaster: need at least 2 observations to fit"
             )
-        self.y_ = y
+        self.target_col_ = target_col
+        self.time_col_ = time_col
+
+        if self.strategy == "last":
+            self.last_k_ = y[-1:].copy()
+            self.drift_mean_ = None
+        elif self.strategy == "seasonal":
+            s = self.period
+            if len(y) < s:
+                raise ValueError(
+                    f"NaiveForecaster seasonal: need len(y) >= period; "
+                    f"len(y)={len(y)}, s={s}"
+                )
+            self.last_k_ = y[-s:].copy()
+            self.drift_mean_ = None
+        else:  # drift
+            self.last_k_ = y[-1:].copy()
+            diffs = np.diff(y)
+            diffs = diffs[~np.isnan(diffs)]
+            self.drift_mean_ = float(diffs.mean()) if len(diffs) else 0.0
+
+        self._saved_y_ = y if save_y else None
         self._is_fitted = True
         return self
 
     def state_nbytes(self):
-        if self.y_ is None:
+        """v0.9.182 OOC: O(period) + optional legacy _saved_y_."""
+        if not self._is_fitted:
             return 0
-        return int(self.y_.nbytes + 256)
+        k = self.last_k_.nbytes if self.last_k_ is not None else 0
+        ys = self._saved_y_.nbytes if self._saved_y_ is not None else 0
+        return int(k + ys + 256)
 
     def _predict(self, steps):
-        y = self.y_
-        T = len(y)
+        """v0.9.182: uses last_k_ (O(period)), not full y_."""
         if self.strategy == "last":
-            base = y[-1]
-            return np.full(steps, base, dtype=np.float64)
+            return np.full(steps, self.last_k_[0], dtype=np.float64)
         if self.strategy == "seasonal":
             s = self.period
-            if T < s:
-                raise ValueError(
-                    f"NaiveForecaster seasonal: need T >= period; "
-                    f"T={T}, s={s}"
-                )
-            # y[T+h] = y[T+h-s], recursively for h > s
+            # last_k_ = y[-s:] = [y[T-s], ..., y[T-1]]
+            # out[h] = y[T-s + (h mod s)]
             out = np.empty(steps, dtype=np.float64)
-            full = np.concatenate([y, np.empty(steps, dtype=np.float64)])
             for h in range(steps):
-                full[T + h] = full[T + h - s]
-                out[h] = full[T + h]
+                out[h] = self.last_k_[h % s]
             return out
         # drift
-        diffs = np.diff(y)
-        diffs = diffs[~np.isnan(diffs)]
-        drift = float(diffs.mean()) if len(diffs) else 0.0
-        return y[-1] + drift * np.arange(1, steps + 1, dtype=np.float64)
+        return (self.last_k_[0]
+                + self.drift_mean_ * np.arange(1, steps + 1,
+                                                dtype=np.float64))
 
-    def _predict_in_sample(self):
-        y = self.y_
+    def predict_in_sample(self, df=None):
+        """v0.9.182: OOC default requires df (or save_y=True legacy)."""
+        if not self._is_fitted:
+            raise RuntimeError(
+                f"{type(self).__name__}.predict_in_sample called before fit"
+            )
+        if df is not None:
+            y = _extract_series(df, self.target_col_,
+                                 time_col=self.time_col_)
+            return self._predict_in_sample_from_y(y)
+        if self._saved_y_ is not None:
+            return self._predict_in_sample_from_y(self._saved_y_)
+        raise TypeError(
+            f"{type(self).__name__}.predict_in_sample: df is required "
+            f"(OOC default since v0.9.182). Use fit(..., save_y=True) for "
+            f"legacy no-df calls (adds O(n) persistent state)."
+        )
+
+    def _predict_in_sample_from_y(self, y):
+        """Recompute in-sample on arbitrary y (bit-identical pre-v0.9.182)."""
         T = len(y)
         out = np.full(T, np.nan, dtype=np.float64)
         if self.strategy == "last":
@@ -267,6 +312,7 @@ class NaiveForecaster(ForecasterBase):
             drift = float(diffs.mean()) if len(diffs) else 0.0
             out[1:] = y[:-1] + drift
         return out
+
 
 
 # ==================== SARIMA (CSS / Hannan-Rissanen) ====================

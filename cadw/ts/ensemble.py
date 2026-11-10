@@ -286,14 +286,34 @@ class EnsembleForecaster(ForecasterBase):
             return np.median(preds, axis=0)
         return preds.T @ self.member_weights_
 
-    def predict_in_sample(self):
+    def predict_in_sample(self, df=None):
+        """v0.9.182: accepts df for OOC members (Naive v0.9.182+).
+
+        - df=None: legacy no-df call. Works if ALL members support no-df.
+        - df=given: passes df only to members whose predict_in_sample
+          accepts df (signature-inspected); legacy members use no-df path.
+          Members without df-support may raise TypeError internally if
+          they require y_ not available (fit save_y=False); the caller
+          must ensure member compatibility.
+        """
+        import inspect
         if not self._is_fitted:
             raise RuntimeError(
                 "EnsembleForecaster.predict_in_sample: call fit first")
-        ins = [p.predict_in_sample() for p in self._pipelines]
+        ins = []
+        for mbr in self._pipelines:
+            if df is not None:
+                try:
+                    sig = inspect.signature(mbr.predict_in_sample)
+                    accepts_df = "df" in sig.parameters
+                except (ValueError, TypeError):
+                    accepts_df = False
+                if accepts_df:
+                    ins.append(mbr.predict_in_sample(df))
+                    continue
+            ins.append(mbr.predict_in_sample())
         # In-sample may have different lengths across members
-        # (differencing shortens); use min length, truncate each from
-        # start? No — align from end (most recent is most important).
+        # (differencing shortens); align from end (most recent first).
         min_len = min(x.size for x in ins)
         aligned = np.stack(
             [x[-min_len:] for x in ins], axis=0)

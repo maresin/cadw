@@ -341,8 +341,27 @@ class TransformedTargetForecaster(ForecasterBase):
             out = t.inverse_transform(out, steps)
         return out
 
-    def predict_in_sample(self):
-        out = self.forecaster.predict_in_sample()
+    def predict_in_sample(self, df=None):
+        """v0.9.182: accepts df for OOC inner forecasters (Naive v0.9.182+).
+
+        - df=None: legacy no-df call (inner forecaster must support it).
+        - df=given: passes df to inner forecaster if its
+          predict_in_sample accepts df (signature-inspected); legacy
+          inner uses no-df path.
+        """
+        import inspect
+        accepts_df = False
+        if df is not None:
+            try:
+                sig = inspect.signature(
+                    self.forecaster.predict_in_sample)
+                accepts_df = "df" in sig.parameters
+            except (ValueError, TypeError):
+                accepts_df = False
+        if accepts_df:
+            out = self.forecaster.predict_in_sample(df)
+        else:
+            out = self.forecaster.predict_in_sample()
         # In-sample: inverse_transform with `steps = len(out)`; no
         # original_tail needed because state from fit is available.
         for t in reversed(self.transformers):
@@ -781,10 +800,26 @@ class AutoForecastPipeline(ForecasterBase):
             return self._pipeline.predict(steps)
         return self.forecaster.predict(steps)
 
-    def predict_in_sample(self):
-        if self._pipeline is not None:
-            return self._pipeline.predict_in_sample()
-        return self.forecaster.predict_in_sample()
+    def predict_in_sample(self, df=None):
+        """v0.9.182: accepts df, passes through to inner pipeline/forecaster.
+
+        - df=None: legacy no-df call.
+        - df=given: passes df to target (self._pipeline or self.forecaster)
+          if its predict_in_sample accepts df (signature-inspected).
+        """
+        import inspect
+        target = (self._pipeline if self._pipeline is not None
+                  else self.forecaster)
+        accepts_df = False
+        if df is not None:
+            try:
+                sig = inspect.signature(target.predict_in_sample)
+                accepts_df = "df" in sig.parameters
+            except (ValueError, TypeError):
+                accepts_df = False
+        if accepts_df:
+            return target.predict_in_sample(df)
+        return target.predict_in_sample()
 
     def prediction_interval(self, steps, level=0.95):
         target = (self._pipeline if self._pipeline is not None
