@@ -212,3 +212,116 @@ def test_theta_no_bench_deps_in_source():
             assert top not in forbidden, (
                 f"forbidden import-from: {node.module}")
 
+# ---- v0.9.194 (Theta + AutoTheta merge) ----
+
+def _mk_df(y):
+    import numpy as np
+    import pyarrow as pa
+    from cadw import CadwDataFrame
+    from cadw.core.memory_guard import MemoryGuard
+    y = np.asarray(y, dtype=np.float64)
+    return CadwDataFrame.from_table(
+        pa.table({"y": pa.array(y, type=pa.float64())}),
+        memory_guard=MemoryGuard(max_memory_mb=500))
+
+
+def _mk_seasonal(n=120, s=12, seed=0):
+    import numpy as np
+    rng = np.random.RandomState(seed)
+    t = np.arange(n)
+    y = 100 + 5 * np.sin(2 * np.pi * t / s) + rng.uniform(0.5, 1.5, n)
+    return y
+
+
+def test_theta_params_auto_matches_autotheta():
+    """Merged Theta(params='auto') == AutoThetaForecaster shim."""
+    import warnings
+    from cadw.ts.auto_theta import AutoThetaForecaster
+    from cadw.ts.theta import ThetaForecaster
+
+    y = _mk_seasonal()
+    df = _mk_df(y)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        m_old = AutoThetaForecaster(seasonal_period=12).fit(df, "y")
+    m_new = ThetaForecaster(seasonal_period=12, params="auto").fit(df, "y")
+    import numpy as np
+    np.testing.assert_allclose(
+        m_old.predict(12), m_new.predict(12), atol=1e-9, equal_nan=True)
+    assert (m_old.selected_config_["label"]
+            == m_new.selected_config_["label"])
+
+
+def test_theta_auto_propagates_approximation():
+    """window_truncated from best_model_ propagates to merged self."""
+    from cadw.ts.theta import ThetaForecaster
+    y = _mk_seasonal(n=200, s=12)
+    df = _mk_df(y)
+    m = ThetaForecaster(seasonal_period=12, params="auto").fit(
+        df, "y", max_window=60)
+    assert m.approximation is not None
+    assert any(a.type == "window_truncated" for a in m.approximation)
+
+
+def test_theta_manual_unchanged():
+    """Default params='manual' == explicit manual."""
+    from cadw.ts.theta import ThetaForecaster
+    import numpy as np
+    y = _mk_seasonal()
+    df = _mk_df(y)
+    m_default = ThetaForecaster(seasonal_period=12).fit(df, "y")
+    m_explicit = ThetaForecaster(
+        seasonal_period=12, params="manual").fit(df, "y")
+    np.testing.assert_allclose(
+        m_default.predict(12), m_explicit.predict(12))
+
+
+def test_theta_auto_rejects_save_y():
+    """Auto mode rejects save_y=True."""
+    import pytest
+    from cadw.ts.theta import ThetaForecaster
+    y = _mk_seasonal()
+    df = _mk_df(y)
+    with pytest.raises(ValueError, match="save_y=True is not supported"):
+        ThetaForecaster(seasonal_period=12, params="auto").fit(
+            df, "y", save_y=True)
+
+def test_auto_selects_multiplicative_on_multiplicative_series():
+    """v0.9.194-b-fix: multiplicative candidates must not be silently dropped.
+
+    Before fix (missing _check_df in _theta_common), _MultiplicativeWrapper
+    raised NameError inside _fit_auto's try/except, so multiplicative
+    candidates never ran and STM_additive always "won". After fix,
+    multiplicative candidates must have val_mase (no error) and win on
+    strongly multiplicative y.
+    """
+    import numpy as np
+    import pyarrow as pa
+    from cadw import CadwDataFrame
+    from cadw.core.memory_guard import MemoryGuard
+
+    rng = np.random.RandomState(0)
+    n, s = 120, 12
+    t = np.arange(n)
+    y = ((100 + 0.5 * t) * (1 + 0.3 * np.sin(2 * np.pi * t / s))
+         + 0.1 * rng.normal(size=n))
+    y = np.maximum(y, 1.0)
+    df = CadwDataFrame.from_table(
+        pa.table({"y": pa.array(y, type=pa.float64())}),
+        memory_guard=MemoryGuard(max_memory_mb=500))
+    m = ThetaForecaster(seasonal_period=s, params="auto").fit(df, "y")
+
+    mult_entries = [e for e in m.cv_scores_
+                    if "multiplicative" in e["label"].lower()]
+    assert mult_entries, "no multiplicative candidates in cv_scores_"
+    for e in mult_entries:
+        assert e.get("val_mase") is not None, (
+            f"multiplicative candidate errored: {e}")
+
+    label = m.selected_config_["label"]
+    assert "multiplicative" in label.lower(), (
+        f"expected multiplicative on multiplicative series; "
+        f"selected={label!r}; "
+        f"cv_scores="
+        f"{[(x['label'], x.get('val_mase')) for x in m.cv_scores_]}")
+
