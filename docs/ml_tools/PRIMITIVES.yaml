@@ -1,0 +1,107 @@
+# PRIMITIVES.yaml — PrimitiveCard seed (v0.9.176)
+# Schema: PRIMITIVE_CARD_SPEC.md
+# Loader: cadw.core.cards.load_primitive_cards
+# Status: seed (5 cards). Full set (~30 batch-layer + ~10 leaf + ~5 intrinsic)
+#         migration v0.9.177+ per PRIMITIVES_BACKLOG.
+# Layer:
+#   batch     — state O(model) given fixed batch; primitive IS OOC.
+#   leaf      — state O(n) input/output; caller must batch/chunk.
+#   intrinsic — O(n^2)/O(n*d) unavoidable; caller controls n <= bound.
+
+version: "0.9.176"
+
+primitives:
+
+# ====================================================================
+# Batch-layer (state n-independent)
+# ====================================================================
+
+- name: sigmoid
+  cadw_function: cadw.ops.numeric.sigmoid
+  module: cadw.ops.numeric
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "batch * f64 + 512"
+  min_ram_formula: "1 * f64 + 512"
+  formula_evidence:
+    elementwise: "numeric.py:44 -- def sigmoid(x):"
+    note: "elementwise; no state; RAM = output = input size"
+  primitive_reuse: []
+  consumers: [LogisticRegression, GBDT, calibration, ordinal, autoencoder]
+  notes: "Numerically stable (pos/neg branch); no alloc beyond output."
+
+- name: arm_stats
+  cadw_function: cadw.ops.stats.arm_stats
+  module: cadw.ops.stats
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "k_arms * 3 * f64 + 3 * batch * row_size + 512"
+  min_ram_formula: "k_arms * 3 * f64 + 3 * row_size + 512"
+  formula_evidence:
+    op_class: "stats.py:75 -- class ArmStatsOp(ReduceOp):"
+    fn: "stats.py:150 -- def arm_stats("
+    state: "per-arm (count, sum, sum_sq); 3*k_arms floats"
+    batch: "check_batch(extra_factor=3.0) on input"
+  primitive_reuse: [reduce]
+  consumers: [EpsilonGreedy, UCB1, ThompsonSampling, LinUCB]
+  measurement:
+    cells_passed: "8/8"
+    verification_mode: "component-wise (DEC-033)"
+  notes: "ReduceOp state O(k_arms); RAM independent of n."
+
+- name: nmf_mu
+  cadw_function: cadw.ops.linalg.nmf_mu
+  module: cadw.ops.linalg
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "k * v * f64 + 2 * batch * k * f64 + 512"
+  min_ram_formula: "k * v * f64 + 2 * k * f64 + 512"
+  formula_evidence:
+    fn: "linalg.py:61 -- def nmf_mu(X_b: np.ndarray, H: np.ndarray, *, eps: float = 1e-10) -> np.ndarray:"
+    state: "H (k x v) persistent; W update per-batch"
+    batch: "W block (batch x k) transient"
+  primitive_reuse: []
+  consumers: [NMF, NMF_dup]
+  notes: "Per-batch H update; state H=k*v f64."
+
+- name: reservoir_sample
+  cadw_function: cadw.ops.sampling.reservoir_sample
+  module: cadw.ops.sampling
+  layer: batch
+  status: verified
+  bounded_state: true
+  ram_formula: "k * d * f64 + 3 * batch * row_size + 512"
+  min_ram_formula: "k * d * f64 + 3 * row_size + 512"
+  formula_evidence:
+    fn: "sampling.py:32 -- def reservoir_sample("
+    state: "reservoir buffer (k rows x d cols); Algorithm R"
+    batch: "check_batch(extra_factor=3.0)"
+  primitive_reuse: []
+  consumers: [KernelDensity, ReservoirSample, SMOTE, OneHotEncoder]
+  notes: "Algorithm R; state = k_samples * d, independent of n."
+
+# ====================================================================
+# Leaf-layer (state O(n) input; caller controls n)
+# ====================================================================
+
+- name: ols_fit
+  cadw_function: cadw.ops.linalg.ols_fit
+  module: cadw.ops.linalg
+  layer: leaf
+  status: verified
+  bounded_state: false
+  ram_formula: "n * f64 + 2 * f64 + 512"
+  min_ram_formula: "2 * f64 + 512"
+  formula_evidence:
+    fn: "linalg.py:30 -- def ols_fit(y: np.ndarray) -> Tuple[float, float]:"
+    state: "returns (slope, intercept); input y fully materialized by caller"
+  streaming_variant: null
+  primitive_reuse: []
+  consumers: [OTMThetaForecaster, ThetaForecaster]
+  notes: >-
+    Leaf: caller passes full y (n). For OOC regression, use fit_linear
+    (Reduce-based). This helper is for short-series (forecaster) fits
+    where n is bounded by model context (typically <= 1e6).

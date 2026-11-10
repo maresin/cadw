@@ -4693,6 +4693,41 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.176] — 2026-11-10 (infrastructure: core + schema + cards)
+
+### v0.9.176 (2026-11-10) — infrastructure wave (DEC-067/068/069)
+
+Code + schema only. No model refactor yet (v0.9.177+ min_ram migration,
+v0.9.182+ TS window refactor).
+
+- c1 (be4f976): core infrastructure.
+  - cadw/core/approximation.py: ApproximationInfo (10 types, 6 axes)
+    + BudgetTier enum.
+  - cadw/core/params_resolver.py: resolve_params() 6-level auto-
+    switch skeleton (L1 solver + L5 streaming wired; L2-L4, L6
+    raise NotImplementedError; TODO v0.9.187+).
+  - cadw/core/warnings.py: +ApproximationWarning, +ApplySafetyWarning.
+  - MemoryGuard.get_window_size(unit_bytes, target_fraction=0.25):
+    state budget (distinct from get_batch_rows I/O granularity).
+  - MemoryLimitExceeded enriched (model / params / min_required_bytes
+    / available_bytes / options; all optional, backward-compatible).
+- c2a (ccbad5c): ModelCard.bounded_by_window schema field + parse +
+  validation. Orthogonal to bounded_state. Coexistence with
+  bounded_by_domain allowed during transition.
+- c2b (78d7700): cadw/core/cards.py — PrimitiveCard + DataFrameOpCard
+  dataclasses + loaders (load_primitive_cards, load_df_op_cards)
+  with schema validation. 29 tests.
+- c2c: docs/ml_tools/PRIMITIVES.yaml seed (5 cards: sigmoid,
+  arm_stats, nmf_mu, reservoir_sample, ols_fit). Test validates
+  against PrimitiveCard schema + checks docs/df_operations.yaml
+  loads.
+
+Tests: 62 new (c1: 21, c2a: 8, c2b: 29, c2c: 4); no regressions.
+
+Deferred: v0.9.177 min_ram_formula migration (90+ cards); v0.9.178
+TS ForecasterBase.approximation + G12-G17 gates; v0.9.179 wave 1
+quick wins (pelt, coxph, binseg).
+
 ## [0.9.175] — 2026-11-10 (OOC batched work front)
 
 ### v0.9.175 (2026-11-10) — OOC batched work front (DEC-067/068/069)
