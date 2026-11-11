@@ -313,12 +313,11 @@ subtypes:
   - name: DBSCAN
     tier: baseline
     depends_on:
-    - cadw.ops.linalg.knn_query
-    - cadw.ops.linalg.core_distances
-    tier_level: tier2_wrapper
+    - cadw.ops.linalg.sq_dists
+    tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - local_structure
     purpose: 'Ester et al. 1996: clusters as dense regions via eps-neighborhood + min_pts. Flat; single global eps struggles with varying density.'
@@ -342,8 +341,37 @@ subtypes:
       metric: adjusted_rand_score
       value: null
       note: 'no_public_benchmark: no unified clustering LB.'
-    ooc_status: achievable
-    ooc_strategy: 'Not implemented. Concrete plan: knn_query_stream (v0.9.197) for eps-neighborhood streaming (state O(n*k)); core_distances chunked. Union-find (path compression) for cluster labels — O(n) but no n-sized matrix. Same pattern as verified LOF (v0.9.198). Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_status: debt
+    ooc_strategy: 'Debt (permanent; UF O(n) intrinsic). Labels/core via SpillArray. bounded_by_domain {n: 1e6}. SlowOperationWarning O(n^2).'
+    cadw_function: fit_dbscan
+    cadw_module: cadw.ml.dbscan
+    input_api: df
+    bounded_state: false
+    n_scalability: linear
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: UF parent/rank O(n) intrinsic (random access for union-find). Labels/core via SpillArray, disk O(n). 8 MB at n=1e6.
+    bounded_state_dims:
+      n: 1
+    ram_formula: n * i32 * 2 + n * bool + batch * batch * f64 + 256
+    min_ram_formula: 1 * i32 * 2 + 1 * bool + 1 * 1 * f64 + 256
+    formula_evidence:
+      uf_state: 'dbscan.py -- UF parent(n i32) + rank(n i8): n*(4+1) (i8 rounded to i32 in formula)'
+      core_mask: 'dbscan.py -- core (n bool): n*1'
+      sq_dists_chunk: 'dbscan.py -- sq_dists(Q_batch, X_batch): batch^2*f64'
+      header: dbscan.py -- 256 byte header
+    fit_batched: true
+    predict_batched: null
+    primitive_reuse:
+    - sq_dists
+    - spill_array
+    streaming_strategy:
+      fit: Chunked sq_dists for core detection + union-find edges. UF parent/rank O(n) intrinsic. Labels in SpillArray (disk O(n)).
+      predict: n/a (fit-only; new points assign via neighbor core).
+    ooc_target_version: null
+    ooc_alternative: 'Permanent. UF parent/rank O(n) intrinsic (needs random access for path compression). Approximations: (a) MiniBatchKMeans (dense, k known); (b) HDBSCAN subsample + assign (loses density hierarchy).'
+    migration_target: null
   - name: HDBSCAN
     cross_ref: N_density.HDBSCAN
     tier: sota
