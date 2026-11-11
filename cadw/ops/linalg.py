@@ -669,6 +669,7 @@ def eigh_topk(
     k: int,
     *,
     which: str = "LA",
+    sigma: "float | None" = None,
     memory_guard=None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Top-k eigenvectors of symmetric M.
@@ -738,7 +739,9 @@ def eigh_topk(
     elif which == "SA":
         vals, vecs = eigsh(M, k=k, which="SA")
     else:  # SM: shift-invert for spectral clustering reliability
-        vals, vecs = eigsh(M, k=k, sigma=0.0, which="LM")
+        # v0.9.203: sigma param (None -> 0.0 legacy; sklearn uses -1e-5)
+        _sig = 0.0 if sigma is None else float(sigma)
+        vals, vecs = eigsh(M, k=k, sigma=_sig, which="LM")
 
     if which == "LA":
         order = np.argsort(vals)[-k:][::-1]

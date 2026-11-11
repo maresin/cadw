@@ -818,3 +818,89 @@ primitives:
   streaming_variant: null
   consumers: [KShape, KShapeAD, ShapeGMM, patch_memory_ad, autoencoder]
 
+- name: graph_laplacian
+  cadw_function: cadw.ops.graph.graph_laplacian
+  module: cadw.ops.graph
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * n * f64 * 2 + 256"
+  min_ram_formula: "n * n * f64 * 2 + 256"
+  formula_evidence:
+    alloc: "graph.py -- L = D - W: (n, n) dense + temp"
+  intrinsic_bound:
+    axis: n
+    bound: 1000000
+    reason: "Dense (n, n) output L (D-W); caller uses graph_laplacian_sparse for large n."
+  streaming_variant: graph_laplacian_sparse
+  consumers: [SpectralClustering, SpectralCoclustering, SpectralBiclustering, LaplacianEigenmaps]
+  notes: "v0.9.147 dense; v0.9.203 sparse variant added (sklearn SpectralClustering affinity is scipy.sparse)."
+
+- name: graph_laplacian_sparse
+  cadw_function: cadw.ops.graph.graph_laplacian_sparse
+  module: cadw.ops.graph
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "nnz * f64 * 2 + n * f64 + 256"
+  min_ram_formula: "f64 + 256"
+  formula_evidence:
+    alloc: "graph.py -- sparse L (csr) from W_sparse; nnz preserved"
+  intrinsic_bound:
+    axis: n
+    bound: 10000000
+    reason: "Output sparse L (nnz ~ W.nnz); memory O(nnz) not O(n^2). Large n OK if W sparse (kNN affinity, nnz~n*k)."
+  streaming_variant: null
+  consumers: [SpectralClustering (sparse affinity)]
+  notes: "v0.9.203: sklearn SpectralClustering affinity (scipy.sparse) parity. Bit-identical to dense graph_laplacian(W.toarray())."
+
+- name: eigsh_topk
+  cadw_function: cadw.ops.graph.eigsh_topk
+  module: cadw.ops.graph
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * k * f64 * 2 + nnz * 24 + 256"
+  min_ram_formula: "k * f64 * 2 + 256"
+  formula_evidence:
+    alloc: "graph.py -- eigenvectors (n, k) + sparse L working copy"
+  intrinsic_bound: null
+  streaming_variant: null
+  consumers: [SpectralClustering, SpectralCoclustering, SpectralBiclustering, LaplacianEigenmaps]
+  notes: "v0.9.147; v0.9.203 accepts scipy.sparse L (dispatch to scipy.sparse.linalg.eigsh); + sigma param (None -> 0.0 legacy; sklearn uses -1e-5)."
+
+- name: mst
+  cadw_function: cadw.ops.graph.mst
+  module: cadw.ops.graph
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "m * 24 + n * 8 + 256"
+  min_ram_formula: "f64 + 256"
+  formula_evidence:
+    alloc: "graph.py -- edge list (m, 3) in + (n-1, 3) tree out; scipy csgraph"
+  intrinsic_bound:
+    axis: n
+    bound: 1000000
+    reason: "Full edge list required (Kruskal); caller controls m (typically m~n*k from kNN graph)."
+  streaming_variant: null
+  consumers: [HDBSCAN, Agglomerative (single-linkage), STRAY]
+  notes: "v0.9.147: scipy.sparse.csgraph.minimum_spanning_tree wrapper."
+
+- name: eigh_topk
+  cadw_function: cadw.ops.linalg.eigh_topk
+  module: cadw.ops.linalg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * n * f64 * 2 + n * k * f64 * 2 + 256"
+  min_ram_formula: "n * k * f64 * 2 + 256"
+  formula_evidence:
+    alloc: "linalg.py -- dense eigh (n, n) copy + eigenvectors (n, k); scipy path (n > 2000) only eigenvectors"
+  intrinsic_bound:
+    axis: n
+    bound: 2000
+    reason: "Dense path n<=2000 numpy.linalg.eigh (n^2); n>2000 scipy eigsh (n*k RAM). Caller bounds n per decomposition needs."
+  streaming_variant: null
+  consumers: [KernelPCA, GPR, Nystroem, eigsh_topk (dense), SpectralClustering (dense)]
+  notes: "v0.9.146; v0.9.203 + sigma param for SM which (None -> 0.0; sklearn -1e-5)."

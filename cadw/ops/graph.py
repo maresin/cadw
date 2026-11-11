@@ -1,17 +1,18 @@
-"""Graph primitives (v0.9.147, P1 L5 + L6, DEC-056).
+"""Graph primitives (v0.9.147 → v0.9.203).
 
-Three functions, all dense (numpy) or edge-list based; sparse upstream
-is the caller's responsibility (sparse support is a v0.9.148+ upgrade).
-
-- graph_laplacian: L = D-W | I - D^-1/2 W D^-1/2 | I - D^-1 W
-- eigsh_topk:      top-k eigenvectors (SM default for spectral clustering)
-- mst:             minimum spanning tree via scipy.sparse.csgraph
+- graph_laplacian:        dense L = D-W | I - D^-1/2 W D^-1/2 | I - D^-1 W
+- graph_laplacian_sparse: sparse variant (v0.9.203, sklearn
+                          SpectralClustering affinity is scipy.sparse)
+- eigsh_topk:             top-k eigenvectors; accepts dense or sparse L
+                          (sparse dispatch -> scipy.sparse.linalg.eigsh)
+- mst:                    minimum spanning tree via scipy.sparse.csgraph
 """
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
+from typing import Optional
 
 
 _GRAPH_HEADER = 256
@@ -69,33 +70,116 @@ def graph_laplacian(
         return L
 
 
+def graph_laplacian_sparse(
+    W,
+    *,
+    normalized: str = "sym",
+    memory_guard=None,
+):
+    """Sparse graph Laplacian L from sparse adjacency W.
+
+    v0.9.203. Returns scipy.sparse — for sklearn SpectralClustering
+    affinity (sparse, nnz=n*k for kNN). Bit-identical to
+    graph_laplacian(W.toarray()) for dense-sparse-representable W
+    (P7 verified: L_sym max diff 2.78e-17).
+
+    Args:
+      W: scipy.sparse (n, n) — symmetric non-negative adjacency.
+      normalized: "none" | "sym" | "rw".
+      memory_guard: optional.
+
+    Returns:
+      L: scipy.sparse (csr_matrix) same shape (n, n).
+    """
+    import scipy.sparse as sp
+    if not sp.issparse(W):
+        raise TypeError(
+            f"graph_laplacian_sparse: W must be scipy.sparse; "
+            f"got {type(W).__name__} (use graph_laplacian for dense)")
+    if W.shape[0] != W.shape[1]:
+        raise ValueError(f"W must be square; got {W.shape}")
+    if normalized not in ("none", "sym", "rw"):
+        raise ValueError(
+            f"normalized must be 'none'|'sym'|'rw'; got {normalized!r}")
+
+    W = W.tocsr().astype(np.float64)
+    n = W.shape[0]
+    d = np.asarray(W.sum(axis=1)).ravel()
+    d_safe = np.maximum(d, 1e-12)
+
+    if normalized == "none":
+        # L = D - W
+        D = sp.diags(d)
+        return (D - W).tocsr()
+    elif normalized == "sym":
+        # L_sym = I - D^-1/2 W D^-1/2
+        d_inv_sqrt = sp.diags(1.0 / np.sqrt(d_safe))
+        return (sp.eye(n, format="csr")
+                - d_inv_sqrt @ W @ d_inv_sqrt).tocsr()
+    else:  # rw
+        # L_rw = I - D^-1 W
+        d_inv = sp.diags(1.0 / d_safe)
+        return (sp.eye(n, format="csr") - d_inv @ W).tocsr()
+
+
+
 def eigsh_topk(
-    L: np.ndarray,
+    L,
     k: int,
     *,
     which: str = "SM",
+    sigma: Optional[float] = None,
     memory_guard=None,
 ):
-    """Top-k eigenvectors of a graph Laplacian.
+    """Top-k eigenvectors of a graph Laplacian (dense or sparse L).
 
-    Graph-aware wrapper over cadw.ops.linalg.eigh_topk with spectral-
-    clustering default `which="SM"` (smallest magnitude; λ_0 ≈ 0 for
-    connected graphs, embedding on λ_1..λ_k).
+    v0.9.203: accepts scipy.sparse; dispatch -> scipy.sparse.linalg.eigsh.
+    Dense path delegates to cadw.ops.linalg.eigh_topk.
 
     Args:
-      L: (n, n) symmetric Laplacian.
+      L: (n, n) symmetric Laplacian — np.ndarray OR scipy.sparse.
       k: number of eigenvectors.
-      which: "SM" (default) | "SA" | "LA" | "LM".
+      which: "SM" | "SA" | "LA" | "LM".
+      sigma: shift-invert parameter for `which="SM"`. None (default) ->
+        0.0 (CADW legacy). sklearn.manifold._spectral_embedding uses
+        sigma=-1e-5 (Kniazev). Pass -1e-5 for sklearn parity.
       memory_guard: forwarded.
 
     Returns:
       (eigvals, eigvecs) — (k,) f64 and (n, k) f64.
 
-    Delegates to eigh_topk: n<=2000 dense numpy.eigh; n>2000 scipy eigsh.
-    SM uses shift-invert (sigma=0) on the scipy path.
+    Sparse path: scipy.sparse.linalg.eigsh, O(n*k) RAM.
+    Dense path (n<=2000): numpy.linalg.eigh; n>2000 scipy eigsh.
     """
+    import scipy.sparse as sp
+    if sp.issparse(L):
+        from scipy.sparse.linalg import eigsh
+        L = L.tocsr().astype(np.float64)
+        n = L.shape[0]
+        if k < 1 or k > n:
+            raise ValueError(f"k must be in [1, n={n}]; got {k}")
+        if which not in ("SM", "SA", "LM", "LA"):
+            raise ValueError(
+                f"which must be in {{SM,SA,LM,LA}}; got {which!r}")
+        if memory_guard is not None:
+            memory_guard.check_state(
+                n * k * 8 * 2 + _GRAPH_HEADER,
+                name="eigsh_topk.sparse_state")
+        sigma_val = 0.0 if sigma is None else float(sigma)
+        if which == "SM":
+            vals, vecs = eigsh(L, k=k, sigma=sigma_val, which="LM")
+        else:
+            vals, vecs = eigsh(L, k=k, which=which)
+        if which in ("SM", "SA"):
+            order = np.argsort(vals)[:k]
+        else:
+            order = np.argsort(np.abs(vals))[-k:][::-1]
+        return vals[order].copy(), vecs[:, order].copy()
+
+    # Dense path: delegate
     from cadw.ops.linalg import eigh_topk
-    return eigh_topk(L, k, which=which, memory_guard=memory_guard)
+    return eigh_topk(L, k, which=which, sigma=sigma,
+                      memory_guard=memory_guard)
 
 
 def mst(

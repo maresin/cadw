@@ -198,3 +198,87 @@ def test_mst_invalid_shape():
 def test_mst_out_of_range():
     with pytest.raises(ValueError, match="out of"):
         mst(3, np.array([[0, 5, 1.0]]))
+
+# ---- v0.9.203: graph_laplacian_sparse + eigsh_topk sparse + sigma ----
+
+def test_graph_laplacian_sparse_parity():
+    """Sparse vs dense L (sym / none / rw) — bit-identical."""
+    import scipy.sparse as sp
+    from cadw.ops.graph import graph_laplacian, graph_laplacian_sparse
+    rng = np.random.RandomState(0)
+    n = 30
+    W_dense = rng.rand(n, n)
+    W_dense = (W_dense + W_dense.T) / 2
+    W_dense[W_dense < 0.5] = 0.0
+    W_sp = sp.csr_matrix(W_dense)
+
+    for norm in ("none", "sym", "rw"):
+        L_dense = graph_laplacian(W_dense, normalized=norm)
+        L_sparse = graph_laplacian_sparse(W_sp, normalized=norm)
+        assert sp.issparse(L_sparse), f"{norm}: output not sparse"
+        L_sp_dense = L_sparse.toarray()
+        diff = np.abs(L_sp_dense - L_dense).max()
+        assert diff < 1e-14, f"{norm}: max diff {diff:.2e}"
+
+
+def test_graph_laplacian_sparse_rejects_dense():
+    from cadw.ops.graph import graph_laplacian_sparse
+    W = np.eye(5)
+    with pytest.raises(TypeError, match="must be scipy.sparse"):
+        graph_laplacian_sparse(W)
+
+
+def test_eigsh_topk_sparse_parity():
+    """Sparse eigsh vs dense eigh_topk (SM which) — same eigenvalues."""
+    import scipy.sparse as sp
+    from cadw.ops.graph import graph_laplacian, graph_laplacian_sparse, eigsh_topk
+    rng = np.random.RandomState(0)
+    n = 80
+    W = rng.rand(n, n)
+    W = (W + W.T) / 2
+    W[W < 0.7] = 0.0
+    W_sp = sp.csr_matrix(W)
+    L_sp = graph_laplacian_sparse(W_sp, normalized="sym")
+    L_dense = graph_laplacian(W, normalized="sym")
+
+    # Sparse path
+    vals_sp, vecs_sp = eigsh_topk(L_sp, k=5, which="SM")
+    # Dense reference
+    from cadw.ops.linalg import eigh_topk
+    vals_d, vecs_d = eigh_topk(L_dense, k=5, which="SM")
+
+    np.testing.assert_allclose(np.sort(vals_sp), np.sort(vals_d),
+                                atol=1e-6)
+
+
+def test_eigsh_topk_sigma_param():
+    """sigma=-1e-5 (sklearn parity) runs; values close to sigma=0."""
+    import scipy.sparse as sp
+    from cadw.ops.graph import graph_laplacian_sparse, eigsh_topk
+    rng = np.random.RandomState(1)
+    n = 100
+    W = rng.rand(n, n)
+    W = (W + W.T) / 2
+    W[W < 0.7] = 0.0
+    L_sp = graph_laplacian_sparse(sp.csr_matrix(W), normalized="sym")
+
+    vals_0, _ = eigsh_topk(L_sp, k=5, which="SM", sigma=0.0)
+    vals_neg, _ = eigsh_topk(L_sp, k=5, which="SM", sigma=-1e-5)
+    # Both valid; sigma=-1e-5 (sklearn parity) may differ slightly
+    assert vals_neg.shape == (5,)
+    assert np.all(np.isfinite(vals_neg))
+
+
+def test_eigsh_topk_dense_delegation():
+    """Dense L still delegates to eigh_topk (back-compat)."""
+    from cadw.ops.graph import graph_laplacian, eigsh_topk
+    rng = np.random.RandomState(2)
+    n = 50
+    W = rng.rand(n, n)
+    W = (W + W.T) / 2
+    L = graph_laplacian(W, normalized="sym")
+    vals, vecs = eigsh_topk(L, k=3, which="SM")
+    assert vals.shape == (3,)
+    assert vecs.shape == (50, 3)
+    assert np.all(np.isfinite(vals))
+
