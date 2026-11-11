@@ -23,6 +23,7 @@ from .spectral_coclustering import (SpectralCoclusteringResult, fit_spectral_coc
 from .spectral_biclustering import (SpectralBiclusteringResult, fit_spectral_biclustering)
 from .lsa import LsaModel, fit_lsa
 from .bimax import BimaxResult, fit_bimax
+from .plaid_model import PlaidResult, PlaidLayer, fit_plaid_model
 from .knn_imputer import (KNNImputerResult, fit_knn_imputer)
 from .naive_bayes import (
     GaussianNB, fit_gaussian_nb,
@@ -84,6 +85,7 @@ __all__ = [
     "SpectralBiclusteringResult", "fit_spectral_biclustering",
     "LsaModel", "fit_lsa",
     "BimaxResult", "fit_bimax",
+    "PlaidResult", "PlaidLayer", "fit_plaid_model",
 ]
 # v0.9.52: DWT-MLEAD (Thill, Konen, Baeck 2017)
 from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
