@@ -1469,3 +1469,81 @@ def test_G23_behavioral_fixture_whitelist():
         "_G23_FIXTURES must be a dict; got "
         f"{type(_G23_FIXTURES).__name__}")
 
+
+# ============================================================================
+# G24 (v0.9.208): verified/debt require ooc_status (soft-warn v0.9.208;
+# hard-fail v0.9.210 after auto-fill migration).
+# ============================================================================
+
+def test_G24_ooc_status_required():
+    """G24 (v0.9.208, soft): verified or bounded_by_domain models should
+    declare ooc_status (achieved/debt). Hard-fail in v0.9.210.
+    """
+    import warnings
+    import yaml
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    missing = []
+    for yf in sorted((root / "docs" / "ml_tools").glob("[A-Z]_*.yaml")):
+        try:
+            d = yaml.safe_load(yf.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for st in d.get("subtypes") or []:
+            for m in st.get("models") or []:
+                if m.get("not_a_model"):
+                    continue
+                if (m.get("implementation_status") or {}).get("described_only"):
+                    continue  # achievable but deferred to v0.9.209 fill
+                if m.get("tier") == "sota" and \
+                   (m.get("implementation_status") or {}).get("not_implemented_in_cadw"):
+                    continue  # reference-only
+                impl = (m.get("implementation_status") or {})
+                status = impl.get("status")
+                has_bbd = bool(m.get("bounded_by_domain"))
+                if (status == "verified" or has_bbd) and not m.get("ooc_status"):
+                    missing.append(f"{yf.stem}.{m.get('name')}")
+
+    if missing:
+        warnings.warn(
+            f"G24 (v0.9.208 soft): {len(missing)} verified/debt cards "
+            f"without ooc_status; hard-fail v0.9.210:\n" +
+            "\n".join(f"  {x}" for x in missing[:10]) +
+            (f"\n  ... ({len(missing)-10} more)" if len(missing) > 10 else ""),
+            stacklevel=2,
+        )
+    # soft — always pass in v0.9.208
+
+
+# ============================================================================
+# G25 (v0.9.208): leaf/intrinsic primitives require ooc_usage
+# (soft-warn v0.9.208; hard-fail v0.9.209 after auto-fill).
+# ============================================================================
+
+def test_G25_ooc_usage_required():
+    """G25 (v0.9.208, soft): leaf/intrinsic primitives should declare
+    ooc_usage. Hard-fail in v0.9.209.
+    """
+    import warnings
+    import yaml
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    prim = yaml.safe_load(
+        (root / "docs" / "ml_tools" / "PRIMITIVES.yaml").read_text())
+    cards = prim.get("primitives") or []
+    missing = []
+    for c in cards:
+        if c.get("layer") in ("leaf", "intrinsic") and not c.get("ooc_usage"):
+            missing.append(c.get("name"))
+    if missing:
+        warnings.warn(
+            f"G25 (v0.9.208 soft): {len(missing)} leaf/intrinsic primitives "
+            f"without ooc_usage; hard-fail v0.9.209:\n" +
+            "\n".join(f"  {x}" for x in missing[:10]) +
+            (f"\n  ... ({len(missing)-10} more)" if len(missing) > 10 else ""),
+            stacklevel=2,
+        )
+    # soft — always pass in v0.9.208
+

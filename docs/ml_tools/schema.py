@@ -183,6 +183,18 @@ class ModelCard:
     # tier1_core + bounded_state=false exception (METHODOLOGY §7, §10)
     tier1_core_exception: str | None = None
 
+    # v0.9.208: OOC-by-card narrative.
+    # ooc_status enum: "achieved" | "achievable" | "debt" | "escape_hatch" | None
+    #   achieved     — OOC works (verified, no bounded_by_domain)
+    #   achievable   — plan exists (described_only / draft+bs)
+    #   debt         — bounded_by_domain (guard refuses; alternative planned)
+    #   escape_hatch — documented bypass (apply, to_pandas)
+    #   null         — not applicable (not_a_model, sota reference)
+    ooc_status: str | None = None
+    ooc_strategy: str | None = None          # narrative how achieved/planned
+    ooc_target_version: str | None = None    # for achievable/debt
+    ooc_alternative: str | None = None       # for debt: what instead
+
 
 @dataclass
 class MetricCard:
@@ -542,6 +554,21 @@ def _validate_model_v03(m: ModelCard, m_label: str, err, warn) -> None:
         err(f"{m_label}: task_type={m.task_type!r} + "
             f"learning_mode='supervised' requires temporal_split=True")
 
+
+    # v0.9.208: ooc_status enum + debt => ooc_alternative (hard);
+    # achievable/debt => ooc_target_version (soft-warn).
+    VALID_OOC_STATUS = {"achieved", "achievable", "debt", "escape_hatch", None}
+    if m.ooc_status is not None and m.ooc_status not in VALID_OOC_STATUS:
+        err(f"{m_label}: ooc_status={m.ooc_status!r} not in "
+            f"{sorted(s for s in VALID_OOC_STATUS if s is not None)}")
+    if m.ooc_status == "debt" and not m.ooc_alternative:
+        err(f"{m_label}: ooc_status=debt requires ooc_alternative")
+    if m.ooc_status in ("achievable", "debt") and not m.ooc_target_version:
+        warn(f"{m_label}: ooc_status={m.ooc_status} without "
+             f"ooc_target_version (soft-warn; hard in v0.9.210)")
+    if m.ooc_status is None and m.implementation_status.status == "verified":
+        warn(f"{m_label}: verified without ooc_status "
+             f"(soft-warn in v0.9.208; hard in v0.9.210)")
 
 def _validate_model_state(m: ModelCard, m_label: str, err) -> None:
     """v0.9.87 P6: state fields validation (METHODOLOGY §7).

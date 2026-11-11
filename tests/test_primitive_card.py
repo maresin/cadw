@@ -160,3 +160,31 @@ def test_load_empty_file_returns_empty(tmp_path):
     f.write_text("primitives: []\n")
     cards = load_primitive_cards(f)
     assert cards == []
+
+
+def test_ooc_usage_field():
+    """v0.9.208: PrimitiveCard.ooc_usage (leaf/intrinsic only)."""
+    c = PrimitiveCard(**_minimal(
+        layer="leaf", status="draft",
+        intrinsic_bound={"axis": "n", "bound": 1000000,
+                          "reason": "test reason >= 20 chars for validation"},
+        bounded_state=False,
+        ooc_usage="Use X_stream for OOC; direct call bounded.",
+    ))
+    assert c.ooc_usage == "Use X_stream for OOC; direct call bounded."
+    errs = _validate(c)
+    assert not any("ooc_usage" in e for e in errs)
+
+
+def test_ooc_usage_optional_for_batch():
+    """v0.9.208: ooc_usage not required for batch layer."""
+    c = PrimitiveCard(**_minimal(
+        layer="batch", status="verified",
+        bounded_state=True,
+        ram_formula="batch * row_size + 512",
+        formula_evidence={"batch": "x.py:1"},
+    ))
+    assert c.ooc_usage is None
+    errs = _validate(c)
+    assert errs == []
+

@@ -73,6 +73,12 @@ class PrimitiveCard:
     measurement: dict | None = None
     notes: str | None = None
 
+    # v0.9.208: OOC-by-card. For layer=leaf|intrinsic: how to use this
+    # primitive in OOC context (narrative). Caller responsibility note:
+    # what model must do (chunk, use streaming_variant, use sparse).
+    # Empty for layer=batch (already OOC by design).
+    ooc_usage: str | None = None
+
 
 @dataclass
 class DataFrameOpCard:
@@ -151,6 +157,17 @@ def _validate_primitive_card(c: PrimitiveCard) -> list[str]:
     if c.layer == "batch" and c.status == "verified" and c.bounded_state is not True:
         errs.append(
             "layer=batch + status=verified requires bounded_state=True"
+        )
+
+    # v0.9.208: leaf/intrinsic must declare ooc_usage (soft in v0.9.208;
+    # hard in v0.9.209 after auto-fill migration). Emitted as Warning,
+    # not error — G25 gate handles enforcement.
+    if c.layer in ("leaf", "intrinsic") and not c.ooc_usage:
+        import warnings as _w
+        _w.warn(
+            f"PrimitiveCard {c.name!r}: layer={c.layer} without ooc_usage "
+            f"(v0.9.208 soft; hard in v0.9.209, G25)",
+            stacklevel=2,
         )
 
     return errs
