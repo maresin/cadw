@@ -4693,6 +4693,74 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.210] — 2026-11-11 (SpectralClustering refactor + honest revert)
+
+User feedback: «если напоролись на проблему — решать сразу».
+v0.9.209-b claim "sparse path already implemented; flip bs=true"
+was over-eager. Sparse = Laplacian/ARPACK, NOT X/embedding.
+
+### v0.9.210-a — fit_spectral_clustering refactor
+
+- X streamed via knn_query_stream (no np.vstack of X_parts)
+  for affinity='nearest_neighbors'.
+- rows/cols/vals preallocated np.empty + vectorized (np.repeat
+  + ravel) — replaces Python append loop.
+- SlowOperationWarning (AP22): O(n^2) compute, warn if est > 60s.
+- rbf affinity: X materialized (pairwise_kernel intrinsic).
+- k_eff = n_neighbors (self is idx[:,0], no explicit self-loop;
+  sklearn kneighbors_graph(X, k=15, include_self=True) = 15
+  nnz = self + 14 others, NOT 16).
+- W bit-identical to sklearn (P6 evidence: max abs diff 0.0,
+  nnz 4364=4364 on n=200 k=15).
+
+### v0.9.210-b — 5 refactor tests + speedup
+
+- test_W_bit_identical_sklearn (W diff < 1e-9)
+- test_nnz_matches_sklearn
+- test_x_not_materialized_state (state independent of d)
+- test_slow_operation_warning (n=8000 -> SlowOperationWarning)
+- test_preallocate_no_regression (n=500 < 2s)
+
+Speedup: n=1000 ~0.39s (was 0.98s, 2.5x); n=5000 ~4-5s (was
+~23s, ~5x). Preallocate + X streaming.
+
+### v0.9.210-c — honest YAML revert + audit
+
+- 3 SpectralClustering cards: achievable -> debt.
+- ooc_alternative concrete: landmark subsample + OOS via kNN;
+  Nystroem + PCA chain; MiniBatchKMeans raw features.
+- bounded_by_domain {n: 1e6} KEPT (honest — W + embedding +
+  ARPACK Lanczos matvec are intrinsic O(n)).
+- docs/audits/v0.9.210_spectral_refactor.md (new): full diagnosis,
+  refactor summary, honest revert, lessons.
+
+Distribution:
+  v0.9.209: 75 achieved + 72 achievable +  1 debt + 80 null
+  v0.9.210: 75 achieved + 69 achievable +  4 debt + 80 null
+  debt: STRAY (O(n^2) intrinsic) + SpectralClustering ×3
+        (O(n*k) W+emb+ARPACK intrinsic).
+
+Lessons:
+1. 'Primitive implemented' != 'model OOC'. Sparse Laplacian +
+   eigsh remove L-dense, but W + embedding + ARPACK matvec
+   remain O(n).
+2. Speedup != OOC. 2.5-5x faster (X streaming + preallocate)
+   can coexist with state O(n*k) (honest debt).
+3. W bit-identical to sklearn as hard evidence before any
+   status claim change.
+4. Quick win выбор: Spectral sparse flip looked like quick win
+   (primitives ready), но required refactor + status revert.
+   Проверять depth before labeling.
+
+Deferred:
+- GBDT family (6 cards) + CadwBoost integration (user decision
+  v0.9.209: закрывать вместе с CadwBoost).
+- SpectralBiclustering (v0.9.207 defer).
+
+Diff: 3 commits, ~230+/190- across 3 files + audit doc.
+
+Focused: 133 passed (17 spectral tests + schema + G22/G24/G25).
+
 ## [0.9.209] — 2026-11-11 (debt -> achievable with plan)
 
 User feedback (v0.9.208): «bounded_by_domain — это крайний
