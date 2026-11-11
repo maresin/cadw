@@ -4693,6 +4693,82 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.213] — 2026-11-12 (Bimax: binary biclustering, Prelic 2006)
+
+Closes B_clustering B5 (Biclustering) — 3 of 4 implemented.
+PlaidModel remains sota-reference (described_only,
+not_implemented_in_cadw) — deferred to future session.
+
+### v0.9.213-a — Bimax achievable -> debt (honest exponential)
+
+- B_clustering.yaml B5.Bimax: ooc_status achievable -> debt.
+  Bimax is O(r*c*beta^min(r,c)) — exponential in min(r,c),
+  intrinsic (Prelic 2006 §2). Cannot stream without losing
+  inclusion-maximal property.
+- docs/audits/v0.9.213a_b_clustering_audit.md (new).
+
+### v0.9.213-b — fit_bimax (Prelic 2006)
+
+- cadw/ml/bimax.py (new, ~330 lines):
+  * fit_bimax(df, X_cols, min_rows=2, min_cols=2, threshold=0.5,
+    max_iterations=100_000, max_biclusters=1000, ...).
+  * Materialize A (r, c) int8 binary from X > threshold.
+  * Recursive divide-and-conquer: max-balance split (row/col
+    score = min(ones, zeros)); best_row wins -> split cols by
+    row i*; best_col wins -> split rows by col j*.
+  * Dedup: filter inclusion-maximal.
+  * BimaxResult: biclusters_, A_shape, n_biclusters_, to_dict.
+- cadw/ml/__init__.py: import + __all__.
+
+OOC (Pattern #3 intrinsic — exponential):
+  - A int8: bounded_by_domain {r*c: 1e8} (100 MB at 1e8).
+  - Complexity O(r*c*2^min(r,c)): refuse_at_guard 25.
+  - Hard caps: max_iterations=100_000, max_biclusters=1000.
+  - SlowOperationWarning (AP22) at est > 60s.
+  - MemoryLimitExceeded on max_iterations breach.
+
+Smoke (4 cases):
+  checkerboard 4x4: n=2, sizes [(2,2),(2,2)] (exact)
+  make_biclusters 100x80, noise=0.05, median binarize: n=26
+    (50% binary density produces many small all-1s; GT blocks
+    recovered; exact Bimax behavior)
+  all-zero 10x10: n=0
+  all-one 10x10: n=1, R=C=range(10)
+
+### v0.9.213-c — 12 CW tests + YAML flip + audit
+
+- tests/test_bimax_verification.py (12/12): checkerboard exact,
+  all-zero, all-one, make_biclusters no-noise GT recovery,
+  state_nbytes exact, guard refuse, max_iterations exceeded,
+  threshold, validation, to_dict, inclusion-maximal, min_size.
+- B_clustering.yaml Bimax: described_only -> verified;
+  tier2_wrapper -> tier1_core; ns=refuse_at_guard;
+  refuse_above=25; bs=false; bdm={min(r,c): 25};
+  bounded_state_dims={r, c, n_biclusters};
+  ram_formula=r*c*i8 + n_biclusters*(r+c)*i64 + 256;
+  ooc_status=debt (permanent; MAX-PLAID / biclique-with-cap
+  approximations noted in ooc_alternative).
+- docs/audits/v0.9.213c_bimax.md (new).
+
+Distribution (unchanged from v0.9.213-a):
+  75 achieved + 69 achievable + 5 debt + 79 null
+  debt: STRAY + SpectralClustering x3 + Bimax.
+
+B_clustering B5 (Biclustering) status after v0.9.213:
+  SpectralCoclustering — verified, achieved
+  SpectralBiclustering — verified, achievable (streaming A@V
+    pending v0.9.214+)
+  Bimax — verified, debt (permanent, exponential)
+  PlaidModel — described_only (sota reference; deferred)
+
+Note: 10 B1-B6 cards remain ooc_status=null (sota + niim=true
+reference-only: BisectingKMeans, GMM ×2, HDBSCAN, BIRCH,
+KShape, ShapeGMM, KMeansHDBSCAN_consensus, EvidenceAccumulation,
+CSPA). These are honestly null — no implementation plan,
+reference-only. Not a gap.
+
+Focused: 128 passed (12 Bimax + schema + G22/G24/G25).
+
 ## [0.9.212] — 2026-11-12 (LSA: TF-IDF + sparse randomized SVD)
 
 Closes LSA gap (D from v0.9.210 was mis-scoped as quick win;
