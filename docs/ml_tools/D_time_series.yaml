@@ -638,8 +638,10 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
-    ooc_status: debt
-    ooc_strategy: 'Current: S1 audit: state includes _X (n×d f64) + _y (n) + _idx (n) for deferred horizon training; n=1e5 × d=4 ≈ 4 MB. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-... Target: v0.9.180+. Current bound: S1 audit: state includes _X (n×d f64) + _y (n) + _idx (n) for deferred horizon t. Guard refuses above state_limit.'
+    ooc_alternative: 'Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-2; partial in GBDT v0.9.172). Expected state O(nodes) not O(n).'
+    ooc_target_version: v0.9.180+
   - name: EnsembleForecaster
     cadw_module: cadw.ts.ensemble
     cadw_function: EnsembleForecaster
@@ -1854,8 +1856,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series TS anomaly; n<=1e6 typical. O(n) anomaly_scores + is_anomaly. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) anomaly_scores + is_anomaly. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: Sub-PCA
     tier: sota
     tier_level: tier1_core
@@ -1942,8 +1946,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + labels. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + labels. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: KShapeAD
     tier: sota
     tier_level: tier1_core
@@ -2031,8 +2037,10 @@ subtypes:
     - memmap
     - spill_dir
     - strided_view
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) output (decision_scores,. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: EIF
     tier: sota
     tier_level: tier1_core
@@ -2120,8 +2128,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) per-point scores (DEC-01. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: Hampel
     tier: baseline
     tier_level: tier1_core
@@ -2204,8 +2214,10 @@ subtypes:
       predict: per-row residual vs window median/MAD.
     primitive_reuse:
     - strided_view
-    ooc_status: debt
-    ooc_strategy: 'Current: v0.9.175 P17: output=''memory'' default + 5*n decision_scores; SpillArray not yet wired (DEC-066 refactor v0.9.192+). Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: v0.9.175 P17: output=''memory'' default + 5*n decision_scores; SpillArray not yet. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: ZMS
     tier: baseline
     tier_level: tier1_core
@@ -2375,8 +2387,8 @@ subtypes:
       predict: score new points vs stored neighbors.
     primitive_reuse: []
     ooc_status: debt
-    ooc_strategy: 'Current: O(n^2) distances intrinsic (DEC-040, DEC-067 group F). Alternative: sub-sampling or streaming distances (v0.9.192+). Guard refuses above state_limit (honest refuse).'
-    ooc_target_version: v0.9.116
+    ooc_strategy: 'Permanent debt: O(n^2) distances intrinsic (DEC-040, DEC-067 group F). Alternative: sub-sampling. refuse_at_guard above bound.'
+    ooc_alternative: 'Intrinsic O(n^2) pairwise distances (DEC-040, DEC-067 group F). Alternatives: sub-sample k-NN (lose robustness), or refuse_at_guard at n>1e5. Permanent debt — no streaming variant preserves GPD-tail statistics.'
   - name: Autoencoder
     tier: baseline
     tier_level: tier1_core
@@ -2467,8 +2479,10 @@ subtypes:
       predict: per-batch reconstruction error.
     primitive_reuse:
     - strided_view
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: KMeansAD
     tier: baseline
     tier_level: tier1_core
@@ -2556,8 +2570,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) per-point anomaly scores. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: PatchMemoryAD
     tier: baseline
     tier_level: tier1_core
@@ -2652,8 +2668,10 @@ subtypes:
     - memmap
     - spill_dir
     - strided_view
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   metrics:
   - name: vus_pr
     combination: anchor
@@ -2808,9 +2826,10 @@ subtypes:
       fit: series input (caller materializes np.ndarray); streaming fit_binseg_streaming v0.9.185+ (wave 5 anomaly-output)
       predict: report changepoint positions.
     primitive_reuse: []
-    ooc_status: debt
-    ooc_strategy: 'Current: 5*n*f64 (x + cs + cs2 + scores + labels); streaming+SpillArray refactor v0.9.185+ (wave 5 anomaly-output). Guard refuses above state_limit (honest refuse).'
-    ooc_target_version: v0.9.185
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: 5*n*f64 (x + cs + cs2 + scores + labels); streaming+SpillArray refactor v0.9.185. Guard refuses above state_limit.'
+    ooc_target_version: v0.9.180+
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
   - name: BOCPD
     tier: baseline
     tier_level: tier1_core
@@ -2901,8 +2920,10 @@ subtypes:
       predict: one-step posterior update per new point.
     primitive_reuse:
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series time series changepoint detection; n<=1e6 typical. O(n) per-timestep changepoint probability (DEC-013 Spil. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series changepoint detection; n<=1e6 typical. O(n) per-timest. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: PELT
     tier: sota
     tier_level: tier1_core
@@ -3046,9 +3067,10 @@ subtypes:
       predict: per-batch T-squared/Q stats.
     primitive_reuse:
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: O(n) output arrays (decision_scores, labels, t2_scores, q_scores = 4n*f64) intrinsic to anomaly detector; n<=1e6 (DEC-03. Guard refuses above state_limit (honest refuse).'
-    ooc_target_version: v0.9.116
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: O(n) output arrays (decision_scores, labels, t2_scores, q_scores = 4n*f64) intri. Guard refuses above state_limit.'
+    ooc_target_version: v0.9.180+
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
   - name: CUSUM
     tier: baseline
     tier_level: tier1_core
@@ -3518,8 +3540,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) per-point scores (DEC-01. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: Sub-PCA
     tier: sota
     tier_level: tier1_core
@@ -3616,8 +3640,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + labels. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + labels. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: KMeansAD
     tier: sota
     tier_level: tier1_core
@@ -3715,8 +3741,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB benchmarks. O(n) per-point anomaly scores. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: Autoencoder
     tier: baseline
     tier_level: tier1_core
@@ -3819,8 +3847,10 @@ subtypes:
       predict: per-batch reconstruction error.
     primitive_reuse:
     - strided_view
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   - name: S2G
     tier: sota
     tier_level: tier1_core
@@ -3906,8 +3936,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: debt
-    ooc_strategy: 'Current: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + node_ids + embedding. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + node_ids + embe. Guard refuses above state_limit.'
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_target_version: v0.9.180+
   metrics:
   - name: vus_pr
     combination: anchor
@@ -4227,9 +4259,10 @@ subtypes:
       fit: series input (caller materializes np.ndarray); streaming fit_binseg_streaming v0.9.185+ (wave 5 anomaly-output)
       predict: report changepoint positions.
     primitive_reuse: []
-    ooc_status: debt
-    ooc_strategy: 'Current: 5*n*f64 (x + cs + cs2 + scores + labels); streaming+SpillArray refactor v0.9.185+ (wave 5 anomaly-output). Guard refuses above state_limit (honest refuse).'
-    ooc_target_version: v0.9.185
+    ooc_status: achievable
+    ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: 5*n*f64 (x + cs + cs2 + scores + labels); streaming+SpillArray refactor v0.9.185. Guard refuses above state_limit.'
+    ooc_target_version: v0.9.180+
+    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
   - name: PELT
     tier: sota
     tier_level: tier1_core

@@ -156,8 +156,10 @@ subtypes:
       std: null
       note: median across AMLB binary tasks [legacy v0.9.44, migrated v0.9.50]
     transient_factor: 1.0
-    ooc_status: debt
-    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-... Target: v0.9.180+. Current bound: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memm. Guard refuses above state_limit.'
+    ooc_alternative: 'Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-2; partial in GBDT v0.9.172). Expected state O(nodes) not O(n).'
+    ooc_target_version: v0.9.180+
   - name: BernoulliNB
     tier: baseline
     tier_level: tier1_core
@@ -452,8 +454,10 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
-    ooc_status: debt
-    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-... Target: v0.9.180+. Current bound: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memm. Guard refuses above state_limit.'
+    ooc_alternative: 'Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-2; partial in GBDT v0.9.172). Expected state O(nodes) not O(n).'
+    ooc_target_version: v0.9.180+
   - name: CADWBoost
     tier: sota
     depends_on: []
@@ -853,8 +857,10 @@ subtypes:
       std: null
       note: M2 parity on synthetic_amlb_regression_like DGP; ref(sklearn.GradientBoostingRegressor)=1.0498, verdict=consistent
     transient_factor: 1.0
-    ooc_status: debt
-    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-... Target: v0.9.180+. Current bound: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memm. Guard refuses above state_limit.'
+    ooc_alternative: 'Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-2; partial in GBDT v0.9.172). Expected state O(nodes) not O(n).'
+    ooc_target_version: v0.9.180+
   - name: GaussianProcessRegressor
     tier: sota
     depends_on:
@@ -1398,8 +1404,10 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
-    ooc_status: debt
-    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-... Target: v0.9.180+. Current bound: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memm. Guard refuses above state_limit.'
+    ooc_alternative: 'Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-2; partial in GBDT v0.9.172). Expected state O(nodes) not O(n).'
+    ooc_target_version: v0.9.180+
   - name: RUSBoost
     tier: sota
     depends_on:
