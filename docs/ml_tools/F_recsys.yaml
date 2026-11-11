@@ -48,7 +48,7 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot'
     ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Item-item cosine similarity; classic non-personalized baseline... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_strategy: 'Not implemented. Concrete plan: HashShuffle(item_id) + per-item top-k neighbours; state O(n_items*k). Precedent: ALS item sweep (HashShuffle by item, v0.9.44a-fix1). Cosine sim chunked via knn_query_stream per item batch. Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: ALS
     tier: sota
     tier_level: tier1_core

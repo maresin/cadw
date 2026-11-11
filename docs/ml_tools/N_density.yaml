@@ -291,7 +291,7 @@ subtypes:
       value: null
       note: 'no_public_benchmark: HDBSCAN does not output log-likelihood; no unified density leaderboard'
     ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Hierarchical density-based clustering (Campello 2013). Inductive bias: clusters are contiguous high-... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_strategy: 'Not implemented. Concrete plan: knn_query_stream (v0.9.197) + core_distances + MST (both verified). OOC in n via chunked kNN + Kruskal on n*k core-distance edges; state O(n*k). Sub-sample per cluster for cluster stability (sklearn parity target). Precedent: DBSCAN plan. Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   metrics:
   - name: mean_log_likelihood
     combination: anchor

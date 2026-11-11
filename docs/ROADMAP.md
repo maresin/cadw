@@ -76,6 +76,36 @@ lag matrix on SpillDir. Honest bounds.
 
 ---
 
+
+### OOC-by-card fields (v0.9.208+)
+
+Every model card has:
+- `ooc_status`: enum `achieved | achievable | debt | escape_hatch | null`
+  - `achieved` — OOC works (verified, no `bounded_by_domain`)
+  - `achievable` — plan exists (may retain `bounded_by_domain` as current
+    limitation + `ooc_alternative` + `ooc_target_version`)
+  - `debt` — permanent debt (no streaming possible; `ooc_alternative`
+    explains why; `refuse_at_guard` documented)
+  - `escape_hatch` — documented bypass (apply, to_pandas)
+  - `null` — not applicable (not_a_model, sota reference)
+- `ooc_strategy` — narrative how achieved/planned
+- `ooc_alternative` — for achievable/debt: concrete alternative approach
+- `ooc_target_version` — for achievable/debt: ROADMAP version
+
+Every primitive card (leaf/intrinsic) has:
+- `ooc_usage` — how to use this primitive in OOC context (caller pattern)
+
+**Important:** `bounded_by_domain` is NOT "final". Policy (user feedback
+v0.9.209): treat it as крайний случай. When an OOC plan exists (via
+primitives, SpillArray, or algorithm change), `ooc_status: achievable`
+with target version — bounded_by_domain kept as honest current limitation.
+
+Distribution v0.9.209: 75 achieved + 72 achievable + 1 debt (STRAY) + 80 null.
+
+Gates:
+- G24 (hard, v0.9.208-c3): verified/debt without ooc_status => FAIL
+- G25 (hard, v0.9.208-b): leaf/intrinsic without ooc_usage => FAIL
+
 ## OOC by primitive — decision matrix (MANDATORY, v0.9.204+)
 
 **Rule:** before writing any new function / primitive / model, state the

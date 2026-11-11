@@ -344,7 +344,7 @@ subtypes:
       value: null
       note: 'no_public_benchmark: no unified clustering LB.'
     ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Ester et al. 1996: clusters as dense regions via eps-neighborhood + min_pts. Flat; single global eps... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_strategy: 'Not implemented. Concrete plan: knn_query_stream (v0.9.197) for eps-neighborhood streaming (state O(n*k)); core_distances chunked. Union-find (path compression) for cluster labels — O(n) but no n-sized matrix. Same pattern as verified LOF (v0.9.198). Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: HDBSCAN
     cross_ref: N_density.HDBSCAN
     tier: sota

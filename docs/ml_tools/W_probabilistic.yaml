@@ -51,7 +51,7 @@ subtypes:
       value: null
       note: Blei et al. 2017 tutorial; per-model ELBO only.
     ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Blei et al. 2017: mean-field VI. Factorized q = prod q_i(theta_i). Fast, closed-form coordinate asce... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_strategy: 'Not implemented. Concrete plan: numpy CAVI updates O(n*d) per iteration; state O(model_params). Chunked batches over n — precedent: GMM (verified, Reduce-based). For LDA-like: precedent LDA (verified v0.9.117). Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: BlackBoxVI
     tier: sota
     depends_on: []

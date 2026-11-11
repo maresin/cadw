@@ -526,7 +526,7 @@ subtypes:
       value: null
       note: 'no_public_benchmark: dim-reduction not on AMLB.'
     ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: van der Maaten & Hinton 2008: t-distributed Stochastic Neighbor Embedding. Preserves local neighborh... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_strategy: 'Not implemented. Concrete plan: Full pairwise O(n^2) intrinsic (van der Maaten 2008). Barnes-Hut tree gives O(n log n) but still O(n) state. For OOC in n: landmark subset n_b<=5000 + out-of-sample extension (transform via kNN). Alternative: UMAP (linear in n) as substitute. Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: UMAP
     tier: sota
     depends_on: []

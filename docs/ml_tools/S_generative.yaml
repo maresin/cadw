@@ -53,7 +53,7 @@ subtypes:
       value: null
       note: 'no_public_benchmark: tabular synthesis evaluated per-dataset (SDV paper). torch required.'
     ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Xu et al. 2019: tabular VAE (CTGAN paper). Encoder-decoder with mode-specific normalization for cont... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_strategy: 'Not implemented. Concrete plan: Last-priority (DEC-050 weak-machine); NN generator, training hours-days on CPU. Not OOC by design — could use streaming SGD (O(batch) state) but practical value < cost. Inference-only in CADW scope. Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: CTGAN
     tier: sota
     depends_on: []
