@@ -288,9 +288,13 @@ primitives:
 - name: _baseline_hazard_streaming
   cadw_function: cadw.ml.coxph._baseline_hazard_streaming
   module: cadw.ml.coxph
-  layer: batch
+  layer: leaf
   status: verified
-  bounded_state: true
+  bounded_state: false
+  intrinsic_bound:
+    axis: n_events
+    bound: 1000000
+    reason: "Output arrays O(n_events); all-uncensored -> n_events = n. Not batch-layer: bs=true was dishonest (state grows with n_events). Caller (fit_coxph) guard-checks 2*n_events*8 (coxph.py:601,648). n_events <= n <= 1e6 bounded_by_domain on CoxPH."
   ram_formula: "2 * n_events * f64 + batch * (d + 2) * f64 + 256"
   min_ram_formula: "2 * f64 + (d + 2) * f64 + 256"
   formula_evidence:
@@ -512,9 +516,9 @@ primitives:
 - name: knn_query_stream
   cadw_function: cadw.ops.linalg.knn_query_stream
   module: cadw.ops.linalg
-  layer: leaf
+  layer: batch
   status: draft
-  bounded_state: false
+  bounded_state: true
   ram_formula: "n_q * k * f64 * 2 + _KNN_STATE_HEADER + n_q * batch * f64"
   min_ram_formula: "k * f64 * 2 + _KNN_STATE_HEADER + 1 * f64"
   formula_evidence:
@@ -527,7 +531,7 @@ primitives:
   intrinsic_bound: null
   streaming_variant: null
   consumers: ['LOF', 'KNNImputer (v0.9.198+ pilot)']
-
+  notes: "v0.9.206: batch-layer (streams X_iter; per-batch sq_dists merged into O(n_q*k) top-k heap; state independent of n_x). Not leaf: X not materialized. check_state(n_q*k*8*2) + check_state(n_q*chunk*8) present."
 - name: _hannan_rissanen
   cadw_function: cadw.ts.models._hannan_rissanen
   module: cadw.ts.models
