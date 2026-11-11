@@ -4693,6 +4693,50 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.197] — 2026-11-11 (knn_query_stream + LOF)
+
+### v0.9.197-a — knn_query_stream primitive
+
+Streaming X variant of knn_query. X from re-iterable
+Iterator[pa.RecordBatch | ndarray]; Q in RAM. Bit-identical
+to knn_query (atol=1e-12). Unblocks LOF (and KNNImputer
+v0.9.198+).
+
+- cadw/ops/linalg.py: knn_query_stream (~90 lines)
+- tests/test_linalg_knn.py: +5 tests
+- PRIMITIVES.yaml: knn_query_stream card
+
+Discovery: knn_query/core_distances (v0.9.144) had NO
+PRIMITIVES card (DEC-071 audit only covers ^def _name().
+Deferred v0.9.198 (public primitive audit, AP32).
+
+### v0.9.197-b — LOF (Local Outlier Factor, Breunig 2000)
+
+5-pass SpillDir + memmap for true OOC in n:
+  Pass 1: X → memmap
+  Pass 2: k-NN (k+1 incl self) via knn_query_stream → memmap
+  Pass 3: k-dist per point → memmap
+  Pass 4: LRD (sklearn convention) → memmap
+  Pass 5: LOF = mean(LRD[neighbor])/LRD[self] → SpillArray
+
+- cadw/ml/lof.py (new, ~370 lines): fit_lof, LOFResult
+- cadw/ml/__init__.py: +import
+- tests/test_lof_verification.py: 13 CW tests
+  (state exact, state constant, sklearn parity 7.26e-8,
+  contamination percentile, guard, output disk, k=n-2 edge,
+  G9 output=memory==auto, default=auto)
+- E_anomaly.yaml LOF: described_only -> verified
+  bs=true, ns=constant, bsd={k,d}, tier1_core,
+  migration_target=v0.9.198 (predict only)
+
+Sklearn parity: max abs diff 7.26e-8 (n=152, 3-cluster + 2
+outliers). Threshold=1.0 (classic Breunig); ~50% LOF>1 for
+balanced data (relative score) — use contamination for
+top-N% semantics.
+
+predict() deferred v0.9.198 (X memmap persistence + neighbor
+LRD lookup lifecycle).
+
 ## [0.9.196] — 2026-11-11 (SARIMA Option B — state O(model))
 
 Closes v0.9.195-b migration_target=v0.9.196 (SARIMA bs=false
