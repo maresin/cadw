@@ -4693,6 +4693,78 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.206] — 2026-11-11 (OOC primitive audit)
+
+Audit session (no new models). Systematic OOC audit of all
+50 registered primitives in PRIMITIVES.yaml (v0.9.204
+§OOC-by-primitive mandate, first compliance pass).
+
+Method: P1a inventory -> P1b AST scan (7 flagged) -> P2 code
+review -> P3 schema probe -> P3-followup-3 -> final patch.
+7 initial flags -> 3 real fixes + 4 false-positives
+(documented).
+
+### v0.9.206-a — 2 card-fix (honest YAML)
+
+- knn_query_stream: layer leaf -> batch, bs false -> true.
+  Code streams X_iter; state O(n_q*k) independent of n_x;
+  check_state(n_q*k*8*2) + check_state(n_q*chunk*8) present.
+  Consumers LOF/KNNImputer verified+bs=true — no regression
+  (G22 skips knn_query_stream: not ^_name).
+- _baseline_hazard_streaming: layer batch -> leaf, bs true ->
+  false, + intrinsic_bound {axis: n_events, bound: 1e6}.
+  ram_formula '2*n_events*f64' grows with n_events (all-
+  uncensored -> n); bs=true was dishonest. Caller guard in
+  fit_coxph (coxph.py:601,648: check_state(2*n_events*8)).
+
+### v0.9.206-b — 1 code-fix (_breslow_streaming)
+
+- cadw/ml/coxph.py: _breslow_streaming guard-before-alloc.
+  Bug: np.zeros((d,d))*2 + np.zeros(d)*2 without
+  mg.check_state -> silent OOM at d=1e4 (state 1.6 GB).
+  Fix: mg.check_state(2*d*d*8 + 2*d*8 + 256,
+  'coxph.breslow_streaming.state') before np.zeros.
+- tests/test_coxph_verification.py (+2 tests):
+  * test_breslow_streaming_guard_fires: d=100, 0.001 MB ->
+    MemoryLimitExceeded with name='coxph.breslow_streaming.state'
+  * test_breslow_streaming_passes_at_adequate_guard: d=20,
+    100 MB -> OK
+
+### v0.9.206-c — G23 gate + audit doc
+
+- tests/test_constitution_gates.py (+2 tests):
+  * G23 static (test_G23_batch_primitive_no_n_in_ram_formula):
+    layer=batch + bs=true -> ram_formula must not contain
+    n-sized identifiers (n, n_events, n_rows, n_total, n_x,
+    n_groups, n_samples, n_train, n_test, n_obs, n_mem) as
+    standalone terms. Whitelisted: batch, row_size, d, k, K,
+    p, q, s, W_eff, chunk, min_size, k_arms, n_q, n_y,
+    n_features, nnz, state_bytes, n_estimators.
+  * G23 behavioral placeholder (_G23_FIXTURES = {}): future
+    additions via dict; per-primitive CW tests already cover
+    specific primitives.
+- docs/audits/v0.9.206_ooc_primitive_audit.md (new, ~9 KB):
+  full table 50 primitives with verdicts (46 OK, 2 card-fix,
+  1 code-fix, 4 documented false-positives).
+
+### False-positives (documented, not fixed)
+
+AST P1b flagged as 'leaf_no_marker' — but schema-valid per
+P3-followup-3 (leaf + ib=null + bs=false + draft is OK;
+intrinsic_bound only required for layer=intrinsic):
+- _arma_forecast_short, _integrate_back: predict-time O(steps)
+  (DEC-075); test_integrate_back_predict_leaf passes.
+- eigsh_topk: leaf + ib=null valid; dense delegates to
+  eigh_topk (n<=2000), sparse O(n*k) guard.
+- _pelt_streaming_batches: append at line 92 = final output
+  cps, not state; backtrack on disk; card correct.
+
+First compliance pass under v0.9.204 §OOC-by-primitive
+mandate. No model-code changes; audit-only session.
+
+Focused: 530 passed, 5 skipped (v0.9.206-a) +
+28 passed (v0.9.206-b) + 24 passed (v0.9.206-c).
+
 ## [0.9.205] — 2026-11-11 (svd_topk + TruncatedSVD)
 
 First release with mandatory OOC-by-primitive declaration
