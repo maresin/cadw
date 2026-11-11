@@ -885,14 +885,12 @@ subtypes:
   - name: SpectralBiclustering
     tier: sota
     depends_on:
-    - cadw.ops.linalg.rbf_kernel
-    - cadw.ops.graph.graph_laplacian
-    - cadw.ops.graph.eigsh_topk
-    - cadw.ops.linalg.eigh_topk
-    tier_level: tier2_wrapper
+    - cadw.ops.linalg.svd_topk
+    - cadw.ml.kmeans.fit_kmeans
+    tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - local_structure
     purpose: 'Kluger 2003: generalized spectral biclustering. Handles checkerboard + non-checkerboard patterns; rows and cols cluster independently after SVD.'
@@ -915,6 +913,48 @@ subtypes:
       metric: mean_squared_residue
       value: null
       note: 'no_public_benchmark: no unified biclustering LB.'
+    cadw_function: fit_spectral_biclustering
+    cadw_module: cadw.ml.spectral_biclustering
+    input_api: df
+    bounded_state: false
+    n_scalability: bounded_by_window
+    bounded_by_window:
+      axis: gram_dim
+      window_param: gram_dim = min(r, c)
+      bound: 10000
+      auto_from_guard: true
+      truncation_loss: none (chunked Gram via svd_topk; state c^2 Gram bounded by min(r,c), not total n)
+      reason: 'svd_topk Pattern #1 (chunked Gram, state O(min(r,c)^2)); 800 MB Gram at min(r,c)=1e4 (realistic vocab/items). A (r*c) materialized — sklearn _project_and_cluster intrinsic O(r*c).'
+    bounded_by_domain:
+      axis: r*c
+      bound: 1000000000
+      reason: A (r*c f64) + A_norm (r*c f64) materialized for sklearn _project_and_cluster (A @ best_vt.T, A.T @ best_ut.T). Streaming plan v0.9.213+ (chunked A@V + incremental kmeans).
+    bounded_state_dims:
+      r: 1
+      c: 1
+      n_best: 1
+      n_row_clusters: 1
+      n_col_clusters: 1
+    ram_formula: 2 * r * c * f64 + c * c * f64 * 2 + n_best * c * f64 + n_row_clusters * n_col_clusters * (r + c) * 1 + 256
+    min_ram_formula: 2 * 2 * 2 * f64 + 2 * 2 * f64 * 2 + 1 * 2 * f64 + 2 * 2 * (2 + 2) * 1 + 256
+    formula_evidence:
+      A_materialize: 'spectral_biclustering.py -- A (r,c) + A_norm (r,c): 2*r*c*f64'
+      gram_svd: 'svd_topk -- G (c,c) + eigh copy: c*c*f64*2'
+      best_vectors: 'spectral_biclustering.py -- best_ut/best_vt: n_best*c*f64'
+      indicators: 'spectral_biclustering.py -- rows_/columns_: n_row*n_col*(r+c)*1 (bool)'
+      header: spectral_biclustering.py -- 256 byte header
+    fit_batched: false
+    predict_batched: null
+    migration_target: null
+    primitive_reuse:
+    - svd_topk
+    - fit_kmeans
+    streaming_strategy:
+      fit: 'Normalize A -> svd_topk (Pattern #1 chunked Gram) -> _fit_best_piecewise -> _project_and_cluster. A materialized (sklearn parity); streaming plan v0.9.213+.'
+    ooc_status: achievable
+    ooc_strategy: 'svd_topk Pattern #1 (chunked Gram, bounded_by_window gram_dim<=1e4). A materialized O(r*c) — sklearn _project_and_cluster intrinsic. Current bound: r*c*8 <= 1e9 (A + A_norm f64). Target v0.9.213+ (streaming A@V + incremental kmeans).'
+    ooc_target_version: v0.9.213+
+    ooc_alternative: 'Streaming A@V + incremental kmeans removes A from RAM. Precedent: Coclustering v0.9.207 Pattern #1 chunked Reduce. For _project_and_cluster: use SpillArray + fit_kmeans on streamed projected df (r, n_best).'
   - name: PlaidModel
     tier: sota
     depends_on: []
