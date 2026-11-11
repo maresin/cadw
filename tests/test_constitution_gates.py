@@ -1537,13 +1537,10 @@ def test_G25_ooc_usage_required():
     for c in cards:
         if c.get("layer") in ("leaf", "intrinsic") and not c.get("ooc_usage"):
             missing.append(c.get("name"))
-    if missing:
-        warnings.warn(
-            f"G25 (v0.9.208 soft): {len(missing)} leaf/intrinsic primitives "
-            f"without ooc_usage; hard-fail v0.9.209:\n" +
-            "\n".join(f"  {x}" for x in missing[:10]) +
-            (f"\n  ... ({len(missing)-10} more)" if len(missing) > 10 else ""),
-            stacklevel=2,
-        )
-    # soft — always pass in v0.9.208
+    assert not missing, (
+        f"G25 (v0.9.208 hard): {len(missing)} leaf/intrinsic primitives "
+        f"without ooc_usage:\n" +
+        "\n".join(f"  {x}" for x in missing[:15]) +
+        (f"\n  ... ({len(missing)-15} more)" if len(missing) > 15 else "")
+    )
 

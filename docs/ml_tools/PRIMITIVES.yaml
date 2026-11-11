@@ -105,6 +105,8 @@ primitives:
     Leaf: caller passes full y (n). For OOC regression, use fit_linear
     (Reduce-based). This helper is for short-series (forecaster) fits
     where n is bounded by model context (typically <= 1e6).
+  ooc_usage: 'Predict-time O(steps); no n-scaling at predict. Fit-path uses caller truncation (see consumers: OTMThetaForecaster, ThetaForecaster). (DEC-075 predict_leaf pattern)'
+
 
 - name: _iter_target_batches
   cadw_function: cadw.ts.models._iter_target_batches
@@ -152,6 +154,8 @@ primitives:
     Full-series target extraction. Leaf-layer: O(n) transient in caller.
     Streaming variant `_iter_target_batches` requires algorithm support
     (not yet wired). Backlog v0.9.190+.
+  ooc_usage: Use _iter_target_batches for OOC in n; direct call bounded n<=1000000. _iter_target_batches streams input via iterator, state independent of n.
+
 
 - name: _ses_fit_simple
   cadw_function: cadw.ts.theta._ses_fit
@@ -172,6 +176,8 @@ primitives:
     s=1 (bit-identical, O(1) RAM); blocked by _initial_seasonal requiring
     full y for seasonal models. Backlog v0.9.190+. AP22: not unified
     with ets._ses_fit (different signatures: simple vs Holt-Winters).
+  ooc_usage: Use _ses_fit_streaming for OOC in n; direct call bounded n<=1000000. _ses_fit_streaming streams input via iterator, state independent of n.
+
 
 - name: _ses_fit_hw
   cadw_function: cadw.ts.ets._ses_fit
@@ -200,6 +206,8 @@ primitives:
     Window-rejected ONLY if caller explicitly disables truncation
     (n > W_eff with max_window=None + strict=True -> MemoryLimitExceeded).
     AP22: distinct from theta._ses_fit (HW vs simple SES).
+  ooc_usage: "Caller truncates to W_eff via _collect_last_w; bit-identical for n<=W_eff. Truncation disclosed via ApproximationInfo. Semantic window: Holt-Winters on last W_eff obs is valid semantic variant (pelt precedent, DEC-072 \xA73); bit-identical."
+
 
 
 - name: stl_decompose
@@ -234,6 +242,8 @@ primitives:
 # ====================================================================
 
 # --- A. Batch layer (verified, true OOC) — 5 ---
+  ooc_usage: 'Caller truncates to W_eff via _collect_last_w; bit-identical for n<=W_eff. Truncation disclosed via ApproximationInfo. Semantic window: STL on last W_eff obs is valid semantic variant; STL local stationarity standard (prophet, MSTL rest.'
+
 
 - name: _pelt_streaming_batches
   cadw_function: cadw.ml.pelt._pelt_streaming_batches
@@ -304,6 +314,8 @@ primitives:
   notes: >-
     Streaming Breslow baseline cumulative hazard. n_events <= n (events
     only). bounded_by_domain via coxph (n_events <= n <= 1e6).
+  ooc_usage: 'Intrinsic O(n_events^2); direct call only n_events<=1000000. Alternative: caller chunking (consumers: fit_coxph; see each caller''s batching pattern).'
+
 
 - name: _sgd_coxph
   cadw_function: cadw.ml.coxph._sgd_coxph
@@ -340,6 +352,8 @@ primitives:
   notes: >-
     Grouped series collector. Single-series (id_col=None) path uses
     _iter_series_batches (streaming) instead. Group path = leaf.
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: PELTModel.detect group mode, PELTModel.fit; see each caller''s batching pattern).'
+
 
 - name: _best_split_from_cs
   cadw_function: cadw.ml.binseg._best_split_from_cs
@@ -358,6 +372,8 @@ primitives:
   notes: >-
     Prefix-sum scan. v0.9.181 fix: O(n^2) -> O(n * n_bkps) by caching
     cs/cs2 globally (was recomputed per-segment).
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: fit_binseg; see each caller''s batching pattern).'
+
 
 - name: _segment_cost
   cadw_function: cadw.ml.binseg._segment_cost
@@ -372,6 +388,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Full segment y required to compute SSE (mean over whole segment); no window truncation preserves exact cost"}
   streaming_variant: null
   consumers: [fit_binseg legacy _best_split]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: fit_binseg legacy _best_split; see each caller''s batching pattern).'
+
 
 - name: _breslow
   cadw_function: cadw.ml.coxph._breslow
@@ -386,6 +404,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Full X (n,d) + T + E required by non-streaming Breslow Newton reduce; use _breslow_streaming for O(batch) variant"}
   streaming_variant: _breslow_streaming
   consumers: [fit_coxph legacy path]
+  ooc_usage: Use _breslow_streaming for OOC in n; direct call bounded n<=1000000. _breslow_streaming streams input via iterator, state independent of n.
+
 
 - name: _baseline_hazard
   cadw_function: cadw.ml.coxph._baseline_hazard
@@ -400,6 +420,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Full eta(n) + w(n) + argsort(n) needed for reverse survival sort; use _baseline_hazard_streaming for O(batch) variant"}
   streaming_variant: _baseline_hazard_streaming
   consumers: [fit_coxph legacy path]
+  ooc_usage: Use _baseline_hazard_streaming for OOC in n; direct call bounded n<=1000000. _baseline_hazard_streaming streams input via iterator, state independent of n.
+
 
 - name: _stack_num
   cadw_function: cadw.ml.coxph._stack_num
@@ -414,6 +436,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Full per-batch (batch,d) stack; caller batches -> leaf by design"}
   streaming_variant: null
   consumers: [concordance_index, CoxPHModel.predict_risk]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: concordance_index, CoxPHModel.predict_risk; see each caller''s batching pattern).'
+
 
 - name: _initial_seasonal
   cadw_function: cadw.ts.ets._initial_seasonal
@@ -437,6 +461,8 @@ primitives:
     Classical decomposition initial seasonal. v0.9.189 (DEC-072):
     window-truncatable via _collect_last_w. Caller bounds y_used to W_eff;
     k = len(y_used) // s. Bit-identical when n <= W_eff.
+  ooc_usage: 'Caller truncates to W_eff via _collect_last_w; bit-identical for n<=W_eff. Truncation disclosed via ApproximationInfo. Semantic window: Seasonal initial from last k periods; k bounded by W_eff//s. Local seasonality is valid semantic var.'
+
 
 
 - name: _ses
@@ -466,6 +492,8 @@ primitives:
 
 
 # --- SARIMA helpers (7) ---
+  ooc_usage: "Caller truncates to W_eff via _collect_last_w; bit-identical for n<=W_eff. Truncation disclosed via ApproximationInfo. Semantic window: SES on last W_eff obs is valid semantic variant (DEC-072 \xA73); bit-identical n<=W_eff; AP22 distinct ."
+
 
 - name: _ar_fit
   cadw_function: cadw.ts.models._ar_fit
@@ -480,6 +508,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA Yule-Walker/Hannan-Rissanen full X (n,p); recursion state p<<n but residual/pairwise O(n) intrinsic to ARMA"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: SARIMAForecaster; see each caller''s batching pattern).'
+
 
 - name: _arma_forecast
   cadw_function: cadw.ts.models._arma_forecast
@@ -494,6 +524,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "SARIMA forecast: full residual buffer + state at n_train; caller must materialize full y for out-of-sample ref"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: SARIMAForecaster; see each caller''s batching pattern).'
+
 
 - name: _arma_forecast_short
   cadw_function: cadw.ts.models._arma_forecast_short
@@ -512,6 +544,8 @@ primitives:
   intrinsic_bound: null
   streaming_variant: null
   consumers: ['SARIMAForecaster']
+  ooc_usage: 'Predict-time O(steps); no n-scaling at predict. Fit-path uses caller truncation (see consumers: SARIMAForecaster). (DEC-075 predict_leaf pattern)'
+
 
 - name: knn_query_stream
   cadw_function: cadw.ops.linalg.knn_query_stream
@@ -545,6 +579,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Multi-pass ARMA fit (residuals, X, y); passes require full n context; window loses residual correlation structure"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: SARIMAForecaster; see each caller''s batching pattern).'
+
 
 - name: _integrate_back
   cadw_function: cadw.ts.models._integrate_back
@@ -561,6 +597,8 @@ primitives:
   consumers: [SARIMAForecaster]
   intrinsic_bound: null
   # v0.9.195: predict-time O(steps), not O(n)
+  ooc_usage: 'Predict-time O(steps); no n-scaling at predict. Fit-path uses caller truncation (see consumers: SARIMAForecaster). (DEC-075 predict_leaf pattern)'
+
 
 - name: _difference
   cadw_function: cadw.ts.models._difference
@@ -575,6 +613,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Differencing O(n) in-place; prefix context essential for d>1; window loses boundary diffs"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: SARIMAForecaster; see each caller''s batching pattern).'
+
 
 - name: _seasonal_difference
   cadw_function: cadw.ts.models._seasonal_difference
@@ -589,6 +629,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Seasonal differencing O(n) with lag s; needs full y for lag-s boundaries at all t"}
   streaming_variant: null
   consumers: [SARIMAForecaster]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: SARIMAForecaster; see each caller''s batching pattern).'
+
 
 - name: _build_lag_matrix
   cadw_function: cadw.ts.models._build_lag_matrix
@@ -605,6 +647,8 @@ primitives:
   consumers: [GBDTForecaster]
 
 # --- decomposition helpers (2) ---
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=100000. Alternative: caller chunking (consumers: GBDTForecaster; see each caller''s batching pattern).'
+
 
 - name: _loess_local_linear
   cadw_function: cadw.ts._decomposition._loess_local_linear
@@ -619,6 +663,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "LOESS local linear per point; multi-pass via stl_decompose; streaming variant would need per-window independent refit (loss)"}
   streaming_variant: null
   consumers: [stl_decompose]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: stl_decompose; see each caller''s batching pattern).'
+
 
 - name: _low_pass_seasonal_cycles
   cadw_function: cadw.ts._decomposition._low_pass_seasonal_cycles
@@ -633,6 +679,8 @@ primitives:
   intrinsic_bound: {axis: n, bound: 1000000, reason: "Two low-pass filters over full seasonal window; needs full y for cyclic smoothness (window loses cycle boundaries)"}
   streaming_variant: null
   consumers: [stl_decompose]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: stl_decompose; see each caller''s batching pattern).'
+
 - name: _ols_fit_streaming
   cadw_function: cadw.ops.linalg.ols_fit_streaming
   module: cadw.ops.linalg
@@ -710,6 +758,8 @@ primitives:
     reason: "X in RAM (n_x * d * f64). Caller-controlled chunk_size bounds transient; for X from disk use knn_query_stream."
   streaming_variant: knn_query_stream
   consumers: [LOF, DBSCAN, HDBSCAN, SMOTE, ML-kNN, ItemKNN, KNNImputer, EuclideanKMeansZ, core_distances]
+  ooc_usage: Use knn_query_stream for OOC in n_x; direct call bounded n_x<=1000000. knn_query_stream streams input via iterator, state independent of n_x.
+
 
 - name: core_distances
   cadw_function: cadw.ops.linalg.core_distances
@@ -728,6 +778,8 @@ primitives:
     reason: "Self-query O(n^2) compute + O(n*k) output; callers subsample (HDBSCAN n<=1e4 typical) or bound n."
   streaming_variant: null
   consumers: [HDBSCAN, DBSCAN, LOF]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: HDBSCAN, DBSCAN, LOF; see each caller''s batching pattern).'
+
 
 - name: sq_dists
   cadw_function: cadw.ops.linalg.sq_dists
@@ -747,6 +799,8 @@ primitives:
     reason: "O(n_z * n_mem) output matrix; caller chunks n_mem via knn_query/pairwise_kernel chunks."
   streaming_variant: null
   consumers: [knn_query, knn_query_stream, core_distances, pairwise_kernel]
+  ooc_usage: 'Intrinsic O(n_mem^2); direct call only n_mem<=1000000. Alternative: caller chunking (consumers: knn_query, knn_query_stream, core_distances; see each caller''s batching pattern).'
+
 
 - name: nan_sq_dists
   cadw_function: cadw.ops.linalg.nan_sq_dists
@@ -766,6 +820,8 @@ primitives:
     reason: "Dense (n_q, n_x, d) broadcast; caller chunks n_x via imputer per-donor-col loop. sklearn nan_euclidean_distances parity."
   streaming_variant: null
   consumers: [fit_knn_imputer]
+  ooc_usage: 'Intrinsic O(n_x^2); direct call only n_x<=1000000. Alternative: caller chunking (consumers: fit_knn_imputer; see each caller''s batching pattern).'
+
 
 - name: svd_topk
   cadw_function: cadw.ops.linalg.svd_topk
@@ -813,6 +869,8 @@ primitives:
   streaming_variant: null
   consumers: [KernelPCA (v0.9.200+), SpectralClustering, GP regression, KernelRidge, GPLVM]
   notes: "v0.9.200-201: kernels linear/rbf/poly/laplacian/sigmoid/cosine (sklearn pairwise_kernels parity). KernelPCA default linear."
+  ooc_usage: 'Intrinsic O(n_x^2); direct call only n_x<=1000000. Alternative: caller chunking (consumers: KernelPCA (v0.9.200+), SpectralClustering, GP regression; see each caller''s batching pattern).'
+
 
 - name: sgd_streaming
   cadw_function: cadw.ops.optim.sgd_streaming
@@ -847,6 +905,8 @@ primitives:
     reason: "O(n*d) output per call; stateless (caller batches rows for OOC)."
   streaming_variant: null
   consumers: [KShape, KShapeAD, ShapeGMM, patch_memory_ad, autoencoder]
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: KShape, KShapeAD, ShapeGMM; see each caller''s batching pattern).'
+
 
 - name: graph_laplacian
   cadw_function: cadw.ops.graph.graph_laplacian
@@ -865,6 +925,8 @@ primitives:
   streaming_variant: graph_laplacian_sparse
   consumers: [SpectralClustering, SpectralCoclustering, SpectralBiclustering, LaplacianEigenmaps]
   notes: "v0.9.147 dense; v0.9.203 sparse variant added (sklearn SpectralClustering affinity is scipy.sparse)."
+  ooc_usage: Use graph_laplacian_sparse for OOC in n; direct call bounded n<=1000000. graph_laplacian_sparse streams input via iterator, state independent of n.
+
 
 - name: graph_laplacian_sparse
   cadw_function: cadw.ops.graph.graph_laplacian_sparse
@@ -883,6 +945,8 @@ primitives:
   streaming_variant: null
   consumers: [SpectralClustering (sparse affinity)]
   notes: "v0.9.203: sklearn SpectralClustering affinity (scipy.sparse) parity. Bit-identical to dense graph_laplacian(W.toarray())."
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=10000000. Alternative: caller chunking (consumers: SpectralClustering (sparse affinity); see each caller''s batching pattern).'
+
 
 - name: eigsh_topk
   cadw_function: cadw.ops.graph.eigsh_topk
@@ -898,6 +962,8 @@ primitives:
   streaming_variant: null
   consumers: [SpectralClustering, SpectralCoclustering, SpectralBiclustering, LaplacianEigenmaps]
   notes: "v0.9.147; v0.9.203 accepts scipy.sparse L (dispatch to scipy.sparse.linalg.eigsh); + sigma param (None -> 0.0 legacy; sklearn uses -1e-5)."
+  ooc_usage: 'Predict-time O(steps); no n-scaling at predict. Fit-path uses caller truncation (see consumers: SpectralClustering, SpectralCoclustering, SpectralBiclustering). (DEC-075 predict_leaf pattern)'
+
 
 - name: mst
   cadw_function: cadw.ops.graph.mst
@@ -916,6 +982,8 @@ primitives:
   streaming_variant: null
   consumers: [HDBSCAN, Agglomerative (single-linkage), STRAY]
   notes: "v0.9.147: scipy.sparse.csgraph.minimum_spanning_tree wrapper."
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=1000000. Alternative: caller chunking (consumers: HDBSCAN, Agglomerative (single-linkage), STRAY; see each caller''s batching pattern).'
+
 
 - name: eigh_topk
   cadw_function: cadw.ops.linalg.eigh_topk
@@ -934,3 +1002,5 @@ primitives:
   streaming_variant: null
   consumers: [KernelPCA, GPR, Nystroem, eigsh_topk (dense), SpectralClustering (dense)]
   notes: "v0.9.146; v0.9.203 + sigma param for SM which (None -> 0.0; sklearn -1e-5)."
+  ooc_usage: 'Intrinsic O(n^2); direct call only n<=2000. Alternative: caller chunking (consumers: KernelPCA, GPR, Nystroem; see each caller''s batching pattern).'
+
