@@ -463,14 +463,41 @@ subtypes:
       - name: SpectralCoclustering
         tier: baseline
         depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.graph.graph_laplacian
-        - cadw.ops.graph.eigsh_topk
         - cadw.ops.linalg.eigh_topk
-        tier_level: tier2_wrapper
+        - cadw.ops.linalg.sq_dists
+        - cadw.ml.kmeans.fit_kmeans
+        tier_level: tier1_core
         implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
+          verified_in_cadw: true
+          status: verified
+        cadw_function: fit_spectral_coclustering
+        cadw_module: cadw.ml.spectral_coclustering
+        input_api: df
+        bounded_state: true
+        n_scalability: bounded_by_window
+        bounded_by_window:
+          axis: gram_dim
+          window_param: "gram_dim = min(r, c)"
+          bound: 10000
+          auto_from_guard: true
+          truncation_loss: "none (chunked Reduce; state c^2 Gram bounded by c, not r; no semantic truncation)"
+          reason: "Gram is c^2*f64 = 800 MB at c=1e4. c = len(X_cols) is typically vocab/items after prune (<=10^4 in 95%+ tabular cases). r (rows/users/documents) is unbounded: state independent of r via chunked Reduce."
+        bounded_state_dims:
+          c: 1
+          k_sv: 1
+        ram_formula: "c*c*f64 + c*k_sv*f64 + k_sv*f64 + batch*(c+k_sv)*f64*2 + c*f64*2 + 256"
+        min_ram_formula: "c*c*f64 + c*k_sv*f64 + k_sv*f64 + (c+k_sv)*f64*2 + c*f64*2 + 256"
+        formula_evidence:
+          gram: "spectral_coclustering.py -- G = zeros((c, c)): c*c*f64"
+          eigh_V: "spectral_coclustering.py -- eigh_topk(G, k_sv): c*k_sv*f64 + k_sv*f64"
+          batch_transients: "spectral_coclustering.py -- A_norm_b (batch, c): batch*(c+k_sv)*f64*2 (bsz auto from guard)"
+          state_cols: "spectral_coclustering.py -- col_labels + col_diag: c*f64*2 + 256"
+        fit_batched: true
+        predict_batched: null
+        migration_target: null
+        primitive_reuse: [reduce, eigh_topk, spill_array, fit_kmeans]
+        streaming_strategy:
+          fit: "chunked Reduce (col_sum, Gram, U, Z); eigh_topk on c*c Gram; fit_kmeans on streamed Z df; row_labels SpillArray int64"
         roles: [local_structure]
         purpose: "Dhillon 2001: spectral co-clustering on checkerboard patterns. SVD on normalized matrix; rows and cols cluster together."
         real_life_examples: ["Gene expression submatrices", "Users × items co-clusters"]
