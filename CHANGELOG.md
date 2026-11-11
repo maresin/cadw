@@ -4693,6 +4693,71 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.211] — 2026-11-11 (SpectralBiclustering, Kluger 2003)
+
+Completes B_clustering B5 spectral family (Coclustering +
+Biclustering). Quick win D (LSA embedding) deferred after
+P1-P2 probes revealed `fit_randomized_svd` has no sparse
+input path; tfidf.transform returns custom COO (not scipy
+CSR). Deferred to v0.9.213+ (sparse SVD primitives).
+
+### v0.9.211-a — fit_spectral_biclustering
+
+- cadw/ml/spectral_biclustering.py (new, ~360 lines):
+  * Pipeline: normalize A (3 methods) -> svd_topk(A_norm,
+    n_sv, compute_u=True) -> _fit_best_piecewise ->
+    _project_and_cluster -> rows_/columns_ indicators.
+  * 3 normalize methods: bistochastic (iter Sinkhorn tol=1e-5),
+    scale (single), log (Kluger log-interactions).
+  * _fit_best_piecewise: 1D kmeans per singular vector, top
+    n_best by Euclidean distance.
+  * _project_and_cluster: A @ best_vt.T -> kmeans.
+- cadw/ml/__init__.py: import + __all__.
+
+Smoke (high-contrast checkerboard 200x100, sklearn
+randomized, k=2):
+  method=bistochastic: ARI_row=1.0000, ARI_col=1.0000
+  method=scale:        ARI_row=1.0000, ARI_col=1.0000
+  method=log:          ARI_row=1.0000, ARI_col=1.0000
+
+### v0.9.211-b — 12 CW tests + YAML flip + audit
+
+- tests/test_spectral_biclustering_verification.py (12/12):
+  sklearn parity (3 methods), state_nbytes exact, n_clusters
+  tuple, guard refuse, validation, to_dict, release
+  idempotent, reproducibility, negative clamp, n_sv exceeds,
+  empty input.
+- B_clustering.yaml: SpectralBiclustering described_only ->
+  verified, tier2_wrapper -> tier1_core, bs=false,
+  n_scalability=bounded_by_window, bbw={gram_dim: 1e4},
+  bbd={r*c: 1e9} (A materialized), ooc_status=achievable,
+  ooc_target_version=v0.9.213+.
+- docs/audits/v0.9.211_spectral_biclustering.md (new).
+
+OOC declaration (ROADMAP §OOC by primitive):
+  - svd_topk: Pattern #1 (chunked Gram, state O(min(r,c)^2)).
+  - A (r*c): Pattern #3 intrinsic (sklearn _project_and_cluster
+    A@V / A.T@U).
+  - streaming plan v0.9.213+: chunked A@V + incremental kmeans.
+
+Distribution:
+  v0.9.210: 75 achieved + 69 achievable + 4 debt + 80 null
+  v0.9.211: 75 achieved + 70 achievable + 4 debt + 79 null
+  (SpectralBiclustering null -> achievable)
+
+B_clustering section B5 status after v0.9.211:
+  SpectralCoclustering (achieved) + SpectralBiclustering
+  (achievable) + PlaidModel (achievable) + Bimax (achievable).
+
+Deferred:
+- v0.9.212+ (sparse SVD primitives): D (LSA embedding) —
+  requires `fit_randomized_svd` sparse input path OR
+  CSR SpillBuffer bridge.
+- v0.9.213+: SpectralBiclustering streaming A@V refactor.
+- GBDT family + CadwBoost (user decision v0.9.209).
+
+Focused: 132 passed (12 tests + schema + G22/G24/G25).
+
 ## [0.9.210] — 2026-11-11 (SpectralClustering refactor + honest revert)
 
 User feedback: «если напоролись на проблему — решать сразу».
