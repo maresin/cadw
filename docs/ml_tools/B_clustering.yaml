@@ -958,10 +958,10 @@ subtypes:
   - name: PlaidModel
     tier: sota
     depends_on: []
-    tier_level: tier2_wrapper
+    tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - probabilistic
     purpose: 'Plaid biclustering (Lazzeroni & Owen 2002): probabilistic submatrix model with layer decomposition.'
@@ -983,6 +983,38 @@ subtypes:
       metric: mean_squared_residue
       value: null
       note: 'no_public_benchmark: plaid per-dataset'
+    cadw_function: fit_plaid_model
+    cadw_module: cadw.ml.plaid_model
+    input_api: df
+    bounded_state: false
+    n_scalability: refuse_at_guard
+    refuse_above: 500
+    bounded_by_domain:
+      axis: min(r,c)
+      bound: 500
+      reason: 'Per-layer ALS O(max_layer_size * iters); dense submatrix intrinsic. min(r,c) > 500 would take hours per layer (Lazzeroni & Owen 2002 §3: iterative dense ALS not streamable).'
+    bounded_state_dims:
+      r: 1
+      c: 1
+      n_layers: 1
+      max_als_iters: 1
+    ram_formula: 2 * r * c * f64 + n_layers * (r + c) * f64 + 256
+    min_ram_formula: 2 * 2 * 2 * f64 + 1 * (2 + 2) * f64 + 256
+    formula_evidence:
+      A_residual: 'plaid_model.py -- A (r,c) + residual R (r,c): 2*r*c*f64'
+      layer_state: 'plaid_model.py -- per layer alpha (R_l) + beta (C_l): (r+c)*f64'
+      header: plaid_model.py -- 256 byte header
+    fit_batched: false
+    predict_batched: null
+    primitive_reuse: []
+    streaming_strategy:
+      fit: Materialize A + residual (r*c f64 each). Iterative ALS per layer (dense submatrix). refuse_at_guard {min(r,c) <= 500}. Deterministic ALS variant (not Bayesian MCMC).
+      predict: n/a (fit-only; layers_ member assignment).
+    ooc_status: debt
+    ooc_target_version: null
+    ooc_alternative: 'Permanent. Iterative dense ALS intrinsic (per-layer submatrix + max_als_iters). Approximations: (a) sample rows/cols (lose exact recovery); (b) Sparse-Plaid formulation (shrink per-layer submatrix to sparse observed entries). Neither preserves exact Lazzeroni-Owen MAP.'
+    ooc_strategy: 'Permanent debt (iterative dense ALS intrinsic). refuse_at_guard {min(r,c) <= 500}; bounded_by_domain {r*c: 1e8} (A + residual = 1.6 GB at 1e8). max_layers=10, max_als_iters=10 hard caps.'
+    migration_target: null
   - name: Bimax
     tier: baseline
     depends_on: []
