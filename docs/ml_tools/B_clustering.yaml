@@ -582,7 +582,7 @@ subtypes:
       reason: 'All four linkages (ward/complete/average/single) require dense scipy linkage O(n^2) intrinsic. refuse_at_guard {n: 5000}. Approximate single-linkage via k-NN graph + MST deferred v0.9.216+ (opt-in mode=''approx'').'
     bounded_state_dims:
       n: 1
-      n_neighbors: 1
+      d: 1
     ram_formula: n * d * f64 + n * n * f64 + 256
     min_ram_formula: 2 * 1 * f64 + 2 * 2 * f64 + 256
     formula_evidence:
@@ -764,11 +764,13 @@ subtypes:
   models:
   - name: EuclideanKMeansZ
     tier: baseline
-    depends_on: []
+    depends_on:
+    - cadw.ml.kmeans.fit_kmeans
+    - cadw.ops.stats.znormalize_rows
     tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - local_structure
     - temporal_dynamics
@@ -791,8 +793,39 @@ subtypes:
       metric: adjusted_rand_score
       value: null
       note: Baseline referenced in Paparrizos & Gravano 2015; naive Euclidean k-means on z-normalized series.
-    ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: K-means on z-normalized series with Euclidean distance. Shape-aware baseline; ignores temporal shift... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer (fit_kmeans). state O(k*d); X_zn materialized for df API (bdm {n*d: 1e8}).'
+    cadw_function: fit_euclidean_kmeans_z
+    cadw_module: cadw.ml.euclidean_kmeans_z
+    input_api: df
+    bounded_state: true
+    n_scalability: constant
+    bounded_state_dims:
+      k: 1
+      d: 1
+      n: 1
+    bounded_by_domain:
+      axis: n*d
+      bound: 100000000
+      reason: X_zn (n*d f64) materialized for fit_kmeans df API. 800 MB at n=1e6, d=100. Per-row z-norm is streaming; fit_kmeans state O(k*d).
+    ram_formula: n * d * f64 + k * d * f64 + batch * d * f64 + 256
+    min_ram_formula: 1 * 1 * f64 + 1 * 1 * f64 + 1 * 1 * f64 + 256
+    formula_evidence:
+      X_zn: 'euclidean_kmeans_z.py -- X_zn (n, d): n*d*f64'
+      kmeans_state: 'kmeans.py -- cluster_centers (k, d): k*d*f64'
+      batch_transient: 'euclidean_kmeans_z.py -- z-normalize per batch: batch*d*f64'
+      header: euclidean_kmeans_z.py -- 256 byte header
+    fit_batched: true
+    predict_batched: true
+    primitive_reuse:
+    - fit_kmeans
+    - znormalize_rows
+    streaming_strategy:
+      fit: Per-batch z-normalize -> materialize X_zn for fit_kmeans df API. state O(k*d).
+      predict: km.predict per batch.
+    ooc_target_version: null
+    ooc_alternative: null
+    migration_target: null
   - name: KShape
     tier: sota
     depends_on: []
@@ -1157,11 +1190,12 @@ subtypes:
   models:
   - name: KMeansOnly
     tier: baseline
-    depends_on: []
+    depends_on:
+    - cadw.ml.kmeans.fit_kmeans
     tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - local_structure
     purpose: 'Single-run KMeans baseline: what consensus must beat. No cross-algorithm agreement.'
@@ -1181,8 +1215,31 @@ subtypes:
       metric: adjusted_rand_score
       value: null
       note: baseline for consensus comparison.
-    ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Single-run KMeans baseline: what consensus must beat. No cross-algorithm agreement... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state O(k*d); independent of n. Thin wrapper over verified fit_kmeans.'
+    cadw_function: fit_kmeans_only
+    cadw_module: cadw.ml.kmeans_only
+    input_api: df
+    bounded_state: true
+    n_scalability: constant
+    bounded_state_dims:
+      k: 1
+      d: 1
+    bounded_by_domain: null
+    ram_formula: k * d * f64 + 256
+    min_ram_formula: 1 * 1 * f64 + 256
+    formula_evidence:
+      kmeans_state: 'kmeans.py -- cluster_centers (k, d): k*d*f64 + 256 header (delegated to fit_kmeans)'
+    fit_batched: true
+    predict_batched: true
+    primitive_reuse:
+    - fit_kmeans
+    streaming_strategy:
+      fit: 'Thin wrapper over fit_kmeans (Pattern #1 batch-layer).'
+      predict: km.predict per batch.
+    ooc_target_version: null
+    ooc_alternative: null
+    migration_target: null
   - name: KMeansHDBSCAN_consensus
     tier: sota
     depends_on:
