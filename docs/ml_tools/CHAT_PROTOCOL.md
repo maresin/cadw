@@ -135,6 +135,21 @@ its own patch script.
 ---
 
 
+
+**TAG IN SAME BLOCK AS COMMIT** (v0.9.213 addendum):
+
+```bash
+git commit -m "vX.Y.Z: release" && git tag vX.Y.Z
+```
+
+Do NOT separate `git commit` and `git tag` across chat messages.
+v0.9.212 tag was lost because commit was in one message, tag expected
+in next — but user moved on without running tag. Recovery required
+retroactive `git tag vX.Y.Z <hash>` (works, but flags session non-atomic).
+
+Verification before moving on:
+- `git describe --tags` = `vX.Y.Z` (exact, not `vX.Y.(Z-1)-N-g...`).
+
 ### §6.5. Pre-tag verification (AP31)
 
 Before `git tag`, ALL must pass:
