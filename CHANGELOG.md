@@ -4693,6 +4693,61 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.207] — 2026-11-11 (SpectralCoclustering, Dhillon 2001)
+
+First Pattern #1 (batch-layer) model under v0.9.204 mandate
+with honest bounded_by_window (not bounded_by_domain —
+gram_dim = min(r,c) is a realistic parameter of chunked Gram,
+not an extreme-case escape).
+
+### v0.9.207-a — fit_spectral_coclustering
+
+- cadw/ml/spectral_coclustering.py (new, ~360 lines):
+  * 4 chunked passes (col_sum, Gram, U, Z) — state O(c^2),
+    independent of r.
+  * row_diag recomputed per chunk (no O(r) state).
+  * eigh_topk(G, k_sv) exact; n_discard=1 (sklearn parity).
+  * svd_flip on V_red and U (sklearn u_based_decision=False).
+  * Z = [row_diag*U; col_diag*V_red] (r+c, k_used) as df
+    (Dataset.from_batches, streamable; Z_r via SpillArray).
+  * fit_kmeans(Z_df, k) — reuse verified primitive (OOC in r+c).
+  * row_labels: chunked sq_dists+argmin -> SpillArray int64
+    (OOC in r).
+  * col_labels: ndarray (c bounded by gram_dim).
+- cadw/ml/__init__.py: import + __all__.
+
+Smoke (high-contrast checkerboard 200x100):
+  k=2: ARI_row=1.0000, ARI_col=1.0000 (bit-identical sklearn
+       randomized)
+  k=3: ARI_row=0.9493, ARI_col=0.9787
+  k=4: ARI_row=0.8737, ARI_col=0.9731
+
+Note: sklearn svd_method='arpack' has a known issue (svds
+returns unsorted sigmas; n_discard=1 drops arbitrary) —
+CADW uses exact eigh (always sorted descending), bit-correct,
+potentially more accurate than sklearn randomized on k>=3.
+
+### v0.9.207-b — tests + YAML flip
+
+- tests/test_spectral_coclustering_verification.py (12/14):
+  sklearn parity, state exact, OOC in r, guard refuse, input
+  validation, zero column, negative clamp.
+- B_clustering.yaml: SpectralCoclustering described_only ->
+  verified. tier2_wrapper -> tier1_core.
+  bs=true, ns=bounded_by_window, bbw={gram_dim: 1e4}.
+  depends_on: [eigh_topk, sq_dists, fit_kmeans].
+
+OOC declaration (ROADMAP §OOC by primitive):
+  Pattern #1 (batch-layer), axis=r (rows unbounded),
+  honest bound = min(r,c) (Gram c^2*f64 = 800 MB at c=1e4,
+  realistic vocab/items after prune in 95%+ tabular cases;
+  guard refuses above).
+
+Deferred to v0.9.208: SpectralBiclustering (3 methods +
+_fit_best_piecewise + _project_and_cluster).
+
+Focused: 132 passed (12 Coclustering + schema + G22 + AP32).
+
 ## [0.9.206] — 2026-11-11 (OOC primitive audit)
 
 Audit session (no new models). Systematic OOC audit of all
