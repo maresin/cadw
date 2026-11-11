@@ -4693,6 +4693,34 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.202] — 2026-11-11 (Nystroem kernel approximation)
+
+### v0.9.202 — fit_nystroem_kernel_map (sklearn parity, OOC in n)
+
+Closes KernelPCA n>1e4 debt. Nystroem (Williams & Seeger
+2001): sample k landmarks; K_mm = kernel(basis, basis);
+SVD normalization_ = U/sqrt(S)@Vh. Bit-identical to sklearn
+Nystroem for n<=1e7, same seed.
+
+- cadw/ml/nystroem.py (new, ~370 lines):
+  * fit_nystroem_kernel_map; NystroemResult (transform /
+    fit_transform / state_nbytes / release_train_state).
+  * _sample_landmarks_permutation (sklearn parity,
+    n<=1e7) and _sample_landmarks_reservoir (n>1e7,
+    ApproximationInfo(type='subsample') disclosed).
+  * NaN check per-batch (not post-sampling).
+  * State O(model): O(k*d + k^2); transform O(batch).
+- tests/test_nystroem_verification.py (12 tests / 20
+  parametrized): CW-1..CW-8.
+- docs/ml_tools/C_dim_reduction.yaml: KernelPCA notes now
+  reference Nystroem as n>1e4 alternative.
+- tests/test_ml_tools_schema.py: R10 infrastructure
+  whitelist for fit_nystroem_kernel_map (like fit_stacking,
+  fit_ab_test; DEC-047).
+
+Smoke: sklearn parity 0.0 (linear/poly), 3.85e-15 (rbf).
+Focused: 511 passed, 5 skipped.
+
 ## [0.9.201] — 2026-11-11 (sigmoid/cosine kernels + LOF auto)
 
 ### v0.9.201 — pairwise_kernel sigmoid/cosine + LOF contamination='auto'
