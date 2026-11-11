@@ -275,21 +275,40 @@ def _impute_col_in_Q_batch(Q_out, Q_orig, j, X_mm, k, weights, mg):
         weights_arr = np.ones_like(distances)
         weights_arr[np.isnan(distances)] = 0.0
 
-    # Donors' col-j values. v0.9.199-b-fix (OOC): use searchsorted
-    # into donor_col_j (O(n_donors)) instead of full (n_train,) lookup.
+    # Donors' col-j values. v0.9.199-b-fix (OOC): searchsorted into
+    # donor_col_j (O(n_donors)) instead of full (n_train,) lookup.
     # donor_idx is sorted (np.where across chunked X_mm scan).
+    #
+    # v0.9.199-b2-fix3: sklearn does NOT mask donor values by distance
+    # validity. _calc_impute: donors_mask = mask_fit_X_col (NaN of
+    # DONOR VALUE); donor values here are already non-NaN (filtered at
+    # fit). Distance NaN -> weight 0, donor value retained -> fallback
+    # np.ma.average handles sum(weights)=0 as unweighted mean. Keep
+    # donors_mat unmasked (all finite).
     valid_mask = (top_global_idx >= 0) & np.isfinite(top_d)
     safe_global = np.where(valid_mask, top_global_idx, donor_idx[0])
-    # searchsorted: pos in donor_idx[] of each global idx
     pos_in_donors = np.searchsorted(donor_idx, safe_global)
     donors_mat = donor_col_j[pos_in_donors]  # (n_recv, k_eff)
-    donors_mat = np.where(valid_mask, donors_mat, np.nan)
+    # (no NaN mask; donor_col_j is finite everywhere)
 
     # Weighted average (skip NaN donors)
+    # sklearn np.ma.average fallback (P10a): when sum(weights)=0
+    # (e.g. single donor with NaN distance), falls back to unweighted
+    # mean of non-NaN donors -> parity.
     num = np.nansum(weights_arr * donors_mat, axis=1)
     den = np.nansum(weights_arr * ~np.isnan(donors_mat), axis=1)
     with np.errstate(divide="ignore", invalid="ignore"):
-        imputed = np.where(den > 0, num / den, np.nan)
+        imputed_weighted = np.where(den > 0, num / den, np.nan)
+    # Fallback: sklearn np.ma.average uses unweighted mean when den==0
+    valid_vals = ~np.isnan(donors_mat)
+    n_valid = valid_vals.sum(axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        imputed_fallback = np.where(
+            n_valid > 0,
+            np.where(valid_vals, donors_mat, 0.0).sum(axis=1)
+            / np.maximum(n_valid, 1),
+            np.nan)
+    imputed = np.where(den > 0, imputed_weighted, imputed_fallback)
     Q_out[receiver_idx, j] = imputed
 
 

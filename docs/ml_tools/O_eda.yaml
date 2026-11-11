@@ -274,10 +274,14 @@ subtypes:
   - name: KNNImputer
     tier: baseline
     depends_on:
+    - cadw.ops.linalg.nan_sq_dists
+    - cadw.ops.linalg.knn_query_stream
+    - cadw.core.spill.SpillDir
     - cadw.ops.linalg.knn_query
     tier_level: tier1_core
     implementation_status:
-      described_only: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - local_structure
     purpose: 'Impute from k nearest neighbours in feature space. Inductive bias: local similarity predicts missing values; O(n²) naive, requires blocking. Deferred per .pingis/impl/REPORT.md §4 (memory model proved by N/KernelDensity).'
@@ -299,6 +303,37 @@ subtypes:
       metric: rmse
       value: null
       note: 'no_public_benchmark: KNNImputer docs example numbers are illustrative, not a benchmark ranking.'
+    cadw_function: fit_knn_imputer
+    cadw_module: cadw.ml.knn_imputer
+    input_api: df
+    bounded_state: true
+    n_scalability: constant
+    bounded_state_dims: {k: 1, d: 1}
+    state_class: O(model)
+    state_type: partitioned
+    ram_formula: 'd * f64 + (k + 1) * f64 * 2 + 256'
+    min_ram_formula: 'd * f64 + (k + 1) * f64 * 2 + 256'
+    formula_evidence:
+      nan_sq: "linalg.py -- nan_sq_dists: (n_q, n_x, d) broadcast"
+      donors_chunk: "knn_imputer.py -- per donor chunk (dchunk) sqrt(dist)"
+      header: "knn_imputer.py -- +256 in state_nbytes()"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact: 256 + fit_nan_counts + col names (CW-1)"
+      state_ooc: "test_state_constant_in_n: state invariant for n in {50, 500} (CW-2)"
+      sklearn_parity: "test_sklearn_parity_uniform (k=1,3,5) max diff < 1e-9 (CW-3); test_sklearn_parity_distance (k=1,3,5) max diff < 1e-9 (CW-4); test_distance_weights_duplicates = 3.5 (CW-7, P8a X3)"
+      all_nan_drop: "test_all_nan_column_dropped + warning (CW-5); test_only_one_donor_column fill=5.0 (CW-6)"
+      transform_new: "test_transform_new_data 5 rows (CW-8); test_all_rows_missing_one_col sklearn parity (CW-11)"
+      release: "test_transform_requires_train_state (CW-9); test_release_idempotent (CW-10)"
+      cells_passed: "12/12"
+      runtime_sec: "~8"
+      fit_transient_note: "Per-donor-chunk transient: O(batch * donor_chunk * d * f64 * 2) for nan_sq_dists; donor_chunk bounded by x_chunk (batch_size default). Not part of state (ram_formula = persistent state only)."
+    streaming_strategy:
+      fit: "X -> memmap (keep NaN); detect all-NaN cols -> drop. State O(model) (path + col names + nan_counts)."
+      transform: "Per-column kNN among donors (nan_sq_dists partial-distance, chunked X); top-k merge; _get_weights (uniform/distance); masked weighted avg. Output via Dataset.from_batches (OOC in n)."
+    primitive_reuse: [nan_sq_dists, spill_dir, memmap]
+    migration_target: null
+    notes: "v0.9.199: fit + transform verified (component-wise DEC-033, sklearn KNNImputer parity). uniform: max diff 0.0; distance: 1.4e-13. All-NaN cols dropped (sklearn behavior). Requires release_train_state(). Nan_euclidean: partial-distance with d/n_common scaling (sklearn parity, P6/P8b)."
   - name: IterativeImputer
     tier: sota
     depends_on: []
