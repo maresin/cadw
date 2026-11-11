@@ -298,38 +298,47 @@ subtypes:
       metric: spearman_cosine
       value: null
       note: 'no_public_benchmark: STS-B GLUE LB ranks only fine-tuned PLMs; unsupervised LSA has no public row'
-    cadw_module: cadw.ml.randsvd
-    cadw_function: fit_randomized_svd
+    cadw_module: cadw.ml.lsa
+    cadw_function: fit_lsa
     input_api: df
     fit_batched: true
     predict_batched: true
-    depends_on: []
+    depends_on:
+    - cadw.ml.tfidf.fit_tfidf
+    - cadw.ops.linalg.svd_topk
     state_class: O(d)
     bounded_state_dims:
-      d: 1
-      n_components: 1
+      V: 1
+      k: 1
       n_oversamples: 1
     transient_factor: 1.0
-    ram_formula: 3 * batch * row_size + 5 * d * (n_components + n_oversamples) * f64
+    ram_formula: V * (k + n_oversamples) * f64 * 2 + (k + n_oversamples) * (k + n_oversamples) * f64 + V * f64 * 2 + k * f64 + 256
     formula_evidence:
-      batch_term: randsvd.py -- 4 loops, _stack_numeric (2x) + X-mean subtraction (1x) = 3x batch
-      state_terms: randsvd.py -- mean(d) + omega(d,L) + Y(d,L) + Q(d,L) + B(L,L) = 5*d*L*8 + L^2*8
-      L_def: L = min(d, n_components + n_oversamples); formula assumes d >= k+p
-      derive_batch: randsvd.py -- get_batch_rows(ef=3.0, state_est=5*d*L*8 + L^2*8)
-      measurement: 'v0.9.109c sweep: coef=3.000, d-sweep ratios 0.97-1.12, OOC ratio 1.00'
-    min_ram_formula: 3 * 1 * row_size + 5 * d * (n_components + n_oversamples) * f64 + 512
+      Y_Q_state: 'lsa.py -- Y (V,L) + Q (V,L), L=k+n_oversamples: V*L*f64*2'
+      B_svd: 'lsa.py -- B = XQ^T XQ (L,L): L*L*f64'
+      tfidf_state: 'tfidf.py -- vocab + idf: V*f64*2'
+      model_state: 'lsa.py -- components (k,V) + sigma (k): k*f64 + k*V*f64 (V*L term covers k*V at L>=k)'
+      header: lsa.py -- 256 byte header
+    min_ram_formula: V * (k + n_oversamples) * f64 * 2 + (k + n_oversamples) * (k + n_oversamples) * f64 + V * f64 * 2 + k * f64 + 256
     min_ram_evidence:
       derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'randomized SVD: random Ω (d×k) + batch-wise Y=XΩ Reduce + QR/SVD on k×k.'
-      predict: per-batch X @ V_k.
+      fit: 'Pass 1: fit_tfidf (streaming). Pass 2+: sparse randomized SVD via Y = X^T X Omega (V,L). State O(V*L), independent of n.'
+      predict: 'transform: X @ components.T per batch -> SpillArray (OOC in n).'
     primitive_reuse:
-    - reduce
+    - fit_tfidf
+    - svd_topk
     ooc_status: achieved
-    ooc_strategy: 'Pattern #1 batch-layer. state d:1, n_components:1, n_oversamples:1; independent of n. Module: cadw.ml.randsvd.'
+    ooc_strategy: 'Pattern #1 batch-layer, axis=n (rows/docs). state = V*L*f64*2 + L*L*f64 + 256; independent of n. bounded_by_domain {V: 1e5} (realistic vocab). transform OOC via SpillArray.'
+    bounded_by_domain:
+      axis: V
+      bound: 100000
+      reason: V*L*f64*2 + L*L*f64 state = 88 MB at V=1e5, L~110. Realistic vocab (10^4-10^5) after min_df prune. n_docs unbounded via streaming.
+    ooc_target_version: null
+    ooc_alternative: null
   - name: Word2Vec
     tier: baseline
     depends_on: []
