@@ -4693,6 +4693,90 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.208] — 2026-11-11 (OOC-by-card schema + 148 fills)
+
+Formalize OOC as explicit contract in cards (user feedback:
+«подход о решении проблемы OOC внести отдельным полем
+в карточку»). Removes the silent requirement that every
+session re-reads AI_CONSTITUTION §1 to know which primitives
+are leaf/intrinsic and what callers must do.
+
+### v0.9.208-a — schema extension (soft gates)
+
+New fields:
+- PrimitiveCard.ooc_usage: str | None
+    (leaf/intrinsic: how to use this primitive in OOC context;
+     empty for batch — already OOC by design)
+- ModelCard.ooc_status: str | None
+    enum: achieved | achievable | debt | escape_hatch | null
+    * achieved     — OOC works (verified, no bounded_by_domain)
+    * achievable   — plan exists (described_only / draft+bs)
+    * debt         — bounded_by_domain (guard refuses; alternative
+                     planned; target_version)
+    * escape_hatch — documented bypass (apply, to_pandas)
+    * null         — not applicable (not_a_model, sota reference)
+- ModelCard.ooc_strategy: str | None  (narrative)
+- ModelCard.ooc_target_version: str | None  (achievable/debt)
+- ModelCard.ooc_alternative: str | None  (debt: what instead)
+
+Validation (soft in a; hard after fills):
+- _validate_primitive_card: leaf/intrinsic without ooc_usage -> warn
+- _validate_model_v03: ooc_status enum; debt => ooc_alternative;
+  achievable/debt => ooc_target_version
+
+Gates:
+- G24 (soft-warn): verified/debt without ooc_status
+- G25 (soft-warn): leaf/intrinsic without ooc_usage
+
+### v0.9.208-b — primitive ooc_usage auto-fill (35/50) + G25 hard
+
+ooc_usage filled for all 35 leaf/intrinsic primitives
+(5 template buckets: batch skip / leaf+sv+ib / leaf+wt /
+leaf+ib / predict_leaf).
+
+G25: soft -> hard-fail.
+
+### v0.9.208-c1/c2/c3 — model ooc_* fill (148/148) + G24 hard
+
+Structural round-trip per section (yaml.safe_load +
+safe_dump, header preserved). 18 sections, 3 commits.
+
+- c1: A_classification (16) — text-regex approach failed
+  (matched metrics items); structural approach fixed.
+- c2: 17 other sections (128): 63 achieved + 30 debt +
+  35 achievable.
+- c3: A desc_only (4) -> achievable; G24 soft -> hard-fail.
+
+Final coverage:
+  total=228 models, with_ooc=148 (65%), sota/nam=80 (35%)
+  UNFILLED: desc_only=0, verified/debt=0
+
+Distribution:
+  75 achieved   — Pattern #1/#2 auto from markers
+  34 debt       — bounded_by_domain (ooc_alternative=None,
+                  manual fill v0.9.209)
+  39 achievable — described_only (generic planned approach)
+
+Per-section fills:
+  A: 16, B: 11, C: 8, D: 44, E: 5, F: 4, G: 2, H: 4, I: 3,
+  J: 8, M: 4, N: 4, O: 19, R: 3, S: 2, T: 2, V: 3, W: 2
+
+G24 + G25 hard-fail: verified/debt without ooc_status, or
+leaf/intrinsic without ooc_usage => FAIL.
+
+Diff: 5777+/3598- across 18 YAML (style changes from
+round-trip; semantics identical). Body comments below
+header may be lost (precedent v0.9.44b round-trip).
+
+Deferred to v0.9.209:
+- ooc_alternative manual fill for 34 debt cards (algorithm-aware)
+- Generic achievable narrative polish for high-priority
+  described_only cards
+- ruamel.yaml migration if comment preservation needed
+
+Focused: 115 passed (test_constitution_gates G24/G25 +
+test_ml_tools_schema).
+
 ## [0.9.207] — 2026-11-11 (SpectralCoclustering, Dhillon 2001)
 
 First Pattern #1 (batch-layer) model under v0.9.204 mandate
