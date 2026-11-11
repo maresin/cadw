@@ -31,6 +31,8 @@ from scipy.sparse.csgraph import laplacian as _csgraph_laplacian
 from cadw.core.memory_guard import MemoryLimitExceeded
 from cadw.ml._logging import log_fit
 from cadw.ops.graph import graph_laplacian_sparse
+import warnings
+from cadw.core.warnings import SlowOperationWarning
 from cadw.ops.linalg import knn_query_stream
 
 
@@ -247,56 +249,100 @@ def fit_spectral_clustering(
         batch_size = max(1, min(n_total, 1000))
     batch_size = max(1, min(int(batch_size), n_total))
 
-    # Pass 1: X into RAM (bounded by n<=1e6)
-    X_parts = []
-    for b in df._iter_filtered_batches(batch_size=batch_size):
-        if mg is not None and hasattr(mg, "check_batch"):
-            mg.check_batch(b, name="spectral.X", extra_factor=2.0)
-        X_parts.append(_batch_to_X(b, X_cols))
-    X = (np.vstack(X_parts) if len(X_parts) > 1
-         else X_parts[0] if X_parts else np.empty((0, d)))
-    if X.shape[0] != n_total:
-        raise RuntimeError(
-            f"X rows mismatch ({X.shape[0]} != {n_total})")
-    if np.isnan(X).any():
-        raise ValueError(
-            "fit_spectral_clustering: X contains NaN; impute first "
-            "(fit_knn_imputer) or use complete-case.")
+    # v0.9.210 (AP22): slow-op warning. Compute O(n^2) regardless of
+    # affinity (knn_query_stream or pairwise_kernel both O(n_q*n_x)).
+    # Empirically ~1e-6 s per element^2 (n=5000 -> ~23s; n=10000 -> ~92s).
+    # threshold 60s. Honest refuse would break typical users; warn instead.
+    _est_compute_sec = (float(n_total) ** 2) * 1e-6
+    if _est_compute_sec > 60.0:
+        warnings.warn(
+            f"fit_spectral_clustering: n={n_total} compute O(n^2), "
+            f"estimated ~{_est_compute_sec:.0f}s (>{60.0:.0f}s threshold). "
+            f"Options: (a) subsample df; (b) Nystroem + PCA chain; "
+            f"(c) reduce n_neighbors; (d) use MiniBatchKMeans directly "
+            f"on raw features for approximate clustering.",
+            SlowOperationWarning,
+            stacklevel=2)
 
-    # Pass 2: build affinity W (sparse)
+    # Pass 1: build affinity W (sparse) — X NOT materialized for
+    # nearest_neighbors (v0.9.210). rbf needs X in RAM (pairwise_kernel
+    # is ndarray-only).
     if affinity == "nearest_neighbors":
+        # v0.9.210: sklearn kneighbors_graph(X, k=15, include_self=True)
+        # returns 15 nnz/row = 1 self + 14 others. knn_query_stream
+        # returns self as #1 (distance 0). k_eff=n_neighbors matches.
         k_eff = min(n_neighbors, n_total - 1)
-        # knn_query_stream(X_iter, X, k) — bit-identical to sklearn
-        # kneighbors_graph(X, k, include_self=True) when including self.
-        # sklearn: include_self=True adds diagonal 1.0
-        def _x_iter():
-            for s in range(0, n_total, batch_size):
-                e = min(s + batch_size, n_total)
-                yield X[s:e]
-        # Query is full X — but call batch-wise to keep peak low
-        rows, cols, vals = [], [], []
-        for qs in range(0, n_total, batch_size):
-            qe = min(qs + batch_size, n_total)
-            Q = X[qs:qe]
+        # v0.9.210: X streamed via knn_query_stream (v0.9.197).
+        # W is intrinsic O(n*k_eff) nnz — cannot be streamed (ARPACK
+        # Lanczos matvec needs W in memory). X (n*d) saved.
+        # Preallocate: max_nnz = n_total*(k_eff+1) (k_eff neighbors +
+        # self-loop). Vectorized fill via np.repeat + ravel — ~10-100x
+        # faster than Python append.
+        max_nnz = n_total * k_eff
+        rows = np.empty(max_nnz, dtype=np.int64)
+        cols = np.empty(max_nnz, dtype=np.int64)
+        vals = np.empty(max_nnz, dtype=np.float64)
+
+        def _fresh_x_iter():
+            for Xb in df._iter_filtered_batches(batch_size=batch_size):
+                Xc = _batch_to_X(Xb, X_cols)
+                if Xc.shape[0] == 0:
+                    continue
+                yield Xc
+
+        pos = 0
+        global_offset = 0
+        for Q_b in df._iter_filtered_batches(batch_size=batch_size):
+            if mg is not None and hasattr(mg, "check_batch"):
+                mg.check_batch(Q_b, name="spectral.Q", extra_factor=2.0)
+            Q = _batch_to_X(Q_b, X_cols)
+            if Q.shape[0] == 0:
+                continue
+            if np.isnan(Q).any():
+                raise ValueError(
+                    "fit_spectral_clustering: X contains NaN; impute "
+                    "first (fit_knn_imputer) or use complete-case.")
             idx = knn_query_stream(
-                _x_iter(), Q, k_eff, return_dist=False,
+                _fresh_x_iter(), Q, k_eff, return_dist=False,
                 memory_guard=mg)
-            for i_local in range(idx.shape[0]):
-                gi = qs + i_local
-                for j in idx[i_local]:
-                    rows.append(gi)
-                    cols.append(int(j))
-                    vals.append(1.0)
-        # include_self: add diagonal 1.0
-        for i in range(n_total):
-            rows.append(i); cols.append(i); vals.append(1.0)
+            qn = Q.shape[0]
+            span = qn * k_eff
+            q_rows = np.arange(global_offset, global_offset + qn,
+                               dtype=np.int64)
+            rows[pos:pos + span] = np.repeat(q_rows, k_eff)
+            cols[pos:pos + span] = idx.ravel().astype(np.int64, copy=False)
+            vals[pos:pos + span] = 1.0
+            pos += span
+            global_offset += qn
+
+        if global_offset != n_total:
+            raise RuntimeError(
+                f"spectral: rows mismatch ({global_offset} != {n_total})")
+
+        # No explicit self-loop: knn_query_stream(k_eff=k+1) includes
+        # self (distance 0 = top-1), so self-loop already in idx.
+        # W.setdiag(1.0) below replaces (sklearn _set_diag semantics).
         W = sp.csr_matrix(
-            (np.array(vals, dtype=np.float64),
-             (np.array(rows, dtype=np.int64),
-              np.array(cols, dtype=np.int64))),
+            (vals[:pos], (rows[:pos], cols[:pos])),
             shape=(n_total, n_total))
         W = 0.5 * (W + W.T)
-    else:  # rbf
+        # sklearn _set_diag(W, 1.0): replace diagonal (not add).
+        W.setdiag(1.0)
+    else:  # rbf — X materialized (pairwise_kernel intrinsic)
+        X_parts = []
+        for b in df._iter_filtered_batches(batch_size=batch_size):
+            if mg is not None and hasattr(mg, "check_batch"):
+                mg.check_batch(b, name="spectral.X", extra_factor=2.0)
+            X_parts.append(_batch_to_X(b, X_cols))
+        X = (np.vstack(X_parts) if len(X_parts) > 1
+             else X_parts[0] if X_parts else np.empty((0, d)))
+        if X.shape[0] != n_total:
+            raise RuntimeError(
+                f"X rows mismatch ({X.shape[0]} != {n_total})")
+        if np.isnan(X).any():
+            raise ValueError(
+                "fit_spectral_clustering: X contains NaN; impute first "
+                "(fit_knn_imputer) or use complete-case.")
         from cadw.ops.linalg import pairwise_kernel
         K = pairwise_kernel(X, X, kernel="rbf", gamma=gamma,
                             memory_guard=mg)
