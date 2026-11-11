@@ -25,6 +25,8 @@ from .lsa import LsaModel, fit_lsa
 from .bimax import BimaxResult, fit_bimax
 from .plaid_model import PlaidResult, PlaidLayer, fit_plaid_model
 from .dbscan import DBSCANResult, fit_dbscan
+from .kmeans_only import KMeansOnlyResult, fit_kmeans_only
+from .euclidean_kmeans_z import (EuclideanKMeansZResult, fit_euclidean_kmeans_z)
 from .knn_imputer import (KNNImputerResult, fit_knn_imputer)
 from .naive_bayes import (
     GaussianNB, fit_gaussian_nb,
@@ -88,6 +90,10 @@ __all__ = [
     "BimaxResult", "fit_bimax",
     "PlaidResult", "PlaidLayer", "fit_plaid_model",
     "DBSCANResult", "fit_dbscan",
+    "KMeansOnlyResult",
+    "fit_kmeans_only",
+    "EuclideanKMeansZResult",
+    "fit_euclidean_kmeans_z",
 ]
 # v0.9.52: DWT-MLEAD (Thill, Konen, Baeck 2017)
 from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
