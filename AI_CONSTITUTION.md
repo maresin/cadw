@@ -875,6 +875,42 @@ AP31 probe itself can be broken. Before trusting a FAIL, check:
 
 **Rule:** every AP31 FAIL must be triaged against P1-P5 before "fix the artifact". Three false positives in v0.9.196 (P1, P2, P3) + one real bug (P4/P5 crash in P54) wasted 3 iterations. Log each false positive class; accumulate into probe test suite (v0.9.197+ `scripts/verify_tag.py`).
 
+### AP32. Verified card with unregistered primitive dependency
+
+Card declares `status: verified` and `depends_on: [cadw.ops.X.Y]`, but
+`cadw.ops.X.Y` has no `PRIMITIVES.yaml` card. Hides primitive-audit
+gap: model claims OOC, primitive state/streaming semantics undocumented.
+
+**Real case (v0.9.197):** LOF depended on `cadw.ops.linalg.knn_query`
+(v0.9.144) — implemented, no card. G18 checks `_name` functions only;
+G21 checks `intrinsic_bound` semantics for existing cards. Neither
+catches "depends_on X, no card for X". Discovered via manual probe
+(P4, v0.9.197); 5 gaps across verified cards (knn_query, core_distances,
+sq_dists, sgd_streaming, znormalize_rows). Fixed v0.9.198.
+
+**Rule (v0.9.198, `test_all_verified_depends_on_resolve`):**
+
+For every `verified` card, every `depends_on` entry starting with
+`cadw.ops.` MUST resolve to a `PRIMITIVES.yaml` card (by
+`cadw_function`), UNLESS in `OPS_LAYER_EXEMPT`:
+
+  reduce, shuffle, sort, join, groupby, pivot, quantile, topk, rank,
+  resample, dedup, describe, histogram, metrics — pipeline operations,
+  not model primitives (documented in PRIMITIVES_BACKLOG Appendix B).
+
+`cadw.ts.*` deps are covered by G18 separately (leaf streaming_variant
+for verified+bounded_state models).
+
+**Anti-pattern:** adding `depends_on: [cadw.ops.new_thing]` to a card
+without registering `new_thing`. Fix: register in PRIMITIVES.yaml
+(layer/bounded_state/formula_evidence/streaming_variant/intrinsic_bound
+per existing card convention).
+
+**Complements:** G18 (leaf streaming_variant audit), AP29
+(intrinsic_bound semantic self-check), DEC-071 (^def _name( audit —
+narrower scope).
+
+
 ### §5.1. Single source of truth (one fact, one place)
 
 Every concept has exactly one canonical location:

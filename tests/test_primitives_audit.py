@@ -95,3 +95,84 @@ def test_all_module_helpers_registered_or_exempt():
         + "\n\nRegister in PRIMITIVES.yaml, or add to EXEMPT set in "
         "tests/test_primitives_audit.py (with rationale)."
     )
+
+# ---- v0.9.198 (AP32): verified cards depends_on must resolve to
+# PRIMITIVES.yaml OR OPS_LAYER_EXEMPT ----
+
+OPS_LAYER_EXEMPT = frozenset({
+    # Pipeline operations, not model primitives (see
+    # PRIMITIVES_BACKLOG Appendix B). These are DataFrame-method-level
+    # ops: caller-controlled batching; each has its own YAML card in
+    # ops section if needed (not PRIMITIVES.yaml by design).
+    "cadw.ops.reduce",
+    "cadw.ops.shuffle",
+    "cadw.ops.sort",
+    "cadw.ops.join",
+    "cadw.ops.groupby",
+    "cadw.ops.pivot",
+    "cadw.ops.quantile",
+    "cadw.ops.topk",
+    "cadw.ops.rank",
+    "cadw.ops.resample",
+    "cadw.ops.dedup",
+    "cadw.ops.describe",
+    "cadw.ops.histogram",
+    "cadw.ops.metrics",
+    "cadw.ops.linalg",  # module-level (not specific function)
+})
+
+
+def test_all_verified_depends_on_resolve():
+    """AP32 (v0.9.198): every cadw.ops.* depends_on of a verified card
+    must resolve to a PRIMITIVES.yaml card OR be in OPS_LAYER_EXEMPT.
+
+    Rationale: verified card claims OOC, but its underlying primitive
+    may be unaudited (state/streaming semantics undocumented). LOF
+    (v0.9.197) depended on unregistered knn_query (v0.9.144) — invisible
+    to G18/G21 until manual probe. This test catches that class.
+
+    Scope: cadw.ops.* only. cadw.ts.* dependencies are covered by
+    G18 (leaf streaming_variant) separately.
+    """
+    import yaml
+    from cadw.core.cards import load_primitive_cards
+
+    prim = load_primitive_cards("docs/ml_tools/PRIMITIVES.yaml")
+    prim_fns = {c.cadw_function for c in prim}
+
+    repo_root = Path(__file__).resolve().parent.parent
+    violations = []
+    checked = 0
+    for yp in sorted((repo_root / "docs" / "ml_tools").glob("[A-Z]_*.yaml")):
+        try:
+            d = yaml.safe_load(yp.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for st in d.get("subtypes") or []:
+            for m in st.get("models") or []:
+                status = (m.get("implementation_status") or {}).get("status")
+                if status != "verified":
+                    continue
+                for dep in (m.get("depends_on") or []):
+                    if not dep.startswith("cadw.ops."):
+                        continue
+                    checked += 1
+                    if dep in prim_fns:
+                        continue
+                    # Exempt: whole submodule ops-layer
+                    module_prefix = dep.rsplit(".", 1)[0]
+                    if dep in OPS_LAYER_EXEMPT:
+                        continue
+                    if module_prefix in OPS_LAYER_EXEMPT:
+                        continue
+                    violations.append(
+                        f"{yp.name}::{m.get('name')} -> {dep}")
+    assert not violations, (
+        f"AP32: {len(violations)} verified cards depend on "
+        f"unregistered cadw.ops.* primitives:\n"
+        + "\n".join(violations)
+        + f"\n\nFix: register in PRIMITIVES.yaml OR add to "
+        f"OPS_LAYER_EXEMPT in test_primitives_audit.py "
+        f"(reason: pipeline ops, not model primitives)."
+    )
+

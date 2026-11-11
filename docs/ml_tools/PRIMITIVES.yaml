@@ -685,3 +685,96 @@ primitives:
     models using HW/STL (whose legacy _initial_seasonal / LOESS requires
     full-y context; window is semantically valid per pelt precedent).
 
+# ---- v0.9.198 (AP32): public primitive cards for verified depends_on ----
+
+- name: knn_query
+  cadw_function: cadw.ops.linalg.knn_query
+  module: cadw.ops.linalg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n_q * k * f64 * 2 + _KNN_STATE_HEADER + n_q * chunk * f64"
+  min_ram_formula: "k * f64 * 2 + _KNN_STATE_HEADER + 1 * f64"
+  formula_evidence:
+    state: "linalg.py -- state_bytes = n_q*k*8*2 + _KNN_STATE_HEADER"
+    chunk: "linalg.py -- chunk_bytes = n_q * (end-start) * 8 per chunk"
+  # v0.9.198 (AP32): X must fit in RAM (n_x * d * f64); chunk_size bounds
+  # transient. Caller uses knn_query_stream for X from disk.
+  intrinsic_bound:
+    axis: n_x
+    bound: 1000000
+    reason: "X in RAM (n_x * d * f64). Caller-controlled chunk_size bounds transient; for X from disk use knn_query_stream."
+  streaming_variant: knn_query_stream
+  consumers: [LOF, DBSCAN, HDBSCAN, SMOTE, ML-kNN, ItemKNN, KNNImputer, EuclideanKMeansZ, core_distances]
+
+- name: core_distances
+  cadw_function: cadw.ops.linalg.core_distances
+  module: cadw.ops.linalg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n * (k + 1) * f64 * 2 + 256"
+  min_ram_formula: "(k + 1) * f64 * 2 + 256"
+  formula_evidence:
+    state: "linalg.py -- knn_query(X, X, k+1).state + dist[:, k] copy"
+    compute: "linalg.py -- self-query O(n^2) intrinsic to kNN"
+  intrinsic_bound:
+    axis: n
+    bound: 1000000
+    reason: "Self-query O(n^2) compute + O(n*k) output; callers subsample (HDBSCAN n<=1e4 typical) or bound n."
+  streaming_variant: null
+  consumers: [HDBSCAN, DBSCAN, LOF]
+
+- name: sq_dists
+  cadw_function: cadw.ops.linalg.sq_dists
+  module: cadw.ops.linalg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n_z * n_mem * f64 + (n_z + n_mem) * f64 + 256"
+  min_ram_formula: "f64 * 3 + 256"
+  formula_evidence:
+    alloc: "linalg.py -- z_sq[:, None] - 2 z@mem.T + m_sq[None, :]: (n_z, n_mem) result"
+  # v0.9.198 (AP32): returns dense (n_z, n_mem); caller chunks n_mem
+  # (knn_query chunk_size / pairwise_kernel chunks).
+  intrinsic_bound:
+    axis: n_mem
+    bound: 1000000
+    reason: "O(n_z * n_mem) output matrix; caller chunks n_mem via knn_query/pairwise_kernel chunks."
+  streaming_variant: null
+  consumers: [knn_query, knn_query_stream, core_distances, pairwise_kernel]
+
+- name: sgd_streaming
+  cadw_function: cadw.ops.optim.sgd_streaming
+  module: cadw.ops.optim
+  layer: batch
+  status: draft
+  bounded_state: true
+  ram_formula: "3 * n_features * n_outputs * f64 + batch * d * f64 + 256"
+  min_ram_formula: "3 * n_features * n_outputs * f64 + f64 + 256"
+  formula_evidence:
+    state: "optim.py -- W, m (RMSprop), plus gradient: 3 * n_features * n_outputs * f64"
+    batch: "optim.py -- X_b (b, d) per batch"
+  # AP29: batch-layer (Reduce-like); state O(d*K), no n-scaling.
+  intrinsic_bound: null
+  streaming_variant: null
+  consumers: [fit_linear (solver='sgd'), fit_logistic (solver='sgd'), fit_ordinal_logit (solver='sgd'), LinearQuantReg (sgd variant), fit_rocket (linear head)]
+
+- name: znormalize_rows
+  cadw_function: cadw.ops.stats.znormalize_rows
+  module: cadw.ops.stats
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "3 * n * d * f64 + 256"
+  min_ram_formula: "3 * d * f64 + 256"
+  formula_evidence:
+    alloc: "stats.py -- mu (n,1), sd (n,1), output (n,d): 3 * n * d * f64"
+  # v0.9.198 (AP32): pure stateless per-row normalize; caller batches rows.
+  intrinsic_bound:
+    axis: n
+    bound: 1000000
+    reason: "O(n*d) output per call; stateless (caller batches rows for OOC)."
+  streaming_variant: null
+  consumers: [KShape, KShapeAD, ShapeGMM, patch_memory_ad, autoencoder]
+

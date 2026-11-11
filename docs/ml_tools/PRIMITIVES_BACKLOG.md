@@ -446,3 +446,68 @@ Primitives that are NOT batch-layer fall into two categories:
 
 ---
 
+---
+
+## Appendix B — Ops layer vs primitive layer (v0.9.198, AP32)
+
+**Why:** `cadw/ops/*.py` contains two distinct layers. Only one needs
+PRIMITIVES.yaml cards.
+
+### B.1. Primitive layer (cards required for verified consumers)
+
+Used inside `fit_*` / `predict_*` internals — the model's OOC claim
+depends on the primitive's state/streaming semantics. Cards track
+`layer`, `bounded_state`, `formula_evidence`, `streaming_variant`,
+`intrinsic_bound` per DEC-071/AP29.
+
+Examples: `knn_query`, `core_distances`, `sq_dists`, `pairwise_kernel`,
+`chol_solve`, `eigh_topk`, `graph_laplacian`, `eigsh_topk`, `mst`,
+`apriori`, `eclat`, `fp_growth`, `prefix_span`, `gsp`, `sgd_streaming`,
+`znormalize_rows`, `nmf_mu`, `sigmoid`, `arm_stats`, `reservoir_sample`,
+`ols_fit`, `erfinv`, `ks_2samp`, `psi`, `chi2_categorical`, `acf`,
+`normalize_weights`, `knn_query_stream`.
+
+### B.2. Ops layer (no PRIMITIVES card by design)
+
+Pipeline operations on CadwDataFrame / Dataset — take `df` / `Reader`
+input, produce `AutoResult` / `Table`. RAM guarantees are the op's
+documented contract; model-level `depends_on` doesn't reference these
+(except as `df.<method>()` calls from `_iter_filtered_batches`).
+
+**OPS_LAYER_EXEMPT set** (test_primitives_audit.py::test_all_verified_depends_on_resolve):
+
+- `cadw.ops.reduce` — Reduce pattern wrapper (`reduce(batches, op, mg)`)
+- `cadw.ops.shuffle` — HashShuffle + `compute_hashes` / `hash_shuffle`
+- `cadw.ops.sort` — `external_sort` + `read_sorted`
+- `cadw.ops.join` — hash/semi/anti/outer/inner/left_join_streaming
+- `cadw.ops.groupby` — `groupby_aggregate` + `write_groupby_result`
+- `cadw.ops.pivot` — `pivot_to_disk`
+- `cadw.ops.quantile` — `quantile` (sort-based)
+- `cadw.ops.topk` — `topk_to_disk`
+- `cadw.ops.rank` — `compute_ranks_to_disk`
+- `cadw.ops.resample` — `resample_to_disk` + `parse_freq`
+- `cadw.ops.dedup` — `drop_duplicates`
+- `cadw.ops.describe` — `describe_columns`
+- `cadw.ops.histogram` — histogram
+- `cadw.ops.metrics` — metrics (elementwise, no state)
+
+### B.3. Detection rule (AP32)
+
+`test_all_verified_depends_on_resolve` (tests/test_primitives_audit.py):
+
+- Every `verified` model's `depends_on: [cadw.ops.X.Y]` resolves to
+  a PRIMITIVES.yaml card, OR `X.Y`'s submodule in OPS_LAYER_EXEMPT.
+- Failure = "verified card depends on unaudited primitive".
+- Real catch: LOF → knn_query (v0.9.144→v0.9.198, 4 months invisible).
+
+### B.4. When to add a new primitive card
+
+- Model's `fit_*` / `predict_*` imports `cadw.ops.X.Y` and calls it
+  inside the batch loop → card required (state/streaming analysis).
+- Only from `_iter_filtered_batches` (as `df.column()` etc.) → not a
+  dep, no card needed.
+- Dataframe-method (`df.<method>()`) → DF_operations.yaml (separate).
+- Feature engineering (`cadw.ts.features.lag_features`, etc.) → not a
+  primitive per DEC-071; if models depend on them, extend the exempt
+  set with reason.
+
