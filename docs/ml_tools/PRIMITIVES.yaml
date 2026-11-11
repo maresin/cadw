@@ -763,6 +763,26 @@ primitives:
   streaming_variant: null
   consumers: [fit_knn_imputer]
 
+- name: pairwise_kernel
+  cadw_function: cadw.ops.linalg.pairwise_kernel
+  module: cadw.ops.linalg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n_x * n_y * f64 + n_x * chunk * f64 + 256"
+  min_ram_formula: "n_y * f64 + chunk * f64 + 256"
+  formula_evidence:
+    output: "linalg.py -- np.empty((n_x, n_y)): n_x*n_y*f64"
+    chunk: "linalg.py -- Yc (chunk, d) + Kc (n_x, chunk) per chunk"
+  # v0.9.200 (AP32): X, Y in RAM; caller chunks Y (KernelPCA.transform
+  # streams Q; KernelPCA.fit intrinsic O(n^2) per bound).
+  intrinsic_bound:
+    axis: n_x
+    bound: 1000000
+    reason: "Dense (n_x, n_y) output; KernelPCA/KernelRidge/GP intrinsic O(n^2) per bound; caller chunks Y for OOC in n_y."
+  streaming_variant: null
+  consumers: [KernelPCA (v0.9.200+), SpectralClustering, GP regression, KernelRidge, GPLVM]
+
 - name: sgd_streaming
   cadw_function: cadw.ops.optim.sgd_streaming
   module: cadw.ops.optim

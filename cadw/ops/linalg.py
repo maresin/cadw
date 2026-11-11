@@ -476,7 +476,7 @@ def core_distances(
 #   when Cholesky fails (kernel matrix not strictly PSD due to noise).
 # ============================================================================
 
-_SUPPORTED_KERNELS = ("rbf", "poly", "laplacian")
+_SUPPORTED_KERNELS = ("linear", "rbf", "poly", "laplacian")
 _KERNEL_STATE_HEADER = 256
 
 
@@ -511,7 +511,8 @@ def pairwise_kernel(
     Args:
       X: (n_x, d) float64.
       Y: (n_y, d) float64.
-      kernel: "rbf" | "poly" | "laplacian".
+      kernel: "linear" | "rbf" | "poly" | "laplacian".
+        - linear:    K = <x, y>
         - rbf:       K = exp(-gamma * ||x-y||^2)
         - poly:      K = (gamma * <x,y> + coef0) ** degree
         - laplacian: K = exp(-gamma * ||x-y||_1)
@@ -535,7 +536,7 @@ def pairwise_kernel(
     if kernel not in _SUPPORTED_KERNELS:
         raise ValueError(
             f"kernel must be one of {_SUPPORTED_KERNELS}; got {kernel!r}")
-    if gamma <= 0:
+    if kernel != "linear" and gamma <= 0:
         raise ValueError(f"gamma must be > 0; got {gamma}")
     if kernel == "poly":
         if degree < 1:
@@ -560,7 +561,9 @@ def pairwise_kernel(
             memory_guard.check_state(
                 n_x * (end - start) * 8, name="pairwise_kernel.chunk")
 
-        if kernel == "rbf":
+        if kernel == "linear":
+            Kc = X @ Yc.T
+        elif kernel == "rbf":
             D2 = sq_dists(X, Yc)
             Kc = np.exp(-gamma * np.maximum(D2, 0.0))
         elif kernel == "poly":

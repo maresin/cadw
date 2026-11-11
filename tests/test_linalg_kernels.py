@@ -158,3 +158,49 @@ def test_chol_solve_shape_mismatch():
     b = np.zeros(4)
     with pytest.raises(ValueError, match="b.shape"):
         chol_solve(K, b)
+
+# ---- v0.9.200: linear kernel ----
+
+def test_linear_kernel_matches_manual():
+    """linear: K = X @ Y.T."""
+    from cadw.ops.linalg import pairwise_kernel
+    rng = np.random.RandomState(0)
+    X = rng.randn(10, 4)
+    Y = rng.randn(15, 4)
+    K_cadw = pairwise_kernel(X, Y, kernel="linear")
+    K_ref = X @ Y.T
+    np.testing.assert_allclose(K_cadw, K_ref, atol=1e-12)
+
+
+def test_linear_kernel_chunk_invariant():
+    """linear: chunk_size doesn't affect output."""
+    from cadw.ops.linalg import pairwise_kernel
+    rng = np.random.RandomState(1)
+    X = rng.randn(8, 3)
+    Y = rng.randn(20, 3)
+    K1 = pairwise_kernel(X, Y, kernel="linear", chunk_size=20)
+    K2 = pairwise_kernel(X, Y, kernel="linear", chunk_size=5)
+    np.testing.assert_allclose(K1, K2, atol=1e-14)
+
+
+def test_linear_kernel_sklearn_parity():
+    """linear: matches sklearn.metrics.pairwise.linear_kernel."""
+    from sklearn.metrics.pairwise import linear_kernel
+    from cadw.ops.linalg import pairwise_kernel
+    rng = np.random.RandomState(2)
+    X = rng.randn(12, 5)
+    Y = rng.randn(17, 5)
+    K_cadw = pairwise_kernel(X, Y, kernel="linear")
+    K_sk = linear_kernel(X, Y)
+    np.testing.assert_allclose(K_cadw, K_sk, atol=1e-12)
+
+
+def test_linear_kernel_ignores_gamma():
+    """linear: gamma unused; gamma=0.001 or huge both fine."""
+    from cadw.ops.linalg import pairwise_kernel
+    X = np.random.RandomState(3).randn(5, 3)
+    Y = np.random.RandomState(4).randn(6, 3)
+    K1 = pairwise_kernel(X, Y, kernel="linear", gamma=0.001)
+    K2 = pairwise_kernel(X, Y, kernel="linear", gamma=1000.0)
+    np.testing.assert_allclose(K1, K2, atol=1e-14)
+
