@@ -4693,6 +4693,35 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.204] — 2026-11-11 (OOC-by-primitive mandate + AP33 + G22)
+
+### v0.9.204 — process fix-up (no code change)
+
+User concern: OOC rule for primitives forgotten in v0.9.199-203;
+require explicit ROADMAP guidance for future primitives/models.
+
+P6 probe (AST): 0 case-A gaps — all verified+bounded_state
+models honestly depend on leaf primitives with bound
+(streaming_variant / window_truncatable / intrinsic_bound).
+Code was honest; missing piece was formal decision matrix.
+
+- ROADMAP §OOC by primitive (MANDATORY):
+  * 3 patterns: batch-layer / window-truncation / intrinsic
+  * anti-patterns; pre-implementation 5-item checklist
+  * consuming patterns (axis → primitive); session discipline
+- AI_CONSTITUTION AP33: leaf primitive with inconsistent card
+  (case A bug / case B card-fix / case C predict-leaf AP29).
+- tests/test_constitution_gates.py G22: AST-scan leaf imports
+  of verified+bounded_state models; accept streaming_variant
+  OR window_truncatable OR intrinsic_bound (DEC-072: window
+  before intrinsic; mutual exclusion enforced).
+- PRIMITIVES.yaml: 3 TS leaf cards (_ses_fit_hw,
+  stl_decompose, _ses) revert (attempted intrinsic_bound
+  removed — cards already had window_truncatable via
+  _collect_last_w, per DEC-072 mutual exclusion).
+
+Focused: 484 passed, 5 skipped.
+
 ## [0.9.203] — 2026-11-11 (SpectralClustering ×3, sparse graph)
 
 ### v0.9.203-a — graph_laplacian_sparse + eigsh_topk sparse/sigma
