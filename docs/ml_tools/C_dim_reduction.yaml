@@ -56,35 +56,104 @@ subtypes:
 
       - name: TruncatedSVD
         tier: baseline
-        depends_on: []
-        tier_level: tier2_wrapper
+        depends_on:
+        - cadw.ml.truncated_svd.fit_truncated_svd
+        - cadw.ops.linalg.svd_topk
+        tier_level: tier1_core
         implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
+          verified_in_cadw: true
+          status: verified
         roles: [representation]
         purpose: "SVD without centering (LSA-style). Unlike PCA, does not require mean removal; suited for sparse inputs."
         real_life_examples: ["Sparse text embeddings", "LSA preprocessing", "No mean removal needed"]
         config: {n_components: int, algorithm: 'randomized|arpack'}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.TruncatedSVD', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.TruncatedSVD.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB.'}
-
+        cadw_function: fit_truncated_svd
+        cadw_module: cadw.ml.truncated_svd
+        input_api: df
+        bounded_state: true
+        n_scalability: constant
+        bounded_state_dims: {d: 1, k: 1}
+        state_class: O(d^2)
+        state_type: aggregation
+        ram_formula: 'd * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * batch * row_size + 256'
+        min_ram_formula: 'd * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * row_size + 256'
+        formula_evidence:
+          gram: "svd_topk -- G = zeros((d, d)): d*d*f64 (chunked Reduce)"
+          eigh: "svd_topk -- eigh_topk(G, k): d*d*f64 copy + V (d,k) f64"
+          components: "truncated_svd -- components_ (k, d): k*d*f64"
+          sigma_ev_evr: "truncated_svd -- sigma + ev + evr: 3*k*f64"
+          batch: "truncated_svd -- X_batch (batch, d): 3.5*batch*row_size"
+          header: "truncated_svd -- +256 in state_nbytes()"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          sklearn_parity: "test_sklearn_parity (2 parametrized n/d/k): sigma/components_/ev/evr max diff < 1e-9; transform max diff < 1e-9. test_fit_transform_parity: same"
+          state_check: "test_state_nbytes: 6000 < state < 10000 for d=80 k=10"
+          guard: "test_guard_refuses_tight: d=200, 0.1 MB -> MemoryLimitExceeded"
+          release: "test_release_idempotent"
+          reproducibility: "test_reproducibility"
+          validation: "test_randomized_deferred / test_invalid"
+          cells_passed: "8/8"
+          runtime_sec: "~5"
+        streaming_strategy:
+          fit: "svd_topk (chunked Gram Reduce) + 2-pass streaming explained_variance. State O(d^2); OOC in n_rows."
+          predict: "OOC in n_q via SpillArray (streaming X @ components_.T)"
+        primitive_reuse: [svd_topk, eigh_topk, spill_array]
+        migration_target: null
+        notes: "v0.9.205: fit + transform verified (component-wise DEC-033, sklearn TruncatedSVD(algorithm='arpack', tol=0) parity: sigma/components_/ev/evr max diff < 1e-9; transform < 1e-9). Pattern #1 batch-layer: svd_topk chunked Gram, OOC in n_rows. State d^2 transient (Gram+eigh), d*k persistent. Guard refuses at large d. Sklearn default algorithm='randomized' deferred v0.9.206 (power iteration); explicit algorithm='arpack' required."
       - name: randomized_svd
 
         # DEC-049: canonical home is J_nlp.J2.LSA_TFIDF_SVD
 
         cross_ref: "J_nlp.LSA_TFIDF_SVD"
         tier: sota
-        depends_on: []
+        depends_on:
+        - cadw.ml.truncated_svd.fit_truncated_svd
+        - cadw.ops.linalg.svd_topk
         tier_level: tier1_core
         implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
+          verified_in_cadw: true
+          status: verified
         roles: [representation]
         purpose: "Halko et al. 2011: randomized SVD for large d. Approximate; O(d·k·p) vs O(d²·k) exact. Canonical CADW implementation: cadw.ml.randsvd.fit_randomized_svd (verified in J_nlp.J2.LSA_TFIDF_SVD)."
         real_life_examples: ["Large-d PCA", "Approximate SVD for sparse / low-rank", "Truncated LSA"]
         config: {n_components: int, n_oversamples: int, random_state: int}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.utils.extmath.randomized_svd', algorithm_source_url: 'https://arxiv.org/abs/0909.4061', algorithm_source_kind: paper, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'Halko et al. 2011. CADW impl: fit_randomized_svd (J_nlp J2).'}
+        cadw_function: fit_truncated_svd
+        cadw_module: cadw.ml.truncated_svd
+        input_api: df
+        bounded_state: true
+        n_scalability: constant
+        bounded_state_dims: {d: 1, k: 1}
+        state_class: O(d^2)
+        state_type: aggregation
+        ram_formula: 'd * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * batch * row_size + 256'
+        min_ram_formula: 'd * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * row_size + 256'
+        formula_evidence:
+          gram: "svd_topk -- G = zeros((d, d)): d*d*f64 (chunked Reduce)"
+          eigh: "svd_topk -- eigh_topk(G, k): d*d*f64 copy + V (d,k) f64"
+          components: "truncated_svd -- components_ (k, d): k*d*f64"
+          sigma_ev_evr: "truncated_svd -- sigma + ev + evr: 3*k*f64"
+          batch: "truncated_svd -- X_batch (batch, d): 3.5*batch*row_size"
+          header: "truncated_svd -- +256 in state_nbytes()"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          sklearn_parity: "test_sklearn_parity (2 parametrized n/d/k): sigma/components_/ev/evr max diff < 1e-9; transform max diff < 1e-9. test_fit_transform_parity: same"
+          state_check: "test_state_nbytes: 6000 < state < 10000 for d=80 k=10"
+          guard: "test_guard_refuses_tight: d=200, 0.1 MB -> MemoryLimitExceeded"
+          release: "test_release_idempotent"
+          reproducibility: "test_reproducibility"
+          validation: "test_randomized_deferred / test_invalid"
+          cells_passed: "8/8"
+          runtime_sec: "~5"
+        streaming_strategy:
+          fit: "svd_topk (chunked Gram Reduce) + 2-pass streaming explained_variance. State O(d^2); OOC in n_rows."
+          predict: "deferred v0.9.206 (see notes)"
+        primitive_reuse: [svd_topk, eigh_topk, spill_array]
+        migration_target: null
+        notes: "v0.9.205: verified via fit_truncated_svd(algorithm='arpack') = exact SVD via svd_topk chunked Gram. Sklearn randomized_svd (algorithm='randomized', power iteration) deferred v0.9.206. For exact top-k use algorithm='arpack' path; identical result when random_state fixed and tol=0."
       - name: KernelPCA
         tier: sota
         depends_on:
