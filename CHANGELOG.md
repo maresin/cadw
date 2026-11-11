@@ -4693,6 +4693,81 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.214] — 2026-11-12 (PlaidModel: Lazzeroni & Owen 2002)
+
+Closes B_clustering B5 (Biclustering) — 4 of 4 implemented.
+PlaidModel implemented as deterministic ALS variant of the
+original Bayesian MCMC (faithful layer decomposition;
+documented honestly).
+
+### v0.9.214-a — fit_plaid_model
+
+- cadw/ml/plaid_model.py (new, ~360 lines):
+  * fit_plaid_model(df, X_cols, max_layers=10, min_rows=2,
+    min_cols=2, threshold=0.5, max_als_iters=10, tol=1e-4,
+    ...).
+  * Model: A_ij = sum_l (mu_l + alpha_il + beta_jl) for
+    (i,j) in layer l.
+  * Deterministic ALS: seed=argmax|R|, expand R_l/C_l via
+    mean|R| > threshold, ALS fit (mu, alpha, beta) with
+    re-centering, residual -= theta_l.
+  * PlaidResult/PlaidLayer: layers_, A_shape, residual_norm_,
+    to_dict, state_nbytes.
+  * _als_fit_submatrix (alternating LS), _expand_layer
+    (mean|R| grow).
+- cadw/ml/__init__.py: import + __all__.
+
+OOC (Pattern #3 intrinsic — iterative dense ALS):
+  - A + residual (r*c f64 each): bdm {r*c: 1e8} (1.6 GB).
+  - refuse_at_guard {min(r,c): 500} (per-layer ALS slow).
+  - SlowOperationWarning (AP22) at est > 60s.
+
+Smoke (synthetic plaid data):
+  Test 1 (single 5.0 layer, 30x20): n=1, R0={0..9}, C0={0..9},
+    mu=4.66 ✓
+  Test 2 (two disjoint layers, 40x30): n=2, both 10x10 with
+    mu=5.0 ✓
+  Test 3 (all-zero): n=0 ✓
+  Test 4 (refuse at min>500): test A was (600,50) — bug in
+    smoke test not code (correctly tested in CW-7 with 600x600)
+
+### v0.9.214-b — 12 CW tests + YAML flip + audit
+
+- tests/test_plaid_model_verification.py (12/12): single
+  layer recovery, two disjoint, all-zero, residual decreases,
+  state_nbytes, guard refuse, refuse min_rc, validation,
+  to_dict, ALS exact recovery, noise no layers, max_layers cap.
+- B_clustering.yaml: PlaidModel described_only -> verified;
+  tier2_wrapper -> tier1_core; ns=refuse_at_guard;
+  refuse_above=500; bs=false; bdm={min(r,c): 500};
+  bounded_state_dims={r, c, n_layers, max_als_iters};
+  ram_formula=2*r*c*f64 + n_layers*(r+c)*f64 + 256;
+  ooc_status=debt (permanent; Sparse-Plaid / subsample
+  approximations noted).
+- docs/audits/v0.9.214_plaid.md (new): full documentation
+  of deterministic ALS vs Bayesian MCMC.
+
+Distribution:
+  v0.9.213: 75 achieved + 69 achievable + 5 debt + 79 null
+  v0.9.214: 75 achieved + 69 achievable + 6 debt + 78 null
+  debt: STRAY + SpectralClustering x3 + Bimax + PlaidModel.
+
+B_clustering B5 (Biclustering) COMPLETE — 4 of 4:
+  SpectralCoclustering — verified, achieved (v0.9.207)
+  SpectralBiclustering — verified, achievable (v0.9.211;
+    streaming A@V pending v0.9.215+)
+  Bimax — verified, debt (v0.9.213; exponential)
+  PlaidModel — verified, debt (v0.9.214; iterative dense)
+
+Honest note: PlaidModel implements deterministic ALS variant
+of the paper's Bayesian MCMC. Faithful layer decomposition
+(mu + alpha + beta, residual update, seed selection), but
+different inference (point estimate vs posterior). Documented
+in docstring + audit. `status: verified` refers to
+deterministic variant parity, not original MCMC.
+
+Focused: 128 passed (12 Plaid tests + schema + G22/G24/G25).
+
 ## [0.9.213] — 2026-11-12 (Bimax: binary biclustering, Prelic 2006)
 
 Closes B_clustering B5 (Biclustering) — 3 of 4 implemented.
