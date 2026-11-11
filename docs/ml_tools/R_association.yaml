@@ -7,111 +7,244 @@
 section: R
 name: Association rule mining
 subtypes:
-  # NOT-ENSEMBLE (R1): association rules (patterns, not predictions)
-  - id: R1
-    name: "Frequent itemset mining"
-    description: "Discover itemsets appearing together above a frequency threshold. Basis for association rules (A -> B)."
-    real_life: ["Market basket analysis", "Cross-sell recommendations", "Web clickstream co-occurrence"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [mean_lift, runtime_s], note: "No unified ARM leaderboard. Metrics per-dataset on transaction DGP."}
-    models:
-      - name: Apriori
-        tier: baseline
-        depends_on:
-        - cadw.ops.itemset.apriori
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Agrawal & Srikant 1994: level-wise candidate generation with downward-closure pruning. Simple, but repeated full scans; slow when max-itemset is large."
-        real_life_examples: ["Market basket analysis", "Cross-sell rules", "Small dense transactions"]
-        config: {min_support: float, min_confidence: float, max_len: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches', algorithm: 'mlxtend.frequent_patterns.apriori', algorithm_source_url: 'https://rasbt.github.io/mlxtend/user_guide/frequent_patterns/apriori/', algorithm_source_kind: docs, attribution: literature, task_type: association_rules, n_datasets: null, metric: mean_lift, value: null, note: 'no_public_benchmark: no unified ARM LB. mlxtend reference.'}
-
-      - name: Eclat
-        tier: baseline
-        depends_on:
-        - cadw.ops.itemset.eclat
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Zaki 2000: depth-first vertical tid-set intersection. Equivalent to Apriori output; fewer scans when transactions sparse. DFS helps memory in some regimes."
-        real_life_examples: ["Sparse transactions", "Vertical data layout", "Frequent itemset mining"]
-        config: {min_support: float, max_len: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches', algorithm: 'pyclustering.cluster.eclat', algorithm_source_url: 'https://github.com/annoviko/pyclustering', algorithm_source_kind: code, attribution: literature, task_type: association_rules, n_datasets: null, metric: mean_lift, value: null, note: 'no_public_benchmark: no unified ARM LB.'}
-
-      - name: FP-growth
-        tier: sota
-        depends_on:
-        - cadw.ops.itemset.fp_growth
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Han et al. 2000: FP-tree construction + pattern growth. Two DB scans total; usually 1-2 orders faster than Apriori on dense data. Canonical SOTA for frequent itemsets."
-        real_life_examples: ["Dense transactions", "Large itemsets", "Production ARM"]
-        config: {min_support: float, max_len: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches', algorithm: 'mlxtend.frequent_patterns.fpgrowth', algorithm_source_url: 'https://rasbt.github.io/mlxtend/user_guide/frequent_patterns/fpgrowth/', algorithm_source_kind: docs, attribution: literature, task_type: association_rules, n_datasets: null, metric: mean_lift, value: null, note: 'no_public_benchmark: Han et al. 2000 numbers per-dataset.'}
+- id: R1
+  name: Frequent itemset mining
+  description: Discover itemsets appearing together above a frequency threshold. Basis for association rules (A -> B).
+  real_life:
+  - Market basket analysis
+  - Cross-sell recommendations
+  - Web clickstream co-occurrence
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: mean_lift, combination: anchor, direction: higher, responsibility: "Average lift of discovered rules; primary association quality.", special: "Requires min_support threshold; report across 3 thresholds.", not_implemented_in_cadw: true}
-      - {name: runtime_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific; strongly dataset-dependent."}
-
-  - id: R2
-    name: "Sequential pattern mining"
-    description: "Frequent subsequences in event sequences (order matters). Patterns like (A -> B -> C) over time-ordered transactions."
-    real_life: ["User journey patterns", "Gene sequence motifs", "Log sequence mining"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [sequence_coverage, runtime_s], note: "No unified SPM leaderboard."}
-    models:
-      - name: GSP
-        tier: baseline
-        depends_on:
-        - cadw.ops.itemset.gsp
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure, temporal_dynamics]
-        purpose: "Srikant & Agrawal 1996: Generalized Sequential Patterns — Apriori-style for sequences. Multiple DB scans; simple but slow."
-        real_life_examples: ["User journey patterns", "Log sequence discovery"]
-        config: {min_support: float, max_gap: int, max_len: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches', algorithm: 'SPMF GSP', algorithm_source_url: 'https://www.philippe-fournier-viger.com/spmf/', algorithm_source_kind: code, attribution: literature, task_type: association_rules, n_datasets: null, metric: sequence_coverage, value: null, note: 'no_public_benchmark: SPMF library reference (Fournier-Viger).'}
-
-      - name: PrefixSpan
-        tier: sota
-        depends_on:
-        - cadw.ops.itemset.prefix_span
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure, temporal_dynamics]
-        purpose: "Pei et al. 2001: prefix-projected pattern growth. No candidate generation; depth-first on projected DBs. Usually much faster than GSP on large sequences."
-        real_life_examples: ["Large event logs", "User journey patterns", "Gene sequence motifs"]
-        config: {min_support: float, max_len: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches', algorithm: 'SPMF PrefixSpan', algorithm_source_url: 'https://www.philippe-fournier-viger.com/spmf/', algorithm_source_kind: code, attribution: literature, task_type: association_rules, n_datasets: null, metric: sequence_coverage, value: null, note: 'no_public_benchmark: SPMF reference. Pei et al. 2001.'}
-      - name: HMM
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Hidden Markov Model: probabilistic sequential structure via latent states."
-        real_life_examples: ["Sequence motif discovery", "User-journey state modeling"]
-        config: {n_states: int, n_iter: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'HMM', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.mixture.GaussianMixture.html', algorithm_source_kind: docs, attribution: literature, task_type: association_rules, n_datasets: null, metric: sequence_coverage, value: null, note: 'no_public_benchmark: HMM sequential coherence per-dataset'}
+    - mean_lift
+    - runtime_s
+    note: No unified ARM leaderboard. Metrics per-dataset on transaction DGP.
+  models:
+  - name: Apriori
+    tier: baseline
+    depends_on:
+    - cadw.ops.itemset.apriori
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Agrawal & Srikant 1994: level-wise candidate generation with downward-closure pruning. Simple, but repeated full scans; slow when max-itemset is large.'
+    real_life_examples:
+    - Market basket analysis
+    - Cross-sell rules
+    - Small dense transactions
+    config:
+      min_support: float
+      min_confidence: float
+      max_len: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+      algorithm: mlxtend.frequent_patterns.apriori
+      algorithm_source_url: https://rasbt.github.io/mlxtend/user_guide/frequent_patterns/apriori/
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: association_rules
+      n_datasets: null
+      metric: mean_lift
+      value: null
+      note: 'no_public_benchmark: no unified ARM LB. mlxtend reference.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Agrawal & Srikant 1994: level-wise candidate generation with downward-closure pruning. Simple, but r... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: Eclat
+    tier: baseline
+    depends_on:
+    - cadw.ops.itemset.eclat
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Zaki 2000: depth-first vertical tid-set intersection. Equivalent to Apriori output; fewer scans when transactions sparse. DFS helps memory in some regimes.'
+    real_life_examples:
+    - Sparse transactions
+    - Vertical data layout
+    - Frequent itemset mining
+    config:
+      min_support: float
+      max_len: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+      algorithm: pyclustering.cluster.eclat
+      algorithm_source_url: https://github.com/annoviko/pyclustering
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: association_rules
+      n_datasets: null
+      metric: mean_lift
+      value: null
+      note: 'no_public_benchmark: no unified ARM LB.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Zaki 2000: depth-first vertical tid-set intersection. Equivalent to Apriori output; fewer scans when... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: FP-growth
+    tier: sota
+    depends_on:
+    - cadw.ops.itemset.fp_growth
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Han et al. 2000: FP-tree construction + pattern growth. Two DB scans total; usually 1-2 orders faster than Apriori on dense data. Canonical SOTA for frequent itemsets.'
+    real_life_examples:
+    - Dense transactions
+    - Large itemsets
+    - Production ARM
+    config:
+      min_support: float
+      max_len: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+      algorithm: mlxtend.frequent_patterns.fpgrowth
+      algorithm_source_url: https://rasbt.github.io/mlxtend/user_guide/frequent_patterns/fpgrowth/
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: association_rules
+      n_datasets: null
+      metric: mean_lift
+      value: null
+      note: 'no_public_benchmark: Han et al. 2000 numbers per-dataset.'
+  metrics:
+  - name: mean_lift
+    combination: anchor
+    direction: higher
+    responsibility: Average lift of discovered rules; primary association quality.
+    special: Requires min_support threshold; report across 3 thresholds.
+    not_implemented_in_cadw: true
+  - name: runtime_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock fit time.
+    special: Hardware-specific; strongly dataset-dependent.
+- id: R2
+  name: Sequential pattern mining
+  description: Frequent subsequences in event sequences (order matters). Patterns like (A -> B -> C) over time-ordered transactions.
+  real_life:
+  - User journey patterns
+  - Gene sequence motifs
+  - Log sequence mining
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: sequence_coverage, combination: anchor, direction: higher, responsibility: "Fraction of input sequences containing at least one discovered pattern.", special: "Depends on min_support; report across 3 thresholds.", not_implemented_in_cadw: true}
-      - {name: runtime_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
+    - sequence_coverage
+    - runtime_s
+    note: No unified SPM leaderboard.
+  models:
+  - name: GSP
+    tier: baseline
+    depends_on:
+    - cadw.ops.itemset.gsp
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    - temporal_dynamics
+    purpose: 'Srikant & Agrawal 1996: Generalized Sequential Patterns — Apriori-style for sequences. Multiple DB scans; simple but slow.'
+    real_life_examples:
+    - User journey patterns
+    - Log sequence discovery
+    config:
+      min_support: float
+      max_gap: int
+      max_len: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+      algorithm: SPMF GSP
+      algorithm_source_url: https://www.philippe-fournier-viger.com/spmf/
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: association_rules
+      n_datasets: null
+      metric: sequence_coverage
+      value: null
+      note: 'no_public_benchmark: SPMF library reference (Fournier-Viger).'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Srikant & Agrawal 1996: Generalized Sequential Patterns — Apriori-style for sequences. Multiple DB s... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: PrefixSpan
+    tier: sota
+    depends_on:
+    - cadw.ops.itemset.prefix_span
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    - temporal_dynamics
+    purpose: 'Pei et al. 2001: prefix-projected pattern growth. No candidate generation; depth-first on projected DBs. Usually much faster than GSP on large sequences.'
+    real_life_examples:
+    - Large event logs
+    - User journey patterns
+    - Gene sequence motifs
+    config:
+      min_support: float
+      max_len: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
+      algorithm: SPMF PrefixSpan
+      algorithm_source_url: https://www.philippe-fournier-viger.com/spmf/
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: association_rules
+      n_datasets: null
+      metric: sequence_coverage
+      value: null
+      note: 'no_public_benchmark: SPMF reference. Pei et al. 2001.'
+  - name: HMM
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: 'Hidden Markov Model: probabilistic sequential structure via latent states.'
+    real_life_examples:
+    - Sequence motif discovery
+    - User-journey state modeling
+    config:
+      n_states: int
+      n_iter: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: HMM
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.mixture.GaussianMixture.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: association_rules
+      n_datasets: null
+      metric: sequence_coverage
+      value: null
+      note: 'no_public_benchmark: HMM sequential coherence per-dataset'
+  metrics:
+  - name: sequence_coverage
+    combination: anchor
+    direction: higher
+    responsibility: Fraction of input sequences containing at least one discovered pattern.
+    special: Depends on min_support; report across 3 thresholds.
+    not_implemented_in_cadw: true
+  - name: runtime_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock fit time.
+    special: Hardware-specific.

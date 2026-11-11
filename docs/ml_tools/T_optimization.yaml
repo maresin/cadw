@@ -7,128 +7,271 @@
 section: T
 name: Optimization
 subtypes:
-  # NOT-ENSEMBLE (T1): GP-EI/TPE/SMAC = 3 algorithmically different; roles-proxy not applicable
-  - id: T1
-    name: "Bayesian optimization"
-    description: "Model the objective with a surrogate (GP / TPE) and select next point by acquisition. Sample-efficient for expensive black-box."
-    real_life: ["Hyperparameter search", "Simulation-based design", "Neural-architecture search"]
-    benchmarks:
-      - {name: HPOBench, url: "https://github.com/automl/HPOBench", metrics: [best_found_value, n_evals_to_target], note: "HPO benchmarks: best value vs eval budget. Not comparable to AutoML leaderboards."}
-    models:
-      - name: GP-EI
-        tier: baseline
-        depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.linalg.chol_solve
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Mockus 1975: Gaussian-process surrogate + Expected Improvement acquisition. Sample-efficient for low-dim spaces; O(n^3) GP fit limits n_evals."
-        real_life_examples: ["Continuous HPO", "Expensive simulation", "Low-dim design"]
-        config: {n_initial: int, n_iter: int, kernel: string}
-        benchmark_results:
-          - {benchmark: HPOBench, benchmark_url: 'https://github.com/automl/HPOBench', algorithm: 'skopt.gp_minimize', algorithm_source_url: 'https://scikit-optimize.github.io/', algorithm_source_kind: docs, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'HPOBench suites; GP-EI is canonical baseline.'}
-
-      - name: TPE
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic, local_structure]
-        purpose: "Bergstra et al. 2011: Tree-structured Parzen Estimator. Density-ratio surrogate; handles categorical / conditional spaces better than GP. Optuna default."
-        real_life_examples: ["Mixed-type HPO", "Conditional search spaces", "Optuna production"]
-        config: {n_initial: int, n_iter: int, gamma: float}
-        benchmark_results:
-          - {benchmark: HPOBench, benchmark_url: 'https://github.com/automl/HPOBench', algorithm: 'optuna.samplers.TPESampler', algorithm_source_url: 'https://optuna.readthedocs.io/', algorithm_source_kind: docs, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'Bergstra 2011; Optuna implementation.'}
-
-      - name: SMAC
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.linalg.chol_solve
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Hutter et al. 2011: Sequential Model-based Algorithm Configuration. Random forest surrogate; robust for categorical/conditional spaces."
-        real_life_examples: ["Algorithm configuration", "Mixed-type HPO"]
-        config: {n_initial: int, n_iter: int, intensification: float}
-        benchmark_results:
-          - {benchmark: HPOBench, benchmark_url: 'https://github.com/automl/HPOBench', algorithm: 'smac.SMAC4HPO', algorithm_source_url: 'https://automl.github.io/SMAC3/', algorithm_source_kind: docs, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'Hutter 2011; SMAC3 implementation.'}
+- id: T1
+  name: Bayesian optimization
+  description: Model the objective with a surrogate (GP / TPE) and select next point by acquisition. Sample-efficient for expensive black-box.
+  real_life:
+  - Hyperparameter search
+  - Simulation-based design
+  - Neural-architecture search
+  benchmarks:
+  - name: HPOBench
+    url: https://github.com/automl/HPOBench
     metrics:
-      - {name: best_found_value, combination: anchor, direction: higher, responsibility: "Best objective value found at fixed eval budget.", special: "Direction depends on optimization sign; report as-is with sign convention.", not_implemented_in_cadw: true}
-      - {name: n_evals_to_target, combination: diagnostic, direction: lower, responsibility: "Number of evals to reach target value; sample-efficiency measure.", special: "Requires predefined target; not always available."}
-
-  - id: T2
-    name: "Derivative-free optimization"
-    description: "Non-model-based or evolutionary; useful when the objective is noisy / non-stationary / high-dim."
-    real_life: ["Hyperparameter search", "Noisy simulation optimization", "High-dim black-box"]
-    benchmarks:
-      - {name: HPOBench, url: "https://github.com/automl/HPOBench", metrics: [best_found_value, n_evals_to_target], note: "Same as T1."}
-    models:
-      - name: NelderMead
-        tier: baseline
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Nelder & Mead 1965: simplex reflection/expansion/contraction. No derivatives; local; fast in low-dim but poor in high-dim."
-        real_life_examples: ["Low-dim smooth optimization", "Cheap objective"]
-        config: {xatol: float, fatol: float, maxiter: int}
-        benchmark_results:
-          - {benchmark: HPOBench, benchmark_url: 'https://github.com/automl/HPOBench', algorithm: 'scipy.optimize.minimize(method="Nelder-Mead")', algorithm_source_url: 'https://docs.scipy.org/doc/scipy/reference/optimize.minimize-neldermead.html', algorithm_source_kind: docs, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'scipy reference implementation.'}
-
-      - name: CMA-ES
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Hansen & Ostermeier 2001: Covariance Matrix Adaptation Evolution Strategy. Learns variable correlations; competitive with BO in mid-dim. Population-based."
-        real_life_examples: ["Mid-dim continuous optimization", "Noisy objective", "Non-convex"]
-        config: {popsize: int, sigma0: float, maxiter: int}
-        benchmark_results:
-          - {benchmark: HPOBench, benchmark_url: 'https://github.com/automl/HPOBench', algorithm: 'cma.CMAEvolutionStrategy', algorithm_source_url: 'https://github.com/CMA-ES/pycma', algorithm_source_kind: code, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'Hansen 2001; pycma reference.'}
-      - name: BayesianOpt_GP
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.linalg.chol_solve
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "GP surrogate + EI acquisition; sample-efficient HPO alternative to simplex/evolution methods."
-        real_life_examples: ["Sample-efficient HPO", "Expensive simulation optimization"]
-        config: {n_initial: int, n_iter: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'BayesianOpt_GP', algorithm_source_url: 'https://arxiv.org/abs/1012.2599', algorithm_source_kind: paper, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'no_public_benchmark: HPOBench suites (no single LB)'}
-      - name: SMAC
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.linalg.chol_solve
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L4"
-        depends_on_status: planned
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [nonlinear_interactions]
-        purpose: "Random-forest surrogate + intensification; nonlinear HPO surrogate for categorical/conditional."
-        real_life_examples: ["Algorithm configuration", "Categorical search space"]
-        config: {n_initial: int, intensification: float}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SMAC', algorithm_source_url: 'https://automl.github.io/SMAC3/', algorithm_source_kind: docs, attribution: literature, task_type: optimization, n_datasets: null, metric: best_found_value, value: null, note: 'no_public_benchmark: HPOBench suites'}
+    - best_found_value
+    - n_evals_to_target
+    note: 'HPO benchmarks: best value vs eval budget. Not comparable to AutoML leaderboards.'
+  models:
+  - name: GP-EI
+    tier: baseline
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.linalg.chol_solve
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: 'Mockus 1975: Gaussian-process surrogate + Expected Improvement acquisition. Sample-efficient for low-dim spaces; O(n^3) GP fit limits n_evals.'
+    real_life_examples:
+    - Continuous HPO
+    - Expensive simulation
+    - Low-dim design
+    config:
+      n_initial: int
+      n_iter: int
+      kernel: string
+    benchmark_results:
+    - benchmark: HPOBench
+      benchmark_url: https://github.com/automl/HPOBench
+      algorithm: skopt.gp_minimize
+      algorithm_source_url: https://scikit-optimize.github.io/
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: optimization
+      n_datasets: null
+      metric: best_found_value
+      value: null
+      note: HPOBench suites; GP-EI is canonical baseline.
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Mockus 1975: Gaussian-process surrogate + Expected Improvement acquisition. Sample-efficient for low... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: TPE
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    - local_structure
+    purpose: 'Bergstra et al. 2011: Tree-structured Parzen Estimator. Density-ratio surrogate; handles categorical / conditional spaces better than GP. Optuna default.'
+    real_life_examples:
+    - Mixed-type HPO
+    - Conditional search spaces
+    - Optuna production
+    config:
+      n_initial: int
+      n_iter: int
+      gamma: float
+    benchmark_results:
+    - benchmark: HPOBench
+      benchmark_url: https://github.com/automl/HPOBench
+      algorithm: optuna.samplers.TPESampler
+      algorithm_source_url: https://optuna.readthedocs.io/
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: optimization
+      n_datasets: null
+      metric: best_found_value
+      value: null
+      note: Bergstra 2011; Optuna implementation.
+  - name: SMAC
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.linalg.chol_solve
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: 'Hutter et al. 2011: Sequential Model-based Algorithm Configuration. Random forest surrogate; robust for categorical/conditional spaces.'
+    real_life_examples:
+    - Algorithm configuration
+    - Mixed-type HPO
+    config:
+      n_initial: int
+      n_iter: int
+      intensification: float
+    benchmark_results:
+    - benchmark: HPOBench
+      benchmark_url: https://github.com/automl/HPOBench
+      algorithm: smac.SMAC4HPO
+      algorithm_source_url: https://automl.github.io/SMAC3/
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: optimization
+      n_datasets: null
+      metric: best_found_value
+      value: null
+      note: Hutter 2011; SMAC3 implementation.
+  metrics:
+  - name: best_found_value
+    combination: anchor
+    direction: higher
+    responsibility: Best objective value found at fixed eval budget.
+    special: Direction depends on optimization sign; report as-is with sign convention.
+    not_implemented_in_cadw: true
+  - name: n_evals_to_target
+    combination: diagnostic
+    direction: lower
+    responsibility: Number of evals to reach target value; sample-efficiency measure.
+    special: Requires predefined target; not always available.
+- id: T2
+  name: Derivative-free optimization
+  description: Non-model-based or evolutionary; useful when the objective is noisy / non-stationary / high-dim.
+  real_life:
+  - Hyperparameter search
+  - Noisy simulation optimization
+  - High-dim black-box
+  benchmarks:
+  - name: HPOBench
+    url: https://github.com/automl/HPOBench
     metrics:
-      - {name: best_found_value, combination: anchor, direction: higher, responsibility: "Best objective value at fixed eval budget.", special: "Direction depends on optimization sign.", not_implemented_in_cadw: true}
+    - best_found_value
+    - n_evals_to_target
+    note: Same as T1.
+  models:
+  - name: NelderMead
+    tier: baseline
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Nelder & Mead 1965: simplex reflection/expansion/contraction. No derivatives; local; fast in low-dim but poor in high-dim.'
+    real_life_examples:
+    - Low-dim smooth optimization
+    - Cheap objective
+    config:
+      xatol: float
+      fatol: float
+      maxiter: int
+    benchmark_results:
+    - benchmark: HPOBench
+      benchmark_url: https://github.com/automl/HPOBench
+      algorithm: scipy.optimize.minimize(method="Nelder-Mead")
+      algorithm_source_url: https://docs.scipy.org/doc/scipy/reference/optimize.minimize-neldermead.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: optimization
+      n_datasets: null
+      metric: best_found_value
+      value: null
+      note: scipy reference implementation.
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Nelder & Mead 1965: simplex reflection/expansion/contraction. No derivatives; local; fast in low-dim... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: CMA-ES
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Hansen & Ostermeier 2001: Covariance Matrix Adaptation Evolution Strategy. Learns variable correlations; competitive with BO in mid-dim. Population-based.'
+    real_life_examples:
+    - Mid-dim continuous optimization
+    - Noisy objective
+    - Non-convex
+    config:
+      popsize: int
+      sigma0: float
+      maxiter: int
+    benchmark_results:
+    - benchmark: HPOBench
+      benchmark_url: https://github.com/automl/HPOBench
+      algorithm: cma.CMAEvolutionStrategy
+      algorithm_source_url: https://github.com/CMA-ES/pycma
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: optimization
+      n_datasets: null
+      metric: best_found_value
+      value: null
+      note: Hansen 2001; pycma reference.
+  - name: BayesianOpt_GP
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.linalg.chol_solve
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: GP surrogate + EI acquisition; sample-efficient HPO alternative to simplex/evolution methods.
+    real_life_examples:
+    - Sample-efficient HPO
+    - Expensive simulation optimization
+    config:
+      n_initial: int
+      n_iter: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: BayesianOpt_GP
+      algorithm_source_url: https://arxiv.org/abs/1012.2599
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: optimization
+      n_datasets: null
+      metric: best_found_value
+      value: null
+      note: 'no_public_benchmark: HPOBench suites (no single LB)'
+  - name: SMAC
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.linalg.chol_solve
+    depends_on_backlog: PRIMITIVES_BACKLOG §L3, §L4
+    depends_on_status: planned
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - nonlinear_interactions
+    purpose: Random-forest surrogate + intensification; nonlinear HPO surrogate for categorical/conditional.
+    real_life_examples:
+    - Algorithm configuration
+    - Categorical search space
+    config:
+      n_initial: int
+      intensification: float
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: SMAC
+      algorithm_source_url: https://automl.github.io/SMAC3/
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: optimization
+      n_datasets: null
+      metric: best_found_value
+      value: null
+      note: 'no_public_benchmark: HPOBench suites'
+  metrics:
+  - name: best_found_value
+    combination: anchor
+    direction: higher
+    responsibility: Best objective value at fixed eval budget.
+    special: Direction depends on optimization sign.
+    not_implemented_in_cadw: true

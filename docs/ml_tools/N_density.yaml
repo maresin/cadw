@@ -9,192 +9,311 @@
 section: N
 name: Density estimation
 subtypes:
-  - id: N1
-    name: "Unsupervised density"
-    description: "Estimate p(x) for tabular data; score new samples and detect low-density regions."
-    real_life:
-      - "Novelty / anomaly detection via low-likelihood"
-      - "Generative sampling for simulation"
-      - "Cohort modeling / mixture discovery"
-    benchmarks:
-      - name: cadw_internal
-        url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches"
-        metrics: [fit_time_s, peak_rss_mb, mean_log_likelihood, n_clusters]
-        note: "No public density leaderboard; subtype uses CADW-native measurements only."
-    models:
-      - name: GaussianMixture
-        tier: baseline
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [probabilistic]
-        purpose: "EM-fitted mixture of Gaussians. Inductive bias: data are drawn from a fixed number of Gaussian components — strong when clusters are approximately ellipsoidal and K is known; the canonical parametric density baseline."
-        real_life_examples: ["Gaussian-cluster customer segmentation", "Anomaly detection via low likelihood", "Synthetic sampling for simulation"]
-        config: {n_components: int, covariance_type: string, random_state: int, max_iter: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/gmm.json', algorithm: 'cadw.ml.gmm', algorithm_source_url: 'cadw/ml/gmm.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: density, n_datasets: 2, metric: mean_log_likelihood, value: -7.095, std: 0.0005, note: 'CADW-native: mean_ll=-7.095 @n=100k and -7.096 @n=1M (scripts/bench_gmm.py run 2026-10-24, .pingis/benches/gmm.json); std=half-range; NOT comparable to external LB.'}
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/gmm.json', algorithm: 'cadw.ml.gmm', algorithm_source_url: 'cadw/ml/gmm.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: density, n_datasets: 2, metric: fit_time_s, value: 3.258, std: 1.444, note: 'CADW-native: fit_s=0.37 @n=100k and 3.258 @n=1M (scripts/bench_gmm.py, .pingis/benches/gmm.json); std=half-range; hardware-specific.'}
-        cadw_module: cadw.ml.gmm
-        cadw_function: fit_gmm
-        input_api: df
-        fit_batched: true
-        predict_batched: true
-        depends_on: []
-
-        state_class: O(model)
-        bounded_state_dims: {k: 1, d: 1, max_samples: 1}
-        transient_factor: 1.0
-        state_type: iterative
-        bounded_state: true
-        ram_formula: "k * (1 + 2 * d) * f64 + 5 * max_samples * d * f64 + 2.0 * batch * row_size + 256"
-        formula_evidence:
-          state_weights: "gmm.py -- GMMModel.weights_ = np.asarray(weights); shape (k,); k*f64"
-          state_means_covars: "gmm.py -- means_ (k,d) + covariances_ (k,d); 2*k*d*f64"
-          state_header: "gmm.py -- GMMModel.state_nbytes() = (weights.size+means.size+covariances.size)*8; +256 header in state_est"
-          em_sample: "gmm.py -- sample = np.empty((S, d)) reservoir; S*d*f64 held during EM"
-          em_mstep_temp: "gmm.py -- M-step: diff = X - means[j]; r[:,j:j+1]*diff*diff -> 4*S*d*f64 (diff + 3 intermediates)"
-          coef_batch: "gmm.py -- fit loop: arrays list + np.column_stack; 2 physical copies of row_size. Measured 1.73-2.0 (first-batch allocator reuse biases slope low)."
-          ef_guard: "expansion_factor=3.0 = ceil(2.0*1.15) per AP23 round-up"
-        min_ram_formula: "k * (1 + 2 * d) * f64 + 5 * max_samples * d * f64 + 2.0 * 1 * row_size + 256"
-        min_ram_evidence:
-          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          state_check: "test_state_nbytes_exact: k*(1+2d)*8, (K,d) in {(2,10),(3,50),(5,100),(3,200)}"
-          state_indep_n: "test_state_independent_of_n: state(n=500) == state(n=5000) when max_samples < n"
-          coef_batch: "test_batch_coef_isolated: slope/row_size in [1.5, 3.0] (measured 1.73-2.0)"
-          formula_sanity: "test_formula_small_scale: predicted/measured in [0.7, 1.4] (d=200,S=1000,batch=1000)"
-          ooc: "test_ooc_batch_fixed: peak(n=5000)/peak(n=1000) < 2.0"
-          cells_passed: "8/8"
-          runtime_sec: "~5"
-          note: "Combined RSS matrix unmeasurable at large d (baseline >> peak). Component-wise per DEC-033."
-        n_scalability: constant
-        streaming_strategy:
-        fit: 'bounded reservoir sample (max_samples=10k, v0.9.31); standard EM on sample; k*d params.'
-        predict: 'per-batch responsibility (no n-sized state).'
-        primitive_reuse: [reduce]
-      - name: KernelDensity
-        cadw_function: fit_kernel_density
-        cadw_module: cadw.ml.kernel_density
-        input_api: df
-        n_scalability: constant
-        bounded_state: true
-        bounded_state_dims: {n_centers: 1, d: 1}
-        state_class: O(model)
-        state_type: aggregation
-        streaming_strategy: |
-          fit: reservoir sample of K centers (one streaming pass).
-          State (K, d) f64 centers + bandwidth scalar.
-          score: logsumexp per query batch, chunk-wise over centers.
-          Centers spill to disk when K*d*8 > state_limit_bytes.
-        primitive_reuse: [spill_array]
-        fit_batched: true
-        predict_batched: true
-        ram_formula: "n_centers * d * f64 + 128 + 4.0 * batch * row_size"
-        formula_evidence:
-          centers: "cadw/ml/kernel_density.py -- _reservoir_k: np.empty((K, d)) f64"
-          header: "cadw/ml/kernel_density.py -- _HEADER_BYTES=128 (RAM) / 256 (spilled)"
-          batch_term: "cadw/ml/kernel_density.py -- _reservoir_k: column_stack + mask + rng probs"
-        min_ram_formula: "n_centers * d * f64 + 128 + 4.0 * 1 * row_size"
-        min_ram_evidence:
-          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          state_check: "test_state_nbytes_exact: bit-exact, 4 (K,d) parametrized"
-          state_ooc: "test_state_independent_of_n: state identical n=500 vs n=5000 (same K)"
-          state_spilled: "test_spilled_state_constant: K*d*8 > state_limit -> state=256"
-          formula_sanity: "SKIPPED (DEC-034: row_size=d*8 small, signal < noise)"
-          guard: "test_guard_refuses_at_tight: K=100k + 0.05 MB -> MemoryLimitExceeded"
-          correctness: "test_score_finite_on_gaussian + test_bandwidth_positive_and_silverman + test_score_samples_streaming"
-          cells_passed: "6/6 (OOC sanity skipped)"
-          runtime_sec: "~2"
-        tier: baseline
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [local_structure, probabilistic]
-        purpose: "Non-parametric kernel density estimator; the density is a sum of kernel bumps at every training point. Inductive bias: smooth local structure with bandwidth-controlled smoothing — no parametric form, but O(n) scoring and fragile in high dimensions."
-        real_life_examples: ["1-2D density visualization", "Anomaly scoring in low-d sensor streams", "Smooth residual distributions"]
-        config: {kernel: string, bandwidth: float}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.neighbors.KernelDensity', algorithm_source_url: 'https://scikit-learn.org/stable/modules/density.html', algorithm_source_kind: docs, attribution: literature, task_type: density, n_datasets: null, metric: mean_log_likelihood, value: null, note: 'no_public_benchmark: AMLB/OpenML measure supervised metrics only; no density log-likelihood leaderboard'}
-
-      - name: BIRCH
-        tier: baseline
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          verified_by_agent: true
-          status: verified
-        roles: [local_structure, representation]
-        purpose: "Balanced iterative reducing and clustering using hierarchies (Zhang 1996). Inductive bias: cluster-feature tree with radius threshold; density is approximated by per-leaf counts. Not a true density model but a scalable cluster-based density proxy."
-        real_life_examples: ["Streaming cluster discovery", "Large-catalog bucketing", "Approximate density for n>>memory"]
-        config: {threshold: float, branching_factor: int, n_clusters: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/birch.json', algorithm: 'cadw.ml.birch', algorithm_source_url: 'cadw/ml/birch.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: density, n_datasets: 3, metric: fit_time_s, value: 3.388, std: 1.551, note: 'CADW-native: fit_s=0.286/1.336/3.388 @n=5k/20k/50k (scripts/bench_birch.py, .pingis/benches/birch.json); std=half-range; hardware-specific.'}
-        cadw_module: cadw.ml.birch
-        cadw_function: fit_birch
-        input_api: df
-        fit_batched: true
-        predict_batched: true
-        depends_on: []
-
-        ram_formula: "branching_factor * ((2*d+1)*f64 + 32) + k*d*f64 + 512 + 3*batch*row_size"
-
-        min_ram_formula: "branching_factor * ((2*d+1)*f64 + 32) + k*d*f64 + 512 + 3*1*row_size"
-
-        min_ram_evidence:
-
-          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
-        formula_evidence:
-          per_cf: "birch.py:104 -- state_nbytes: cf_count * ((2d+1)*8 + 32); cf_count <= branching_factor by split policy"
-          centers: "birch.py:105 -- centers_.nbytes = k*d*8 (k=min(n_clusters, cf_count))"
-          header: "birch.py:105 -- +512 constant"
-          batch: "birch.py:220 -- check_batch(extra_factor=3.0); _stack_numeric on f64 columns = 1x column_stack (per-column zero-copy); measured coef 1.16; formula uses 3.0 conservative per fit_linear v0.9.107; see DEC-035"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          state_check: "test_state_nbytes_exact: state_nbytes() == cf_count*((2d+1)*8+32) + k*d*8 + 512"
-          state_bounded: "test_state_bounded_for_large_n + test_cf_count_bounded: ratio < 2.0 and cf_count <= bf at n=1k..20k"
-          coef_batch: "test_batch_coef_isolated: slope/row_size in [0.8, 2.5]; measured 1.16"
-          formula_sanity: "test_formula_small_scale: predicted/measured in [0.5, 2.0]"
-          ooc: "test_ooc_batch_fixed: peak ratio < 2.0 (median-of-3)"
-          cells_passed: "6/6"
-          runtime_sec: "~5"
-          note: "Component-wise per DEC-033. cf_count is data-dependent but bounded by branching_factor (1-level tree split policy)."
-        state_class: O(model)
-        bounded_state_dims: {branching_factor: 1, k: 1, d: 1}
-        transient_factor: 1.0
-        state_type: aggregation
-        bounded_state: true
-        n_scalability: constant
-        streaming_strategy:
-        fit: 'CF-tree build per batch; threshold/leaf bounded.'
-        predict: 'per-batch nearest CF subcluster.'
-        primitive_reuse: [reduce]
-      - name: HDBSCAN
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.knn_query
-        - cadw.ops.linalg.core_distances
-        - cadw.ops.graph.mst
-        tier_level: tier2_wrapper
-        implementation_status: {described_only: true}
-        roles: [local_structure]
-        purpose: "Hierarchical density-based clustering (Campello 2013). Inductive bias: clusters are contiguous high-density regions at variable density — automatically discovers K, robust to noise. Strong on irregular densities but no explicit p(x)."
-        real_life_examples: ["Open-set clustering / noise detection", "Arbitrary-shape density modes", "Geospatial hot-spot detection"]
-        config: {min_cluster_size: int, min_samples: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'hdbscan.HDBSCAN', algorithm_source_url: 'https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html', algorithm_source_kind: docs, attribution: literature, task_type: density, n_datasets: null, metric: mean_log_likelihood, value: null, note: 'no_public_benchmark: HDBSCAN does not output log-likelihood; no unified density leaderboard'}
-
+- id: N1
+  name: Unsupervised density
+  description: Estimate p(x) for tabular data; score new samples and detect low-density regions.
+  real_life:
+  - Novelty / anomaly detection via low-likelihood
+  - Generative sampling for simulation
+  - Cohort modeling / mixture discovery
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: mean_log_likelihood, combination: anchor, direction: higher, responsibility: 'Mean held-out log-likelihood; the canonical density-quality metric.', special: 'Scale-dependent: not comparable across dataset normalizations. Report median across runs when n_datasets>=2.'}
-      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: 'Wall-clock fit time.', special: 'Hardware-specific; only comparable within the same bench run.'}
-      - {name: peak_rss_mb, combination: diagnostic, direction: lower, responsibility: 'Peak resident memory.', special: 'Includes Python + numpy overhead; not a pure model cost.'}
-    ensemble_recommendation:
-      - roles: [probabilistic, local_structure]
-        models: [GaussianMixture, BIRCH]
-        max_per_role: 2
-        note: "GMM gives parametric densities; BIRCH gives scalable cluster-based density proxy. Complementary when n spans 10k-1M; use GMM when K is known and parametric log-likelihood is needed."
+    - fit_time_s
+    - peak_rss_mb
+    - mean_log_likelihood
+    - n_clusters
+    note: No public density leaderboard; subtype uses CADW-native measurements only.
+  models:
+  - name: GaussianMixture
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - probabilistic
+    purpose: 'EM-fitted mixture of Gaussians. Inductive bias: data are drawn from a fixed number of Gaussian components — strong when clusters are approximately ellipsoidal and K is known; the canonical parametric density baseline.'
+    real_life_examples:
+    - Gaussian-cluster customer segmentation
+    - Anomaly detection via low likelihood
+    - Synthetic sampling for simulation
+    config:
+      n_components: int
+      covariance_type: string
+      random_state: int
+      max_iter: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/gmm.json
+      algorithm: cadw.ml.gmm
+      algorithm_source_url: cadw/ml/gmm.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: density
+      n_datasets: 2
+      metric: mean_log_likelihood
+      value: -7.095
+      std: 0.0005
+      note: 'CADW-native: mean_ll=-7.095 @n=100k and -7.096 @n=1M (scripts/bench_gmm.py run 2026-10-24, .pingis/benches/gmm.json); std=half-range; NOT comparable to external LB.'
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/gmm.json
+      algorithm: cadw.ml.gmm
+      algorithm_source_url: cadw/ml/gmm.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: density
+      n_datasets: 2
+      metric: fit_time_s
+      value: 3.258
+      std: 1.444
+      note: 'CADW-native: fit_s=0.37 @n=100k and 3.258 @n=1M (scripts/bench_gmm.py, .pingis/benches/gmm.json); std=half-range; hardware-specific.'
+    cadw_module: cadw.ml.gmm
+    cadw_function: fit_gmm
+    input_api: df
+    fit_batched: true
+    predict_batched: true
+    depends_on: []
+    state_class: O(model)
+    bounded_state_dims:
+      k: 1
+      d: 1
+      max_samples: 1
+    transient_factor: 1.0
+    state_type: iterative
+    bounded_state: true
+    ram_formula: k * (1 + 2 * d) * f64 + 5 * max_samples * d * f64 + 2.0 * batch * row_size + 256
+    formula_evidence:
+      state_weights: gmm.py -- GMMModel.weights_ = np.asarray(weights); shape (k,); k*f64
+      state_means_covars: gmm.py -- means_ (k,d) + covariances_ (k,d); 2*k*d*f64
+      state_header: gmm.py -- GMMModel.state_nbytes() = (weights.size+means.size+covariances.size)*8; +256 header in state_est
+      em_sample: gmm.py -- sample = np.empty((S, d)) reservoir; S*d*f64 held during EM
+      em_mstep_temp: 'gmm.py -- M-step: diff = X - means[j]; r[:,j:j+1]*diff*diff -> 4*S*d*f64 (diff + 3 intermediates)'
+      coef_batch: 'gmm.py -- fit loop: arrays list + np.column_stack; 2 physical copies of row_size. Measured 1.73-2.0 (first-batch allocator reuse biases slope low).'
+      ef_guard: expansion_factor=3.0 = ceil(2.0*1.15) per AP23 round-up
+    min_ram_formula: k * (1 + 2 * d) * f64 + 5 * max_samples * d * f64 + 2.0 * 1 * row_size + 256
+    min_ram_evidence:
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: k*(1+2d)*8, (K,d) in {(2,10),(3,50),(5,100),(3,200)}'
+      state_indep_n: 'test_state_independent_of_n: state(n=500) == state(n=5000) when max_samples < n'
+      coef_batch: 'test_batch_coef_isolated: slope/row_size in [1.5, 3.0] (measured 1.73-2.0)'
+      formula_sanity: 'test_formula_small_scale: predicted/measured in [0.7, 1.4] (d=200,S=1000,batch=1000)'
+      ooc: 'test_ooc_batch_fixed: peak(n=5000)/peak(n=1000) < 2.0'
+      cells_passed: 8/8
+      runtime_sec: ~5
+      note: Combined RSS matrix unmeasurable at large d (baseline >> peak). Component-wise per DEC-033.
+    n_scalability: constant
+    streaming_strategy: null
+    fit: bounded reservoir sample (max_samples=10k, v0.9.31); standard EM on sample; k*d params.
+    predict: per-batch responsibility (no n-sized state).
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, d:1, max_samples:1; independent of n. Module: cadw.ml.gmm.'
+  - name: KernelDensity
+    cadw_function: fit_kernel_density
+    cadw_module: cadw.ml.kernel_density
+    input_api: df
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims:
+      n_centers: 1
+      d: 1
+    state_class: O(model)
+    state_type: aggregation
+    streaming_strategy: 'fit: reservoir sample of K centers (one streaming pass).
+
+      State (K, d) f64 centers + bandwidth scalar.
+
+      score: logsumexp per query batch, chunk-wise over centers.
+
+      Centers spill to disk when K*d*8 > state_limit_bytes.
+
+      '
+    primitive_reuse:
+    - spill_array
+    fit_batched: true
+    predict_batched: true
+    ram_formula: n_centers * d * f64 + 128 + 4.0 * batch * row_size
+    formula_evidence:
+      centers: 'cadw/ml/kernel_density.py -- _reservoir_k: np.empty((K, d)) f64'
+      header: cadw/ml/kernel_density.py -- _HEADER_BYTES=128 (RAM) / 256 (spilled)
+      batch_term: 'cadw/ml/kernel_density.py -- _reservoir_k: column_stack + mask + rng probs'
+    min_ram_formula: n_centers * d * f64 + 128 + 4.0 * 1 * row_size
+    min_ram_evidence:
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact, 4 (K,d) parametrized'
+      state_ooc: 'test_state_independent_of_n: state identical n=500 vs n=5000 (same K)'
+      state_spilled: 'test_spilled_state_constant: K*d*8 > state_limit -> state=256'
+      formula_sanity: 'SKIPPED (DEC-034: row_size=d*8 small, signal < noise)'
+      guard: 'test_guard_refuses_at_tight: K=100k + 0.05 MB -> MemoryLimitExceeded'
+      correctness: test_score_finite_on_gaussian + test_bandwidth_positive_and_silverman + test_score_samples_streaming
+      cells_passed: 6/6 (OOC sanity skipped)
+      runtime_sec: ~2
+    tier: baseline
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - local_structure
+    - probabilistic
+    purpose: 'Non-parametric kernel density estimator; the density is a sum of kernel bumps at every training point. Inductive bias: smooth local structure with bandwidth-controlled smoothing — no parametric form, but O(n) scoring and fragile in high dimensions.'
+    real_life_examples:
+    - 1-2D density visualization
+    - Anomaly scoring in low-d sensor streams
+    - Smooth residual distributions
+    config:
+      kernel: string
+      bandwidth: float
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.neighbors.KernelDensity
+      algorithm_source_url: https://scikit-learn.org/stable/modules/density.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: density
+      n_datasets: null
+      metric: mean_log_likelihood
+      value: null
+      note: 'no_public_benchmark: AMLB/OpenML measure supervised metrics only; no density log-likelihood leaderboard'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n_centers:1, d:1; independent of n. Module: cadw.ml.kernel_density.'
+  - name: BIRCH
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+      status: verified
+    roles:
+    - local_structure
+    - representation
+    purpose: 'Balanced iterative reducing and clustering using hierarchies (Zhang 1996). Inductive bias: cluster-feature tree with radius threshold; density is approximated by per-leaf counts. Not a true density model but a scalable cluster-based density proxy.'
+    real_life_examples:
+    - Streaming cluster discovery
+    - Large-catalog bucketing
+    - Approximate density for n>>memory
+    config:
+      threshold: float
+      branching_factor: int
+      n_clusters: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/birch.json
+      algorithm: cadw.ml.birch
+      algorithm_source_url: cadw/ml/birch.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: density
+      n_datasets: 3
+      metric: fit_time_s
+      value: 3.388
+      std: 1.551
+      note: 'CADW-native: fit_s=0.286/1.336/3.388 @n=5k/20k/50k (scripts/bench_birch.py, .pingis/benches/birch.json); std=half-range; hardware-specific.'
+    cadw_module: cadw.ml.birch
+    cadw_function: fit_birch
+    input_api: df
+    fit_batched: true
+    predict_batched: true
+    depends_on: []
+    ram_formula: branching_factor * ((2*d+1)*f64 + 32) + k*d*f64 + 512 + 3*batch*row_size
+    min_ram_formula: branching_factor * ((2*d+1)*f64 + 32) + k*d*f64 + 512 + 3*1*row_size
+    min_ram_evidence:
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
+    formula_evidence:
+      per_cf: 'birch.py:104 -- state_nbytes: cf_count * ((2d+1)*8 + 32); cf_count <= branching_factor by split policy'
+      centers: birch.py:105 -- centers_.nbytes = k*d*8 (k=min(n_clusters, cf_count))
+      header: birch.py:105 -- +512 constant
+      batch: birch.py:220 -- check_batch(extra_factor=3.0); _stack_numeric on f64 columns = 1x column_stack (per-column zero-copy); measured coef 1.16; formula uses 3.0 conservative per fit_linear v0.9.107; see DEC-035
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: state_nbytes() == cf_count*((2d+1)*8+32) + k*d*8 + 512'
+      state_bounded: 'test_state_bounded_for_large_n + test_cf_count_bounded: ratio < 2.0 and cf_count <= bf at n=1k..20k'
+      coef_batch: 'test_batch_coef_isolated: slope/row_size in [0.8, 2.5]; measured 1.16'
+      formula_sanity: 'test_formula_small_scale: predicted/measured in [0.5, 2.0]'
+      ooc: 'test_ooc_batch_fixed: peak ratio < 2.0 (median-of-3)'
+      cells_passed: 6/6
+      runtime_sec: ~5
+      note: Component-wise per DEC-033. cf_count is data-dependent but bounded by branching_factor (1-level tree split policy).
+    state_class: O(model)
+    bounded_state_dims:
+      branching_factor: 1
+      k: 1
+      d: 1
+    transient_factor: 1.0
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    streaming_strategy: null
+    fit: CF-tree build per batch; threshold/leaf bounded.
+    predict: per-batch nearest CF subcluster.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state branching_factor:1, k:1, d:1; independent of n. Module: cadw.ml.birch.'
+  - name: HDBSCAN
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.knn_query
+    - cadw.ops.linalg.core_distances
+    - cadw.ops.graph.mst
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+    roles:
+    - local_structure
+    purpose: 'Hierarchical density-based clustering (Campello 2013). Inductive bias: clusters are contiguous high-density regions at variable density — automatically discovers K, robust to noise. Strong on irregular densities but no explicit p(x).'
+    real_life_examples:
+    - Open-set clustering / noise detection
+    - Arbitrary-shape density modes
+    - Geospatial hot-spot detection
+    config:
+      min_cluster_size: int
+      min_samples: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: hdbscan.HDBSCAN
+      algorithm_source_url: https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: density
+      n_datasets: null
+      metric: mean_log_likelihood
+      value: null
+      note: 'no_public_benchmark: HDBSCAN does not output log-likelihood; no unified density leaderboard'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Hierarchical density-based clustering (Campello 2013). Inductive bias: clusters are contiguous high-... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  metrics:
+  - name: mean_log_likelihood
+    combination: anchor
+    direction: higher
+    responsibility: Mean held-out log-likelihood; the canonical density-quality metric.
+    special: 'Scale-dependent: not comparable across dataset normalizations. Report median across runs when n_datasets>=2.'
+  - name: fit_time_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock fit time.
+    special: Hardware-specific; only comparable within the same bench run.
+  - name: peak_rss_mb
+    combination: diagnostic
+    direction: lower
+    responsibility: Peak resident memory.
+    special: Includes Python + numpy overhead; not a pure model cost.
+  ensemble_recommendation:
+  - roles:
+    - probabilistic
+    - local_structure
+    models:
+    - GaussianMixture
+    - BIRCH
+    max_per_role: 2
+    note: GMM gives parametric densities; BIRCH gives scalable cluster-based density proxy. Complementary when n spans 10k-1M; use GMM when K is known and parametric log-likelihood is needed.

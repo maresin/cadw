@@ -4,623 +4,1127 @@
 section: B
 name: Clustering
 subtypes:
-  - id: B1
-    name: "Centroid-based clustering"
-    description: "Partition points into k clusters by centroid proximity."
-    real_life: ["Customer segmentation (k known)", "Vector quantization", "Anomaly via distance-to-centroid"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [silhouette, inertia, fit_time_s], note: "No unified clustering leaderboard; cadw_internal synthetic DGP."}
-    models:
-      - name: KMeans
-        tier: baseline
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          verified_by_agent: true
-          status: verified
-        roles: [local_structure]
-        purpose: "Lloyd k-means with k-means++ init. Spherical equal-variance clusters; centroid objective. Canonical baseline."
-        real_life_examples: ["Customer segmentation (k known)", "Vector quantization", "Anomaly via distance to nearest centroid"]
-        config: {k: int, n_init: int, max_iter: int, tol: float, seed: int}
-        cadw_module: cadw.ml.kmeans
-        cadw_function: fit_kmeans
-        input_api: df
-        fit_batched: true
-        predict_batched: true
-        depends_on: []
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.KMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: inertia, value: null, note: 'no_public_benchmark: KMeans on AMLB is pre-processing; no unified clustering LB. Measure v0.9.124.'}
-        state_class: O(model)
-        bounded_state_dims: {k: 1, d: 1}
-        state_type: iterative
-        bounded_state: true
-        n_scalability: constant
-        ram_formula: "2 * k * batch * row_size + k * d * f64 + k * f64 + f64 + 256"
-        formula_evidence:
-          batch_transient: "kmeans.py:54-64 -- KMeansStepOp.batch_memory_factor() = 2.0 * k (diff + diff*diff)"
-          state_sums: "kmeans.py:60 -- np.zeros((k, d)) sums; k*d*f64"
-          state_counts: "kmeans.py:61 -- np.zeros(k) counts; k*f64"
-          state_inertia: "kmeans.py:62 -- inertia float; f64"
-          header: "kmeans.py -- KMeansModel metadata; 256"
-        min_ram_formula: "2 * k * 1 * row_size + k * d * f64 + k * f64 + f64 + 256"
-        min_ram_evidence:
-          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
-        measurement:
-          status: "pending (v0.9.124)"
-          note: "Formula from code (AP23); measurement plan: component-wise (DEC-033)."
-        streaming_strategy:
-          fit: 'iter-Reduce (sums, counts, inertia); O(k*d) state independent of n.'
-          predict: 'per-batch nearest-centroid.'
-        primitive_reuse: [reduce]
-
-      - name: MiniBatchKMeans
-        tier: baseline
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          verified_by_agent: true
-          status: verified
-        roles: [local_structure]
-        purpose: "Sculley 2010 streaming k-means: per-centroid updates with eta = 1/count. Reservoir init + streaming sweeps."
-        real_life_examples: ["Large-scale segmentation (n > 10^6)", "Online clustering with drift"]
-        config: {n_clusters: int, batch_size: int, max_iter: int, tol: float, seed: int}
-        cadw_module: cadw.ml.minibatch
-        cadw_function: fit_minibatch_kmeans
-        input_api: df
-        fit_batched: true
-        predict_batched: true
-        depends_on: []
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.MiniBatchKMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.MiniBatchKMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: inertia, value: null, note: 'no_public_benchmark: same as KMeans; measure v0.9.124.'}
-        state_class: O(model)
-        bounded_state_dims: {k: 1, d: 1}
-        state_type: iterative
-        bounded_state: true
-        n_scalability: constant
-        ram_formula: "3 * batch * row_size + 10 * batch * (d * f64 + f64) + k * d * f64 + k * f64 + 256"
-        formula_evidence:
-          batch_transient: "minibatch.py:131 -- check_batch(extra_factor=3.0); _stack_numeric + per-row iteration"
-          reservoir_state: "minibatch.py:128-145 -- cap=10*batch; per-row (d*f64 + f64)"
-          model_centers: "minibatch.py:73 -- centers_ (k,d); k*d*f64"
-          model_counts: "minibatch.py:74 -- counts_ (k,); k*f64"
-          header: "minibatch.py -- MiniBatchKMeansModel header; 256"
-        min_ram_formula: "3 * 1 * row_size + 10 * 1 * (d * f64 + f64) + k * d * f64 + k * f64 + 256"
-        min_ram_evidence:
-          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
-        measurement:
-          status: "pending (v0.9.124)"
-          note: "Formula from code (AP23); reservoir (10*batch) dominates at small k."
-        streaming_strategy:
-          fit: 'two-pass (reservoir init + streaming sweep); reservoir cap=10*batch.'
-          predict: 'per-batch nearest-centroid.'
-        primitive_reuse: [reduce]
-
-      - name: BisectingKMeans
-        tier: sota
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Top-down hierarchical k-means: recursively bisect each cluster via 2-means. Better for non-convex shapes than Lloyd."
-        real_life_examples: ["Taxonomy induction", "Document clustering", "Non-spherical clusters"]
-        config: {n_clusters: int, bisecting_strategy: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.BisectingKMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: inertia, value: null, note: 'no_public_benchmark: not on AMLB.'}
-      - name: GaussianMixtureClustering
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Soft-assignment clustering via Gaussian mixture; probabilistic alternative to hard centroid."
-        real_life_examples: ["Soft customer segmentation", "Model-based clustering"]
-        config: {n_components: int, covariance_type: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianMixtureClustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/mixture.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: GMM clustering per-dataset'}
-      - name: SpectralClustering
-        tier: sota
-        depends_on:
-        - cadw.ml.spectral_clustering.fit_spectral_clustering
-        - cadw.ops.graph.graph_laplacian_sparse
-        - cadw.ops.graph.eigsh_topk
-        - cadw.ops.linalg.knn_query_stream
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [representation]
-        purpose: "Graph-Laplacian spectral clustering (Ng 2002); captures non-convex cluster shape via eigenvectors."
-        real_life_examples: ["Non-convex cluster discovery", "Manifold-based grouping"]
-        config: {n_clusters: int, affinity: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
-        cadw_function: fit_spectral_clustering
-        cadw_module: cadw.ml.spectral_clustering
-        input_api: df
-        bounded_state: false
-        n_scalability: linear
-        bounded_by_domain:
-          axis: n
-          bound: 1000000
-          reason: "Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain."
-        bounded_state_dims: {n: 1, n_clusters: 1, n_neighbors: 1}
-        state_class: O(n)
-        state_type: partitioned
-        ram_formula: 'n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256'
-        min_ram_formula: 'n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256'
-        formula_evidence:
-          affinity: "spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)"
-          embedding: "spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64"
-          labels: "spectral_clustering.py -- labels (n,) int -> f64: n*f64"
-          header: "spectral_clustering.py -- +256 in state_nbytes()"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          sklearn_parity: "test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align"
-          state_check: "test_state_nbytes_reasonable: < 500 KB for n=100"
-          intrinsic_bound: "test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded"
-          release: "test_release_idempotent"
-          validation: "test_bad_affinity_raises / test_nan_raises"
-          reproducibility: "test_reproducibility_same_seed"
-          cells_passed: "8/8"
-          runtime_sec: "~2"
-        streaming_strategy:
-          fit: "kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters)."
-          predict: "NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)"
-        primitive_reuse: [knn_query_stream, graph_laplacian_sparse, eigsh_topk, spill_dir]
-        migration_target: null
-        notes: "v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+."
-
+- id: B1
+  name: Centroid-based clustering
+  description: Partition points into k clusters by centroid proximity.
+  real_life:
+  - Customer segmentation (k known)
+  - Vector quantization
+  - Anomaly via distance-to-centroid
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: silhouette, combination: anchor, direction: higher, responsibility: "Unsupervised cluster separation; primary diagnostic without labels.", special: "O(n^2) naive; sample-based for large n. Not comparable across k."}
-      - {name: inertia, combination: diagnostic, direction: lower, responsibility: "Within-cluster sum of squared distances (KMeans objective).", special: "Decreases with k; only comparable at same k."}
-
-  - id: B2
-    name: "Density-based clustering"
-    description: "Arbitrary-shaped clusters as dense regions; noise points labelled -1; k not needed."
-    real_life: ["Unknown-k segmentation", "Anomaly via noise label", "Spatial clustering"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [adjusted_rand_score, noise_ratio, fit_time_s], note: "cadw_internal synthetic DGP with known labels."}
-    models:
-      - name: DBSCAN
-        tier: baseline
-        depends_on:
-        - cadw.ops.linalg.knn_query
-        - cadw.ops.linalg.core_distances
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Ester et al. 1996: clusters as dense regions via eps-neighborhood + min_pts. Flat; single global eps struggles with varying density."
-        real_life_examples: ["Spatial clustering", "Anomaly (noise points)", "No k required"]
-        config: {eps: float, min_samples: int, metric: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.DBSCAN', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: no unified clustering LB.'}
-
-      - name: HDBSCAN
-
-        # DEC-049: canonical home is N_density (density view)
-
-        cross_ref: "N_density.HDBSCAN"
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.knn_query
-        - cadw.ops.linalg.core_distances
-        - cadw.ops.graph.mst
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-          reference_impl_ready: true
-        roles: [local_structure]
-        purpose: "Campello et al. 2013: hierarchical DBSCAN. Mutual-reachability MST + condensed cluster tree. No global eps; handles varying density."
-        real_life_examples: ["Unknown-k segmentation", "Anomaly via noise label", "Spatial clustering with varying density"]
-        config: {min_cluster_size: int, min_samples: int, metric: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'hdbscan.HDBSCAN', algorithm_source_url: 'https://github.com/scikit-learn-contrib/hdbscan', algorithm_source_kind: code, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: Campello 2013 per-dataset numbers. Reference impl in .pingis/impl/N/HDBSCAN.txt.'}
-      - name: GaussianMixtureClustering
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Density view via GMM; contrasts with DBSCAN/HDBSCAN (no explicit p(x))."
-        real_life_examples: ["Density-mode discovery", "Soft density cluster"]
-        config: {n_components: int, covariance_type: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianMixtureClustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/mixture.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: GMM clustering per-dataset'}
-      - name: SpectralClustering
-        tier: sota
-        depends_on:
-        - cadw.ml.spectral_clustering.fit_spectral_clustering
-        - cadw.ops.graph.graph_laplacian_sparse
-        - cadw.ops.graph.eigsh_topk
-        - cadw.ops.linalg.knn_query_stream
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [representation]
-        purpose: "Graph-based density clustering: mode-seeking via spectral eigenvectors of similarity graph."
-        real_life_examples: ["Arbitrary-shape density cluster", "Manifold density"]
-        config: {n_clusters: int, affinity: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
-        cadw_function: fit_spectral_clustering
-        cadw_module: cadw.ml.spectral_clustering
-        input_api: df
-        bounded_state: false
-        n_scalability: linear
-        bounded_by_domain:
-          axis: n
-          bound: 1000000
-          reason: "Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain."
-        bounded_state_dims: {n: 1, n_clusters: 1, n_neighbors: 1}
-        state_class: O(n)
-        state_type: partitioned
-        ram_formula: 'n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256'
-        min_ram_formula: 'n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256'
-        formula_evidence:
-          affinity: "spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)"
-          embedding: "spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64"
-          labels: "spectral_clustering.py -- labels (n,) int -> f64: n*f64"
-          header: "spectral_clustering.py -- +256 in state_nbytes()"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          sklearn_parity: "test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align"
-          state_check: "test_state_nbytes_reasonable: < 500 KB for n=100"
-          intrinsic_bound: "test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded"
-          release: "test_release_idempotent"
-          validation: "test_bad_affinity_raises / test_nan_raises"
-          reproducibility: "test_reproducibility_same_seed"
-          cells_passed: "8/8"
-          runtime_sec: "~2"
-        streaming_strategy:
-          fit: "kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters)."
-          predict: "NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)"
-        primitive_reuse: [knn_query_stream, graph_laplacian_sparse, eigsh_topk, spill_dir]
-        migration_target: null
-        notes: "v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+."
-
+    - silhouette
+    - inertia
+    - fit_time_s
+    note: No unified clustering leaderboard; cadw_internal synthetic DGP.
+  models:
+  - name: KMeans
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+      status: verified
+    roles:
+    - local_structure
+    purpose: Lloyd k-means with k-means++ init. Spherical equal-variance clusters; centroid objective. Canonical baseline.
+    real_life_examples:
+    - Customer segmentation (k known)
+    - Vector quantization
+    - Anomaly via distance to nearest centroid
+    config:
+      k: int
+      n_init: int
+      max_iter: int
+      tol: float
+      seed: int
+    cadw_module: cadw.ml.kmeans
+    cadw_function: fit_kmeans
+    input_api: df
+    fit_batched: true
+    predict_batched: true
+    depends_on: []
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.KMeans
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: inertia
+      value: null
+      note: 'no_public_benchmark: KMeans on AMLB is pre-processing; no unified clustering LB. Measure v0.9.124.'
+    state_class: O(model)
+    bounded_state_dims:
+      k: 1
+      d: 1
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    ram_formula: 2 * k * batch * row_size + k * d * f64 + k * f64 + f64 + 256
+    formula_evidence:
+      batch_transient: kmeans.py:54-64 -- KMeansStepOp.batch_memory_factor() = 2.0 * k (diff + diff*diff)
+      state_sums: kmeans.py:60 -- np.zeros((k, d)) sums; k*d*f64
+      state_counts: kmeans.py:61 -- np.zeros(k) counts; k*f64
+      state_inertia: kmeans.py:62 -- inertia float; f64
+      header: kmeans.py -- KMeansModel metadata; 256
+    min_ram_formula: 2 * k * 1 * row_size + k * d * f64 + k * f64 + f64 + 256
+    min_ram_evidence:
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
+    measurement:
+      status: pending (v0.9.124)
+      note: 'Formula from code (AP23); measurement plan: component-wise (DEC-033).'
+    streaming_strategy:
+      fit: iter-Reduce (sums, counts, inertia); O(k*d) state independent of n.
+      predict: per-batch nearest-centroid.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, d:1; independent of n. Module: cadw.ml.kmeans.'
+  - name: MiniBatchKMeans
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+      status: verified
+    roles:
+    - local_structure
+    purpose: 'Sculley 2010 streaming k-means: per-centroid updates with eta = 1/count. Reservoir init + streaming sweeps.'
+    real_life_examples:
+    - Large-scale segmentation (n > 10^6)
+    - Online clustering with drift
+    config:
+      n_clusters: int
+      batch_size: int
+      max_iter: int
+      tol: float
+      seed: int
+    cadw_module: cadw.ml.minibatch
+    cadw_function: fit_minibatch_kmeans
+    input_api: df
+    fit_batched: true
+    predict_batched: true
+    depends_on: []
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.MiniBatchKMeans
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.MiniBatchKMeans.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: inertia
+      value: null
+      note: 'no_public_benchmark: same as KMeans; measure v0.9.124.'
+    state_class: O(model)
+    bounded_state_dims:
+      k: 1
+      d: 1
+    state_type: iterative
+    bounded_state: true
+    n_scalability: constant
+    ram_formula: 3 * batch * row_size + 10 * batch * (d * f64 + f64) + k * d * f64 + k * f64 + 256
+    formula_evidence:
+      batch_transient: minibatch.py:131 -- check_batch(extra_factor=3.0); _stack_numeric + per-row iteration
+      reservoir_state: minibatch.py:128-145 -- cap=10*batch; per-row (d*f64 + f64)
+      model_centers: minibatch.py:73 -- centers_ (k,d); k*d*f64
+      model_counts: minibatch.py:74 -- counts_ (k,); k*f64
+      header: minibatch.py -- MiniBatchKMeansModel header; 256
+    min_ram_formula: 3 * 1 * row_size + 10 * 1 * (d * f64 + f64) + k * d * f64 + k * f64 + 256
+    min_ram_evidence:
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
+    measurement:
+      status: pending (v0.9.124)
+      note: Formula from code (AP23); reservoir (10*batch) dominates at small k.
+    streaming_strategy:
+      fit: two-pass (reservoir init + streaming sweep); reservoir cap=10*batch.
+      predict: per-batch nearest-centroid.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, d:1; independent of n. Module: cadw.ml.minibatch.'
+  - name: BisectingKMeans
+    tier: sota
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Top-down hierarchical k-means: recursively bisect each cluster via 2-means. Better for non-convex shapes than Lloyd.'
+    real_life_examples:
+    - Taxonomy induction
+    - Document clustering
+    - Non-spherical clusters
+    config:
+      n_clusters: int
+      bisecting_strategy: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.BisectingKMeans
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: inertia
+      value: null
+      note: 'no_public_benchmark: not on AMLB.'
+  - name: GaussianMixtureClustering
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: Soft-assignment clustering via Gaussian mixture; probabilistic alternative to hard centroid.
+    real_life_examples:
+    - Soft customer segmentation
+    - Model-based clustering
+    config:
+      n_components: int
+      covariance_type: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: GaussianMixtureClustering
+      algorithm_source_url: https://scikit-learn.org/stable/modules/mixture.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: GMM clustering per-dataset'
+  - name: SpectralClustering
+    tier: sota
+    depends_on:
+    - cadw.ml.spectral_clustering.fit_spectral_clustering
+    - cadw.ops.graph.graph_laplacian_sparse
+    - cadw.ops.graph.eigsh_topk
+    - cadw.ops.linalg.knn_query_stream
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - representation
+    purpose: Graph-Laplacian spectral clustering (Ng 2002); captures non-convex cluster shape via eigenvectors.
+    real_life_examples:
+    - Non-convex cluster discovery
+    - Manifold-based grouping
+    config:
+      n_clusters: int
+      affinity: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: SpectralClustering
+      algorithm_source_url: https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: spectral clustering per-dataset'
+    cadw_function: fit_spectral_clustering
+    cadw_module: cadw.ml.spectral_clustering
+    input_api: df
+    bounded_state: false
+    n_scalability: linear
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: 'Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain.'
+    bounded_state_dims:
+      n: 1
+      n_clusters: 1
+      n_neighbors: 1
+    state_class: O(n)
+    state_type: partitioned
+    ram_formula: n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256
+    min_ram_formula: n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256
+    formula_evidence:
+      affinity: spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)
+      embedding: 'spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64'
+      labels: 'spectral_clustering.py -- labels (n,) int -> f64: n*f64'
+      header: spectral_clustering.py -- +256 in state_nbytes()
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      sklearn_parity: 'test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align'
+      state_check: 'test_state_nbytes_reasonable: < 500 KB for n=100'
+      intrinsic_bound: 'test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded'
+      release: test_release_idempotent
+      validation: test_bad_affinity_raises / test_nan_raises
+      reproducibility: test_reproducibility_same_seed
+      cells_passed: 8/8
+      runtime_sec: ~2
+    streaming_strategy:
+      fit: kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters).
+      predict: NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)
+    primitive_reuse:
+    - knn_query_stream
+    - graph_laplacian_sparse
+    - eigsh_topk
+    - spill_dir
+    migration_target: null
+    notes: 'v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+.'
+    ooc_status: debt
+    ooc_strategy: 'Current: Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbo. Guard refuses above state_limit (honest refuse).'
+  metrics:
+  - name: silhouette
+    combination: anchor
+    direction: higher
+    responsibility: Unsupervised cluster separation; primary diagnostic without labels.
+    special: O(n^2) naive; sample-based for large n. Not comparable across k.
+  - name: inertia
+    combination: diagnostic
+    direction: lower
+    responsibility: Within-cluster sum of squared distances (KMeans objective).
+    special: Decreases with k; only comparable at same k.
+- id: B2
+  name: Density-based clustering
+  description: Arbitrary-shaped clusters as dense regions; noise points labelled -1; k not needed.
+  real_life:
+  - Unknown-k segmentation
+  - Anomaly via noise label
+  - Spatial clustering
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: adjusted_rand_score, combination: anchor, direction: higher, responsibility: "Pairwise agreement with ground truth, chance-corrected.", special: "Requires labels; use silhouette for unsupervised mode."}
-      - {name: noise_ratio, combination: diagnostic, direction: target, responsibility: "Fraction of points labelled -1.", special: "Domain-dependent; high noise may signal wrong eps."}
-
-  - id: B3
-    name: "Hierarchical clustering"
-    description: "Tree of nested clusters (dendrogram)."
-    real_life: ["Taxonomy induction", "Dendrogram visualization", "Cluster count exploration"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [cophenetic_correlation, fit_time_s], note: "No unified clustering LB."}
-    models:
-      - name: AgglomerativeClustering
-        tier: baseline
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Bottom-up hierarchical: merge closest pairs by linkage (ward/complete/average/single). O(n^2) memory naive."
-        real_life_examples: ["Dendrogram (cluster hierarchy)", "Taxonomy discovery", "Small n (< 10^4)"]
-        config: {n_clusters: int, linkage: string, metric: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.AgglomerativeClustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.AgglomerativeClustering.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: no unified clustering LB.'}
-
-      - name: BIRCH
-
-        # DEC-049: canonical home is N_density
-
-        cross_ref: "N_density.BIRCH"
-        tier: sota
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-          reference_impl_ready: true
-        roles: [local_structure]
-        purpose: "Zhang et al. 1996: Clustering Feature (CF) tree. Bounded memory; O(n) single-pass. Leaf CFs = microclusters. Scalable streaming hierarchical."
-        real_life_examples: ["Streaming clustering", "Large n bounded memory", "Pre-clustering for k-means"]
-        config: {threshold: float, branching_factor: int, n_clusters: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.Birch', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.Birch.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: CADW-native measurement in .pingis/benches/birch.json (fit_time_s).'}
-      - name: BisectingKMeans
-        tier: sota
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Top-down recursive bisection with 2-means; centroid-based hierarchical alternative to bottom-up."
-        real_life_examples: ["Taxonomy induction via bisection", "Document hierarchy"]
-        config: {n_clusters: int, bisecting_strategy: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'BisectingKMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: bisecting clustering per-dataset'}
-      - name: SpectralClustering
-        tier: sota
-        depends_on:
-        - cadw.ml.spectral_clustering.fit_spectral_clustering
-        - cadw.ops.graph.graph_laplacian_sparse
-        - cadw.ops.graph.eigsh_topk
-        - cadw.ops.linalg.knn_query_stream
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L6, §L19"
-        depends_on_status: planned
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [representation]
-        purpose: "Graph-spectral hierarchical clustering; reveals manifold structure lost by bottom-up linkage."
-        real_life_examples: ["Non-convex hierarchical cluster", "Graph community hierarchy"]
-        config: {n_clusters: int, affinity: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
-        cadw_function: fit_spectral_clustering
-        cadw_module: cadw.ml.spectral_clustering
-        input_api: df
-        bounded_state: false
-        n_scalability: linear
-        bounded_by_domain:
-          axis: n
-          bound: 1000000
-          reason: "Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain."
-        bounded_state_dims: {n: 1, n_clusters: 1, n_neighbors: 1}
-        state_class: O(n)
-        state_type: partitioned
-        ram_formula: 'n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256'
-        min_ram_formula: 'n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256'
-        formula_evidence:
-          affinity: "spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)"
-          embedding: "spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64"
-          labels: "spectral_clustering.py -- labels (n,) int -> f64: n*f64"
-          header: "spectral_clustering.py -- +256 in state_nbytes()"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          sklearn_parity: "test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align"
-          state_check: "test_state_nbytes_reasonable: < 500 KB for n=100"
-          intrinsic_bound: "test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded"
-          release: "test_release_idempotent"
-          validation: "test_bad_affinity_raises / test_nan_raises"
-          reproducibility: "test_reproducibility_same_seed"
-          cells_passed: "8/8"
-          runtime_sec: "~2"
-        streaming_strategy:
-          fit: "kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters)."
-          predict: "NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)"
-        primitive_reuse: [knn_query_stream, graph_laplacian_sparse, eigsh_topk, spill_dir]
-        migration_target: null
-        notes: "v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+."
-
+    - adjusted_rand_score
+    - noise_ratio
+    - fit_time_s
+    note: cadw_internal synthetic DGP with known labels.
+  models:
+  - name: DBSCAN
+    tier: baseline
+    depends_on:
+    - cadw.ops.linalg.knn_query
+    - cadw.ops.linalg.core_distances
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Ester et al. 1996: clusters as dense regions via eps-neighborhood + min_pts. Flat; single global eps struggles with varying density.'
+    real_life_examples:
+    - Spatial clustering
+    - Anomaly (noise points)
+    - No k required
+    config:
+      eps: float
+      min_samples: int
+      metric: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.DBSCAN
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: no unified clustering LB.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Ester et al. 1996: clusters as dense regions via eps-neighborhood + min_pts. Flat; single global eps... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: HDBSCAN
+    cross_ref: N_density.HDBSCAN
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.knn_query
+    - cadw.ops.linalg.core_distances
+    - cadw.ops.graph.mst
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+      reference_impl_ready: true
+    roles:
+    - local_structure
+    purpose: 'Campello et al. 2013: hierarchical DBSCAN. Mutual-reachability MST + condensed cluster tree. No global eps; handles varying density.'
+    real_life_examples:
+    - Unknown-k segmentation
+    - Anomaly via noise label
+    - Spatial clustering with varying density
+    config:
+      min_cluster_size: int
+      min_samples: int
+      metric: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: hdbscan.HDBSCAN
+      algorithm_source_url: https://github.com/scikit-learn-contrib/hdbscan
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: Campello 2013 per-dataset numbers. Reference impl in .pingis/impl/N/HDBSCAN.txt.'
+  - name: GaussianMixtureClustering
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: Density view via GMM; contrasts with DBSCAN/HDBSCAN (no explicit p(x)).
+    real_life_examples:
+    - Density-mode discovery
+    - Soft density cluster
+    config:
+      n_components: int
+      covariance_type: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: GaussianMixtureClustering
+      algorithm_source_url: https://scikit-learn.org/stable/modules/mixture.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: GMM clustering per-dataset'
+  - name: SpectralClustering
+    tier: sota
+    depends_on:
+    - cadw.ml.spectral_clustering.fit_spectral_clustering
+    - cadw.ops.graph.graph_laplacian_sparse
+    - cadw.ops.graph.eigsh_topk
+    - cadw.ops.linalg.knn_query_stream
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - representation
+    purpose: 'Graph-based density clustering: mode-seeking via spectral eigenvectors of similarity graph.'
+    real_life_examples:
+    - Arbitrary-shape density cluster
+    - Manifold density
+    config:
+      n_clusters: int
+      affinity: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: SpectralClustering
+      algorithm_source_url: https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: spectral clustering per-dataset'
+    cadw_function: fit_spectral_clustering
+    cadw_module: cadw.ml.spectral_clustering
+    input_api: df
+    bounded_state: false
+    n_scalability: linear
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: 'Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain.'
+    bounded_state_dims:
+      n: 1
+      n_clusters: 1
+      n_neighbors: 1
+    state_class: O(n)
+    state_type: partitioned
+    ram_formula: n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256
+    min_ram_formula: n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256
+    formula_evidence:
+      affinity: spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)
+      embedding: 'spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64'
+      labels: 'spectral_clustering.py -- labels (n,) int -> f64: n*f64'
+      header: spectral_clustering.py -- +256 in state_nbytes()
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      sklearn_parity: 'test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align'
+      state_check: 'test_state_nbytes_reasonable: < 500 KB for n=100'
+      intrinsic_bound: 'test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded'
+      release: test_release_idempotent
+      validation: test_bad_affinity_raises / test_nan_raises
+      reproducibility: test_reproducibility_same_seed
+      cells_passed: 8/8
+      runtime_sec: ~2
+    streaming_strategy:
+      fit: kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters).
+      predict: NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)
+    primitive_reuse:
+    - knn_query_stream
+    - graph_laplacian_sparse
+    - eigsh_topk
+    - spill_dir
+    migration_target: null
+    notes: 'v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+.'
+    ooc_status: debt
+    ooc_strategy: 'Current: Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbo. Guard refuses above state_limit (honest refuse).'
+  metrics:
+  - name: adjusted_rand_score
+    combination: anchor
+    direction: higher
+    responsibility: Pairwise agreement with ground truth, chance-corrected.
+    special: Requires labels; use silhouette for unsupervised mode.
+  - name: noise_ratio
+    combination: diagnostic
+    direction: target
+    responsibility: Fraction of points labelled -1.
+    special: Domain-dependent; high noise may signal wrong eps.
+- id: B3
+  name: Hierarchical clustering
+  description: Tree of nested clusters (dendrogram).
+  real_life:
+  - Taxonomy induction
+  - Dendrogram visualization
+  - Cluster count exploration
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: cophenetic_correlation, combination: anchor, direction: higher, responsibility: "Preservation of pairwise distances in dendrogram.", special: "Requires dendrogram; for flat methods (k-means) use silhouette."}
-      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
-
-  - id: B4
-    name: "Shape-based clustering (time series)"
-    description: "Cluster series by shape, invariant to amplitude/offset."
-    real_life: ["TS motif discovery", "Equipment operating mode clustering", "Patient trajectory phenotyping"]
-    benchmarks:
-      - {name: UCR_Classification, url: "https://www.timeseriesclassification.com/", metrics: [adjusted_rand_score], note: "TS clustering benchmarks use ARI on UCR archive."}
-    models:
-      - name: EuclideanKMeansZ
-        tier: baseline
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure, temporal_dynamics]
-        purpose: "K-means on z-normalized series with Euclidean distance. Shape-aware baseline; ignores temporal shifts (unlike KShape)."
-        real_life_examples: ["TS clustering (baseline)", "Shape-aware segmentation"]
-        config: {n_clusters: int, max_iter: int}
-        benchmark_results:
-          - {benchmark: UCR_Classification, benchmark_url: 'https://www.timeseriesclassification.com/', algorithm: 'k-means on z-norm (naive baseline)', algorithm_source_url: 'https://arxiv.org/abs/1506.07608', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'Baseline referenced in Paparrizos & Gravano 2015; naive Euclidean k-means on z-normalized series.'}
-
-      - name: KShape
-        tier: sota
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure, temporal_dynamics]
-        purpose: "Paparrizos & Gravano 2015: k-shape. Shape-based distance via cross-correlation; centroids as shape-averaged series. Invariant to amplitude and offset."
-        real_life_examples: ["TS motif clustering", "Equipment mode discovery", "Patient trajectory grouping"]
-        config: {n_clusters: int, max_iter: int, tol: float}
-        benchmark_results:
-          - {benchmark: UCR_Classification, benchmark_url: 'https://www.timeseriesclassification.com/', algorithm: 'k-Shape (Paparrizos & Gravano 2015)', algorithm_source_url: 'https://arxiv.org/abs/1506.07608', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'Paper reports ARI per UCR dataset; no unified LB. CADW TS-anomaly implementation in D_time_series (fit_kshape); clustering-task view here.'}
-      - name: ShapeGMM
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Gaussian Mixture on z-normalized shapes; soft shape-cluster assignment."
-        real_life_examples: ["Soft TS motif clustering", "Patient trajectory uncertainty"]
-        config: {n_components: int, covariance_type: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'ShapeGMM', algorithm_source_url: 'https://arxiv.org/abs/2205.00905', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: ShapeGMM per-dataset'}
+    - cophenetic_correlation
+    - fit_time_s
+    note: No unified clustering LB.
+  models:
+  - name: AgglomerativeClustering
+    tier: baseline
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Bottom-up hierarchical: merge closest pairs by linkage (ward/complete/average/single). O(n^2) memory naive.'
+    real_life_examples:
+    - Dendrogram (cluster hierarchy)
+    - Taxonomy discovery
+    - Small n (< 10^4)
+    config:
+      n_clusters: int
+      linkage: string
+      metric: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.AgglomerativeClustering
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.AgglomerativeClustering.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: cophenetic_correlation
+      value: null
+      note: 'no_public_benchmark: no unified clustering LB.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Bottom-up hierarchical: merge closest pairs by linkage (ward/complete/average/single). O(n^2) memory... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: BIRCH
+    cross_ref: N_density.BIRCH
+    tier: sota
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+      reference_impl_ready: true
+    roles:
+    - local_structure
+    purpose: 'Zhang et al. 1996: Clustering Feature (CF) tree. Bounded memory; O(n) single-pass. Leaf CFs = microclusters. Scalable streaming hierarchical.'
+    real_life_examples:
+    - Streaming clustering
+    - Large n bounded memory
+    - Pre-clustering for k-means
+    config:
+      threshold: float
+      branching_factor: int
+      n_clusters: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.Birch
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.Birch.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: cophenetic_correlation
+      value: null
+      note: 'no_public_benchmark: CADW-native measurement in .pingis/benches/birch.json (fit_time_s).'
+  - name: BisectingKMeans
+    tier: sota
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: Top-down recursive bisection with 2-means; centroid-based hierarchical alternative to bottom-up.
+    real_life_examples:
+    - Taxonomy induction via bisection
+    - Document hierarchy
+    config:
+      n_clusters: int
+      bisecting_strategy: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: BisectingKMeans
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.BisectingKMeans.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: cophenetic_correlation
+      value: null
+      note: 'no_public_benchmark: bisecting clustering per-dataset'
+  - name: SpectralClustering
+    tier: sota
+    depends_on:
+    - cadw.ml.spectral_clustering.fit_spectral_clustering
+    - cadw.ops.graph.graph_laplacian_sparse
+    - cadw.ops.graph.eigsh_topk
+    - cadw.ops.linalg.knn_query_stream
+    depends_on_backlog: PRIMITIVES_BACKLOG §L3, §L6, §L19
+    depends_on_status: planned
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - representation
+    purpose: Graph-spectral hierarchical clustering; reveals manifold structure lost by bottom-up linkage.
+    real_life_examples:
+    - Non-convex hierarchical cluster
+    - Graph community hierarchy
+    config:
+      n_clusters: int
+      affinity: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: SpectralClustering
+      algorithm_source_url: https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: cophenetic_correlation
+      value: null
+      note: 'no_public_benchmark: spectral clustering per-dataset'
+    cadw_function: fit_spectral_clustering
+    cadw_module: cadw.ml.spectral_clustering
+    input_api: df
+    bounded_state: false
+    n_scalability: linear
+    bounded_by_domain:
+      axis: n
+      bound: 1000000
+      reason: 'Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain.'
+    bounded_state_dims:
+      n: 1
+      n_clusters: 1
+      n_neighbors: 1
+    state_class: O(n)
+    state_type: partitioned
+    ram_formula: n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256
+    min_ram_formula: n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256
+    formula_evidence:
+      affinity: spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)
+      embedding: 'spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64'
+      labels: 'spectral_clustering.py -- labels (n,) int -> f64: n*f64'
+      header: spectral_clustering.py -- +256 in state_nbytes()
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      sklearn_parity: 'test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align'
+      state_check: 'test_state_nbytes_reasonable: < 500 KB for n=100'
+      intrinsic_bound: 'test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded'
+      release: test_release_idempotent
+      validation: test_bad_affinity_raises / test_nan_raises
+      reproducibility: test_reproducibility_same_seed
+      cells_passed: 8/8
+      runtime_sec: ~2
+    streaming_strategy:
+      fit: kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters).
+      predict: NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)
+    primitive_reuse:
+    - knn_query_stream
+    - graph_laplacian_sparse
+    - eigsh_topk
+    - spill_dir
+    migration_target: null
+    notes: 'v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+.'
+    ooc_status: debt
+    ooc_strategy: 'Current: Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbo. Guard refuses above state_limit (honest refuse).'
+  metrics:
+  - name: cophenetic_correlation
+    combination: anchor
+    direction: higher
+    responsibility: Preservation of pairwise distances in dendrogram.
+    special: Requires dendrogram; for flat methods (k-means) use silhouette.
+  - name: fit_time_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock fit time.
+    special: Hardware-specific.
+- id: B4
+  name: Shape-based clustering (time series)
+  description: Cluster series by shape, invariant to amplitude/offset.
+  real_life:
+  - TS motif discovery
+  - Equipment operating mode clustering
+  - Patient trajectory phenotyping
+  benchmarks:
+  - name: UCR_Classification
+    url: https://www.timeseriesclassification.com/
     metrics:
-      - {name: adjusted_rand_score, combination: anchor, direction: higher, responsibility: "Pairwise agreement with ground truth, chance-corrected.", special: "Requires labels (UCR benchmark); use silhouette for unsupervised."}
-
-  - id: B5
-    name: "Biclustering"
-    description: "Cluster rows AND columns simultaneously."
-    real_life: ["Gene expression (samples × genes)", "Recommender co-clustering", "Text co-clustering"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [mean_squared_residue, fit_time_s], note: "No unified biclustering LB."}
-    models:
-      - name: SpectralCoclustering
-        tier: baseline
-        depends_on:
-        - cadw.ops.linalg.eigh_topk
-        - cadw.ops.linalg.sq_dists
-        - cadw.ml.kmeans.fit_kmeans
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        cadw_function: fit_spectral_coclustering
-        cadw_module: cadw.ml.spectral_coclustering
-        input_api: df
-        bounded_state: true
-        n_scalability: bounded_by_window
-        bounded_by_window:
-          axis: gram_dim
-          window_param: "gram_dim = min(r, c)"
-          bound: 10000
-          auto_from_guard: true
-          truncation_loss: "none (chunked Reduce; state c^2 Gram bounded by c, not r; no semantic truncation)"
-          reason: "Gram is c^2*f64 = 800 MB at c=1e4. c = len(X_cols) is typically vocab/items after prune (<=10^4 in 95%+ tabular cases). r (rows/users/documents) is unbounded: state independent of r via chunked Reduce."
-        bounded_state_dims:
-          c: 1
-          k_sv: 1
-        ram_formula: "c*c*f64 + c*k_sv*f64 + k_sv*f64 + batch*(c+k_sv)*f64*2 + c*f64*2 + 256"
-        min_ram_formula: "c*c*f64 + c*k_sv*f64 + k_sv*f64 + (c+k_sv)*f64*2 + c*f64*2 + 256"
-        formula_evidence:
-          gram: "spectral_coclustering.py -- G = zeros((c, c)): c*c*f64"
-          eigh_V: "spectral_coclustering.py -- eigh_topk(G, k_sv): c*k_sv*f64 + k_sv*f64"
-          batch_transients: "spectral_coclustering.py -- A_norm_b (batch, c): batch*(c+k_sv)*f64*2 (bsz auto from guard)"
-          state_cols: "spectral_coclustering.py -- col_labels + col_diag: c*f64*2 + 256"
-        fit_batched: true
-        predict_batched: null
-        migration_target: null
-        primitive_reuse: [reduce, eigh_topk, spill_array, fit_kmeans]
-        streaming_strategy:
-          fit: "chunked Reduce (col_sum, Gram, U, Z); eigh_topk on c*c Gram; fit_kmeans on streamed Z df; row_labels SpillArray int64"
-        roles: [local_structure]
-        purpose: "Dhillon 2001: spectral co-clustering on checkerboard patterns. SVD on normalized matrix; rows and cols cluster together."
-        real_life_examples: ["Gene expression submatrices", "Users × items co-clusters"]
-        config: {n_clusters: int, svd_method: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.SpectralCoclustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.SpectralCoclustering.html', algorithm_source_kind: docs, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: no unified biclustering LB.'}
-
-      - name: SpectralBiclustering
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.graph.graph_laplacian
-        - cadw.ops.graph.eigsh_topk
-        - cadw.ops.linalg.eigh_topk
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Kluger 2003: generalized spectral biclustering. Handles checkerboard + non-checkerboard patterns; rows and cols cluster independently after SVD."
-        real_life_examples: ["Gene expression submatrices", "General biclustering"]
-        config: {n_clusters: tuple, method: string, svd_method: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.SpectralBiclustering', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.SpectralBiclustering.html', algorithm_source_kind: docs, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: no unified biclustering LB.'}
-      - name: PlaidModel
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Plaid biclustering (Lazzeroni & Owen 2002): probabilistic submatrix model with layer decomposition."
-        real_life_examples: ["Gene expression layers", "Recommender co-cluster"]
-        config: {n_clusters: int, max_layers: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'PlaidModel', algorithm_source_url: 'https://academic.oup.com/biostatistics/article/3/4/459/247731', algorithm_source_kind: paper, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: plaid per-dataset'}
-      - name: Bimax
-        tier: baseline
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Bimax (Prelic 2006): binary biclustering; local rule-based pattern submatrices."
-        real_life_examples: ["Binary cohort pattern", "Sparse binary co-cluster"]
-        config: {min_rows: int, min_cols: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'Bimax', algorithm_source_url: 'https://academic.oup.com/bioinformatics/article/22/9/1122/232367', algorithm_source_kind: paper, attribution: literature, task_type: biclustering, n_datasets: null, metric: mean_squared_residue, value: null, note: 'no_public_benchmark: Bimax per-dataset'}
+    - adjusted_rand_score
+    note: TS clustering benchmarks use ARI on UCR archive.
+  models:
+  - name: EuclideanKMeansZ
+    tier: baseline
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    - temporal_dynamics
+    purpose: K-means on z-normalized series with Euclidean distance. Shape-aware baseline; ignores temporal shifts (unlike KShape).
+    real_life_examples:
+    - TS clustering (baseline)
+    - Shape-aware segmentation
+    config:
+      n_clusters: int
+      max_iter: int
+    benchmark_results:
+    - benchmark: UCR_Classification
+      benchmark_url: https://www.timeseriesclassification.com/
+      algorithm: k-means on z-norm (naive baseline)
+      algorithm_source_url: https://arxiv.org/abs/1506.07608
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: Baseline referenced in Paparrizos & Gravano 2015; naive Euclidean k-means on z-normalized series.
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: K-means on z-normalized series with Euclidean distance. Shape-aware baseline; ignores temporal shift... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: KShape
+    tier: sota
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    - temporal_dynamics
+    purpose: 'Paparrizos & Gravano 2015: k-shape. Shape-based distance via cross-correlation; centroids as shape-averaged series. Invariant to amplitude and offset.'
+    real_life_examples:
+    - TS motif clustering
+    - Equipment mode discovery
+    - Patient trajectory grouping
+    config:
+      n_clusters: int
+      max_iter: int
+      tol: float
+    benchmark_results:
+    - benchmark: UCR_Classification
+      benchmark_url: https://www.timeseriesclassification.com/
+      algorithm: k-Shape (Paparrizos & Gravano 2015)
+      algorithm_source_url: https://arxiv.org/abs/1506.07608
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: Paper reports ARI per UCR dataset; no unified LB. CADW TS-anomaly implementation in D_time_series (fit_kshape); clustering-task view here.
+  - name: ShapeGMM
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: Gaussian Mixture on z-normalized shapes; soft shape-cluster assignment.
+    real_life_examples:
+    - Soft TS motif clustering
+    - Patient trajectory uncertainty
+    config:
+      n_components: int
+      covariance_type: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: ShapeGMM
+      algorithm_source_url: https://arxiv.org/abs/2205.00905
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: ShapeGMM per-dataset'
+  metrics:
+  - name: adjusted_rand_score
+    combination: anchor
+    direction: higher
+    responsibility: Pairwise agreement with ground truth, chance-corrected.
+    special: Requires labels (UCR benchmark); use silhouette for unsupervised.
+- id: B5
+  name: Biclustering
+  description: Cluster rows AND columns simultaneously.
+  real_life:
+  - Gene expression (samples × genes)
+  - Recommender co-clustering
+  - Text co-clustering
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: mean_squared_residue, combination: anchor, direction: lower, responsibility: "Coherence of bicluster submatrices (lower = tighter).", special: "Depends on data scale; report per-dataset."}
-      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
-
-  - id: B6
-    name: "Ensemble clustering"
-    description: "Consensus of multiple clustering runs (different algorithms/seeds/k)."
-    real_life: ["Robust segmentation", "Flag ambiguous points (disagreement)"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [adjusted_rand_score, agreement_fraction], note: "cadw_internal synthetic DGP with known labels."}
-    models:
-      - name: KMeansOnly
-        tier: baseline
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Single-run KMeans baseline: what consensus must beat. No cross-algorithm agreement."
-        real_life_examples: ["Simple segmentation baseline"]
-        config: {k: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.cluster.KMeans', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html', algorithm_source_kind: docs, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'baseline for consensus comparison.'}
-
-      - name: KMeansHDBSCAN_consensus
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.consensus_matrix
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L12"
-        depends_on_status: planned
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Consensus of centroid (KMeans) and density (HDBSCAN) partitions. Different biases -> robust agreement core; disagreement signals ambiguous points."
-        real_life_examples: ["Robust segmentation", "Flag ambiguous points"]
-        config: {kmeans_k: int, hdbscan_min_cluster_size: int, agreement_method: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'consensus (KMeans + HDBSCAN) -- Strehl & Ghosh 2002 framework', algorithm_source_url: 'https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: custom ensemble; ARI vs each base partition. Strehl & Ghosh 2002 consensus-clustering framework.'}
-      - name: EvidenceAccumulation
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.consensus_matrix
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L12"
-        depends_on_status: planned
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Evidence-accumulation consensus (Fred & Jain 2005); probabilistic co-association fusion."
-        real_life_examples: ["Consensus from multiple runs", "Probabilistic clustering combination"]
-        config: {n_partitions: int, linkage: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'EvidenceAccumulation', algorithm_source_url: 'https://ieeexplore.ieee.org/document/1427769', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: evidence-accumulation per-dataset'}
-      - name: CSPA
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.consensus_matrix
-        depends_on_backlog: "PRIMITIVES_BACKLOG §L12"
-        depends_on_status: planned
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [representation]
-        purpose: "Cluster-similarity partitioning algorithm (Strehl & Ghosh 2002); meta-graph fusion."
-        real_life_examples: ["Similarity-graph consensus", "Cluster-space representation"]
-        config: {n_partitions: int, n_clusters: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CSPA', algorithm_source_url: 'https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: CSPA per-dataset'}
+    - mean_squared_residue
+    - fit_time_s
+    note: No unified biclustering LB.
+  models:
+  - name: SpectralCoclustering
+    tier: baseline
+    depends_on:
+    - cadw.ops.linalg.eigh_topk
+    - cadw.ops.linalg.sq_dists
+    - cadw.ml.kmeans.fit_kmeans
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    cadw_function: fit_spectral_coclustering
+    cadw_module: cadw.ml.spectral_coclustering
+    input_api: df
+    bounded_state: true
+    n_scalability: bounded_by_window
+    bounded_by_window:
+      axis: gram_dim
+      window_param: gram_dim = min(r, c)
+      bound: 10000
+      auto_from_guard: true
+      truncation_loss: none (chunked Reduce; state c^2 Gram bounded by c, not r; no semantic truncation)
+      reason: 'Gram is c^2*f64 = 800 MB at c=1e4. c = len(X_cols) is typically vocab/items after prune (<=10^4 in 95%+ tabular cases). r (rows/users/documents) is unbounded: state independent of r via chunked Reduce.'
+    bounded_state_dims:
+      c: 1
+      k_sv: 1
+    ram_formula: c*c*f64 + c*k_sv*f64 + k_sv*f64 + batch*(c+k_sv)*f64*2 + c*f64*2 + 256
+    min_ram_formula: c*c*f64 + c*k_sv*f64 + k_sv*f64 + (c+k_sv)*f64*2 + c*f64*2 + 256
+    formula_evidence:
+      gram: 'spectral_coclustering.py -- G = zeros((c, c)): c*c*f64'
+      eigh_V: 'spectral_coclustering.py -- eigh_topk(G, k_sv): c*k_sv*f64 + k_sv*f64'
+      batch_transients: 'spectral_coclustering.py -- A_norm_b (batch, c): batch*(c+k_sv)*f64*2 (bsz auto from guard)'
+      state_cols: 'spectral_coclustering.py -- col_labels + col_diag: c*f64*2 + 256'
+    fit_batched: true
+    predict_batched: null
+    migration_target: null
+    primitive_reuse:
+    - reduce
+    - eigh_topk
+    - spill_array
+    - fit_kmeans
+    streaming_strategy:
+      fit: chunked Reduce (col_sum, Gram, U, Z); eigh_topk on c*c Gram; fit_kmeans on streamed Z df; row_labels SpillArray int64
+    roles:
+    - local_structure
+    purpose: 'Dhillon 2001: spectral co-clustering on checkerboard patterns. SVD on normalized matrix; rows and cols cluster together.'
+    real_life_examples:
+    - Gene expression submatrices
+    - Users × items co-clusters
+    config:
+      n_clusters: int
+      svd_method: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.SpectralCoclustering
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.SpectralCoclustering.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: biclustering
+      n_datasets: null
+      metric: mean_squared_residue
+      value: null
+      note: 'no_public_benchmark: no unified biclustering LB.'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #2 window. W_eff=gram_dim = min(r, c) from guard (axis=gram_dim); truncation loss: none (chunked Reduce; state c^2 Gram bounded by c, not r; no semantic truncation.'
+  - name: SpectralBiclustering
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.graph.graph_laplacian
+    - cadw.ops.graph.eigsh_topk
+    - cadw.ops.linalg.eigh_topk
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Kluger 2003: generalized spectral biclustering. Handles checkerboard + non-checkerboard patterns; rows and cols cluster independently after SVD.'
+    real_life_examples:
+    - Gene expression submatrices
+    - General biclustering
+    config:
+      n_clusters: tuple
+      method: string
+      svd_method: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.SpectralBiclustering
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.SpectralBiclustering.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: biclustering
+      n_datasets: null
+      metric: mean_squared_residue
+      value: null
+      note: 'no_public_benchmark: no unified biclustering LB.'
+  - name: PlaidModel
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: 'Plaid biclustering (Lazzeroni & Owen 2002): probabilistic submatrix model with layer decomposition.'
+    real_life_examples:
+    - Gene expression layers
+    - Recommender co-cluster
+    config:
+      n_clusters: int
+      max_layers: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: PlaidModel
+      algorithm_source_url: https://academic.oup.com/biostatistics/article/3/4/459/247731
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: biclustering
+      n_datasets: null
+      metric: mean_squared_residue
+      value: null
+      note: 'no_public_benchmark: plaid per-dataset'
+  - name: Bimax
+    tier: baseline
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Bimax (Prelic 2006): binary biclustering; local rule-based pattern submatrices.'
+    real_life_examples:
+    - Binary cohort pattern
+    - Sparse binary co-cluster
+    config:
+      min_rows: int
+      min_cols: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: Bimax
+      algorithm_source_url: https://academic.oup.com/bioinformatics/article/22/9/1122/232367
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: biclustering
+      n_datasets: null
+      metric: mean_squared_residue
+      value: null
+      note: 'no_public_benchmark: Bimax per-dataset'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Bimax (Prelic 2006): binary biclustering; local rule-based pattern submatrices... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  metrics:
+  - name: mean_squared_residue
+    combination: anchor
+    direction: lower
+    responsibility: Coherence of bicluster submatrices (lower = tighter).
+    special: Depends on data scale; report per-dataset.
+  - name: fit_time_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock fit time.
+    special: Hardware-specific.
+- id: B6
+  name: Ensemble clustering
+  description: Consensus of multiple clustering runs (different algorithms/seeds/k).
+  real_life:
+  - Robust segmentation
+  - Flag ambiguous points (disagreement)
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: adjusted_rand_score, combination: anchor, direction: higher, responsibility: "Agreement with ground truth (synthetic) or each base partition.", special: "Requires labels or a reference partition."}
-      - {name: agreement_fraction, combination: diagnostic, direction: target, responsibility: "Fraction of points where all runs agree.", special: "Higher agreement = more confident core; disagreement = ambiguous."}
+    - adjusted_rand_score
+    - agreement_fraction
+    note: cadw_internal synthetic DGP with known labels.
+  models:
+  - name: KMeansOnly
+    tier: baseline
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Single-run KMeans baseline: what consensus must beat. No cross-algorithm agreement.'
+    real_life_examples:
+    - Simple segmentation baseline
+    config:
+      k: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.cluster.KMeans
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: baseline for consensus comparison.
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Single-run KMeans baseline: what consensus must beat. No cross-algorithm agreement... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: KMeansHDBSCAN_consensus
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.consensus_matrix
+    depends_on_backlog: PRIMITIVES_BACKLOG §L12
+    depends_on_status: planned
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: Consensus of centroid (KMeans) and density (HDBSCAN) partitions. Different biases -> robust agreement core; disagreement signals ambiguous points.
+    real_life_examples:
+    - Robust segmentation
+    - Flag ambiguous points
+    config:
+      kmeans_k: int
+      hdbscan_min_cluster_size: int
+      agreement_method: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: consensus (KMeans + HDBSCAN) -- Strehl & Ghosh 2002 framework
+      algorithm_source_url: https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: custom ensemble; ARI vs each base partition. Strehl & Ghosh 2002 consensus-clustering framework.'
+  - name: EvidenceAccumulation
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.consensus_matrix
+    depends_on_backlog: PRIMITIVES_BACKLOG §L12
+    depends_on_status: planned
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: Evidence-accumulation consensus (Fred & Jain 2005); probabilistic co-association fusion.
+    real_life_examples:
+    - Consensus from multiple runs
+    - Probabilistic clustering combination
+    config:
+      n_partitions: int
+      linkage: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: EvidenceAccumulation
+      algorithm_source_url: https://ieeexplore.ieee.org/document/1427769
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: evidence-accumulation per-dataset'
+  - name: CSPA
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.consensus_matrix
+    depends_on_backlog: PRIMITIVES_BACKLOG §L12
+    depends_on_status: planned
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - representation
+    purpose: Cluster-similarity partitioning algorithm (Strehl & Ghosh 2002); meta-graph fusion.
+    real_life_examples:
+    - Similarity-graph consensus
+    - Cluster-space representation
+    config:
+      n_partitions: int
+      n_clusters: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: CSPA
+      algorithm_source_url: https://www.sciencedirect.com/science/article/abs/pii/S0031320301001751
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: clustering
+      n_datasets: null
+      metric: adjusted_rand_score
+      value: null
+      note: 'no_public_benchmark: CSPA per-dataset'
+  metrics:
+  - name: adjusted_rand_score
+    combination: anchor
+    direction: higher
+    responsibility: Agreement with ground truth (synthetic) or each base partition.
+    special: Requires labels or a reference partition.
+  - name: agreement_fraction
+    combination: diagnostic
+    direction: target
+    responsibility: Fraction of points where all runs agree.
+    special: Higher agreement = more confident core; disagreement = ambiguous.

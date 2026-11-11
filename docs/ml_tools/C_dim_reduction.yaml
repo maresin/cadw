@@ -5,409 +5,715 @@
 section: C
 name: Dimensionality reduction
 subtypes:
-  - id: C1
-    name: "Linear projection"
-    description: "Project data onto k linear directions that maximize variance (PCA) or a related objective. Interpretable, invertible."
-    real_life: ["Preprocessing for downstream models", "Noise reduction / denoising", "Visualization (k=2)"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [reconstruction_error, explained_variance_ratio, fit_time_s], note: "No unified dim-reduction leaderboard; cadw_internal synthetic DGP."}
-    models:
-      - name: PCA
-        tier: baseline
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          verified_by_agent: true
-          status: verified
-        roles: [representation]
-        purpose: "Pearson 1901: orthogonal linear projection maximizing variance. Eigendecomposition of covariance; exact for full SVD, randomized for large d. Canonical baseline."
-        real_life_examples: ["Feature preprocessing", "Denoising", "2D visualization"]
-        config: {n_components: int, method: 'auto|exact|randomized'}
-        cadw_module: cadw.ml.pca
-        cadw_function: fit_pca
-        input_api: df
-        fit_batched: true
-        predict_batched: true
-        depends_on: []
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.PCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB; measure v0.9.124.'}
-        state_class: O(d²)
-        bounded_state_dims: {d: 2}
-        state_type: aggregation
-        bounded_state: true
-        n_scalability: constant
-        ram_formula: "2 * batch * row_size + 3 * d * d * f64 + 4 * d * f64 + 264"
-        formula_evidence:
-          batch_term: "pca.py:405 -- reduce over CovarianceMeanOp; _stack_numeric (parts + column_stack) = 2x batch"
-          state_cov: "reduce.py:378 -- CovarianceOp.estimate_state_nbytes = 8 + 8*d + 8*d*d"
-          finalize_cov: "reduce.py:428-438 -- CovarianceMeanOp.finalize: cov (d,d) + mean (d,)"
-          eigh: "pca.py:405 -- np.linalg.eigh(cov) -> eigvals (d,), eigvecs (d,d); sort copies both"
-          header: "pca.py -- PCA class header; 256"
-        min_ram_formula: "2 * 1 * row_size + 3 * d * d * f64 + 4 * d * f64 + 264"
-        min_ram_evidence:
-          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
-        measurement:
-          status: "pending (v0.9.124)"
-          note: "Formula from code (AP23); eigh transient (d²) dominant at large d."
-        streaming_strategy:
-          fit: 'Reduce(CovarianceMeanOp) then eigh; O(d²) state independent of n.'
-          predict: 'per-batch (X - mean) @ components.T.'
-        primitive_reuse: [reduce]
-
-      - name: TruncatedSVD
-        tier: baseline
-        depends_on:
-        - cadw.ml.truncated_svd.fit_truncated_svd
-        - cadw.ops.linalg.svd_topk
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [representation]
-        purpose: "SVD without centering (LSA-style). Unlike PCA, does not require mean removal; suited for sparse inputs."
-        real_life_examples: ["Sparse text embeddings", "LSA preprocessing", "No mean removal needed"]
-        config: {n_components: int, algorithm: 'randomized|arpack'}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.TruncatedSVD', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.TruncatedSVD.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB.'}
-        cadw_function: fit_truncated_svd
-        cadw_module: cadw.ml.truncated_svd
-        input_api: df
-        bounded_state: true
-        n_scalability: constant
-        bounded_state_dims: {d: 1, k: 1}
-        state_class: O(d^2)
-        state_type: aggregation
-        ram_formula: 'd * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * batch * row_size + 256'
-        min_ram_formula: 'd * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * row_size + 256'
-        formula_evidence:
-          gram: "svd_topk -- G = zeros((d, d)): d*d*f64 (chunked Reduce)"
-          eigh: "svd_topk -- eigh_topk(G, k): d*d*f64 copy + V (d,k) f64"
-          components: "truncated_svd -- components_ (k, d): k*d*f64"
-          sigma_ev_evr: "truncated_svd -- sigma + ev + evr: 3*k*f64"
-          batch: "truncated_svd -- X_batch (batch, d): 3.5*batch*row_size"
-          header: "truncated_svd -- +256 in state_nbytes()"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          sklearn_parity: "test_sklearn_parity (2 parametrized n/d/k): sigma/components_/ev/evr max diff < 1e-9; transform max diff < 1e-9. test_fit_transform_parity: same"
-          state_check: "test_state_nbytes: 6000 < state < 10000 for d=80 k=10"
-          guard: "test_guard_refuses_tight: d=200, 0.1 MB -> MemoryLimitExceeded"
-          release: "test_release_idempotent"
-          reproducibility: "test_reproducibility"
-          validation: "test_randomized_deferred / test_invalid"
-          cells_passed: "8/8"
-          runtime_sec: "~5"
-        streaming_strategy:
-          fit: "svd_topk (chunked Gram Reduce) + 2-pass streaming explained_variance. State O(d^2); OOC in n_rows."
-          predict: "OOC in n_q via SpillArray (streaming X @ components_.T)"
-        primitive_reuse: [svd_topk, eigh_topk, spill_array]
-        migration_target: null
-        notes: "v0.9.205: fit + transform verified (component-wise DEC-033, sklearn TruncatedSVD(algorithm='arpack', tol=0) parity: sigma/components_/ev/evr max diff < 1e-9; transform < 1e-9). Pattern #1 batch-layer: svd_topk chunked Gram, OOC in n_rows. State d^2 transient (Gram+eigh), d*k persistent. Guard refuses at large d. Sklearn default algorithm='randomized' deferred v0.9.206 (power iteration); explicit algorithm='arpack' required."
-      - name: randomized_svd
-
-        # DEC-049: canonical home is J_nlp.J2.LSA_TFIDF_SVD
-
-        cross_ref: "J_nlp.LSA_TFIDF_SVD"
-        tier: sota
-        depends_on:
-        - cadw.ml.truncated_svd.fit_truncated_svd
-        - cadw.ops.linalg.svd_topk
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [representation]
-        purpose: "Halko et al. 2011: randomized SVD for large d. Approximate; O(d·k·p) vs O(d²·k) exact. Canonical CADW implementation: cadw.ml.randsvd.fit_randomized_svd (verified in J_nlp.J2.LSA_TFIDF_SVD)."
-        real_life_examples: ["Large-d PCA", "Approximate SVD for sparse / low-rank", "Truncated LSA"]
-        config: {n_components: int, n_oversamples: int, random_state: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.utils.extmath.randomized_svd', algorithm_source_url: 'https://arxiv.org/abs/0909.4061', algorithm_source_kind: paper, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'Halko et al. 2011. CADW impl: fit_randomized_svd (J_nlp J2).'}
-        cadw_function: fit_truncated_svd
-        cadw_module: cadw.ml.truncated_svd
-        input_api: df
-        bounded_state: true
-        n_scalability: constant
-        bounded_state_dims: {d: 1, k: 1}
-        state_class: O(d^2)
-        state_type: aggregation
-        ram_formula: 'd * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * batch * row_size + 256'
-        min_ram_formula: 'd * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * row_size + 256'
-        formula_evidence:
-          gram: "svd_topk -- G = zeros((d, d)): d*d*f64 (chunked Reduce)"
-          eigh: "svd_topk -- eigh_topk(G, k): d*d*f64 copy + V (d,k) f64"
-          components: "truncated_svd -- components_ (k, d): k*d*f64"
-          sigma_ev_evr: "truncated_svd -- sigma + ev + evr: 3*k*f64"
-          batch: "truncated_svd -- X_batch (batch, d): 3.5*batch*row_size"
-          header: "truncated_svd -- +256 in state_nbytes()"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          sklearn_parity: "test_sklearn_parity (2 parametrized n/d/k): sigma/components_/ev/evr max diff < 1e-9; transform max diff < 1e-9. test_fit_transform_parity: same"
-          state_check: "test_state_nbytes: 6000 < state < 10000 for d=80 k=10"
-          guard: "test_guard_refuses_tight: d=200, 0.1 MB -> MemoryLimitExceeded"
-          release: "test_release_idempotent"
-          reproducibility: "test_reproducibility"
-          validation: "test_randomized_deferred / test_invalid"
-          cells_passed: "8/8"
-          runtime_sec: "~5"
-        streaming_strategy:
-          fit: "svd_topk (chunked Gram Reduce) + 2-pass streaming explained_variance. State O(d^2); OOC in n_rows."
-          predict: "deferred v0.9.206 (see notes)"
-        primitive_reuse: [svd_topk, eigh_topk, spill_array]
-        migration_target: null
-        notes: "v0.9.205: verified via fit_truncated_svd(algorithm='arpack') = exact SVD via svd_topk chunked Gram. Sklearn randomized_svd (algorithm='randomized', power iteration) deferred v0.9.206. For exact top-k use algorithm='arpack' path; identical result when random_state fixed and tol=0."
-      - name: KernelPCA
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.pairwise_kernel
-        - cadw.ops.linalg.eigh_topk
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.linalg.eigh_topk
-        tier_level: tier1_core
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [nonlinear_interactions]
-        purpose: "Kernel PCA (Scholkopf 1998): nonlinear projection via kernel-induced feature map."
-        real_life_examples: ["Nonlinear feature compression", "Denoising with kernel ridge"]
-        config: {n_components: int, kernel: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'KernelPCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.KernelPCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: kernel PCA per-dataset'}
-        cadw_function: fit_kernel_pca
-        cadw_module: cadw.ml.kernel_pca
-        input_api: df
-        bounded_state: false
-        n_scalability: linear
-        bounded_by_domain:
-          axis: n
-          bound: 10000
-          reason: "O(n^2) kernel matrix + eigh copy (intrinsic per DEC-075). At n=1e4: K=800 MB, eigh copy 800 MB; guard refuses above. Options: subsample or Nystroem approximation (v0.9.201+)."
-        bounded_state_dims: {n: 1, d: 1, k: 1}
-        state_class: O(n)
-        state_type: aggregation
-        ram_formula: 'n * d * f64 + n * f64 + n * k * f64 + k * f64 + 256'
-        min_ram_formula: '2 * n * n * f64 + n * d * f64 + 256'
-        formula_evidence:
-          X_fit: "kernel_pca.py -- X_fit.nbytes (n*d*f64)"
-          K_fit_rows: "kernel_pca.py -- K_fit_rows.nbytes (n*f64)"
-          K_fit_all: "kernel_pca.py -- +8 scalar"
-          eigvals: "kernel_pca.py -- eigenvalues.nbytes (k*f64)"
-          eigvecs: "kernel_pca.py -- eigenvectors.nbytes (n*k*f64)"
-          header: "kernel_pca.py -- +256 in state_nbytes()"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          state_check: "test_state_nbytes_exact: bit-exact per-term (CW-1, 3 parametrized)"
-          state_growth: "test_state_grows_with_n: state O(n) honest (bounded_state=false) (CW-2)"
-          sklearn_parity: "test_sklearn_parity_fit_transform kernel in {linear,rbf,poly} max diff < 1e-9 (CW-3..5); test_sklearn_parity_transform same (CW-6); test_n_components_none_drops_zeros (CW-7); test_remove_zero_eig (CW-8); test_gamma_none_default (CW-11)"
-          intrinsic_bound: "test_n_above_intrinsic_bound_raises: n=10001 -> MemoryLimitExceeded (CW-9)"
-          release: "test_release_idempotent_and_predict_raises (CW-10)"
-          validation: "test_empty_X_cols / bad_kernel / bad_gamma / nan_X raises (CW-12)"
-          cells_passed: "12/12 (parametrized: ~18 total test cases)"
-          runtime_sec: "~5"
-          fit_transient_note: "K (n,n) + eigh copy = 2*n^2*f64 per bound; intrinsic. Honest bounded_by_domain {n: 1e4} per DEC-075."
-        streaming_strategy:
-          fit: "X into RAM (n<=1e4) -> K (n,n) via pairwise_kernel -> centerer -> eigh_topk LA -> svd_flip -> remove_zero_eig. Intrinsic O(n^2) per DEC-075."
-          transform: "Per Q batch: pairwise_kernel(X_fit, Q_batch) -> centerer.transform -> @ scaled_alphas. OOC in n_q via Dataset.from_batches (O(batch*n_train) peak)."
-        primitive_reuse: [pairwise_kernel, eigh_topk]
-        migration_target: null
-        notes: "v0.9.200: fit + transform verified (component-wise DEC-033, sklearn KernelPCA parity 1.9e-15 all 3 kernels). Intrinsic O(n^2) fit transient (bounded_by_domain {n:1e4}, DEC-075). transform streaming via pairwise_kernel(X_fit, Q_batch). v0.9.202: fit_nystroem_kernel_map available as alternative for n>1e4 (bit-identical sklearn Nystroem for n<=1e7, reservoir fallback above + ApproximationInfo). Recommended large-n flow: Nystroem(k=100..500) -> PCA on feature map. Kernels: linear, rbf, poly, laplacian, sigmoid, cosine (full sklearn pairwise_kernels)."
-      - name: SparsePCA
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [local_structure]
-        purpose: "Sparse PCA (Zou 2006): elastic-net-regularized components; local (sparse) loading structure."
-        real_life_examples: ["Interpretable feature projection", "Sparse loadings for report"]
-        config: {n_components: int, alpha: float}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SparsePCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.SparsePCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: sparse PCA per-dataset'}
+- id: C1
+  name: Linear projection
+  description: Project data onto k linear directions that maximize variance (PCA) or a related objective. Interpretable, invertible.
+  real_life:
+  - Preprocessing for downstream models
+  - Noise reduction / denoising
+  - Visualization (k=2)
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: reconstruction_error, combination: anchor, direction: lower, responsibility: "Frobenius norm of (X - X_reconstructed); lower = better preservation.", special: "Scale-dependent; normalize by ||X||_F for cross-dataset comparability."}
-      - {name: explained_variance_ratio, combination: diagnostic, direction: higher, responsibility: "Fraction of total variance in top-k components.", special: "Only meaningful for PCA (centered); TruncatedSVD lacks center."}
-
-  - id: C2
-    name: "Matrix factorization"
-    description: "Factor X ≈ W·H with non-negativity (NMF), implicit-feedback (ALS), or general constraints."
-    real_life: ["Topic modeling (docs × words)", "Recommender factorization (users × items)", "Parts-based representation"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [reconstruction_error, fit_time_s], note: "No unified dim-reduction LB."}
-    models:
-      - name: NMF
-        # DEC-049: canonical home is J_nlp (topic modeling)
-        cross_ref: "J_nlp.NMF"
-        cadw_function: fit_nmf
-        cadw_module: cadw.ml.nmf
-        input_api: df
-        n_scalability: constant
-        bounded_state: true
-        bounded_state_dims: {k: 1, vocab_size: 1}
-        state_class: O(model)
-        state_type: iterative
-        streaming_strategy: |
-          fit: multi-pass streaming; per-batch mini-batch mu updates H.
-          State H is (k, V) — bounded by user params, independent of n.
-          transform: per-batch W via transform_batches generator, O(batch).
-        primitive_reuse: [reduce]
-        fit_batched: true
-        predict_batched: false  # no predict; transform_batches is generator
-        ram_formula: "k * vocab_size * f64 + 128 + batch * vocab_size * f64 + 4 * batch * row_size"
-        formula_evidence:
-          H: "cadw/ml/nmf.py -- NMFModel.components_: np.ndarray[k, V] float64"
-          header: "cadw/ml/nmf.py -- NMFModel.state_nbytes(): +128"
-          dense_X: "cadw/ml/nmf.py -- _coo_to_dense: np.zeros((n_docs, V)); n_docs <= batch"
-          arrow: "cadw/ml/nmf.py -- batch read: 3 x i64 (doc,term,cnt) + mask"
-        min_ram_formula: "k * vocab_size * f64 + 128 + 1 * vocab_size * f64 + 4 * 1 * row_size"
-        min_ram_evidence:
-          derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
-        measurement:
-          verification_mode: "component-wise (DEC-033)"
-          state_check: "test_state_nbytes_exact: bit-exact, 4 (k,V) parametrized"
-          state_ooc: "test_state_independent_of_n: state(n=500) == state(n=5000)"
-          formula_sanity: "test_ooc_batch_fixed: peak ratio < 2.0 at fixed batch"
-          ooc: "test_ooc_batch_fixed: median-of-3 per n (DEC-034)"
-          guard: "test_guard_refuses_at_tight: V=50k + 0.1 MB -> MemoryLimitExceeded"
-          correctness: "test_transform_batches_shape_and_nonneg + test_reconstruction_error_small"
-          note: "CW-3 batch coef skipped: transient b*V*f64 dominates row_size Arrow term at any realistic V. Formula uses conservative 4.0 arrow coef."
-          cells_passed: "N/A (component-wise)"
-          runtime_sec: "~5"
-        tier: baseline
-        depends_on:
-        - cadw.ops.linalg.nmf_mu
-        tier_level: tier2_wrapper
-        implementation_status:
-          verified_in_cadw: true
-          status: verified
-        roles: [representation, probabilistic]
-        purpose: "Lee & Seung 1999: non-negative matrix factorization X ≈ W·H with W,H ≥ 0. Parts-based representation; interpretable components. Canonical CADW: .pingis/impl/J/nmf.py (reference impl), J_nlp.J3.NMF card."
-        real_life_examples: ["Topic modeling (docs × words)", "Parts-based image decomposition", "Interpretable dim reduction"]
-        config: {n_components: int, max_iter: int, init: 'random|nndsvd'}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.decomposition.NMF', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html', algorithm_source_kind: docs, attribution: literature, task_type: matrix_factorization, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB. Reference impl .pingis/impl/J/nmf.py; card J_nlp.J3.NMF.'}
-
-      - name: ALS
-
-        # DEC-049: canonical home is F_recsys (collaborative filtering)
-
-        cross_ref: "F_recsys.ALS"
-        tier: sota
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [representation, local_structure]
-        purpose: "Hu et al. 2008: Alternating Least Squares for implicit-feedback matrices. Solves weighted least squares per user/item iteratively. Canonical CADW: cadw.ml.als.fit_als (verified in F_recsys.ALS)."
-        real_life_examples: ["Implicit-feedback recommenders", "Large sparse matrix factorization", "Low-rank approximation"]
-        config: {n_factors: int, regularization: float, iterations: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'implicit.als.AlternatingLeastSquares', algorithm_source_url: 'https://arxiv.org/abs/1205.2618', algorithm_source_kind: paper, attribution: literature, task_type: matrix_factorization, n_datasets: null, metric: reconstruction_error, value: null, note: 'Hu et al. 2008. CADW impl: fit_als (F_recsys).'}
+    - reconstruction_error
+    - explained_variance_ratio
+    - fit_time_s
+    note: No unified dim-reduction leaderboard; cadw_internal synthetic DGP.
+  models:
+  - name: PCA
+    tier: baseline
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      verified_by_agent: true
+      status: verified
+    roles:
+    - representation
+    purpose: 'Pearson 1901: orthogonal linear projection maximizing variance. Eigendecomposition of covariance; exact for full SVD, randomized for large d. Canonical baseline.'
+    real_life_examples:
+    - Feature preprocessing
+    - Denoising
+    - 2D visualization
+    config:
+      n_components: int
+      method: auto|exact|randomized
+    cadw_module: cadw.ml.pca
+    cadw_function: fit_pca
+    input_api: df
+    fit_batched: true
+    predict_batched: true
+    depends_on: []
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.decomposition.PCA
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: dimensionality_reduction
+      n_datasets: null
+      metric: reconstruction_error
+      value: null
+      note: 'no_public_benchmark: dim-reduction not on AMLB; measure v0.9.124.'
+    state_class: O(d²)
+    bounded_state_dims:
+      d: 2
+    state_type: aggregation
+    bounded_state: true
+    n_scalability: constant
+    ram_formula: 2 * batch * row_size + 3 * d * d * f64 + 4 * d * f64 + 264
+    formula_evidence:
+      batch_term: pca.py:405 -- reduce over CovarianceMeanOp; _stack_numeric (parts + column_stack) = 2x batch
+      state_cov: reduce.py:378 -- CovarianceOp.estimate_state_nbytes = 8 + 8*d + 8*d*d
+      finalize_cov: 'reduce.py:428-438 -- CovarianceMeanOp.finalize: cov (d,d) + mean (d,)'
+      eigh: pca.py:405 -- np.linalg.eigh(cov) -> eigvals (d,), eigvecs (d,d); sort copies both
+      header: pca.py -- PCA class header; 256
+    min_ram_formula: 2 * 1 * row_size + 3 * d * d * f64 + 4 * d * f64 + 264
+    min_ram_evidence:
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
+    measurement:
+      status: pending (v0.9.124)
+      note: Formula from code (AP23); eigh transient (d²) dominant at large d.
+    streaming_strategy:
+      fit: Reduce(CovarianceMeanOp) then eigh; O(d²) state independent of n.
+      predict: per-batch (X - mean) @ components.T.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.pca.'
+  - name: TruncatedSVD
+    tier: baseline
+    depends_on:
+    - cadw.ml.truncated_svd.fit_truncated_svd
+    - cadw.ops.linalg.svd_topk
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - representation
+    purpose: SVD without centering (LSA-style). Unlike PCA, does not require mean removal; suited for sparse inputs.
+    real_life_examples:
+    - Sparse text embeddings
+    - LSA preprocessing
+    - No mean removal needed
+    config:
+      n_components: int
+      algorithm: randomized|arpack
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.decomposition.TruncatedSVD
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.TruncatedSVD.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: dimensionality_reduction
+      n_datasets: null
+      metric: reconstruction_error
+      value: null
+      note: 'no_public_benchmark: dim-reduction not on AMLB.'
+    cadw_function: fit_truncated_svd
+    cadw_module: cadw.ml.truncated_svd
+    input_api: df
+    bounded_state: true
+    n_scalability: constant
+    bounded_state_dims:
+      d: 1
+      k: 1
+    state_class: O(d^2)
+    state_type: aggregation
+    ram_formula: d * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * batch * row_size + 256
+    min_ram_formula: d * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * row_size + 256
+    formula_evidence:
+      gram: 'svd_topk -- G = zeros((d, d)): d*d*f64 (chunked Reduce)'
+      eigh: 'svd_topk -- eigh_topk(G, k): d*d*f64 copy + V (d,k) f64'
+      components: 'truncated_svd -- components_ (k, d): k*d*f64'
+      sigma_ev_evr: 'truncated_svd -- sigma + ev + evr: 3*k*f64'
+      batch: 'truncated_svd -- X_batch (batch, d): 3.5*batch*row_size'
+      header: truncated_svd -- +256 in state_nbytes()
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      sklearn_parity: 'test_sklearn_parity (2 parametrized n/d/k): sigma/components_/ev/evr max diff < 1e-9; transform max diff < 1e-9. test_fit_transform_parity: same'
+      state_check: 'test_state_nbytes: 6000 < state < 10000 for d=80 k=10'
+      guard: 'test_guard_refuses_tight: d=200, 0.1 MB -> MemoryLimitExceeded'
+      release: test_release_idempotent
+      reproducibility: test_reproducibility
+      validation: test_randomized_deferred / test_invalid
+      cells_passed: 8/8
+      runtime_sec: ~5
+    streaming_strategy:
+      fit: svd_topk (chunked Gram Reduce) + 2-pass streaming explained_variance. State O(d^2); OOC in n_rows.
+      predict: OOC in n_q via SpillArray (streaming X @ components_.T)
+    primitive_reuse:
+    - svd_topk
+    - eigh_topk
+    - spill_array
+    migration_target: null
+    notes: 'v0.9.205: fit + transform verified (component-wise DEC-033, sklearn TruncatedSVD(algorithm=''arpack'', tol=0) parity: sigma/components_/ev/evr max diff < 1e-9; transform < 1e-9). Pattern #1 batch-layer: svd_topk chunked Gram, OOC in n_rows. State d^2 transient (Gram+eigh), d*k persistent. Guard refuses at large d. Sklearn default algorithm=''randomized'' deferred v0.9.206 (power iteration); explicit algorithm=''arpack'' required.'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1, k:1; independent of n. Module: cadw.ml.truncated_svd.'
+  - name: randomized_svd
+    cross_ref: J_nlp.LSA_TFIDF_SVD
+    tier: sota
+    depends_on:
+    - cadw.ml.truncated_svd.fit_truncated_svd
+    - cadw.ops.linalg.svd_topk
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - representation
+    purpose: 'Halko et al. 2011: randomized SVD for large d. Approximate; O(d·k·p) vs O(d²·k) exact. Canonical CADW implementation: cadw.ml.randsvd.fit_randomized_svd (verified in J_nlp.J2.LSA_TFIDF_SVD).'
+    real_life_examples:
+    - Large-d PCA
+    - Approximate SVD for sparse / low-rank
+    - Truncated LSA
+    config:
+      n_components: int
+      n_oversamples: int
+      random_state: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.utils.extmath.randomized_svd
+      algorithm_source_url: https://arxiv.org/abs/0909.4061
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: dimensionality_reduction
+      n_datasets: null
+      metric: reconstruction_error
+      value: null
+      note: 'Halko et al. 2011. CADW impl: fit_randomized_svd (J_nlp J2).'
+    cadw_function: fit_truncated_svd
+    cadw_module: cadw.ml.truncated_svd
+    input_api: df
+    bounded_state: true
+    n_scalability: constant
+    bounded_state_dims:
+      d: 1
+      k: 1
+    state_class: O(d^2)
+    state_type: aggregation
+    ram_formula: d * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * batch * row_size + 256
+    min_ram_formula: d * d * f64 * 2 + d * k * f64 + k * f64 + 3.5 * row_size + 256
+    formula_evidence:
+      gram: 'svd_topk -- G = zeros((d, d)): d*d*f64 (chunked Reduce)'
+      eigh: 'svd_topk -- eigh_topk(G, k): d*d*f64 copy + V (d,k) f64'
+      components: 'truncated_svd -- components_ (k, d): k*d*f64'
+      sigma_ev_evr: 'truncated_svd -- sigma + ev + evr: 3*k*f64'
+      batch: 'truncated_svd -- X_batch (batch, d): 3.5*batch*row_size'
+      header: truncated_svd -- +256 in state_nbytes()
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      sklearn_parity: 'test_sklearn_parity (2 parametrized n/d/k): sigma/components_/ev/evr max diff < 1e-9; transform max diff < 1e-9. test_fit_transform_parity: same'
+      state_check: 'test_state_nbytes: 6000 < state < 10000 for d=80 k=10'
+      guard: 'test_guard_refuses_tight: d=200, 0.1 MB -> MemoryLimitExceeded'
+      release: test_release_idempotent
+      reproducibility: test_reproducibility
+      validation: test_randomized_deferred / test_invalid
+      cells_passed: 8/8
+      runtime_sec: ~5
+    streaming_strategy:
+      fit: svd_topk (chunked Gram Reduce) + 2-pass streaming explained_variance. State O(d^2); OOC in n_rows.
+      predict: deferred v0.9.206 (see notes)
+    primitive_reuse:
+    - svd_topk
+    - eigh_topk
+    - spill_array
+    migration_target: null
+    notes: 'v0.9.205: verified via fit_truncated_svd(algorithm=''arpack'') = exact SVD via svd_topk chunked Gram. Sklearn randomized_svd (algorithm=''randomized'', power iteration) deferred v0.9.206. For exact top-k use algorithm=''arpack'' path; identical result when random_state fixed and tol=0.'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1, k:1; independent of n. Module: cadw.ml.truncated_svd.'
+  - name: KernelPCA
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.pairwise_kernel
+    - cadw.ops.linalg.eigh_topk
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.linalg.eigh_topk
+    tier_level: tier1_core
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - nonlinear_interactions
+    purpose: 'Kernel PCA (Scholkopf 1998): nonlinear projection via kernel-induced feature map.'
+    real_life_examples:
+    - Nonlinear feature compression
+    - Denoising with kernel ridge
+    config:
+      n_components: int
+      kernel: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: KernelPCA
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.KernelPCA.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: dimensionality_reduction
+      n_datasets: null
+      metric: reconstruction_error
+      value: null
+      note: 'no_public_benchmark: kernel PCA per-dataset'
+    cadw_function: fit_kernel_pca
+    cadw_module: cadw.ml.kernel_pca
+    input_api: df
+    bounded_state: false
+    n_scalability: linear
+    bounded_by_domain:
+      axis: n
+      bound: 10000
+      reason: 'O(n^2) kernel matrix + eigh copy (intrinsic per DEC-075). At n=1e4: K=800 MB, eigh copy 800 MB; guard refuses above. Options: subsample or Nystroem approximation (v0.9.201+).'
+    bounded_state_dims:
+      n: 1
+      d: 1
+      k: 1
+    state_class: O(n)
+    state_type: aggregation
+    ram_formula: n * d * f64 + n * f64 + n * k * f64 + k * f64 + 256
+    min_ram_formula: 2 * n * n * f64 + n * d * f64 + 256
+    formula_evidence:
+      X_fit: kernel_pca.py -- X_fit.nbytes (n*d*f64)
+      K_fit_rows: kernel_pca.py -- K_fit_rows.nbytes (n*f64)
+      K_fit_all: kernel_pca.py -- +8 scalar
+      eigvals: kernel_pca.py -- eigenvalues.nbytes (k*f64)
+      eigvecs: kernel_pca.py -- eigenvectors.nbytes (n*k*f64)
+      header: kernel_pca.py -- +256 in state_nbytes()
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact per-term (CW-1, 3 parametrized)'
+      state_growth: 'test_state_grows_with_n: state O(n) honest (bounded_state=false) (CW-2)'
+      sklearn_parity: test_sklearn_parity_fit_transform kernel in {linear,rbf,poly} max diff < 1e-9 (CW-3..5); test_sklearn_parity_transform same (CW-6); test_n_components_none_drops_zeros (CW-7); test_remove_zero_eig (CW-8); test_gamma_none_default (CW-11)
+      intrinsic_bound: 'test_n_above_intrinsic_bound_raises: n=10001 -> MemoryLimitExceeded (CW-9)'
+      release: test_release_idempotent_and_predict_raises (CW-10)
+      validation: test_empty_X_cols / bad_kernel / bad_gamma / nan_X raises (CW-12)
+      cells_passed: '12/12 (parametrized: ~18 total test cases)'
+      runtime_sec: ~5
+      fit_transient_note: 'K (n,n) + eigh copy = 2*n^2*f64 per bound; intrinsic. Honest bounded_by_domain {n: 1e4} per DEC-075.'
+    streaming_strategy:
+      fit: X into RAM (n<=1e4) -> K (n,n) via pairwise_kernel -> centerer -> eigh_topk LA -> svd_flip -> remove_zero_eig. Intrinsic O(n^2) per DEC-075.
+      transform: 'Per Q batch: pairwise_kernel(X_fit, Q_batch) -> centerer.transform -> @ scaled_alphas. OOC in n_q via Dataset.from_batches (O(batch*n_train) peak).'
+    primitive_reuse:
+    - pairwise_kernel
+    - eigh_topk
+    migration_target: null
+    notes: 'v0.9.200: fit + transform verified (component-wise DEC-033, sklearn KernelPCA parity 1.9e-15 all 3 kernels). Intrinsic O(n^2) fit transient (bounded_by_domain {n:1e4}, DEC-075). transform streaming via pairwise_kernel(X_fit, Q_batch). v0.9.202: fit_nystroem_kernel_map available as alternative for n>1e4 (bit-identical sklearn Nystroem for n<=1e7, reservoir fallback above + ApproximationInfo). Recommended large-n flow: Nystroem(k=100..500) -> PCA on feature map. Kernels: linear, rbf, poly, laplacian, sigmoid, cosine (full sklearn pairwise_kernels).'
+    ooc_status: debt
+    ooc_strategy: 'Current: O(n^2) kernel matrix + eigh copy (intrinsic per DEC-075). At n=1e4: K=800 MB, eigh copy 800 MB; guard refuses above. Opt. Guard refuses above state_limit (honest refuse).'
+  - name: SparsePCA
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - local_structure
+    purpose: 'Sparse PCA (Zou 2006): elastic-net-regularized components; local (sparse) loading structure.'
+    real_life_examples:
+    - Interpretable feature projection
+    - Sparse loadings for report
+    config:
+      n_components: int
+      alpha: float
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: SparsePCA
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.SparsePCA.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: dimensionality_reduction
+      n_datasets: null
+      metric: reconstruction_error
+      value: null
+      note: 'no_public_benchmark: sparse PCA per-dataset'
+  metrics:
+  - name: reconstruction_error
+    combination: anchor
+    direction: lower
+    responsibility: Frobenius norm of (X - X_reconstructed); lower = better preservation.
+    special: Scale-dependent; normalize by ||X||_F for cross-dataset comparability.
+  - name: explained_variance_ratio
+    combination: diagnostic
+    direction: higher
+    responsibility: Fraction of total variance in top-k components.
+    special: Only meaningful for PCA (centered); TruncatedSVD lacks center.
+- id: C2
+  name: Matrix factorization
+  description: Factor X ≈ W·H with non-negativity (NMF), implicit-feedback (ALS), or general constraints.
+  real_life:
+  - Topic modeling (docs × words)
+  - Recommender factorization (users × items)
+  - Parts-based representation
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: reconstruction_error, combination: anchor, direction: lower, responsibility: "||X - W·H||_F; quality of low-rank approximation.", special: "Normalize by ||X||_F."}
-      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
+    - reconstruction_error
+    - fit_time_s
+    note: No unified dim-reduction LB.
+  models:
+  - name: NMF
+    cross_ref: J_nlp.NMF
+    cadw_function: fit_nmf
+    cadw_module: cadw.ml.nmf
+    input_api: df
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims:
+      k: 1
+      vocab_size: 1
+    state_class: O(model)
+    state_type: iterative
+    streaming_strategy: 'fit: multi-pass streaming; per-batch mini-batch mu updates H.
 
-  - id: C3
-    name: "Manifold learning"
-    description: "Non-linear dim reduction that preserves local neighborhoods or topology."
-    real_life: ["Visualization (k=2)", "Non-linear feature extraction", "Clustering preprocessing"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [trustworthiness, fit_time_s], note: "No unified manifold-learning LB."}
-    models:
-      - name: t-SNE
-        tier: baseline
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [representation, local_structure]
-        purpose: "van der Maaten & Hinton 2008: t-distributed Stochastic Neighbor Embedding. Preserves local neighborhoods via KL divergence between similarity distributions. Strong at 2D visualization."
-        real_life_examples: ["2D visualization", "Local-structure discovery", "Cluster inspection"]
-        config: {n_components: int, perplexity: float, max_iter: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.manifold.TSNE', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.manifold.TSNE.html', algorithm_source_kind: docs, attribution: literature, task_type: manifold_learning, n_datasets: null, metric: trustworthiness, value: null, note: 'no_public_benchmark: dim-reduction not on AMLB.'}
+      State H is (k, V) — bounded by user params, independent of n.
 
-      - name: UMAP
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [representation, local_structure]
-        purpose: "McInnes et al. 2018: Uniform Manifold Approximation. Fuzzy topological representation; faster than t-SNE and preserves both local and some global structure."
-        real_life_examples: ["Fast visualization (n > 10^5)", "Local + global structure", "Preprocessing for clustering"]
-        config: {n_components: int, n_neighbors: int, min_dist: float}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'umap.UMAP', algorithm_source_url: 'https://arxiv.org/abs/1802.03426', algorithm_source_kind: paper, attribution: literature, task_type: manifold_learning, n_datasets: null, metric: trustworthiness, value: null, note: 'McInnes et al. 2018.'}
-      - name: GPLVM
-        tier: sota
-        depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.linalg.chol_solve
-        - cadw.ops.linalg.eigh_topk
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Gaussian Process Latent Variable Model (Lawrence 2005); Bayesian nonlinear embedding."
-        real_life_examples: ["Small-n nonlinear embedding", "Uncertainty-aware visualization"]
-        config: {n_components: int, kernel: string}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GPLVM', algorithm_source_url: 'https://arxiv.org/abs/2105.03541', algorithm_source_kind: paper, attribution: literature, task_type: manifold_learning, n_datasets: null, metric: trustworthiness, value: null, note: 'no_public_benchmark: GPLVM per-dataset'}
+      transform: per-batch W via transform_batches generator, O(batch).
+
+      '
+    primitive_reuse:
+    - reduce
+    fit_batched: true
+    predict_batched: false
+    ram_formula: k * vocab_size * f64 + 128 + batch * vocab_size * f64 + 4 * batch * row_size
+    formula_evidence:
+      H: 'cadw/ml/nmf.py -- NMFModel.components_: np.ndarray[k, V] float64'
+      header: 'cadw/ml/nmf.py -- NMFModel.state_nbytes(): +128'
+      dense_X: 'cadw/ml/nmf.py -- _coo_to_dense: np.zeros((n_docs, V)); n_docs <= batch'
+      arrow: 'cadw/ml/nmf.py -- batch read: 3 x i64 (doc,term,cnt) + mask'
+    min_ram_formula: k * vocab_size * f64 + 128 + 1 * vocab_size * f64 + 4 * 1 * row_size
+    min_ram_evidence:
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
+    measurement:
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact, 4 (k,V) parametrized'
+      state_ooc: 'test_state_independent_of_n: state(n=500) == state(n=5000)'
+      formula_sanity: 'test_ooc_batch_fixed: peak ratio < 2.0 at fixed batch'
+      ooc: 'test_ooc_batch_fixed: median-of-3 per n (DEC-034)'
+      guard: 'test_guard_refuses_at_tight: V=50k + 0.1 MB -> MemoryLimitExceeded'
+      correctness: test_transform_batches_shape_and_nonneg + test_reconstruction_error_small
+      note: 'CW-3 batch coef skipped: transient b*V*f64 dominates row_size Arrow term at any realistic V. Formula uses conservative 4.0 arrow coef.'
+      cells_passed: N/A (component-wise)
+      runtime_sec: ~5
+    tier: baseline
+    depends_on:
+    - cadw.ops.linalg.nmf_mu
+    tier_level: tier2_wrapper
+    implementation_status:
+      verified_in_cadw: true
+      status: verified
+    roles:
+    - representation
+    - probabilistic
+    purpose: 'Lee & Seung 1999: non-negative matrix factorization X ≈ W·H with W,H ≥ 0. Parts-based representation; interpretable components. Canonical CADW: .pingis/impl/J/nmf.py (reference impl), J_nlp.J3.NMF card.'
+    real_life_examples:
+    - Topic modeling (docs × words)
+    - Parts-based image decomposition
+    - Interpretable dim reduction
+    config:
+      n_components: int
+      max_iter: int
+      init: random|nndsvd
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.decomposition.NMF
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: matrix_factorization
+      n_datasets: null
+      metric: reconstruction_error
+      value: null
+      note: 'no_public_benchmark: dim-reduction not on AMLB. Reference impl .pingis/impl/J/nmf.py; card J_nlp.J3.NMF.'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, vocab_size:1; independent of n. Module: cadw.ml.nmf.'
+  - name: ALS
+    cross_ref: F_recsys.ALS
+    tier: sota
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - representation
+    - local_structure
+    purpose: 'Hu et al. 2008: Alternating Least Squares for implicit-feedback matrices. Solves weighted least squares per user/item iteratively. Canonical CADW: cadw.ml.als.fit_als (verified in F_recsys.ALS).'
+    real_life_examples:
+    - Implicit-feedback recommenders
+    - Large sparse matrix factorization
+    - Low-rank approximation
+    config:
+      n_factors: int
+      regularization: float
+      iterations: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: implicit.als.AlternatingLeastSquares
+      algorithm_source_url: https://arxiv.org/abs/1205.2618
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: matrix_factorization
+      n_datasets: null
+      metric: reconstruction_error
+      value: null
+      note: 'Hu et al. 2008. CADW impl: fit_als (F_recsys).'
+  metrics:
+  - name: reconstruction_error
+    combination: anchor
+    direction: lower
+    responsibility: '||X - W·H||_F; quality of low-rank approximation.'
+    special: Normalize by ||X||_F.
+  - name: fit_time_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock fit time.
+    special: Hardware-specific.
+- id: C3
+  name: Manifold learning
+  description: Non-linear dim reduction that preserves local neighborhoods or topology.
+  real_life:
+  - Visualization (k=2)
+  - Non-linear feature extraction
+  - Clustering preprocessing
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: trustworthiness, combination: anchor, direction: higher, responsibility: "Agreement between neighbor ranks in high-D and low-D; local-structure preservation.", special: "n_neighbors parameter sensitive; report across k."}
-      - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific; t-SNE vs UMAP speed differs ~10x."}
-
-  - id: C4
-    name: "Feature selection"
-    description: "Select subset of features by importance, eliminating noise / redundant signals."
-    real_life: ["Model interpretability (few features)", "Remove noisy features", "Speed up downstream training"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [downstream_accuracy, n_selected, fit_time_s], note: "Feature-selection quality via downstream model accuracy (proxy)."}
-    models:
-      - name: PermutationImportance
-        tier: baseline
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [calibration]
-        purpose: "Breiman 2001: feature importance by permuting each feature and measuring score drop. Model-agnostic; honest (unlike in-sample impurity). Canonical CADW: cadw.ml.importance.permutation_importance (verified in O_eda.O8)."
-        real_life_examples: ["Feature ranking post-hoc", "Model-agnostic importance", "Sanity check for built-in importance"]
-        config: {n_repeats: int, random_state: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'sklearn.inspection.permutation_importance', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.inspection.permutation_importance.html', algorithm_source_kind: docs, attribution: literature, task_type: feature_selection, n_datasets: null, metric: downstream_accuracy, value: null, note: 'Breiman 2001. CADW impl: permutation_importance (O_eda O8, verified).'}
-
-      - name: Boruta
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [calibration, nonlinear_interactions]
-        purpose: "Kursa & Rudnicki 2010: all-relevant feature selection. Shadow features + iterative random-forest comparison; keeps all features statistically more important than random."
-        real_life_examples: ["Biomarker discovery (all-relevant)", "Nonlinear feature importance", "Small-nomics data"]
-        config: {n_estimators: int, max_iter: int, alpha: float}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://openml.github.io/automlbenchmark/', algorithm: 'boruta.BorutaPy', algorithm_source_url: 'https://www.jstatsoft.org/article/view/v036i11', algorithm_source_kind: paper, attribution: literature, task_type: feature_selection, n_datasets: null, metric: downstream_accuracy, value: null, note: 'Kursa & Rudnicki 2010.'}
-      - name: SelectKBest
-        tier: baseline
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [linear_signal]
-        purpose: "Univariate filter (F-stat / chi2 / mutual info); canonical linear feature selection."
-        real_life_examples: ["Fast pre-filter before model", "Variance-based baseline"]
-        config: {score_func: string, k: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SelectKBest', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.SelectKBest.html', algorithm_source_kind: docs, attribution: literature, task_type: feature_selection, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: filter selection quality = downstream proxy'}
+    - trustworthiness
+    - fit_time_s
+    note: No unified manifold-learning LB.
+  models:
+  - name: t-SNE
+    tier: baseline
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - representation
+    - local_structure
+    purpose: 'van der Maaten & Hinton 2008: t-distributed Stochastic Neighbor Embedding. Preserves local neighborhoods via KL divergence between similarity distributions. Strong at 2D visualization.'
+    real_life_examples:
+    - 2D visualization
+    - Local-structure discovery
+    - Cluster inspection
+    config:
+      n_components: int
+      perplexity: float
+      max_iter: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.manifold.TSNE
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.manifold.TSNE.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: manifold_learning
+      n_datasets: null
+      metric: trustworthiness
+      value: null
+      note: 'no_public_benchmark: dim-reduction not on AMLB.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: van der Maaten & Hinton 2008: t-distributed Stochastic Neighbor Embedding. Preserves local neighborh... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: UMAP
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - representation
+    - local_structure
+    purpose: 'McInnes et al. 2018: Uniform Manifold Approximation. Fuzzy topological representation; faster than t-SNE and preserves both local and some global structure.'
+    real_life_examples:
+    - Fast visualization (n > 10^5)
+    - Local + global structure
+    - Preprocessing for clustering
+    config:
+      n_components: int
+      n_neighbors: int
+      min_dist: float
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: umap.UMAP
+      algorithm_source_url: https://arxiv.org/abs/1802.03426
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: manifold_learning
+      n_datasets: null
+      metric: trustworthiness
+      value: null
+      note: McInnes et al. 2018.
+  - name: GPLVM
+    tier: sota
+    depends_on:
+    - cadw.ops.linalg.rbf_kernel
+    - cadw.ops.linalg.chol_solve
+    - cadw.ops.linalg.eigh_topk
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: Gaussian Process Latent Variable Model (Lawrence 2005); Bayesian nonlinear embedding.
+    real_life_examples:
+    - Small-n nonlinear embedding
+    - Uncertainty-aware visualization
+    config:
+      n_components: int
+      kernel: string
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: GPLVM
+      algorithm_source_url: https://arxiv.org/abs/2105.03541
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: manifold_learning
+      n_datasets: null
+      metric: trustworthiness
+      value: null
+      note: 'no_public_benchmark: GPLVM per-dataset'
+  metrics:
+  - name: trustworthiness
+    combination: anchor
+    direction: higher
+    responsibility: Agreement between neighbor ranks in high-D and low-D; local-structure preservation.
+    special: n_neighbors parameter sensitive; report across k.
+  - name: fit_time_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock fit time.
+    special: Hardware-specific; t-SNE vs UMAP speed differs ~10x.
+- id: C4
+  name: Feature selection
+  description: Select subset of features by importance, eliminating noise / redundant signals.
+  real_life:
+  - Model interpretability (few features)
+  - Remove noisy features
+  - Speed up downstream training
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: downstream_accuracy, combination: anchor, direction: higher, responsibility: "Accuracy/R2 of model trained on selected features only; ultimate test of feature-selection quality.", special: "Depends on downstream model; report across 2-3 model families."}
-      - {name: n_selected, combination: diagnostic, direction: lower, responsibility: "Number of retained features.", special: "Tradeoff: fewer features = faster but may lose signal."}
+    - downstream_accuracy
+    - n_selected
+    - fit_time_s
+    note: Feature-selection quality via downstream model accuracy (proxy).
+  models:
+  - name: PermutationImportance
+    tier: baseline
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    purpose: 'Breiman 2001: feature importance by permuting each feature and measuring score drop. Model-agnostic; honest (unlike in-sample impurity). Canonical CADW: cadw.ml.importance.permutation_importance (verified in O_eda.O8).'
+    real_life_examples:
+    - Feature ranking post-hoc
+    - Model-agnostic importance
+    - Sanity check for built-in importance
+    config:
+      n_repeats: int
+      random_state: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: sklearn.inspection.permutation_importance
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.inspection.permutation_importance.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: feature_selection
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'Breiman 2001. CADW impl: permutation_importance (O_eda O8, verified).'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Breiman 2001: feature importance by permuting each feature and measuring score drop. Model-agnostic;... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: Boruta
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    - nonlinear_interactions
+    purpose: 'Kursa & Rudnicki 2010: all-relevant feature selection. Shadow features + iterative random-forest comparison; keeps all features statistically more important than random.'
+    real_life_examples:
+    - Biomarker discovery (all-relevant)
+    - Nonlinear feature importance
+    - Small-nomics data
+    config:
+      n_estimators: int
+      max_iter: int
+      alpha: float
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://openml.github.io/automlbenchmark/
+      algorithm: boruta.BorutaPy
+      algorithm_source_url: https://www.jstatsoft.org/article/view/v036i11
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: feature_selection
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: Kursa & Rudnicki 2010.
+  - name: SelectKBest
+    tier: baseline
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - linear_signal
+    purpose: Univariate filter (F-stat / chi2 / mutual info); canonical linear feature selection.
+    real_life_examples:
+    - Fast pre-filter before model
+    - Variance-based baseline
+    config:
+      score_func: string
+      k: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: SelectKBest
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.SelectKBest.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: feature_selection
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'no_public_benchmark: filter selection quality = downstream proxy'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Univariate filter (F-stat / chi2 / mutual info); canonical linear feature selection... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  metrics:
+  - name: downstream_accuracy
+    combination: anchor
+    direction: higher
+    responsibility: Accuracy/R2 of model trained on selected features only; ultimate test of feature-selection quality.
+    special: Depends on downstream model; report across 2-3 model families.
+  - name: n_selected
+    combination: diagnostic
+    direction: lower
+    responsibility: Number of retained features.
+    special: 'Tradeoff: fewer features = faster but may lose signal.'

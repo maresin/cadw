@@ -88,81 +88,92 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "d*d*f64 + n_events*2*f64 + 2*d*d*f64 + 3*batch*row_size + 256"
+    ram_formula: d*d*f64 + n_events*2*f64 + 2*d*d*f64 + 3*batch*row_size + 256
     formula_evidence:
-      coef_and_cov: "coxph.py -- CoxPHModel.state_nbytes: coef_.nbytes (d*f64) + covariance_.nbytes (d*d*f64 if closed; None for sgd)"
-      baseline: "coxph.py -- baseline_t_.nbytes + baseline_h_.nbytes = n_events*2*f64 (Breslow at every event time)"
-      info_matrix: "coxph.py -- info (d,d) + S2 (d,d) transient during Newton, O(d^2)"
-      batch_input: "coxph.py -- fit_coxph pre-pass + _checked_iter: check_batch(extra_factor=3.0)"
-      header: "coxph.py -- +256 constant"
-    min_ram_formula: "d*d*f64 + n_events*2*f64 + 2*d*d*f64 + 3*1*row_size + 256"
+      coef_and_cov: 'coxph.py -- CoxPHModel.state_nbytes: coef_.nbytes (d*f64) + covariance_.nbytes (d*d*f64 if closed; None for sgd)'
+      baseline: coxph.py -- baseline_t_.nbytes + baseline_h_.nbytes = n_events*2*f64 (Breslow at every event time)
+      info_matrix: coxph.py -- info (d,d) + S2 (d,d) transient during Newton, O(d^2)
+      batch_input: 'coxph.py -- fit_coxph pre-pass + _checked_iter: check_batch(extra_factor=3.0)'
+      header: coxph.py -- +256 constant
+    min_ram_formula: d*d*f64 + n_events*2*f64 + 2*d*d*f64 + 3*1*row_size + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: coef + cov + baseline_t + baseline_h + 256"
-      state_bounded: "test_state_bounded_by_n_events: n_events <= n; sweep across n confirms O(n_events) not O(n_rows)"
-      fit_peak_unmeasurable: "fit peak dominated by external_sort run_buffer (~0.5*mg) at practical mg=50MB; baseline O(n_events)*16B is ~1MB at n=100K, below measure_peak_traced noise (~5MB). state_nbytes is bit-exact (CW-1) and bounded by n_events (CW-2). verified per DEC-033 with rationale: peak-based CW-5 not applicable when external_sort buffer dominates."
-      predict_ooc: "test_predict_risk_ooc: output='disk' peak ratio < 2.0 at fixed batch"
-      predict_memory_equiv: "test_predict_risk_memory_bit_identical: memory == auto+to_numpy"
-      concordance_limitation: "v0.9.97 do-not-re-solve: concordance_index O(n) intrinsic (Ts/Es/Rs concat + chunked pair matrix); bounded_by_domain n<=1e6"
-      cells_passed: "4/4"
-      runtime_sec: "~20"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: coef + cov + baseline_t + baseline_h + 256'
+      state_bounded: 'test_state_bounded_by_n_events: n_events <= n; sweep across n confirms O(n_events) not O(n_rows)'
+      fit_peak_unmeasurable: 'fit peak dominated by external_sort run_buffer (~0.5*mg) at practical mg=50MB; baseline O(n_events)*16B is ~1MB at n=100K, below measure_peak_traced noise (~5MB). state_nbytes is bit-exact (CW-1) and bounded by n_events (CW-2). verified per DEC-033 with rationale: peak-based CW-5 not applicable when external_sort buffer dominates.'
+      predict_ooc: 'test_predict_risk_ooc: output=''disk'' peak ratio < 2.0 at fixed batch'
+      predict_memory_equiv: 'test_predict_risk_memory_bit_identical: memory == auto+to_numpy'
+      concordance_limitation: 'v0.9.97 do-not-re-solve: concordance_index O(n) intrinsic (Ts/Es/Rs concat + chunked pair matrix); bounded_by_domain n<=1e6'
+      cells_passed: 4/4
+      runtime_sec: ~20
     bounded_by_domain:
       axis: n
       bound: 1000000
-      reason: "CoxPH c-index statistically unstable at n>1e6 (v0.9.97 do-not-re-solve); concordance_index O(n) intrinsic (Ts/Es/Rs). fit_coxph and predict_risk are OOC; concordance bounded for typical n<=1e6."
+      reason: CoxPH c-index statistically unstable at n>1e6 (v0.9.97 do-not-re-solve); concordance_index O(n) intrinsic (Ts/Es/Rs). fit_coxph and predict_risk are OOC; concordance bounded for typical n<=1e6.
     state_class: O(n)
-    bounded_state_dims: {d: 1, n_events: 1}
+    bounded_state_dims:
+      d: 1
+      n_events: 1
     transient_factor: 1.0
     state_type: iterative
     bounded_state: false
     n_scalability: linear
-    tier1_core_exception: 'Fit path OOC after v0.9.87-P5a-fix-coxph (external_sort + streaming Breslow, RAM = O(batch·d + d²)). Model state baseline_t_/baseline_h_ are O(n_events), n_events ≤ n. Guard-checked at fit; refuse_at_guard if baseline > state_limit. Predict path is OOC (per-batch linear predictor); baseline arrays persisted with model.'
+    tier1_core_exception: Fit path OOC after v0.9.87-P5a-fix-coxph (external_sort + streaming Breslow, RAM = O(batch·d + d²)). Model state baseline_t_/baseline_h_ are O(n_events), n_events ≤ n. Guard-checked at fit; refuse_at_guard if baseline > state_limit. Predict path is OOC (per-batch linear predictor); baseline arrays persisted with model.
     streaming_strategy:
-      fit: 'external_sort by T desc + streaming Breslow reduce; cov = pinv(info d²); baseline arrays O(n_events) guard-checked.'
-      predict: 'per-batch X @ coef_; baseline arrays held in model.'
+      fit: external_sort by T desc + streaming Breslow reduce; cov = pinv(info d²); baseline arrays O(n_events) guard-checked.
+      predict: per-batch X @ coef_; baseline arrays held in model.
     primitive_reuse:
     - external_sort
     - reduce
     - memmap
     - spill_dir
+    ooc_status: debt
+    ooc_strategy: 'Current: CoxPH c-index statistically unstable at n>1e6 (v0.9.97 do-not-re-solve); concordance_index O(n) intrinsic (Ts/Es/Rs). fi. Guard refuses above state_limit (honest refuse).'
   - name: KaplanMeier
     cadw_function: fit_kaplan_meier
     cadw_module: cadw.ml.kaplan_meier
     input_api: df
     n_scalability: constant
     bounded_state: true
-    bounded_state_dims: {n_unique: 1}
+    bounded_state_dims:
+      n_unique: 1
     state_class: O(model)
     state_type: partitioned
-    streaming_strategy: |
-      fit: external_sort by time_col + streaming KM accumulator.
+    streaming_strategy: 'fit: external_sort by time_col + streaming KM accumulator.
+
       Step function buffer (n_unique, 5) is RAM until
+
       n_unique*40 > state_limit_bytes, then spills to SpillDir.
+
       survival_at(t): O(n_unique) RAM or streaming over spill chunks.
-    primitive_reuse: [sort, spill_array]
+
+      '
+    primitive_reuse:
+    - sort
+    - spill_array
     fit_batched: true
     predict_batched: true
-    ram_formula: "5 * n_unique * f64 + 128 + 4.0 * batch * row_size"
+    ram_formula: 5 * n_unique * f64 + 128 + 4.0 * batch * row_size
     formula_evidence:
-      steps: "cadw/ml/kaplan_meier.py -- _KMAccumulator.buf: np.empty((cap, 5))"
-      cap: "cadw/ml/kaplan_meier.py -- cap = max(1024, state_limit_bytes // 40)"
-      header: "cadw/ml/kaplan_meier.py -- KaplanMeierModel.state_nbytes(): +128 (RAM) / +256 (spilled)"
-      batch_term: "cadw/ml/kaplan_meier.py -- external_sort read batch + 2 to_numpy + mask"
-    min_ram_formula: "5 * n_unique * f64 + 128 + 4.0 * 1 * row_size"
+      steps: 'cadw/ml/kaplan_meier.py -- _KMAccumulator.buf: np.empty((cap, 5))'
+      cap: cadw/ml/kaplan_meier.py -- cap = max(1024, state_limit_bytes // 40)
+      header: 'cadw/ml/kaplan_meier.py -- KaplanMeierModel.state_nbytes(): +128 (RAM) / +256 (spilled)'
+      batch_term: cadw/ml/kaplan_meier.py -- external_sort read batch + 2 to_numpy + mask
+    min_ram_formula: 5 * n_unique * f64 + 128 + 4.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_km_state_nbytes_exact: bit-exact, 3 (n,n_unique) parametrized"
-      state_ooc: "test_km_state_independent_of_n: state identical for n=1000 vs 5000 (same n_unique)"
-      state_spilled: "test_km_state_spilled_constant: n_unique>cap -> state=256"
-      formula_sanity: "test_km_ooc_at_fixed_batch: SKIPPED (DEC-034; signal < noise, state_ooc is primary)"
-      guard: "test_km_guard_refuses_at_tight: n=5000 + 0.01 MB -> MemoryLimitExceeded"
-      correctness: "test_km_survival_at_matches_manual: bit-identical product-limit"
-      cells_passed: "4/4 (OOC sanity skipped per DEC-034)"
-      runtime_sec: "~3"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_km_state_nbytes_exact: bit-exact, 3 (n,n_unique) parametrized'
+      state_ooc: 'test_km_state_independent_of_n: state identical for n=1000 vs 5000 (same n_unique)'
+      state_spilled: 'test_km_state_spilled_constant: n_unique>cap -> state=256'
+      formula_sanity: 'test_km_ooc_at_fixed_batch: SKIPPED (DEC-034; signal < noise, state_ooc is primary)'
+      guard: 'test_km_guard_refuses_at_tight: n=5000 + 0.01 MB -> MemoryLimitExceeded'
+      correctness: 'test_km_survival_at_matches_manual: bit-identical product-limit'
+      cells_passed: 4/4 (OOC sanity skipped per DEC-034)
+      runtime_sec: ~3
     tier: baseline
     depends_on: []
     tier_level: tier1_core
@@ -190,43 +201,51 @@ subtypes:
       metric: ibs
       value: null
       note: 'no_public_benchmark: KM is a marginal-curve baseline; no public IBS leaderboard on sksurv collection'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n_unique:1; independent of n. Module: cadw.ml.kaplan_meier.'
   - name: WeibullAFT
     cadw_function: fit_weibull_aft
     cadw_module: cadw.ml.weibull_aft
     input_api: df
     n_scalability: constant
     bounded_state: true
-    bounded_state_dims: {d: 2}
+    bounded_state_dims:
+      d: 2
     state_class: O(d)
     state_type: aggregation
-    streaming_strategy: |
-      fit: single-pass Reduce over sufficient stats (XTX, XT_ty, XT_tc)
+    streaming_strategy: 'fit: single-pass Reduce over sufficient stats (XTX, XT_ty, XT_tc)
+
       + closed-form Gauss-Newton step. n-independent state O(d^2)
+
       transient (sufficient stats), model O(d).
+
       predict_median: O(d) per row.
-    primitive_reuse: [reduce]
+
+      '
+    primitive_reuse:
+    - reduce
     fit_batched: true
     predict_batched: true
-    ram_formula: "d * d * f64 + 3 * d * f64 + 128 + 4.0 * batch * row_size"
+    ram_formula: d * d * f64 + 3 * d * f64 + 128 + 4.0 * batch * row_size
     formula_evidence:
-      XTX: "cadw/ml/weibull_aft.py -- _AFTStatsOp.init: np.zeros((d, d))"
-      XT_ty_tc: "cadw/ml/weibull_aft.py -- XT_ty, XT_tc: np.zeros(d) x 2"
-      header: "cadw/ml/weibull_aft.py -- _HEADER_BYTES=128"
-      model_beta: "cadw/ml/weibull_aft.py -- WeibullAFTModel.state_nbytes(): d*8 + 8 + 128"
-      batch_term: "cadw/ml/weibull_aft.py -- _AFTStatsOp.update: X column_stack + t + e + logt + X.T@logt"
-    min_ram_formula: "d * d * f64 + 3 * d * f64 + 128 + 4.0 * 1 * row_size"
+      XTX: 'cadw/ml/weibull_aft.py -- _AFTStatsOp.init: np.zeros((d, d))'
+      XT_ty_tc: 'cadw/ml/weibull_aft.py -- XT_ty, XT_tc: np.zeros(d) x 2'
+      header: cadw/ml/weibull_aft.py -- _HEADER_BYTES=128
+      model_beta: 'cadw/ml/weibull_aft.py -- WeibullAFTModel.state_nbytes(): d*8 + 8 + 128'
+      batch_term: 'cadw/ml/weibull_aft.py -- _AFTStatsOp.update: X column_stack + t + e + logt + X.T@logt'
+    min_ram_formula: d * d * f64 + 3 * d * f64 + 128 + 4.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_waft_state_nbytes_exact: bit-exact, 4 (d) parametrized"
-      state_ooc: "test_waft_state_independent_of_n: state identical for n=500 vs 5000"
-      formula_sanity: "test_waft_ooc_at_fixed_batch: peak ratio < 2.5 at fixed batch"
-      ooc: "test_waft_ooc_at_fixed_batch: median-of-3"
-      guard: "test_waft_guard_refuses_at_tight: d=100 + 0.05 MB -> MemoryLimitExceeded"
-      correctness: "test_waft_beta_recovers_true: sign matches, 3 seeds + test_waft_predict_median_shape"
-      cells_passed: "5/5"
-      runtime_sec: "~2"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_waft_state_nbytes_exact: bit-exact, 4 (d) parametrized'
+      state_ooc: 'test_waft_state_independent_of_n: state identical for n=500 vs 5000'
+      formula_sanity: 'test_waft_ooc_at_fixed_batch: peak ratio < 2.5 at fixed batch'
+      ooc: 'test_waft_ooc_at_fixed_batch: median-of-3'
+      guard: 'test_waft_guard_refuses_at_tight: d=100 + 0.05 MB -> MemoryLimitExceeded'
+      correctness: 'test_waft_beta_recovers_true: sign matches, 3 seeds + test_waft_predict_median_shape'
+      cells_passed: 5/5
+      runtime_sec: ~2
     tier: baseline
     depends_on: []
     tier_level: tier1_core
@@ -255,6 +274,8 @@ subtypes:
       metric: c_index
       value: null
       note: 'no_public_benchmark: no public C-index leaderboard for WeibullAFT on sksurv collection'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.weibull_aft.'
   - name: RandomSurvivalForest
     tier: sota
     depends_on:

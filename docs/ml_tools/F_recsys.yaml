@@ -47,6 +47,8 @@ subtypes:
       value: 0.18
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Item-item cosine similarity; classic non-personalized baseline... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: ALS
     tier: sota
     tier_level: tier1_core
@@ -70,24 +72,24 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*batch*row_size + 256"
+    ram_formula: (U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*batch*row_size + 256
     formula_evidence:
-      factors: "als.py:56-57 -- state_nbytes: user_factors_.nbytes + item_factors_.nbytes = (U+I)*k*8"
-      index_lists_and_dicts: "als.py:47-50 -- user_index_ + item_index_ (lists) + _u_pos + _i_pos (dicts), v0.9.112 extension"
-      header: "als.py -- +256 constant (v0.9.112 extension)"
-      batch: "als.py:120, 174 -- check_batch(b, extra_factor=8.0); batch_size kwarg propagates at v0.9.112"
-    min_ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*1*row_size + 256"
+      factors: 'als.py:56-57 -- state_nbytes: user_factors_.nbytes + item_factors_.nbytes = (U+I)*k*8'
+      index_lists_and_dicts: als.py:47-50 -- user_index_ + item_index_ (lists) + _u_pos + _i_pos (dicts), v0.9.112 extension
+      header: als.py -- +256 constant (v0.9.112 extension)
+      batch: als.py:120, 174 -- check_batch(b, extra_factor=8.0); batch_size kwarg propagates at v0.9.112
+    min_ram_formula: (U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*1*row_size + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: (U+I)*k*8 + (U+I)*(dict_b+str_b) + 256"
-      state_bounded: "test_state_independent_of_n: same U/I/k -> same state, dense vs sparse"
-      formula_sanity: "test_formula_small_scale: predicted/measured in [0.5, 2.0]"
-      ooc: "test_ooc_batch_fixed: median-of-3, ratio < 2.0 (batch_size kwarg at v0.9.112)"
-      cells_passed: "4/4"
-      runtime_sec: "~30"
-      note: "batch coef isolated skipped: d=2 (only u,i cols), SNR < 1 at typical row_size. Coefficient 8.0 from code check_batch(extra_factor=8.0), conservative upper bound."
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: (U+I)*k*8 + (U+I)*(dict_b+str_b) + 256'
+      state_bounded: 'test_state_independent_of_n: same U/I/k -> same state, dense vs sparse'
+      formula_sanity: 'test_formula_small_scale: predicted/measured in [0.5, 2.0]'
+      ooc: 'test_ooc_batch_fixed: median-of-3, ratio < 2.0 (batch_size kwarg at v0.9.112)'
+      cells_passed: 4/4
+      runtime_sec: ~30
+      note: 'batch coef isolated skipped: d=2 (only u,i cols), SNR < 1 at typical row_size. Coefficient 8.0 from code check_batch(extra_factor=8.0), conservative upper bound.'
     benchmark_results:
     - benchmark: Amazon_Recsys
       benchmark_url: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
@@ -115,18 +117,23 @@ subtypes:
       std: null
       note: M2 parity on synthetic_recsys_like DGP; cadw=0.38273, ref(implicit)=0.36734, verdict=consistent; NDCG@10 on 20% holdout, user-item matrix ~10% density
     state_class: O(N·d)
-    bounded_state_dims: {U: 1, I: 1, n_factors: 1}
+    bounded_state_dims:
+      U: 1
+      I: 1
+      n_factors: 1
     transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
-    n_scalability: linear  # external_sort K-way merge: K = n/run_buffer, peak O(K)
+    n_scalability: linear
     streaming_strategy:
-      fit: 'HashShuffle by user/item + external_sort item-sweep; per-factor state (m+n)·k param-bounded by k.'
-      predict: 'per-batch dot product on cached factors.'
+      fit: HashShuffle by user/item + external_sort item-sweep; per-factor state (m+n)·k param-bounded by k.
+      predict: per-batch dot product on cached factors.
     primitive_reuse:
     - hash_shuffle
     - external_sort
     - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state U:1, I:1, n_factors:1; independent of n. Module: cadw.ml.als.'
   - name: GBDT_ALS_embedding
     tier: sota
     depends_on: []
@@ -134,12 +141,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [nonlinear_interactions]
-    purpose: "GBDT stacking on ALS factor embeddings (nonlinear side-features on top of MF)."
-    real_life_examples: ["Hybrid side-info recommendation", "Click prediction on MF features"]
-    config: {n_estimators: int, max_depth: int}
+    roles:
+    - nonlinear_interactions
+    purpose: GBDT stacking on ALS factor embeddings (nonlinear side-features on top of MF).
+    real_life_examples:
+    - Hybrid side-info recommendation
+    - Click prediction on MF features
+    config:
+      n_estimators: int
+      max_depth: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GBDT_ALS_embedding', algorithm_source_url: 'https://arxiv.org/abs/1609.02464', algorithm_source_kind: paper, attribution: literature, task_type: collaborative filtering, n_datasets: null, metric: ndcg_at_k, value: null, note: 'no_public_benchmark: GBDT-on-MF per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: GBDT_ALS_embedding
+      algorithm_source_url: https://arxiv.org/abs/1609.02464
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: collaborative filtering
+      n_datasets: null
+      metric: ndcg_at_k
+      value: null
+      note: 'no_public_benchmark: GBDT-on-MF per-dataset'
   metrics:
   - name: ndcg_at_k
     combination: anchor
@@ -194,24 +216,24 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*batch*row_size + 256"
+    ram_formula: (U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*batch*row_size + 256
     formula_evidence:
-      factors: "als.py:56-57 -- state_nbytes: user_factors_.nbytes + item_factors_.nbytes = (U+I)*k*8"
-      index_lists_and_dicts: "als.py:47-50 -- user_index_ + item_index_ (lists) + _u_pos + _i_pos (dicts), v0.9.112 extension"
-      header: "als.py -- +256 constant (v0.9.112 extension)"
-      batch: "als.py:120, 174 -- check_batch(b, extra_factor=8.0); batch_size kwarg propagates at v0.9.112"
-    min_ram_formula: "(U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*1*row_size + 256"
+      factors: 'als.py:56-57 -- state_nbytes: user_factors_.nbytes + item_factors_.nbytes = (U+I)*k*8'
+      index_lists_and_dicts: als.py:47-50 -- user_index_ + item_index_ (lists) + _u_pos + _i_pos (dicts), v0.9.112 extension
+      header: als.py -- +256 constant (v0.9.112 extension)
+      batch: als.py:120, 174 -- check_batch(b, extra_factor=8.0); batch_size kwarg propagates at v0.9.112
+    min_ram_formula: (U+I)*n_factors*f64 + (U+I)*(dict_entry_bytes + py_str_overhead_bytes) + 8.0*1*row_size + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: (U+I)*k*8 + (U+I)*(dict_b+str_b) + 256"
-      state_bounded: "test_state_independent_of_n: same U/I/k -> same state, dense vs sparse"
-      formula_sanity: "test_formula_small_scale: predicted/measured in [0.5, 2.0]"
-      ooc: "test_ooc_batch_fixed: median-of-3, ratio < 2.0 (batch_size kwarg at v0.9.112)"
-      cells_passed: "4/4"
-      runtime_sec: "~30"
-      note: "batch coef isolated skipped: d=2 (only u,i cols), SNR < 1 at typical row_size. Coefficient 8.0 from code check_batch(extra_factor=8.0), conservative upper bound."
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: (U+I)*k*8 + (U+I)*(dict_b+str_b) + 256'
+      state_bounded: 'test_state_independent_of_n: same U/I/k -> same state, dense vs sparse'
+      formula_sanity: 'test_formula_small_scale: predicted/measured in [0.5, 2.0]'
+      ooc: 'test_ooc_batch_fixed: median-of-3, ratio < 2.0 (batch_size kwarg at v0.9.112)'
+      cells_passed: 4/4
+      runtime_sec: ~30
+      note: 'batch coef isolated skipped: d=2 (only u,i cols), SNR < 1 at typical row_size. Coefficient 8.0 from code check_batch(extra_factor=8.0), conservative upper bound.'
     benchmark_results:
     - benchmark: Amazon_Recsys
       benchmark_url: https://web.archive.org/web/20240101000000/https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/
@@ -239,18 +261,23 @@ subtypes:
       std: null
       note: M2 parity on synthetic_recsys_like DGP; cadw=0.38273, ref(implicit)=0.36734, verdict=consistent; NDCG@10 on 20% holdout, user-item matrix ~10% density
     state_class: O(N·d)
-    bounded_state_dims: {U: 1, I: 1, n_factors: 1}
+    bounded_state_dims:
+      U: 1
+      I: 1
+      n_factors: 1
     transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
-    n_scalability: linear  # external_sort K-way merge: K = n/run_buffer, peak O(K)
+    n_scalability: linear
     streaming_strategy:
-      fit: 'HashShuffle + external_sort (same as F1.ALS).'
-      predict: 'per-batch dot product.'
+      fit: HashShuffle + external_sort (same as F1.ALS).
+      predict: per-batch dot product.
     primitive_reuse:
     - hash_shuffle
     - external_sort
     - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state U:1, I:1, n_factors:1; independent of n. Module: cadw.ml.als.'
   - name: Hybrid_MF_GBDT
     cadw_module: cadw.ml.hybrid_mf
     cadw_function: fit_hybrid_mf
@@ -258,37 +285,42 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "(n_users + n_items) * n_factors * f64 + n_factors * n_factors * f64 + n_items * n_content * f64 + n_content * n_factors * f64 + 256"
+    ram_formula: (n_users + n_items) * n_factors * f64 + n_factors * n_factors * f64 + n_items * n_content * f64 + n_content * n_factors * f64 + 256
     formula_evidence:
-      state_nbytes: "hybrid_mf.py:74-75 -- state_nbytes: base_.state_nbytes() + B_.nbytes + C_.nbytes"
-      breakdown: "als.py:ALSModel.state_nbytes -- U*K*f64 + I*K*f64 + K*K*f64 + 256"
-      B_C: "hybrid_mf.py:fit -- B = solve(C^T C + ridge I, C^T Y); C = content_matrix(I, F); B.shape=(F, K)"
-    min_ram_formula: "(n_users + n_items) * n_factors * f64 + n_factors * n_factors * f64 + n_items * n_content * f64 + n_content * n_factors * f64 + 256"
+      state_nbytes: 'hybrid_mf.py:74-75 -- state_nbytes: base_.state_nbytes() + B_.nbytes + C_.nbytes'
+      breakdown: als.py:ALSModel.state_nbytes -- U*K*f64 + I*K*f64 + K*K*f64 + 256
+      B_C: hybrid_mf.py:fit -- B = solve(C^T C + ridge I, C^T Y); C = content_matrix(I, F); B.shape=(F, K)
+    min_ram_formula: (n_users + n_items) * n_factors * f64 + n_factors * n_factors * f64 + n_items * n_content * f64 + n_content * n_factors * f64 + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_bounded: actual > 0"
-      state_ooc: "test_*_state_independent_of_n: ratio <=3.0"
-      guard_refuse: "test_*_guard_refuses: 0.001 MB -> MemoryLimitExceeded"
-      cells_passed: "3/3"
-      runtime_sec: "~3"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_*_state_bounded: actual > 0'
+      state_ooc: 'test_*_state_independent_of_n: ratio <=3.0'
+      guard_refuse: 'test_*_guard_refuses: 0.001 MB -> MemoryLimitExceeded'
+      cells_passed: 3/3
+      runtime_sec: ~3
     bounded_state: true
-    bounded_state_dims: {n_users: 1, n_items: 1, n_factors: 1, n_content: 1}
+    bounded_state_dims:
+      n_users: 1
+      n_items: 1
+      n_factors: 1
+      n_content: 1
     state_class: O(model)
     state_type: iterative
     n_scalability: constant
-    tier1_core_exception: "Hybrid MF: ALS base (U*K user_factors + I*K item_factors + K*K xtx) + ridge B (F*K) + content matrix C (I*F). Bounded by user/item counts (not n_rows)."
+    tier1_core_exception: 'Hybrid MF: ALS base (U*K user_factors + I*K item_factors + K*K xtx) + ridge B (F*K) + content matrix C (I*F). Bounded by user/item counts (not n_rows).'
     streaming_strategy:
-      fit: "fit_als(df) + _content_matrix(df) + ridge; n_rows streamed per batch in ALS."
-      predict: "per-batch MF predict (user_factors . item_factors); O(batch*K)."
-    primitive_reuse: [reduce, external_sort]
+      fit: fit_als(df) + _content_matrix(df) + ridge; n_rows streamed per batch in ALS.
+      predict: per-batch MF predict (user_factors . item_factors); O(batch*K).
+    primitive_reuse:
+    - reduce
+    - external_sort
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - representation
     - nonlinear_interactions
@@ -312,6 +344,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/ currently refuses connection; using wayback 2024-01-01 snapshot'
     transient_factor: 1.0
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n_users:1, n_items:1, n_factors:1, n_content:1; independent of n. Module: cadw.ml.hybrid_mf.'
   - name: SVDpp
     tier: sota
     depends_on: []
@@ -319,12 +353,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [local_structure]
-    purpose: "SVD++ (Koren 2008): MF + implicit-neighborhood signals; local structure of user-item graph."
-    real_life_examples: ["Implicit-feedback recsys", "Neighborhood-augmented MF"]
-    config: {n_factors: int, n_epochs: int}
+    roles:
+    - local_structure
+    purpose: 'SVD++ (Koren 2008): MF + implicit-neighborhood signals; local structure of user-item graph.'
+    real_life_examples:
+    - Implicit-feedback recsys
+    - Neighborhood-augmented MF
+    config:
+      n_factors: int
+      n_epochs: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SVDpp', algorithm_source_url: 'https://arxiv.org/abs/0804.0861', algorithm_source_kind: paper, attribution: literature, task_type: hybrid recommendation, n_datasets: null, metric: ndcg_at_k, value: null, note: 'no_public_benchmark: SVD++ per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: SVDpp
+      algorithm_source_url: https://arxiv.org/abs/0804.0861
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: hybrid recommendation
+      n_datasets: null
+      metric: ndcg_at_k
+      value: null
+      note: 'no_public_benchmark: SVD++ per-dataset'
   metrics:
   - name: ndcg_at_k
     combination: anchor

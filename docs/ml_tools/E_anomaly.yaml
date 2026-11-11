@@ -50,6 +50,8 @@ subtypes:
       value: 0.72
       std: null
       note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Univariate z-score per column; row score = max |z|; simplest baseline... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: IForest
     tier: sota
     tier_level: tier1_core
@@ -100,35 +102,41 @@ subtypes:
       std: null
       note: M2 parity on synthetic_odds_like DGP; cadw=0.9988, ref(sklearn.IsolationForest)=0.9992, verdict=consistent
     state_class: O(model)
-    bounded_state_dims: {n_trees: 1, subsample_size: 1, d: 1}
+    bounded_state_dims:
+      n_trees: 1
+      subsample_size: 1
+      d: 1
     transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
-    ram_formula: "n_trees * 2 * subsample_size * 40 + 3.5 * batch * row_size + subsample_size * d * f64"
+    ram_formula: n_trees * 2 * subsample_size * 40 + 3.5 * batch * row_size + subsample_size * d * f64
     formula_evidence:
-      state_upper: "iforest.py -- _Tree.nbytes_estimate() returns len(feature)*40 per tree; upper bound n_trees*2*S*40 (S leaves -> ~2S nodes)"
-      batch_term: "iforest.py -- fit loop: arrays list + np.column_stack + X_b[mask] per batch; coef 2.77 measured (isolated sweep d=200, batch 1000-4000), ceil(2.77*1.15)=3.5 for guard safety"
-      X_fit: "iforest.py -- X_fit[idx] temporary during _Tree.build; S*d*f64"
-      ef_guard: "expansion_factor=3.0 in derive (matches coef 2.77 rounded up to 3; safety margin via state_upper overestimate ~5x)"
-    min_ram_formula: "n_trees * 2 * subsample_size * 40 + 3.5 * 1 * row_size + subsample_size * d * f64 + 512"
+      state_upper: iforest.py -- _Tree.nbytes_estimate() returns len(feature)*40 per tree; upper bound n_trees*2*S*40 (S leaves -> ~2S nodes)
+      batch_term: 'iforest.py -- fit loop: arrays list + np.column_stack + X_b[mask] per batch; coef 2.77 measured (isolated sweep d=200, batch 1000-4000), ceil(2.77*1.15)=3.5 for guard safety'
+      X_fit: iforest.py -- X_fit[idx] temporary during _Tree.build; S*d*f64
+      ef_guard: expansion_factor=3.0 in derive (matches coef 2.77 rounded up to 3; safety margin via state_upper overestimate ~5x)
+    min_ram_formula: n_trees * 2 * subsample_size * 40 + 3.5 * 1 * row_size + subsample_size * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_bounded: actual <= n_trees*2*S*40 AND >= 10% of upper (actual ~20-25% of upper; Python int cache)"
-      state_bound_n_ge_s: "test_state_bounded_for_n_ge_s: n in {500,2000,5000}, max/min <= 1.5x (reservoir sample varies tree shape)"
-      state_monotone_n_lt_s: "test_state_monotone_for_n_lt_s: psi=min(n,S); n=100 < n=500 monotone"
-      coef_batch: "test_batch_coef_isolated: slope/row_size in [2.0, 4.5] (measured 2.77)"
-      formula_sanity: "test_formula_small_scale: predicted/measured in [0.7, 1.4] (d=200, batch=1000, predicted 6.2 MB vs measured 7.7 MB, ratio 0.81)"
-      ooc: "test_ooc_batch_fixed: peak(n=5000)/peak(n=1000) < 2.0 (measured 0.89)"
-      cells_passed: "8/8"
-      runtime_sec: "~3"
-      note: "Combined RSS matrix not achievable at large d (baseline >> peak). Component-wise per DEC-033: state exact via state_nbytes(), coef isolated, formula small-scale validated, OOC proven."
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_bounded: actual <= n_trees*2*S*40 AND >= 10% of upper (actual ~20-25% of upper; Python int cache)'
+      state_bound_n_ge_s: 'test_state_bounded_for_n_ge_s: n in {500,2000,5000}, max/min <= 1.5x (reservoir sample varies tree shape)'
+      state_monotone_n_lt_s: 'test_state_monotone_for_n_lt_s: psi=min(n,S); n=100 < n=500 monotone'
+      coef_batch: 'test_batch_coef_isolated: slope/row_size in [2.0, 4.5] (measured 2.77)'
+      formula_sanity: 'test_formula_small_scale: predicted/measured in [0.7, 1.4] (d=200, batch=1000, predicted 6.2 MB vs measured 7.7 MB, ratio 0.81)'
+      ooc: 'test_ooc_batch_fixed: peak(n=5000)/peak(n=1000) < 2.0 (measured 0.89)'
+      cells_passed: 8/8
+      runtime_sec: ~3
+      note: 'Combined RSS matrix not achievable at large d (baseline >> peak). Component-wise per DEC-033: state exact via state_nbytes(), coef isolated, formula small-scale validated, OOC proven.'
     n_scalability: constant
     streaming_strategy:
-      fit: 'bounded reservoir subsample; build trees per subsample.'
-      predict: 'per-batch traversal (path-length score).'
-    primitive_reuse: [reduce]
+      fit: bounded reservoir subsample; build trees per subsample.
+      predict: per-batch traversal (path-length score).
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n_trees:1, subsample_size:1, d:1; independent of n. Module: cadw.ml.iforest.'
   - name: LOF
     tier: baseline
     tier_level: tier1_core
@@ -165,34 +173,41 @@ subtypes:
     - cadw.core.spill.SpillDir
     bounded_state: true
     n_scalability: constant
-    bounded_state_dims: {k: 1, d: 1}
+    bounded_state_dims:
+      k: 1
+      d: 1
     state_class: O(model)
     state_type: partitioned
-    ram_formula: 'batch * (d + (k + 1) * 2) * f64 + batch * (k + 1) * i64 + 256'
-    min_ram_formula: '(d + (k + 1) * 2) * f64 + (k + 1) * i64 + 256'
+    ram_formula: batch * (d + (k + 1) * 2) * f64 + batch * (k + 1) * i64 + 256
+    min_ram_formula: (d + (k + 1) * 2) * f64 + (k + 1) * i64 + 256
     formula_evidence:
-      x_batch: "lof.py -- _batch_to_X: b * d * f64 per batch"
-      knn_idx: "lof.py -- idx_mm batch: batch*(k+1)*i64"
-      knn_dist: "lof.py -- dist_mm batch: batch*(k+1)*f64"
-      random_access: "lof.py -- kdist_mm[idx_b] / lrd_mm[idx_b]: O(batch*(k+1))"
-      header: "lof.py -- +256 in LOFResult.state_nbytes()"
+      x_batch: 'lof.py -- _batch_to_X: b * d * f64 per batch'
+      knn_idx: 'lof.py -- idx_mm batch: batch*(k+1)*i64'
+      knn_dist: 'lof.py -- dist_mm batch: batch*(k+1)*f64'
+      random_access: 'lof.py -- kdist_mm[idx_b] / lrd_mm[idx_b]: O(batch*(k+1))'
+      header: lof.py -- +256 in LOFResult.state_nbytes()
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact_spilled: 256 (CW-1); test_state_nbytes_exact_memory: 256 + n*9 (CW-1)"
-      state_ooc: "test_state_constant_in_n: 256 invariant for n in (100, 500, 1000) (CW-2)"
-      sklearn_parity: "test_sklearn_parity_scores: max abs diff 7.26e-8 < 1e-6 (CW-3); test_sklearn_parity_outliers_in_top (injected outliers in top-10)"
-      contamination: "test_contamination_percentile: ~10% flagged at contamination=0.1 (CW-4)"
-      guard: "test_guard_refuses_tight: MemoryLimitExceeded at max_memory_mb=0.01 (CW-5)"
-      output_spill: "test_output_disk_spilled: is_spilled + iterate + to_numpy raises (CW-6)"
-      edge: "test_k_n_minus_2 (CW-7); test_n_too_small_raises"
-      cells_passed: "8/8"
-      runtime_sec: "~5"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact_spilled: 256 (CW-1); test_state_nbytes_exact_memory: 256 + n*9 (CW-1)'
+      state_ooc: 'test_state_constant_in_n: 256 invariant for n in (100, 500, 1000) (CW-2)'
+      sklearn_parity: 'test_sklearn_parity_scores: max abs diff 7.26e-8 < 1e-6 (CW-3); test_sklearn_parity_outliers_in_top (injected outliers in top-10)'
+      contamination: 'test_contamination_percentile: ~10% flagged at contamination=0.1 (CW-4)'
+      guard: 'test_guard_refuses_tight: MemoryLimitExceeded at max_memory_mb=0.01 (CW-5)'
+      output_spill: 'test_output_disk_spilled: is_spilled + iterate + to_numpy raises (CW-6)'
+      edge: test_k_n_minus_2 (CW-7); test_n_too_small_raises
+      cells_passed: 8/8
+      runtime_sec: ~5
     streaming_strategy:
-      fit: "5-pass SpillDir+memmap: X->disk, kNN->disk, kdist/lrd->disk+memmap random-access, LOF->SpillArray. RAM O(batch*(d+k)) per pass; state O(model) after."
-      predict: "O(steps) via knn_query_stream + memmap lrd[kdist] lookup. Requires fit_lof(..., save_train_state=True); training memmaps (X/kdist/lrd) persist on disk at train_spill_path. sklearn LocalOutlierFactor(novelty=True) parity 1.78e-15 (CW-9)."
-    primitive_reuse: [knn_query_stream, spill_dir, memmap]
-    notes: "v0.9.197 fit verified (sklearn parity 7.26e-8). v0.9.198 predict via save_train_state=True (sklearn novelty parity 1.78e-15). v0.9.201 contamination='auto' (sklearn offset_=-1.5 parity; works with any output); float c needs output=memory (percentile). Caller must release_train_state() after."
+      fit: '5-pass SpillDir+memmap: X->disk, kNN->disk, kdist/lrd->disk+memmap random-access, LOF->SpillArray. RAM O(batch*(d+k)) per pass; state O(model) after.'
+      predict: O(steps) via knn_query_stream + memmap lrd[kdist] lookup. Requires fit_lof(..., save_train_state=True); training memmaps (X/kdist/lrd) persist on disk at train_spill_path. sklearn LocalOutlierFactor(novelty=True) parity 1.78e-15 (CW-9).
+    primitive_reuse:
+    - knn_query_stream
+    - spill_dir
+    - memmap
+    notes: v0.9.197 fit verified (sklearn parity 7.26e-8). v0.9.198 predict via save_train_state=True (sklearn novelty parity 1.78e-15). v0.9.201 contamination='auto' (sklearn offset_=-1.5 parity; works with any output); float c needs output=memory (percentile). Caller must release_train_state() after.
     migration_target: null
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, d:1; independent of n. Module: cadw.ml.lof.'
   - name: GMMAnomaly
     tier: sota
     depends_on: []
@@ -200,12 +215,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "Anomaly via low-likelihood threshold on a fitted Gaussian mixture."
-    real_life_examples: ["Multimodal anomaly detection", "Cohort outlier detection"]
-    config: {n_components: int, threshold_q: float}
+    roles:
+    - probabilistic
+    purpose: Anomaly via low-likelihood threshold on a fitted Gaussian mixture.
+    real_life_examples:
+    - Multimodal anomaly detection
+    - Cohort outlier detection
+    config:
+      n_components: int
+      threshold_q: float
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GMMAnomaly', algorithm_source_url: 'https://scikit-learn.org/stable/modules/mixture.html', algorithm_source_kind: docs, attribution: literature, task_type: anomaly, n_datasets: null, metric: roc_auc, value: null, note: 'no_public_benchmark: GMM anomaly per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: GMMAnomaly
+      algorithm_source_url: https://scikit-learn.org/stable/modules/mixture.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: anomaly
+      n_datasets: null
+      metric: roc_auc
+      value: null
+      note: 'no_public_benchmark: GMM anomaly per-dataset'
   metrics:
   - name: roc_auc
     combination: anchor
@@ -274,23 +304,27 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    ram_formula: "2 * batch * row_size + 4 * d * d * f64"
+    bounded_state_dims:
+      d: 2
+    ram_formula: 2 * batch * row_size + 4 * d * d * f64
     formula_evidence:
-      batch_term: "same (anomaly class-weighted); a=3.05"
-      state_term: "b=3.97"
-      guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
-    min_ram_formula: "2 * 1 * row_size + 4 * d * d * f64 + 512"
+      batch_term: same (anomaly class-weighted); a=3.05
+      state_term: b=3.97
+      guard: logistic.py:LogisticGradOp.batch_memory_factor = 4.0
+    min_ram_formula: 2 * 1 * row_size + 4 * d * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'batch-wise class-weighted XTX/XTy Reduce.'
-      predict: 'per-batch sigmoid.'
-    primitive_reuse: [reduce]
+      fit: batch-wise class-weighted XTX/XTy Reduce.
+      predict: per-batch sigmoid.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.logistic.'
   - name: GBDT_scale_pos_weight
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_classifier
@@ -298,44 +332,47 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    ram_formula: n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256
     formula_evidence:
-      trees: "gbdt.py:_grad_hess -- weight w = where(y>0.5, pos_weight, 1.0); tree build identical"
-      minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
-      header: "gbdt.py:_STATE_HEADER_BYTES=256"
-      state_nbytes: "gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree"
-    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+      trees: gbdt.py:_grad_hess -- weight w = where(y>0.5, pos_weight, 1.0); tree build identical
+      minmax: gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64
+      header: gbdt.py:_STATE_HEADER_BYTES=256
+      state_nbytes: gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree
+    min_ram_formula: n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
-      state_ooc: "test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0"
-      guard_refuse: "test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded"
-      correctness: "test_*_classification/regression/multiclass existing suites green"
-      cells_passed: "3/3"
-      runtime_sec: "~3"
+      fit_transient_note: 'S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch)).'
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound'
+      state_ooc: 'test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0'
+      guard_refuse: 'test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded'
+      correctness: test_*_classification/regression/multiclass existing suites green
+      cells_passed: 3/3
+      runtime_sec: ~3
     bounded_state: true
-    bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    bounded_state_dims:
+      n_estimators: 1
+      max_depth: 1
+      d: 1
     bounded_by_domain:
       axis: n
       bound: 100000
-      reason: "S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+."
+      reason: 'S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+.'
     state_class: O(model)
     state_type: iterative
     n_scalability: constant
-    tier1_core_exception: "Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: weighted hist reduce. n-independent (trees do not grow with n)."
+    tier1_core_exception: 'Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: weighted hist reduce. n-independent (trees do not grow with n).'
     streaming_strategy:
-      fit: "per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: weighted hist reduce."
+      fit: 'per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: weighted hist reduce.'
       predict: per-batch _iter_filtered_batches -> stacked X -> tree descend; O(batch × trees).
-    primitive_reuse: [reduce]
+    primitive_reuse:
+    - reduce
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: Cost-sensitive GBDT; weight positives by neg/pos (XGBoost semantics).
@@ -359,6 +396,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
+    ooc_status: debt
+    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
   - name: CalibratedClassifierCV
     tier: sota
     depends_on: []
@@ -366,12 +405,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "Platt/isotonic-calibrated anomaly score; decision threshold derived from calibrated proba."
-    real_life_examples: ["Supervised fraud threshold", "Anomaly scoring with calibrated P(y|x)"]
-    config: {method: 'sigmoid|isotonic', cv: int}
+    roles:
+    - probabilistic
+    purpose: Platt/isotonic-calibrated anomaly score; decision threshold derived from calibrated proba.
+    real_life_examples:
+    - Supervised fraud threshold
+    - Anomaly scoring with calibrated P(y|x)
+    config:
+      method: sigmoid|isotonic
+      cv: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CalibratedClassifierCV', algorithm_source_url: 'https://scikit-learn.org/stable/modules/calibration.html', algorithm_source_kind: docs, attribution: literature, task_type: supervised anomaly detection, n_datasets: null, metric: roc_auc, value: null, note: 'no_public_benchmark: calibration wrapper; use supervised anomaly LB upstream'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: CalibratedClassifierCV
+      algorithm_source_url: https://scikit-learn.org/stable/modules/calibration.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: supervised anomaly detection
+      n_datasets: null
+      metric: roc_auc
+      value: null
+      note: 'no_public_benchmark: calibration wrapper; use supervised anomaly LB upstream'
   metrics:
   - name: pr_auc
     combination: anchor

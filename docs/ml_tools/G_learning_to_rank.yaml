@@ -49,6 +49,8 @@ subtypes:
       value: 0.42
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Pairwise logistic on (item_a, item_b) preference pairs; simplest LTR baseline... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: LambdaMART
     cadw_module: cadw.ml.lambdamart
     cadw_function: fit_lambdamart
@@ -56,38 +58,44 @@ subtypes:
     fit_batched: true
     predict_batched: false
     depends_on: []
-    ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 96 + d * f64 * 512 + 256"
+    ram_formula: n_estimators * (2**(max_depth+1) - 1) * 96 + d * f64 * 512 + 256
     formula_evidence:
-      tree_nodes: "lambdamart.py:588-598 -- state_nbytes: n_nodes * 96 + n_features * 4096 (exact node byte count)"
-      node_byte: "96 B/node -- CPython _Node object with left/right/feat/thr/leaf (5 fields + header)"
-      feature_cache: "n_features * 4096 -- per-feature binning scratch (mn_/mx_/range_ + bins)"
-    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 96 + d * f64 * 512 + 256"
+      tree_nodes: 'lambdamart.py:588-598 -- state_nbytes: n_nodes * 96 + n_features * 4096 (exact node byte count)'
+      node_byte: 96 B/node -- CPython _Node object with left/right/feat/thr/leaf (5 fields + header)
+      feature_cache: n_features * 4096 -- per-feature binning scratch (mn_/mx_/range_ + bins)
+    min_ram_formula: n_estimators * (2**(max_depth+1) - 1) * 96 + d * f64 * 512 + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
-      state_ooc: "test_state_independent_of_n: same params, n=480 vs n=4800 -> ratio <=3.0"
-      guard_refuse: "test_guard_refuses: nq=40 n=12 n_est=50 depth=10 + 0.001 MB -> MemoryLimitExceeded"
-      correctness: "test_lambdamart.py existing suite (ndcg_at_k, mixin, e2e) + test_predict_smoke"
-      cells_passed: "4/4"
-      runtime_sec: "~5"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound'
+      state_ooc: 'test_state_independent_of_n: same params, n=480 vs n=4800 -> ratio <=3.0'
+      guard_refuse: 'test_guard_refuses: nq=40 n=12 n_est=50 depth=10 + 0.001 MB -> MemoryLimitExceeded'
+      correctness: test_lambdamart.py existing suite (ndcg_at_k, mixin, e2e) + test_predict_smoke
+      cells_passed: 4/4
+      runtime_sec: ~5
     bounded_state: true
-    bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    bounded_state_dims:
+      n_estimators: 1
+      max_depth: 1
+      d: 1
     state_class: O(model)
     state_type: iterative
     n_scalability: constant
-    tier1_core_exception: "Tree-ensemble state bounded by {n_estimators: 1, max_depth: 1, d: 1}; LambdaMART tree state: n_nodes*96 (Python node objects) + n_features*4096 (per-feature cache/scratch). Bounded by n_estimators × 2^(max_depth+1)-1 nodes. n-independent (via SpillDir memmap fit for n-sized codes/y/scores/grad/hess)."
+    tier1_core_exception: 'Tree-ensemble state bounded by {n_estimators: 1, max_depth: 1, d: 1}; LambdaMART tree state: n_nodes*96 (Python node objects) + n_features*4096 (per-feature cache/scratch). Bounded by n_estimators × 2^(max_depth+1)-1 nodes. n-independent (via SpillDir memmap fit for n-sized codes/y/scores/grad/hess).'
     streaming_strategy:
-      fit: "external_sort by query_col + SpillDir memmap for n-sized state (codes uint8, y/scores/grad/hess float64, node_id int32). Tree build via ReduceOps; RAM = O(batch*d + n_nodes*d*bins)."
-      predict: "per-batch _stack_numeric -> binning -> tree descend; returns pa.Table[score]. O(batch*d + n_trees*nodes)."
-    primitive_reuse: [external_sort, reduce, memmap, spill_dir]
+      fit: external_sort by query_col + SpillDir memmap for n-sized state (codes uint8, y/scores/grad/hess float64, node_id int32). Tree build via ReduceOps; RAM = O(batch*d + n_nodes*d*bins).
+      predict: per-batch _stack_numeric -> binning -> tree descend; returns pa.Table[score]. O(batch*d + n_trees*nodes).
+    primitive_reuse:
+    - external_sort
+    - reduce
+    - memmap
+    - spill_dir
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: GBDT with lambda gradients (Burges 2010); SOTA on LTR benchmarks.
@@ -112,6 +120,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot'
     transient_factor: 1.0
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n_estimators:1, max_depth:1, d:1; independent of n. Module: cadw.ml.lambdamart.'
   - name: ListNet
     tier: sota
     depends_on:
@@ -122,12 +132,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "ListNet (Cao 2007): Plackett-Luce probability of permutation; listwise probabilistic LTR."
-    real_life_examples: ["Whole-page ranking", "Query-document list"]
-    config: {n_epochs: int, lr: float}
+    roles:
+    - probabilistic
+    purpose: 'ListNet (Cao 2007): Plackett-Luce probability of permutation; listwise probabilistic LTR.'
+    real_life_examples:
+    - Whole-page ranking
+    - Query-document list
+    config:
+      n_epochs: int
+      lr: float
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'ListNet', algorithm_source_url: 'https://arxiv.org/abs/2002.07416', algorithm_source_kind: paper, attribution: literature, task_type: ltr, n_datasets: null, metric: ndcg_at_10, value: null, note: 'no_public_benchmark: ListNet per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: ListNet
+      algorithm_source_url: https://arxiv.org/abs/2002.07416
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: ltr
+      n_datasets: null
+      metric: ndcg_at_10
+      value: null
+      note: 'no_public_benchmark: ListNet per-dataset'
   metrics:
   - name: ndcg_at_k
     combination: anchor

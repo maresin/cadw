@@ -25,26 +25,24 @@ subtypes:
   - name: TFIDF_LogReg
     tier: baseline
     tier_level: tier1_core
-    ram_formula: "d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512"
+    ram_formula: d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512
     formula_evidence:
-      idf: "tfidf.py -- TfidfModel.idf_ = (V,) f64 = d*f64"
-      vocab_ptr: "tfidf.py -- vocab_ = list[str], V entries = d*list_ptr_bytes"
-      vocab_str: "tfidf.py -- each str: py_str_overhead_bytes + avg_word_len (upper bound 24)"
-      index_dict: "tfidf.py -- _index = dict[str, int], V entries = d*dict_entry_bytes"
-      header: "tfidf.py -- params_ dict + fitted_ + Python obj header = 512"
-    min_ram_formula: "d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512"
+      idf: tfidf.py -- TfidfModel.idf_ = (V,) f64 = d*f64
+      vocab_ptr: tfidf.py -- vocab_ = list[str], V entries = d*list_ptr_bytes
+      vocab_str: 'tfidf.py -- each str: py_str_overhead_bytes + avg_word_len (upper bound 24)'
+      index_dict: tfidf.py -- _index = dict[str, int], V entries = d*dict_entry_bytes
+      header: tfidf.py -- params_ dict + fitted_ + Python obj header = 512
+    min_ram_formula: d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact vs formula (V parametrized)"
-      state_independent_of_n: "test_state_independent_of_n: state(n=2k) == state(n=10k)"
-      # formula_sanity: dropped (DEC-034: TF-IDF fit peak ~4 KB << RSS noise 1-5 MB)
-      ooc: "test_ooc_fixed_batch: peak ratio < 2.5 (batch_size=1000)"
-      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
-      cells_passed: "4/4"
-      note: "DEC-041: fit peak O(batch + K_raw). K_raw << state_limit → OOC via batch_size. K-spill default deferred v0.9.117."
-
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact vs formula (V parametrized)'
+      state_independent_of_n: 'test_state_independent_of_n: state(n=2k) == state(n=10k)'
+      ooc: 'test_ooc_fixed_batch: peak ratio < 2.5 (batch_size=1000)'
+      tight_guard: 'test_tight_guard_raises: MemoryLimitExceeded via _FakeMB'
+      cells_passed: 4/4
+      note: 'DEC-041: fit peak O(batch + K_raw). K_raw << state_limit → OOC via batch_size. K-spill default deferred v0.9.117.'
     implementation_status:
       verified_in_cadw: true
       status: verified
@@ -104,51 +102,62 @@ subtypes:
     predict_batched: true
     depends_on: []
     state_class: O(d)
-    bounded_state_dims: {d: 1, avg_word_len: 1}
+    bounded_state_dims:
+      d: 1
+      avg_word_len: 1
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'bounded vocab (max_features); sparse TF-IDF Reduce -> XTX on d².'
-      predict: 'per-batch sparse tf-idf dot + sigmoid.'
-    primitive_reuse: [reduce]
+      fit: bounded vocab (max_features); sparse TF-IDF Reduce -> XTX on d².
+      predict: per-batch sparse tf-idf dot + sigmoid.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1, avg_word_len:1; independent of n. Module: cadw.ml.tfidf.'
   - name: ComplementNB
     cadw_function: fit_complement_nb
     cadw_module: cadw.ml.complement_nb
     input_api: df
     n_scalability: constant
     bounded_state: true
-    bounded_state_dims: {n_classes: 1, vocab_size: 1}
+    bounded_state_dims:
+      n_classes: 1
+      vocab_size: 1
     state_class: O(model)
     state_type: aggregation
-    streaming_strategy: |
-      fit: single-pass Reduce over COO (doc_id, term_id, count, label).
+    streaming_strategy: 'fit: single-pass Reduce over COO (doc_id, term_id, count, label).
+
       State (C, V) int64 class-term counts + (C,) totals.
+
       predict: streaming argmin of complement log-likelihood per batch.
-    primitive_reuse: [reduce]
+
+      '
+    primitive_reuse:
+    - reduce
     fit_batched: true
     predict_batched: true
-    ram_formula: "n_classes * vocab_size * f64 + 3 * n_classes * f64 + 256 + 4.0 * batch * row_size"
+    ram_formula: n_classes * vocab_size * f64 + 3 * n_classes * f64 + 256 + 4.0 * batch * row_size
     formula_evidence:
-      log_prob: "cadw/ml/complement_nb.py -- ComplementNBModel.feature_log_prob_: (C,V) f64"
-      log_prior: "cadw/ml/complement_nb.py -- ComplementNBModel.class_log_prior_: (C,) f64"
-      totals: "cadw/ml/complement_nb.py -- ComplementNBModel.class_totals_: (C,) int64"
-      classes: "cadw/ml/complement_nb.py -- ComplementNBModel.classes_: (C,) int64"
-      header: "cadw/ml/complement_nb.py -- _HEADER_BYTES=256"
-      batch_term: "cadw/ml/complement_nb.py -- _CNBStatsOp.update: 3 to_numpy + linear idx + 2 masked copies"
-    min_ram_formula: "n_classes * vocab_size * f64 + 3 * n_classes * f64 + 256 + 4.0 * 1 * row_size"
+      log_prob: 'cadw/ml/complement_nb.py -- ComplementNBModel.feature_log_prob_: (C,V) f64'
+      log_prior: 'cadw/ml/complement_nb.py -- ComplementNBModel.class_log_prior_: (C,) f64'
+      totals: 'cadw/ml/complement_nb.py -- ComplementNBModel.class_totals_: (C,) int64'
+      classes: 'cadw/ml/complement_nb.py -- ComplementNBModel.classes_: (C,) int64'
+      header: cadw/ml/complement_nb.py -- _HEADER_BYTES=256
+      batch_term: 'cadw/ml/complement_nb.py -- _CNBStatsOp.update: 3 to_numpy + linear idx + 2 masked copies'
+    min_ram_formula: n_classes * vocab_size * f64 + 3 * n_classes * f64 + 256 + 4.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact, 4 (C,V) parametrized"
-      state_ooc: "test_state_independent_of_n: state identical n=500 vs n=5000"
-      formula_sanity: "SKIPPED (DEC-034: row_size=32 B, signal < noise; state_ooc primary)"
-      guard: "test_guard_refuses_at_tight: C=100,V=50k + 0.1 MB -> MemoryLimitExceeded"
-      correctness: "test_shapes_and_priors + test_predict_in_range + test_sample_infer_from_first_batch"
-      cells_passed: "5/5 (OOC sanity skipped)"
-      runtime_sec: "~2"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact, 4 (C,V) parametrized'
+      state_ooc: 'test_state_independent_of_n: state identical n=500 vs n=5000'
+      formula_sanity: 'SKIPPED (DEC-034: row_size=32 B, signal < noise; state_ooc primary)'
+      guard: 'test_guard_refuses_at_tight: C=100,V=50k + 0.1 MB -> MemoryLimitExceeded'
+      correctness: test_shapes_and_priors + test_predict_in_range + test_sample_infer_from_first_batch
+      cells_passed: 5/5 (OOC sanity skipped)
+      runtime_sec: ~2
     tier: baseline
     depends_on: []
     tier_level: tier1_core
@@ -176,6 +185,8 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: SST-2 GLUE live LB not fetchable; ComplementNB has no public SST-2 row'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n_classes:1, vocab_size:1; independent of n. Module: cadw.ml.complement_nb.'
   - name: LinearSVC
     tier: sota
     depends_on: []
@@ -205,6 +216,8 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: no live 20NG leaderboard; sklearn dataset page has splits but no per-model accuracies'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: L2-regularized linear SVM on TF-IDF (Joachims 1998). Inductive bias: maximum-margin linear separator... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   metrics:
   - name: accuracy
     combination: anchor
@@ -292,25 +305,31 @@ subtypes:
     predict_batched: true
     depends_on: []
     state_class: O(d)
-    bounded_state_dims: {d: 1, n_components: 1, n_oversamples: 1}
+    bounded_state_dims:
+      d: 1
+      n_components: 1
+      n_oversamples: 1
     transient_factor: 1.0
-    ram_formula: "3 * batch * row_size + 5 * d * (n_components + n_oversamples) * f64"
+    ram_formula: 3 * batch * row_size + 5 * d * (n_components + n_oversamples) * f64
     formula_evidence:
-      batch_term: "randsvd.py -- 4 loops, _stack_numeric (2x) + X-mean subtraction (1x) = 3x batch"
-      state_terms: "randsvd.py -- mean(d) + omega(d,L) + Y(d,L) + Q(d,L) + B(L,L) = 5*d*L*8 + L^2*8"
-      L_def: "L = min(d, n_components + n_oversamples); formula assumes d >= k+p"
-      derive_batch: "randsvd.py -- get_batch_rows(ef=3.0, state_est=5*d*L*8 + L^2*8)"
-      measurement: "v0.9.109c sweep: coef=3.000, d-sweep ratios 0.97-1.12, OOC ratio 1.00"
-    min_ram_formula: "3 * 1 * row_size + 5 * d * (n_components + n_oversamples) * f64 + 512"
+      batch_term: randsvd.py -- 4 loops, _stack_numeric (2x) + X-mean subtraction (1x) = 3x batch
+      state_terms: randsvd.py -- mean(d) + omega(d,L) + Y(d,L) + Q(d,L) + B(L,L) = 5*d*L*8 + L^2*8
+      L_def: L = min(d, n_components + n_oversamples); formula assumes d >= k+p
+      derive_batch: randsvd.py -- get_batch_rows(ef=3.0, state_est=5*d*L*8 + L^2*8)
+      measurement: 'v0.9.109c sweep: coef=3.000, d-sweep ratios 0.97-1.12, OOC ratio 1.00'
+    min_ram_formula: 3 * 1 * row_size + 5 * d * (n_components + n_oversamples) * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
       fit: 'randomized SVD: random Ω (d×k) + batch-wise Y=XΩ Reduce + QR/SVD on k×k.'
-      predict: 'per-batch X @ V_k.'
-    primitive_reuse: [reduce]
+      predict: per-batch X @ V_k.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1, n_components:1, n_oversamples:1; independent of n. Module: cadw.ml.randsvd.'
   - name: Word2Vec
     tier: baseline
     depends_on: []
@@ -342,6 +361,8 @@ subtypes:
       metric: spearman_cosine
       value: null
       note: 'no_public_benchmark: Word2Vec was never entered on the STS-B GLUE leaderboard; paper reports word-similarity tasks, not STS-B'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Mikolov 2013 - shallow predictive embedding from local context windows; document vectors obtained by... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: SentenceTransformer
     tier: sota
     depends_on: []
@@ -390,18 +411,35 @@ subtypes:
     tier: baseline
     depends_on:
     - cadw.ops.linalg.nmf_mu
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L7"
+    depends_on_backlog: PRIMITIVES_BACKLOG §L7
     depends_on_status: planned
     tier_level: tier1_core
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "Topic posterior from LDA as probabilistic text embedding (canonical topic-feature)."
-    real_life_examples: ["Short-text embedding", "Document representation for clustering"]
-    config: {n_topics: int, max_iter: int}
+    roles:
+    - probabilistic
+    purpose: Topic posterior from LDA as probabilistic text embedding (canonical topic-feature).
+    real_life_examples:
+    - Short-text embedding
+    - Document representation for clustering
+    config:
+      n_topics: int
+      max_iter: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'LDA_embedding', algorithm_source_url: 'https://arxiv.org/abs/2104.08696', algorithm_source_kind: paper, attribution: literature, task_type: text embedding, n_datasets: null, metric: spearman_cosine, value: null, note: 'no_public_benchmark: LDA embedding quality = downstream proxy'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: LDA_embedding
+      algorithm_source_url: https://arxiv.org/abs/2104.08696
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: text embedding
+      n_datasets: null
+      metric: spearman_cosine
+      value: null
+      note: 'no_public_benchmark: LDA embedding quality = downstream proxy'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Topic posterior from LDA as probabilistic text embedding (canonical topic-feature)... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   metrics:
   - name: spearman_cosine
     combination: anchor
@@ -456,25 +494,24 @@ subtypes:
   - name: LDA
     tier: baseline
     tier_level: tier1_core
-    ram_formula: "k * d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512"
+    ram_formula: k * d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512
     formula_evidence:
-      components: "lda.py -- LdaModel.components_ = (K, V) f64 = k*d*f64"
-      vocab_ptr: "lda.py -- vocab_ = list[str], V entries = d*list_ptr_bytes"
-      vocab_str: "lda.py -- each str: py_str_overhead_bytes + avg_word_len (upper bound 24)"
-      index_dict: "lda.py -- _index = dict[str, int], V entries = d*dict_entry_bytes"
-      header: "lda.py -- params_ dict + fitted_ + Python object header = 512"
-    min_ram_formula: "k * d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512"
+      components: lda.py -- LdaModel.components_ = (K, V) f64 = k*d*f64
+      vocab_ptr: lda.py -- vocab_ = list[str], V entries = d*list_ptr_bytes
+      vocab_str: 'lda.py -- each str: py_str_overhead_bytes + avg_word_len (upper bound 24)'
+      index_dict: lda.py -- _index = dict[str, int], V entries = d*dict_entry_bytes
+      header: lda.py -- params_ dict + fitted_ + Python object header = 512
+    min_ram_formula: k * d * f64 + d * list_ptr_bytes + d * py_str_overhead_bytes + d * avg_word_len + d * dict_entry_bytes + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact vs formula (k, V) parametrized"
-      state_independent_of_n: "test_state_independent_of_n: state(n=2k) == state(n=10k)"
-      formula_sanity: "test_formula_small_scale: predicted/measured in [0.5, 2.0] (baseline RSS 5MB included)"
-      ooc: "test_ooc_fixed_batch: peak ratio < 2.5 (n=2k vs 20k)"
-      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
-      cells_passed: "5/5"
-
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact vs formula (k, V) parametrized'
+      state_independent_of_n: 'test_state_independent_of_n: state(n=2k) == state(n=10k)'
+      formula_sanity: 'test_formula_small_scale: predicted/measured in [0.5, 2.0] (baseline RSS 5MB included)'
+      ooc: 'test_ooc_fixed_batch: peak ratio < 2.5 (n=2k vs 20k)'
+      tight_guard: 'test_tight_guard_raises: MemoryLimitExceeded via _FakeMB'
+      cells_passed: 5/5
     implementation_status:
       verified_in_cadw: true
       verified_by_agent: true
@@ -535,56 +572,64 @@ subtypes:
     predict_batched: true
     depends_on: []
     state_class: O(model)
-    # v0.9.101: axis is V (raw unique tokens) — _build_vocab peak is
-    # K_raw * 96 B. Prior {k:1,d:1} used user's vocab_size as `d`,
-    # which undercounts when corpus has more unique tokens than the
-    # cap. tf=12.0 = 96 B/entry / 8 B/base. sstats (K*V_cap*8) is
-    # separate and smaller for typical (V_cap << K_raw).
-    bounded_state_dims: {k: 1, d: 1, avg_word_len: 1}
+    bounded_state_dims:
+      k: 1
+      d: 1
+      avg_word_len: 1
     transient_factor: 12.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
       fit: 'v0.9.87-P5a-fix-lda-a: sparse CSR E-step per batch; M-step scatter-add to sstats (K×V param).'
-      predict: 'per-batch sparse E-step gamma.'
-    primitive_reuse: [reduce, spill_dir]
+      predict: per-batch sparse E-step gamma.
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, d:1, avg_word_len:1; independent of n. Module: cadw.ml.lda.'
   - name: NMF
     cadw_function: fit_nmf
     cadw_module: cadw.ml.nmf
     input_api: df
     n_scalability: constant
     bounded_state: true
-    bounded_state_dims: {k: 1, vocab_size: 1}
+    bounded_state_dims:
+      k: 1
+      vocab_size: 1
     state_class: O(model)
     state_type: iterative
-    streaming_strategy: |
-      fit: multi-pass streaming; per-batch mini-batch mu updates H.
+    streaming_strategy: 'fit: multi-pass streaming; per-batch mini-batch mu updates H.
+
       State H is (k, V) — bounded by user params, independent of n.
+
       transform: per-batch W via transform_batches generator, O(batch).
-    primitive_reuse: [reduce]
+
+      '
+    primitive_reuse:
+    - reduce
     fit_batched: true
-    predict_batched: false  # no predict; transform_batches is generator
-    ram_formula: "k * vocab_size * f64 + 128 + batch * vocab_size * f64 + 4 * batch * row_size"
+    predict_batched: false
+    ram_formula: k * vocab_size * f64 + 128 + batch * vocab_size * f64 + 4 * batch * row_size
     formula_evidence:
-      H: "cadw/ml/nmf.py -- NMFModel.components_: np.ndarray[k, V] float64"
-      header: "cadw/ml/nmf.py -- NMFModel.state_nbytes(): +128"
-      dense_X: "cadw/ml/nmf.py -- _coo_to_dense: np.zeros((n_docs, V)); n_docs <= batch"
-      arrow: "cadw/ml/nmf.py -- batch read: 3 x i64 (doc,term,cnt) + mask"
-    min_ram_formula: "k * vocab_size * f64 + 128 + 1 * vocab_size * f64 + 4 * 1 * row_size"
+      H: 'cadw/ml/nmf.py -- NMFModel.components_: np.ndarray[k, V] float64'
+      header: 'cadw/ml/nmf.py -- NMFModel.state_nbytes(): +128'
+      dense_X: 'cadw/ml/nmf.py -- _coo_to_dense: np.zeros((n_docs, V)); n_docs <= batch'
+      arrow: 'cadw/ml/nmf.py -- batch read: 3 x i64 (doc,term,cnt) + mask'
+    min_ram_formula: k * vocab_size * f64 + 128 + 1 * vocab_size * f64 + 4 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact, 4 (k,V) parametrized"
-      state_ooc: "test_state_independent_of_n: state(n=500) == state(n=5000)"
-      formula_sanity: "test_ooc_batch_fixed: peak ratio < 2.0 at fixed batch"
-      ooc: "test_ooc_batch_fixed: median-of-3 per n (DEC-034)"
-      guard: "test_guard_refuses_at_tight: V=50k + 0.1 MB -> MemoryLimitExceeded"
-      correctness: "test_transform_batches_shape_and_nonneg + test_reconstruction_error_small"
-      note: "CW-3 batch coef skipped: transient b*V*f64 dominates row_size Arrow term at any realistic V. Formula uses conservative 4.0 arrow coef."
-      cells_passed: "N/A (component-wise)"
-      runtime_sec: "~5"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact, 4 (k,V) parametrized'
+      state_ooc: 'test_state_independent_of_n: state(n=500) == state(n=5000)'
+      formula_sanity: 'test_ooc_batch_fixed: peak ratio < 2.0 at fixed batch'
+      ooc: 'test_ooc_batch_fixed: median-of-3 per n (DEC-034)'
+      guard: 'test_guard_refuses_at_tight: V=50k + 0.1 MB -> MemoryLimitExceeded'
+      correctness: test_transform_batches_shape_and_nonneg + test_reconstruction_error_small
+      note: 'CW-3 batch coef skipped: transient b*V*f64 dominates row_size Arrow term at any realistic V. Formula uses conservative 4.0 arrow coef.'
+      cells_passed: N/A (component-wise)
+      runtime_sec: ~5
     tier: sota
     depends_on:
     - cadw.ops.linalg.nmf_mu
@@ -615,6 +660,8 @@ subtypes:
       metric: perplexity
       value: null
       note: 'no_public_benchmark: NMF has no likelihood/perplexity; 20NG has no live public coherence leaderboard either'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, vocab_size:1; independent of n. Module: cadw.ml.nmf.'
   - name: Top2Vec
     tier: sota
     depends_on: []
@@ -622,12 +669,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [nonlinear_interactions]
-    purpose: "Top2Vec (Angelov 2020): joint doc+word embedding then nonlinear density clusters of topics."
-    real_life_examples: ["Dynamic topic discovery", "Thematic clustering of docs"]
-    config: {embedding_model: string, min_topic_size: int}
+    roles:
+    - nonlinear_interactions
+    purpose: 'Top2Vec (Angelov 2020): joint doc+word embedding then nonlinear density clusters of topics.'
+    real_life_examples:
+    - Dynamic topic discovery
+    - Thematic clustering of docs
+    config:
+      embedding_model: string
+      min_topic_size: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'Top2Vec', algorithm_source_url: 'https://arxiv.org/abs/2008.09470', algorithm_source_kind: paper, attribution: literature, task_type: nlp, n_datasets: null, metric: perplexity, value: null, note: 'no_public_benchmark: Top2Vec per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: Top2Vec
+      algorithm_source_url: https://arxiv.org/abs/2008.09470
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: nlp
+      n_datasets: null
+      metric: perplexity
+      value: null
+      note: 'no_public_benchmark: Top2Vec per-dataset'
   metrics:
   - name: perplexity
     combination: anchor

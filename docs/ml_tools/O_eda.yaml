@@ -17,7 +17,6 @@ subtypes:
     - value_counts
     note: Descriptive-statistics primitives; no cross-library accuracy leaderboard exists.
   models:
-  # NOT-A-MODEL: dataframe method df.describe() (DEC-060)
   - name: Describe
     tier: baseline
     not_a_model: true
@@ -63,16 +62,17 @@ subtypes:
     depends_on: []
     depends_on_status: implemented
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'no fit; per-column streaming count/mean/std/min/max/quantile Reduce.'
-      predict: 'returns summary table (output, not state).'
-    primitive_reuse: [reduce]
-  # NOT-A-MODEL: dataframe method df.hist() (DEC-060)
+      fit: no fit; per-column streaming count/mean/std/min/max/quantile Reduce.
+      predict: returns summary table (output, not state).
+    primitive_reuse:
+    - reduce
   - name: Hist
     tier: baseline
     not_a_model: true
@@ -113,10 +113,10 @@ subtypes:
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'no fit; streaming bin counts (bins hyperparameter).'
-      predict: 'returns histogram table (output).'
-    primitive_reuse: [reduce]
-  # NOT-A-MODEL: dataframe method df.value_counts() (DEC-060)
+      fit: no fit; streaming bin counts (bins hyperparameter).
+      predict: returns histogram table (output).
+    primitive_reuse:
+    - reduce
   - name: ValueCounts
     tier: baseline
     not_a_model: true
@@ -151,15 +151,19 @@ subtypes:
     depends_on: []
     depends_on_status: implemented
     state_class: O(model)
-    bounded_state_dims: {k: 1, d: 1}
+    bounded_state_dims:
+      k: 1
+      d: 1
     transient_factor: 1.0
     state_type: partitioned
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'no fit; HashShuffle by value -> per-partition count; multi-chunk safe.'
-      predict: 'returns value/count table (output).'
-    primitive_reuse: [hash_shuffle, reduce]
+      fit: no fit; HashShuffle by value -> per-partition count; multi-chunk safe.
+      predict: returns value/count table (output).
+    primitive_reuse:
+    - hash_shuffle
+    - reduce
   - name: YDataProfiling
     tier: sota
     depends_on: []
@@ -227,7 +231,6 @@ subtypes:
     - accuracy
     note: Imputation primitives; no cross-library leaderboard. RMSE of imputed vs true values is the standard proxy.
   models:
-  # NOT-A-MODEL: dataframe method df.fillna() (DEC-060)
   - name: SimpleImputer
     tier: baseline
     not_a_model: true
@@ -262,15 +265,17 @@ subtypes:
     depends_on: []
     depends_on_status: implemented
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     transient_factor: 1.0
     state_type: elementwise
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'streaming per-column fill value (mean/median/mode).'
-      predict: 'per-batch fillna with fitted constants.'
-    primitive_reuse: [reduce]
+      fit: streaming per-column fill value (mean/median/mode).
+      predict: per-batch fillna with fitted constants.
+    primitive_reuse:
+    - reduce
   - name: KNNImputer
     tier: baseline
     depends_on:
@@ -308,32 +313,39 @@ subtypes:
     input_api: df
     bounded_state: true
     n_scalability: constant
-    bounded_state_dims: {k: 1, d: 1}
+    bounded_state_dims:
+      k: 1
+      d: 1
     state_class: O(model)
     state_type: partitioned
-    ram_formula: 'd * f64 + (k + 1) * f64 * 2 + 256'
-    min_ram_formula: 'd * f64 + (k + 1) * f64 * 2 + 256'
+    ram_formula: d * f64 + (k + 1) * f64 * 2 + 256
+    min_ram_formula: d * f64 + (k + 1) * f64 * 2 + 256
     formula_evidence:
-      nan_sq: "linalg.py -- nan_sq_dists: (n_q, n_x, d) broadcast"
-      donors_chunk: "knn_imputer.py -- per donor chunk (dchunk) sqrt(dist)"
-      header: "knn_imputer.py -- +256 in state_nbytes()"
+      nan_sq: 'linalg.py -- nan_sq_dists: (n_q, n_x, d) broadcast'
+      donors_chunk: knn_imputer.py -- per donor chunk (dchunk) sqrt(dist)
+      header: knn_imputer.py -- +256 in state_nbytes()
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: 256 + fit_nan_counts + col names (CW-1)"
-      state_ooc: "test_state_constant_in_n: state invariant for n in {50, 500} (CW-2)"
-      sklearn_parity: "test_sklearn_parity_uniform (k=1,3,5) max diff < 1e-9 (CW-3); test_sklearn_parity_distance (k=1,3,5) max diff < 1e-9 (CW-4); test_distance_weights_duplicates = 3.5 (CW-7, P8a X3)"
-      all_nan_drop: "test_all_nan_column_dropped + warning (CW-5); test_only_one_donor_column fill=5.0 (CW-6)"
-      transform_new: "test_transform_new_data 5 rows (CW-8); test_all_rows_missing_one_col sklearn parity (CW-11)"
-      release: "test_transform_requires_train_state (CW-9); test_release_idempotent (CW-10)"
-      cells_passed: "12/12"
-      runtime_sec: "~8"
-      fit_transient_note: "Per-donor-chunk transient: O(batch * donor_chunk * d * f64 * 2) for nan_sq_dists; donor_chunk bounded by x_chunk (batch_size default). Not part of state (ram_formula = persistent state only)."
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: 256 + fit_nan_counts + col names (CW-1)'
+      state_ooc: 'test_state_constant_in_n: state invariant for n in {50, 500} (CW-2)'
+      sklearn_parity: test_sklearn_parity_uniform (k=1,3,5) max diff < 1e-9 (CW-3); test_sklearn_parity_distance (k=1,3,5) max diff < 1e-9 (CW-4); test_distance_weights_duplicates = 3.5 (CW-7, P8a X3)
+      all_nan_drop: test_all_nan_column_dropped + warning (CW-5); test_only_one_donor_column fill=5.0 (CW-6)
+      transform_new: test_transform_new_data 5 rows (CW-8); test_all_rows_missing_one_col sklearn parity (CW-11)
+      release: test_transform_requires_train_state (CW-9); test_release_idempotent (CW-10)
+      cells_passed: 12/12
+      runtime_sec: ~8
+      fit_transient_note: 'Per-donor-chunk transient: O(batch * donor_chunk * d * f64 * 2) for nan_sq_dists; donor_chunk bounded by x_chunk (batch_size default). Not part of state (ram_formula = persistent state only).'
     streaming_strategy:
-      fit: "X -> memmap (keep NaN); detect all-NaN cols -> drop. State O(model) (path + col names + nan_counts)."
-      transform: "Per-column kNN among donors (nan_sq_dists partial-distance, chunked X); top-k merge; _get_weights (uniform/distance); masked weighted avg. Output via Dataset.from_batches (OOC in n)."
-    primitive_reuse: [nan_sq_dists, spill_dir, memmap]
+      fit: X -> memmap (keep NaN); detect all-NaN cols -> drop. State O(model) (path + col names + nan_counts).
+      transform: Per-column kNN among donors (nan_sq_dists partial-distance, chunked X); top-k merge; _get_weights (uniform/distance); masked weighted avg. Output via Dataset.from_batches (OOC in n).
+    primitive_reuse:
+    - nan_sq_dists
+    - spill_dir
+    - memmap
     migration_target: null
-    notes: "v0.9.199: fit + transform verified (component-wise DEC-033, sklearn KNNImputer parity). uniform: max diff 0.0; distance: 1.4e-13. All-NaN cols dropped (sklearn behavior). Requires release_train_state(). Nan_euclidean: partial-distance with d/n_common scaling (sklearn parity, P6/P8b)."
+    notes: 'v0.9.199: fit + transform verified (component-wise DEC-033, sklearn KNNImputer parity). uniform: max diff 0.0; distance: 1.4e-13. All-NaN cols dropped (sklearn behavior). Requires release_train_state(). Nan_euclidean: partial-distance with d/n_common scaling (sklearn parity, P6/P8b).'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, d:1; independent of n. Module: cadw.ml.knn_imputer.'
   - name: IterativeImputer
     tier: sota
     depends_on: []
@@ -363,6 +375,8 @@ subtypes:
       metric: rmse
       value: null
       note: 'no_public_benchmark: IterativeImputer ships no per-dataset RMSE table; it is the reference MICE implementation.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Iteratively regress each feature on the others (MICE / EM-like). Inductive bias: linear cross-featur... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   metrics:
   - name: rmse
     combination: anchor
@@ -402,36 +416,43 @@ subtypes:
     input_api: df
     n_scalability: constant
     bounded_state: true
-    bounded_state_dims: {total_categories: 1, n_cats_cols: 1}
+    bounded_state_dims:
+      total_categories: 1
+      n_cats_cols: 1
     state_class: O(model)
     state_type: cross_row
-    streaming_strategy: |
-      fit: external_sort per column + stream unique categories
+    streaming_strategy: 'fit: external_sort per column + stream unique categories
+
       (G2 guard during vocab append). Vocab spilled via SpillDir
+
       during fit; model stores Python-object ndarray per column.
+
       transform_batches: per-batch dense (n, total) f64.
-    primitive_reuse: [sort]
+
+      '
+    primitive_reuse:
+    - sort
     fit_batched: true
     predict_batched: true
-    ram_formula: "total_categories * 200 + n_cats_cols * 128 + 256 + batch * total_categories * f64 + 4.0 * batch * row_size"
+    ram_formula: total_categories * 200 + n_cats_cols * 128 + 256 + batch * total_categories * f64 + 4.0 * batch * row_size
     formula_evidence:
-      vocab: "cadw/ml/one_hot_encoder.py -- _collect_unique_column: Python list of unique categories; sys.getsizeof per item 28-80 B, budget 200 B/cat upper bound"
-      pointer_arrays: "cadw/ml/one_hot_encoder.py -- OneHotEncoderModel.categories_[c] = np.ndarray(object, len(cats))"
-      header: "cadw/ml/one_hot_encoder.py -- _HEADER_BYTES=256"
-      transform: "cadw/ml/one_hot_encoder.py -- transform_batches: np.zeros((n, total)) f64"
-      batch_term: "cadw/ml/one_hot_encoder.py -- to_pylist per cat col + per-row dict lookup"
-    min_ram_formula: "total_categories * 200 + n_cats_cols * 128 + 256 + 1 * total_categories * f64 + 4.0 * 1 * row_size"
+      vocab: 'cadw/ml/one_hot_encoder.py -- _collect_unique_column: Python list of unique categories; sys.getsizeof per item 28-80 B, budget 200 B/cat upper bound'
+      pointer_arrays: cadw/ml/one_hot_encoder.py -- OneHotEncoderModel.categories_[c] = np.ndarray(object, len(cats))
+      header: cadw/ml/one_hot_encoder.py -- _HEADER_BYTES=256
+      transform: 'cadw/ml/one_hot_encoder.py -- transform_batches: np.zeros((n, total)) f64'
+      batch_term: cadw/ml/one_hot_encoder.py -- to_pylist per cat col + per-row dict lookup
+    min_ram_formula: total_categories * 200 + n_cats_cols * 128 + 256 + 1 * total_categories * f64 + 4.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: sys.getsizeof-based, categories exact"
-      state_ooc: "test_state_nbytes_exact: state(n=500) ~= state(n=5000) within 64B (same categories)"
-      formula_sanity: "SKIPPED (DEC-034: Python-object state noisy vs 200 B/cat upper bound)"
-      guard: "test_guard_refuses_at_tight: 10k cats + 0.005 MB -> MemoryLimitExceeded"
-      correctness: "test_transform_shape_and_one_hot + test_transform_handle_unknown_ignore + test_transform_handle_unknown_error"
-      cells_passed: "4/4 (OOC sanity skipped)"
-      runtime_sec: "~2"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: sys.getsizeof-based, categories exact'
+      state_ooc: 'test_state_nbytes_exact: state(n=500) ~= state(n=5000) within 64B (same categories)'
+      formula_sanity: 'SKIPPED (DEC-034: Python-object state noisy vs 200 B/cat upper bound)'
+      guard: 'test_guard_refuses_at_tight: 10k cats + 0.005 MB -> MemoryLimitExceeded'
+      correctness: test_transform_shape_and_one_hot + test_transform_handle_unknown_ignore + test_transform_handle_unknown_error
+      cells_passed: 4/4 (OOC sanity skipped)
+      runtime_sec: ~2
     tier: baseline
     depends_on: []
     tier_level: tier1_core
@@ -459,6 +480,8 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: encoding is a preprocessing step; OpenML leaderboards rank full pipelines, not encoders alone.'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state total_categories:1, n_cats_cols:1; independent of n. Module: cadw.ml.one_hot_encoder.'
   - name: KBinsDiscretizer
     tier: baseline
     depends_on: []
@@ -487,6 +510,8 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: binning has no standalone accuracy leaderboard.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Bin a continuous column into k quantile/uniform bins. Inductive bias: piecewise-constant effect of t... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: PolynomialFeatures
     tier: sota
     depends_on: []
@@ -516,7 +541,8 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: polynomial expansion is a preprocessing transform; no standalone leaderboard.'
-  # NOT-A-MODEL: dataframe method df.encode_categorical() (DEC-060)
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Expand features to degree-k polynomial terms, adding cross-products. Inductive bias: interaction str... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: EncodeCategorical
     tier: baseline
     not_a_model: true
@@ -532,7 +558,7 @@ subtypes:
     - Deterministic id assignment across runs
     - Pre-fit encoding for downstream models
     config:
-      columns: "str or Sequence[str]"
+      columns: str or Sequence[str]
     cadw_module: cadw.dataframe
     cadw_function: encode_categorical
     input_api: df
@@ -541,13 +567,14 @@ subtypes:
     state_class: O(K)
     state_type: aggregation
     bounded_state: false
-    tier1_core_exception: "reverse_maps is list[unique_values] (public API contract, O(K) by design); Pass 2 encoding is O(batch). K <= state_limit works (default ~70 MB). v0.9.102 targets lazy reverse_maps (SpillMap on disk)."
+    tier1_core_exception: reverse_maps is list[unique_values] (public API contract, O(K) by design); Pass 2 encoding is O(batch). K <= state_limit works (default ~70 MB). v0.9.102 targets lazy reverse_maps (SpillMap on disk).
     n_scalability: refuse_at_guard
     streaming_strategy:
-      fit: 'Pass 1 uniques in a Python set (O(K)); Pass 2 pc.index_in streaming (O(batch)).'
-      predict: 'N/A (pure transform).'
+      fit: Pass 1 uniques in a Python set (O(K)); Pass 2 pc.index_in streaming (O(batch)).
+      predict: N/A (pure transform).
     primitive_reuse: []
-    bounded_state_dims: {K: 1}
+    bounded_state_dims:
+      K: 1
     transient_factor: 22.5
   - name: TargetEncoder
     tier: baseline
@@ -556,12 +583,29 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [local_structure]
-    purpose: "Out-of-fold target statistic encoding; local (per-category) mean with smoothing."
-    real_life_examples: ["High-cardinality categorical", "Leakage-safe encoding"]
-    config: {smoothing: float, n_folds: int}
+    roles:
+    - local_structure
+    purpose: Out-of-fold target statistic encoding; local (per-category) mean with smoothing.
+    real_life_examples:
+    - High-cardinality categorical
+    - Leakage-safe encoding
+    config:
+      smoothing: float
+      n_folds: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'TargetEncoder', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.TargetEncoder.html', algorithm_source_kind: docs, attribution: literature, task_type: feature_selection, n_datasets: null, metric: accuracy, value: null, note: 'no_public_benchmark: target encoding quality = downstream proxy'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: TargetEncoder
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.TargetEncoder.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: feature_selection
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: target encoding quality = downstream proxy'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Out-of-fold target statistic encoding; local (per-category) mean with smoothing... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   metrics:
   - name: accuracy
     combination: anchor
@@ -595,35 +639,37 @@ subtypes:
     input_api: df
     fit_batched: true
     predict_batched: true
-    ram_formula: "d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      source: "feature_select.py:38-50 -- _collect: Xs/ys append (AP2), mg.check_state(n*(d*8+8)) per batch"
-      state: "feature_select.py:139-140 -- FeatureSelectorModel.state_nbytes: scores_.nbytes + 512"
-    min_ram_formula: "d * f64 + 512 + 2.0 * 1 * row_size"
+      source: 'feature_select.py:38-50 -- _collect: Xs/ys append (AP2), mg.check_state(n*(d*8+8)) per batch'
+      state: 'feature_select.py:139-140 -- FeatureSelectorModel.state_nbytes: scores_.nbytes + 512'
+    min_ram_formula: d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "bounded_by_domain (DEC-011)"
-      state_check: "test_*_state_formula_exact"
-      state_ooc: "test_feature_select_ooc_peak_does_not_grow_with_n: ratio <3.0 for 5x n"
-      note: "bounded_by_domain (DEC-011): fit transient O(n*d), guard refuses at state_limit."
-      cells_passed: "3/3"
-      runtime_sec: "~1"
+      verification_mode: bounded_by_domain (DEC-011)
+      state_check: test_*_state_formula_exact
+      state_ooc: 'test_feature_select_ooc_peak_does_not_grow_with_n: ratio <3.0 for 5x n'
+      note: 'bounded_by_domain (DEC-011): fit transient O(n*d), guard refuses at state_limit.'
+      cells_passed: 3/3
+      runtime_sec: ~1
     bounded_state: true
-    bounded_state_dims: {n: 1, d: 1}
+    bounded_state_dims:
+      n: 1
+      d: 1
     state_class: O(d)
     state_type: aggregation
     n_scalability: constant
     streaming_strategy:
-      fit: "single stream _collect (n*d f64) + numpy MI; guard refuses at state_limit."
-      predict: "transform(df) -> stream select(selected_) per batch; O(batch*d)."
-    primitive_reuse: [reduce]
+      fit: single stream _collect (n*d f64) + numpy MI; guard refuses at state_limit.
+      predict: transform(df) -> stream select(selected_) per batch; O(batch*d).
+    primitive_reuse:
+    - reduce
     tier: baseline
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - linear_signal
     - probabilistic
@@ -671,41 +717,45 @@ subtypes:
       note: 'no_public_benchmark: sklearn docs describe mutual_info_classif but publish no cross-dataset accuracy leaderboard for the selector.'
     depends_on: []
     transient_factor: 1.0
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n:1, d:1; independent of n. Module: cadw.ml.feature_select.'
   - name: VarianceThreshold
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
     input_api: df
     fit_batched: true
     predict_batched: true
-    ram_formula: "d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      source: "feature_select.py:38-50 -- _collect (AP2) + _variance_selector (numpy var axis=0)"
-      state: "feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512"
-    min_ram_formula: "d * f64 + 512 + 2.0 * 1 * row_size"
+      source: feature_select.py:38-50 -- _collect (AP2) + _variance_selector (numpy var axis=0)
+      state: 'feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512'
+    min_ram_formula: d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "bounded_by_domain (DEC-011)"
-      state_check: "test_*_state_formula_exact"
-      state_ooc: "test_feature_select_ooc_peak_does_not_grow_with_n: ratio <3.0 for 5x n"
-      note: "bounded_by_domain (DEC-011)."
-      cells_passed: "3/3"
-      runtime_sec: "~1"
+      verification_mode: bounded_by_domain (DEC-011)
+      state_check: test_*_state_formula_exact
+      state_ooc: 'test_feature_select_ooc_peak_does_not_grow_with_n: ratio <3.0 for 5x n'
+      note: bounded_by_domain (DEC-011).
+      cells_passed: 3/3
+      runtime_sec: ~1
     bounded_state: true
-    bounded_state_dims: {n: 1, d: 1}
+    bounded_state_dims:
+      n: 1
+      d: 1
     state_class: O(d)
     state_type: aggregation
     n_scalability: constant
     streaming_strategy:
-      fit: "single stream _collect + numpy var; guard refuses at state_limit."
-      predict: "transform(df) -> per-batch select; O(batch*d)."
-    primitive_reuse: [reduce]
+      fit: single stream _collect + numpy var; guard refuses at state_limit.
+      predict: transform(df) -> per-batch select; O(batch*d).
+    primitive_reuse:
+    - reduce
     tier: baseline
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - linear_signal
     purpose: 'Drop features whose variance is below a threshold. Inductive bias: low variance means low information; catches constants and near-constants cheaply.'
@@ -729,42 +779,46 @@ subtypes:
       note: 'CADW-native: variance fit_s=0.003 @n=10k, 0.032 @n=50k (feature_select.json). NOT comparable to external.'
     depends_on: []
     transient_factor: 1.0
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n:1, d:1; independent of n. Module: cadw.ml.feature_select.'
   - name: BorutaSelect
     cadw_module: cadw.ml.feature_select
     cadw_function: fit_feature_select
     input_api: df
     fit_batched: true
     predict_batched: true
-    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: 2 * d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      source: "feature_select.py:38-50 -- _collect (AP2) + _boruta_selector: Xa = hstack(X, shadows) 2d, GBDT fit"
-      state: "feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512"
-    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+      source: 'feature_select.py:38-50 -- _collect (AP2) + _boruta_selector: Xa = hstack(X, shadows) 2d, GBDT fit'
+      state: 'feature_select.py:139-140 -- state_nbytes: scores_.nbytes + 512'
+    min_ram_formula: 2 * d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      subsample_note: "v0.9.174 S2b-2b: subsample cap 20000 rows (precedent S2b-2a chains/meta/uplift). Boruta iter loop needs full X|shadows in RAM; HStack per iter 2*d*n. Cap fixes OOC."
-      verification_mode: "bounded_by_domain (DEC-011)"
-      state_check: "test_*_state_formula_exact"
-      state_ooc: "test_*_state_independent_of_n"
-      note: "bounded_by_domain (DEC-011); fit peak higher (shadows + GBDT) but n*d*8 dominates."
-      cells_passed: "3/3"
-      runtime_sec: "~1"
+      subsample_note: 'v0.9.174 S2b-2b: subsample cap 20000 rows (precedent S2b-2a chains/meta/uplift). Boruta iter loop needs full X|shadows in RAM; HStack per iter 2*d*n. Cap fixes OOC.'
+      verification_mode: bounded_by_domain (DEC-011)
+      state_check: test_*_state_formula_exact
+      state_ooc: test_*_state_independent_of_n
+      note: bounded_by_domain (DEC-011); fit peak higher (shadows + GBDT) but n*d*8 dominates.
+      cells_passed: 3/3
+      runtime_sec: ~1
     bounded_state: true
-    bounded_state_dims: {n: 1, d: 1}
+    bounded_state_dims:
+      n: 1
+      d: 1
     state_class: O(d)
     state_type: aggregation
     n_scalability: constant
     streaming_strategy:
-      fit: "single stream _collect + Boruta iterations with shadow features + GBDT fit per iter."
-      predict: "transform(df) -> per-batch select; O(batch*d)."
-    primitive_reuse: [reduce]
+      fit: single stream _collect + Boruta iterations with shadow features + GBDT fit per iter.
+      predict: transform(df) -> per-batch select; O(batch*d).
+    primitive_reuse:
+    - reduce
     tier: sota
     tier_level: tier2_wrapper
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: 'Shadow-feature wrapper: repeated GBDT fits compare real vs shuffled shadow features; selects only those that beat all shadows. Inductive bias: relevance detectable by tree ensembles; stable, expensive.'
@@ -789,6 +843,8 @@ subtypes:
       note: 'CADW-native: boruta fit_s=4.642 @n=2k, 5.394 @n=5k, 8.355 @n=10k; n_selected=2 of d=20 (feature_select.json). NOT comparable to external.'
     depends_on: []
     transient_factor: 1.0
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n:1, d:1; independent of n. Module: cadw.ml.feature_select.'
   metrics:
   - name: accuracy
     combination: anchor
@@ -812,7 +868,6 @@ subtypes:
     - MutualInfoSelect
     max_per_role: 2
     note: Always start with VarianceThreshold (near-free); layer MutualInfo on survivors.
-# NOT-ENSEMBLE (O5): validation metrics, not predictions
 - id: O5
   name: Validation / data quality
   description: Assert schema and statistical contracts on incoming batches before fitting or scoring.
@@ -854,6 +909,8 @@ subtypes:
       metric: validation_rate
       value: null
       note: 'no_public_benchmark: schema validators have no accuracy benchmark; correctness is binary by construction.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Declarative dataframe schema (dtypes, ranges, unique, custom checks). Inductive bias: a fixed contra... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: GreatExpectationsSuite
     tier: sota
     depends_on: []
@@ -910,36 +967,41 @@ subtypes:
     input_api: df
     n_scalability: constant
     bounded_state: true
-    bounded_state_dims: {n_splits: 1}
+    bounded_state_dims:
+      n_splits: 1
     state_class: O(1)
     state_type: elementwise
-    streaming_strategy: |
-      fit: thin wrapper over cadw.cv.KFold(stratify_by=); state is
+    streaming_strategy: 'fit: thin wrapper over cadw.cv.KFold(stratify_by=); state is
+
       only (n_splits, stratify_col, seed) params. No per-row state.
+
       split: delegates to KFold.split — streaming, O(batch) per call.
+
       Fold assignment = splitmix64(row_id, seed) % k (deterministic).
+
+      '
     primitive_reuse: []
     fit_batched: true
     predict_batched: false
-    ram_formula: "128 + 4.0 * batch * row_size"
+    ram_formula: 128 + 4.0 * batch * row_size
     formula_evidence:
-      params: "cadw/ml/stratified_split.py -- StratifiedSplitModel: 3 dataclass fields"
-      header: "cadw/ml/stratified_split.py -- _HEADER_BYTES=128"
-      batch_term: "cadw/cv.py -- KFold.split: per-batch filter(_iter_filtered_batches) + splitmix64"
-    min_ram_formula: "128 + 4.0 * 1 * row_size + 512"
+      params: 'cadw/ml/stratified_split.py -- StratifiedSplitModel: 3 dataclass fields'
+      header: cadw/ml/stratified_split.py -- _HEADER_BYTES=128
+      batch_term: 'cadw/cv.py -- KFold.split: per-batch filter(_iter_filtered_batches) + splitmix64'
+    min_ram_formula: 128 + 4.0 * 1 * row_size + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact, 3 (n_splits) parametrized"
-      state_ooc: "test_state_independent_of_n: state identical n=500 vs n=5000"
-      formula_sanity: "SKIPPED (DEC-034: state O(1), batch signal < noise)"
-      guard: "test_guard_refuses_at_tight: 0.00005 MB < 128 B -> MemoryLimitExceeded"
-      correctness: "test_split_delegates_to_kfold + test_strata_preserved + test_split_invalid_fold"
-      cells_passed: "5/5 (OOC sanity skipped)"
-      runtime_sec: "~1"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact, 3 (n_splits) parametrized'
+      state_ooc: 'test_state_independent_of_n: state identical n=500 vs n=5000'
+      formula_sanity: 'SKIPPED (DEC-034: state O(1), batch signal < noise)'
+      guard: 'test_guard_refuses_at_tight: 0.00005 MB < 128 B -> MemoryLimitExceeded'
+      correctness: test_split_delegates_to_kfold + test_strata_preserved + test_split_invalid_fold
+      cells_passed: 5/5 (OOC sanity skipped)
+      runtime_sec: ~1
     depends_on:
-      - cadw.cv.KFold
+    - cadw.cv.KFold
     tier: baseline
     tier_level: tier1_core
     implementation_status:
@@ -967,40 +1029,48 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: splitter is not a model; accuracy depends entirely on the downstream estimator.'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state n_splits:1; independent of n. Module: cadw.ml.stratified_split.'
   - name: ReservoirSample
     cadw_function: fit_reservoir_sample
     cadw_module: cadw.ml.reservoir_sample
     input_api: df
     n_scalability: constant
     bounded_state: true
-    bounded_state_dims: {k: 1, d: 1}
+    bounded_state_dims:
+      k: 1
+      d: 1
     state_class: O(model)
     state_type: aggregation
-    streaming_strategy: |
-      fit: single streaming pass via reservoir_sample (Algorithm R).
-      State (k', d) f64 sample matrix. n-independent by construction
+    streaming_strategy: 'fit: single streaming pass via reservoir_sample (Algorithm R).
+
+      State (k'', d) f64 sample matrix. n-independent by construction
+
       (each arriving row considered independently; replacements bounded).
+
       sample_batches: streaming RecordBatch chunks, RAM O(batch).
+
+      '
     primitive_reuse: []
     fit_batched: true
     predict_batched: true
-    ram_formula: "k * d * f64 + 256 + 4.0 * batch * row_size"
+    ram_formula: k * d * f64 + 256 + 4.0 * batch * row_size
     formula_evidence:
-      sample: "cadw/ops/sampling.py -- reservoir_sample: np.empty((k, d)) f64"
-      header: "cadw/ml/reservoir_sample.py -- ReservoirSampleModel.state_nbytes(): +256"
-      batch_term: "cadw/ops/sampling.py -- reservoir_sample: column_stack + mask + rng draws"
-    min_ram_formula: "k * d * f64 + 256 + 4.0 * 1 * row_size"
+      sample: 'cadw/ops/sampling.py -- reservoir_sample: np.empty((k, d)) f64'
+      header: 'cadw/ml/reservoir_sample.py -- ReservoirSampleModel.state_nbytes(): +256'
+      batch_term: 'cadw/ops/sampling.py -- reservoir_sample: column_stack + mask + rng draws'
+    min_ram_formula: k * d * f64 + 256 + 4.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact, 3 (k,d,n) parametrized"
-      state_ooc: "test_state_independent_of_n: state identical n=500 vs n=5000"
-      formula_sanity: "SKIPPED (DEC-034: row_size=d*8 small, signal < noise)"
-      guard: "test_guard_refuses_at_tight: k=100k + 0.01 MB -> MemoryLimitExceeded"
-      correctness: "test_primitive_reservoir_uniform + test_sample_batches_streaming"
-      cells_passed: "4/4 (OOC sanity skipped)"
-      runtime_sec: "~1"
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact, 3 (k,d,n) parametrized'
+      state_ooc: 'test_state_independent_of_n: state identical n=500 vs n=5000'
+      formula_sanity: 'SKIPPED (DEC-034: row_size=d*8 small, signal < noise)'
+      guard: 'test_guard_refuses_at_tight: k=100k + 0.01 MB -> MemoryLimitExceeded'
+      correctness: test_primitive_reservoir_uniform + test_sample_batches_streaming
+      cells_passed: 4/4 (OOC sanity skipped)
+      runtime_sec: ~1
     tier: baseline
     depends_on: []
     tier_level: tier1_core
@@ -1028,6 +1098,8 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: sampling scheme has no accuracy benchmark; correctness is proven analytically.'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, d:1; independent of n. Module: cadw.ml.reservoir_sample.'
   - name: SMOTE
     tier: sota
     depends_on:
@@ -1068,12 +1140,28 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [linear_signal]
-    purpose: "Importance-weighted sampling (IPW / class-weight); linear weights per row."
-    real_life_examples: ["Covariate shift correction", "Reweighted CV"]
-    config: {weight_col: string}
+    roles:
+    - linear_signal
+    purpose: Importance-weighted sampling (IPW / class-weight); linear weights per row.
+    real_life_examples:
+    - Covariate shift correction
+    - Reweighted CV
+    config:
+      weight_col: string
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'WeightedSample', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.utils.class_weight.compute_sample_weight.html', algorithm_source_kind: docs, attribution: literature, task_type: sampling, n_datasets: null, metric: accuracy, value: null, note: 'no_public_benchmark: sampling utility; downstream metric'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: WeightedSample
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.utils.class_weight.compute_sample_weight.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: sampling
+      n_datasets: null
+      metric: accuracy
+      value: null
+      note: 'no_public_benchmark: sampling utility; downstream metric'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Importance-weighted sampling (IPW / class-weight); linear weights per row... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   metrics:
   - name: auc
     combination: anchor
@@ -1129,6 +1217,8 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: search strategy is not a model; accuracy is downstream.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Exhaustive grid over a discrete parameter space with CV scoring. Inductive bias: none — it is a sear... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: RandomizedSearch
     tier: baseline
     depends_on:
@@ -1159,6 +1249,8 @@ subtypes:
       metric: accuracy
       value: null
       note: 'no_public_benchmark: original Bergstra & Bengio paper reports per-experiment gains, not a cross-dataset accuracy table.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Sample N random parameter configurations from declared distributions. Inductive bias: random coverag... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: OptunaTPE
     tier: sota
     depends_on: []
@@ -1211,7 +1303,6 @@ subtypes:
     - fidelity
     note: XAI methods are evaluated on fidelity/sanity checks; no cross-dataset AUC leaderboard.
   models:
-  # NOT-A-MODEL: analysis function permutation_importance (returns result, no fit state) (DEC-060)
   - name: PermutationImportance
     tier: baseline
     not_a_model: true
@@ -1246,15 +1337,17 @@ subtypes:
     depends_on: []
     depends_on_status: implemented
     state_class: O(batch)
-    bounded_state_dims: {batch: 1}
+    bounded_state_dims:
+      batch: 1
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'refit-per-feature bounded; per-batch score delta Reduce.'
-      predict: 'returns importance ranking (output).'
-    primitive_reuse: [reduce]
+      fit: refit-per-feature bounded; per-batch score delta Reduce.
+      predict: returns importance ranking (output).
+    primitive_reuse:
+    - reduce
   - name: SHAPTreeExplainer
     tier: sota
     depends_on: []
@@ -1292,12 +1385,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [local_structure]
-    purpose: "Anchors (Ribeiro 2018): local if-then rule explanations with precision/coverage."
-    real_life_examples: ["Rule-based model explanation", "Local decision rules"]
-    config: {threshold: float, beam_size: int}
+    roles:
+    - local_structure
+    purpose: 'Anchors (Ribeiro 2018): local if-then rule explanations with precision/coverage.'
+    real_life_examples:
+    - Rule-based model explanation
+    - Local decision rules
+    config:
+      threshold: float
+      beam_size: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'Anchors', algorithm_source_url: 'https://ojs.aaai.org/index.php/AAAI/article/view/11491', algorithm_source_kind: paper, attribution: literature, task_type: feature_selection, n_datasets: null, metric: fidelity, value: null, note: 'no_public_benchmark: Anchors precision/coverage per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: Anchors
+      algorithm_source_url: https://ojs.aaai.org/index.php/AAAI/article/view/11491
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: feature_selection
+      n_datasets: null
+      metric: fidelity
+      value: null
+      note: 'no_public_benchmark: Anchors precision/coverage per-dataset'
   metrics:
   - name: auc
     combination: anchor
@@ -1315,7 +1423,6 @@ subtypes:
     - PermutationImportance
     max_per_role: 2
     note: Permutation is model-agnostic and cheap; use SHAPTreeExplainer for exact per-row attributions on GBDT.
-# NOT-ENSEMBLE (O9): fairness metrics, not predictions
 - id: O9
   name: Fairness / bias
   description: Measure group-level disparity in model outcomes or errors; audit before deployment.
@@ -1338,7 +1445,6 @@ subtypes:
     - eo_diff
     note: Fairness metrics have no universal leaderboard; Fairlearn docs define DP/EO but publish no cross-dataset ranking.
   models:
-  # NOT-A-MODEL: analysis function fairness_metrics (returns result, no fit state) (DEC-060)
   - name: FairnessMetrics
     tier: baseline
     not_a_model: true
@@ -1396,15 +1502,18 @@ subtypes:
     depends_on: []
     depends_on_status: implemented
     state_class: O(model)
-    bounded_state_dims: {k: 1, d: 1}
+    bounded_state_dims:
+      k: 1
+      d: 1
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'group-wise metric Reduce (n_groups param).'
-      predict: 'returns per-group metrics (output).'
-    primitive_reuse: [reduce]
+      fit: group-wise metric Reduce (n_groups param).
+      predict: returns per-group metrics (output).
+    primitive_reuse:
+    - reduce
   - name: FairlearnParity
     tier: sota
     depends_on: []
@@ -1486,35 +1595,34 @@ subtypes:
     input_api: df
     fit_batched: true
     predict_batched: true
-    ram_formula: "256"
+    ram_formula: '256'
     formula_evidence:
-      source: "drift.py:127-129 -- DriftABModel(kind='drift', config); state_nbytes() = 256"
-      state: "drift.py:DriftABModel.state_nbytes -- kind='drift' -> return 256"
-    min_ram_formula: "256 + 512"
+      source: drift.py:127-129 -- DriftABModel(kind='drift', config); state_nbytes() = 256
+      state: drift.py:DriftABModel.state_nbytes -- kind='drift' -> return 256
+    min_ram_formula: 256 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_formula_exact"
-      state_ooc: "test_*_state_independent_of_n"
-      note: "Container, no data pass at fit; no guard_refuse test (N/A)."
-      cells_passed: "3/3"
-      runtime_sec: "~1"
+      verification_mode: component-wise (DEC-033)
+      state_check: test_*_state_formula_exact
+      state_ooc: test_*_state_independent_of_n
+      note: Container, no data pass at fit; no guard_refuse test (N/A).
+      cells_passed: 3/3
+      runtime_sec: ~1
     bounded_state: true
     bounded_state_dims: {}
     state_class: O(1)
     state_type: aggregation
     n_scalability: constant
     streaming_strategy:
-      fit: "lazy container: store method/col/reference_col; comparison computed at score() call."
-      predict: "DriftABModel.compare() reads df via _iter_filtered_batches; per-batch ks/psi; O(batch)."
+      fit: 'lazy container: store method/col/reference_col; comparison computed at score() call.'
+      predict: DriftABModel.compare() reads df via _iter_filtered_batches; per-batch ks/psi; O(batch).
     primitive_reuse: []
     tier: baseline
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - calibration
     purpose: 'KS, chi2, PSI per feature computed with Reduce stats. Inductive bias: independent per-feature drift; misses multivariate drift.'
@@ -1550,6 +1658,8 @@ subtypes:
       note: 'CADW-native: ks_p=4.45e-82 @n=10k, 0.0 @n=100k and 1M (drift.json; synthetic shifted distribution). NOT comparable to external.'
     depends_on: []
     transient_factor: 1.0
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state O(model); independent of n. Module: cadw.ml.drift.'
   - name: EvidentlyDrift
     tier: sota
     depends_on:
@@ -1592,12 +1702,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "ADWIN (Bifet & Gavalda 2007): adaptive window with statistical change detection."
-    real_life_examples: ["Streaming concept drift", "Sensor regime change"]
-    config: {delta: float, max_window: int}
+    roles:
+    - probabilistic
+    purpose: 'ADWIN (Bifet & Gavalda 2007): adaptive window with statistical change detection.'
+    real_life_examples:
+    - Streaming concept drift
+    - Sensor regime change
+    config:
+      delta: float
+      max_window: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'ADWIN', algorithm_source_url: 'https://www.cs.upc.edu/~gavalda/papers/adwin06.pdf', algorithm_source_kind: paper, attribution: literature, task_type: anomaly, n_datasets: null, metric: drift_share, value: null, note: 'no_public_benchmark: ADWIN per-stream; delay metric depends on DGP'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: ADWIN
+      algorithm_source_url: https://www.cs.upc.edu/~gavalda/papers/adwin06.pdf
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: anomaly
+      n_datasets: null
+      metric: drift_share
+      value: null
+      note: 'no_public_benchmark: ADWIN per-stream; delay metric depends on DGP'
   metrics:
   - name: psi
     combination: anchor
@@ -1698,28 +1823,31 @@ subtypes:
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'streaming per-arm success/total counts.'
-      predict: 'returns z-stat and p-value (output).'
-    primitive_reuse: [reduce]
-    ram_formula: "2 * (3 * f64 + 6 * dict_entry_bytes) + 256"
+      fit: streaming per-arm success/total counts.
+      predict: returns z-stat and p-value (output).
+    primitive_reuse:
+    - reduce
+    ram_formula: 2 * (3 * f64 + 6 * dict_entry_bytes) + 256
     formula_evidence:
-      state_per_arm: "drift.py:237 — _ArmStatsOp.state_nbytes: 3*f64 + 6*dict_entry_bytes per arm"
-      state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
-      num_arms: "drift.py:155 — arms_=2 (binary treatment)"
-    min_ram_formula: "2 * (3 * f64 + 6 * dict_entry_bytes) + 256"
+      state_per_arm: 'drift.py:237 — _ArmStatsOp.state_nbytes: 3*f64 + 6*dict_entry_bytes per arm'
+      state_header: 'drift.py:152 — DriftABModel.state_nbytes: +256 header'
+      num_arms: drift.py:155 — arms_=2 (binary treatment)
+    min_ram_formula: 2 * (3 * f64 + 6 * dict_entry_bytes) + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact (t): 1696 bit-exact"
-      state_ooc: "test_state_independent_of_n (t): state(n=500)==state(n=5000)"
-      tight_guard: "test_tight_guard_raises (t): MemoryLimitExceeded"
-      batch_invariant: "test_batch_size_invariant (t): bit-identical at batch=100 vs 700"
-      reference: "test_t_streaming_matches_scipy: |stat-scipy|<1e-6, |p-scipy|<1e-6"
-      cells_passed: "17/17"
-      runtime_sec: "~4"
-      date: "2026-11-05"
-      note: "O(1) state; combined RSS matrix unmeasurable (baseline>>state, DEC-034). Component-wise per DEC-033."
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact (t): 1696 bit-exact'
+      state_ooc: 'test_state_independent_of_n (t): state(n=500)==state(n=5000)'
+      tight_guard: 'test_tight_guard_raises (t): MemoryLimitExceeded'
+      batch_invariant: 'test_batch_size_invariant (t): bit-identical at batch=100 vs 700'
+      reference: 'test_t_streaming_matches_scipy: |stat-scipy|<1e-6, |p-scipy|<1e-6'
+      cells_passed: 17/17
+      runtime_sec: ~4
+      date: '2026-11-05'
+      note: O(1) state; combined RSS matrix unmeasurable (baseline>>state, DEC-034). Component-wise per DEC-033.
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state O(model); independent of n. Module: cadw.ml.drift.'
   - name: MannWhitneyU
     tier: baseline
     tier_level: tier1_core
@@ -1766,34 +1894,39 @@ subtypes:
     predict_batched: true
     depends_on: []
     state_class: O(1)
-    bounded_state_dims: {k: 1, d: 1}
+    bounded_state_dims:
+      k: 1
+      d: 1
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'bounded per-arm rank stats (histogram/external_sort-based rank sum).'
-      predict: 'returns U-stat and p-value (output).'
-    primitive_reuse: [external_sort]
-    ram_formula: "5 * f64 + 256"
+      fit: bounded per-arm rank stats (histogram/external_sort-based rank sum).
+      predict: returns U-stat and p-value (output).
+    primitive_reuse:
+    - external_sort
+    ram_formula: 5 * f64 + 256
     formula_evidence:
-      rank_scan_state: "drift.py:352-355 — _mann_whitney_ooc: r0,r1,n0,n1,rank_pos,cur_val = 5*f64"
-      state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
-      note_old: "prior draft said [reduce, external_sort]; mw uses ONLY external_sort"
-    min_ram_formula: "5 * f64 + 256"
+      rank_scan_state: 'drift.py:352-355 — _mann_whitney_ooc: r0,r1,n0,n1,rank_pos,cur_val = 5*f64'
+      state_header: 'drift.py:152 — DriftABModel.state_nbytes: +256 header'
+      note_old: prior draft said [reduce, external_sort]; mw uses ONLY external_sort
+    min_ram_formula: 5 * f64 + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact (mw): 296 bit-exact"
-      state_ooc: "test_state_independent_of_n (mw): state(n=500)==state(n=5000)"
-      tight_guard: "test_tight_guard_raises (mw): MemoryLimitExceeded"
-      batch_invariant: "test_batch_size_invariant (mw): bit-identical"
-      reference: "test_mw_streaming_matches_scipy: |U-scipy|<1"
-      cells_passed: "17/17"
-      runtime_sec: "~4"
-      date: "2026-11-05"
-      note: "Sort-buffer peak via SortMemoryModel (O(budget), not O(n)); OOC across n. state O(1)."
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact (mw): 296 bit-exact'
+      state_ooc: 'test_state_independent_of_n (mw): state(n=500)==state(n=5000)'
+      tight_guard: 'test_tight_guard_raises (mw): MemoryLimitExceeded'
+      batch_invariant: 'test_batch_size_invariant (mw): bit-identical'
+      reference: 'test_mw_streaming_matches_scipy: |U-scipy|<1'
+      cells_passed: 17/17
+      runtime_sec: ~4
+      date: '2026-11-05'
+      note: Sort-buffer peak via SortMemoryModel (O(budget), not O(n)); OOC across n. state O(1).
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state k:1, d:1; independent of n. Module: cadw.ml.drift.'
   - name: CUPED
     tier: sota
     tier_level: tier1_core
@@ -1830,34 +1963,38 @@ subtypes:
     predict_batched: true
     depends_on: []
     state_class: O(1)
-    bounded_state_dims: {d: 2}
+    bounded_state_dims:
+      d: 2
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'streaming XTX / XTY covariate adjustment Reduce.'
-      predict: 'returns adjusted ATE (output).'
-    primitive_reuse: [reduce]
-    ram_formula: "2 * (6 * f64 + 6 * dict_entry_bytes) + 256"
+      fit: streaming XTX / XTY covariate adjustment Reduce.
+      predict: returns adjusted ATE (output).
+    primitive_reuse:
+    - reduce
+    ram_formula: 2 * (6 * f64 + 6 * dict_entry_bytes) + 256
     formula_evidence:
-      state_per_arm: "drift.py:290 — _CupedStatsOp.state_nbytes: 6*f64 + 6*dict_entry_bytes per arm"
-      state_header: "drift.py:152 — DriftABModel.state_nbytes: +256 header"
-      num_arms: "drift.py:155 — arms_=2 (binary treatment)"
-    min_ram_formula: "2 * (6 * f64 + 6 * dict_entry_bytes) + 256"
+      state_per_arm: 'drift.py:290 — _CupedStatsOp.state_nbytes: 6*f64 + 6*dict_entry_bytes per arm'
+      state_header: 'drift.py:152 — DriftABModel.state_nbytes: +256 header'
+      num_arms: drift.py:155 — arms_=2 (binary treatment)
+    min_ram_formula: 2 * (6 * f64 + 6 * dict_entry_bytes) + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact (cuped): 1744 bit-exact"
-      state_ooc: "test_state_independent_of_n (cuped): state(n=500)==state(n=5000)"
-      tight_guard: "test_tight_guard_raises (cuped): MemoryLimitExceeded"
-      batch_invariant: "test_batch_size_invariant (cuped): bit-identical"
-      reference: "test_cuped_theta_recovers_true_parameter: |theta-0.8|<0.1"
-      cells_passed: "17/17"
-      runtime_sec: "~4"
-      date: "2026-11-05"
-      note: "Per-arm 6-tuple state (n,sy,sy2,sx,sxy,sx2) is O(1) in n. Not O(d^2) — XTX model is per-arm scalars, not covariance matrix."
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact (cuped): 1744 bit-exact'
+      state_ooc: 'test_state_independent_of_n (cuped): state(n=500)==state(n=5000)'
+      tight_guard: 'test_tight_guard_raises (cuped): MemoryLimitExceeded'
+      batch_invariant: 'test_batch_size_invariant (cuped): bit-identical'
+      reference: 'test_cuped_theta_recovers_true_parameter: |theta-0.8|<0.1'
+      cells_passed: 17/17
+      runtime_sec: ~4
+      date: '2026-11-05'
+      note: Per-arm 6-tuple state (n,sy,sy2,sx,sxy,sx2) is O(1) in n. Not O(d^2) — XTX model is per-arm scalars, not covariance matrix.
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.drift.'
   - name: SequentialTest
     tier: sota
     depends_on:
@@ -1868,12 +2005,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [linear_signal]
-    purpose: "Wald SPRT (1945): sequential likelihood-ratio test; linear log-LR threshold."
-    real_life_examples: ["Early-stop A/B test", "Streaming conversion decision"]
-    config: {alpha: float, beta: float}
+    roles:
+    - linear_signal
+    purpose: 'Wald SPRT (1945): sequential likelihood-ratio test; linear log-LR threshold.'
+    real_life_examples:
+    - Early-stop A/B test
+    - Streaming conversion decision
+    config:
+      alpha: float
+      beta: float
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SequentialTest', algorithm_source_url: 'https://en.wikipedia.org/wiki/Sequential_probability_ratio_test', algorithm_source_kind: description, attribution: literature, task_type: eda, n_datasets: null, metric: power, value: null, note: 'no_public_benchmark: SPRT expected sample-size per-DGP'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: SequentialTest
+      algorithm_source_url: https://en.wikipedia.org/wiki/Sequential_probability_ratio_test
+      algorithm_source_kind: description
+      attribution: literature
+      task_type: eda
+      n_datasets: null
+      metric: power
+      value: null
+      note: 'no_public_benchmark: SPRT expected sample-size per-DGP'
   metrics:
   - name: p_value
     combination: anchor

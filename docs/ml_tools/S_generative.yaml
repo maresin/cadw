@@ -6,124 +6,265 @@
 section: S
 name: Generative modelling
 subtypes:
-  - id: S1
-    name: "Neural generative (VAE / GAN)"
-    description: "Learn p(x) via neural encoder-decoder (VAE) or adversarial game (GAN). Synthesize realistic tabular rows."
-    real_life: ["Privacy-preserving synthetic data", "Class-imbalance oversampling", "Simulation"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [downstream_accuracy, runtime_s], note: "No unified tabular-synthesis leaderboard. Metrics via downstream ML utility (train-on-synthetic, test-on-real)."}
-    models:
-      - name: TVAE
-        tier: baseline
-        depends_on: []
-        nn_excluded: true
-        tier_level: tier3_export
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic, representation]
-        purpose: "Xu et al. 2019: tabular VAE (CTGAN paper). Encoder-decoder with mode-specific normalization for continuous + categorical. Baseline neural synthesizer. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
-        real_life_examples: ["Synthetic tabular data", "Imbalance oversampling"]
-        config: {epochs: int, latent_dim: int, batch_size: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/sdv-dev/CTGAN', algorithm: 'sdv.tabular.TVAE', algorithm_source_url: 'https://github.com/sdv-dev/CTGAN', algorithm_source_kind: code, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: tabular synthesis evaluated per-dataset (SDV paper). torch required.'}
-
-      - name: CTGAN
-        tier: sota
-        depends_on: []
-        nn_excluded: true
-        tier_level: tier3_export
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic, representation]
-        purpose: "Xu et al. 2019: conditional tabular GAN with mode-specific normalization and training-by-sampling. Handles multimodal + imbalanced columns. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
-        real_life_examples: ["Synthetic tabular data", "Imbalanced categorical columns"]
-        config: {epochs: int, generator_dim: tuple, discriminator_dim: tuple}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/sdv-dev/CTGAN', algorithm: 'sdv.tabular.CTGAN', algorithm_source_url: 'https://arxiv.org/abs/1907.00503', algorithm_source_kind: paper, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: Xu et al. 2019 per-dataset numbers. torch required.'}
-
-      - name: CTAB-GAN+
-        tier: sota
-        depends_on: []
-        nn_excluded: true
-        tier_level: tier3_export
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic, representation]
-        purpose: "Zhao et al. 2022: improved CTGAN with auxiliary classifier, information loss, and conditional vectors. Better for downstream ML utility. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
-        real_life_examples: ["ML utility-focused synthesis", "Mixed-type tabular"]
-        config: {epochs: int, pac: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/Team-TUD/CTAB-GAN-Plus', algorithm: 'CTAB-GAN+', algorithm_source_url: 'https://arxiv.org/abs/2109.06563', algorithm_source_kind: paper, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: Zhao et al. 2022. torch required.'}
-      - name: TabNet
-        tier: sota
-        depends_on: []
-        nn_excluded: true
-        tier_level: tier3_export
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [nonlinear_interactions]
-        purpose: "TabNet (Arik & Pfister 2019): attentive tabular deep net; sequential feature attention."
-        real_life_examples: ["Tabular deep learning baseline", "Feature-attribution-friendly DL"]
-        config: {n_steps: int, n_epochs: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'TabNet', algorithm_source_url: 'https://arxiv.org/abs/1908.07442', algorithm_source_kind: paper, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: TabNet per-dataset (torch; CPU-feasible)'}
+- id: S1
+  name: Neural generative (VAE / GAN)
+  description: Learn p(x) via neural encoder-decoder (VAE) or adversarial game (GAN). Synthesize realistic tabular rows.
+  real_life:
+  - Privacy-preserving synthetic data
+  - Class-imbalance oversampling
+  - Simulation
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: downstream_accuracy, combination: anchor, direction: higher, responsibility: "Train downstream model on synthetic, test on real; utility of synthetic data.", special: "Depends on downstream model and train size; report 3 model families.", not_implemented_in_cadw: true}
-      - {name: runtime_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock training time.", special: "GPU-dependent; not comparable to CPU runs."}
-
-  - id: S2
-    name: "Diffusion (tabular)"
-    description: "Denoising diffusion probabilistic models adapted to tabular data."
-    real_life: ["High-fidelity synthetic data", "Generative modeling"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [downstream_accuracy], note: "No unified leaderboard."}
-    models:
-      - name: TabDDPM
-        tier: baseline
-        depends_on: []
-        nn_excluded: true
-        tier_level: tier3_export
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic]
-        purpose: "Kotelnikov et al. 2022: diffusion for tabular data. Gaussian for continuous, multinomial diffusion for categorical. Best quality on many benchmarks. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
-        real_life_examples: ["Synthetic tabular data", "Privacy-preserving synthesis"]
-        config: {timesteps: int, epochs: int, batch_size: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/yandex-research/tab-ddpm', algorithm: 'TabDDPM', algorithm_source_url: 'https://arxiv.org/abs/2209.15421', algorithm_source_kind: paper, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: Kotelnikov et al. 2022. torch required.'}
-
-      - name: TabSyn
-        tier: sota
-        depends_on: []
-        nn_excluded: true
-        tier_level: tier3_export
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [probabilistic, representation]
-        purpose: "Zhang et al. 2023: diffusion in latent space of a VAE. Combines VAE compression with diffusion generation; better efficiency. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core."
-        real_life_examples: ["Efficient synthetic data", "High-quality tabular"]
-        config: {latent_dim: int, timesteps: int, epochs: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://github.com/amazon-science/tabsyn', algorithm: 'TabSyn', algorithm_source_url: 'https://arxiv.org/abs/2310.09656', algorithm_source_kind: paper, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: Zhang et al. 2023. torch required.'}
-      - name: TabDDPM_classifier
-        tier: sota
-        depends_on: []
-        nn_excluded: true
-        tier_level: tier3_export
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [nonlinear_interactions]
-        purpose: "TabDDPM-trained synthetic data + downstream classifier; diffusion features via nonlinear discriminative fit."
-        real_life_examples: ["Downstream-on-synthetic tabular", "Privacy-preserving ML"]
-        config: {epochs: int, batch_size: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'TabDDPM_classifier', algorithm_source_url: 'https://arxiv.org/abs/2209.15421', algorithm_source_kind: paper, attribution: literature, task_type: generative_modelling, n_datasets: null, metric: downstream_accuracy, value: null, note: 'no_public_benchmark: diffusion-classifier per-dataset (torch; CPU slow)'}
+    - downstream_accuracy
+    - runtime_s
+    note: No unified tabular-synthesis leaderboard. Metrics via downstream ML utility (train-on-synthetic, test-on-real).
+  models:
+  - name: TVAE
+    tier: baseline
+    depends_on: []
+    nn_excluded: true
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    - representation
+    purpose: 'Xu et al. 2019: tabular VAE (CTGAN paper). Encoder-decoder with mode-specific normalization for continuous + categorical. Baseline neural synthesizer. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.'
+    real_life_examples:
+    - Synthetic tabular data
+    - Imbalance oversampling
+    config:
+      epochs: int
+      latent_dim: int
+      batch_size: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/sdv-dev/CTGAN
+      algorithm: sdv.tabular.TVAE
+      algorithm_source_url: https://github.com/sdv-dev/CTGAN
+      algorithm_source_kind: code
+      attribution: literature
+      task_type: generative_modelling
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'no_public_benchmark: tabular synthesis evaluated per-dataset (SDV paper). torch required.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Xu et al. 2019: tabular VAE (CTGAN paper). Encoder-decoder with mode-specific normalization for cont... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: CTGAN
+    tier: sota
+    depends_on: []
+    nn_excluded: true
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    - representation
+    purpose: 'Xu et al. 2019: conditional tabular GAN with mode-specific normalization and training-by-sampling. Handles multimodal + imbalanced columns. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.'
+    real_life_examples:
+    - Synthetic tabular data
+    - Imbalanced categorical columns
+    config:
+      epochs: int
+      generator_dim: tuple
+      discriminator_dim: tuple
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/sdv-dev/CTGAN
+      algorithm: sdv.tabular.CTGAN
+      algorithm_source_url: https://arxiv.org/abs/1907.00503
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: generative_modelling
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'no_public_benchmark: Xu et al. 2019 per-dataset numbers. torch required.'
+  - name: CTAB-GAN+
+    tier: sota
+    depends_on: []
+    nn_excluded: true
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    - representation
+    purpose: 'Zhao et al. 2022: improved CTGAN with auxiliary classifier, information loss, and conditional vectors. Better for downstream ML utility. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.'
+    real_life_examples:
+    - ML utility-focused synthesis
+    - Mixed-type tabular
+    config:
+      epochs: int
+      pac: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/Team-TUD/CTAB-GAN-Plus
+      algorithm: CTAB-GAN+
+      algorithm_source_url: https://arxiv.org/abs/2109.06563
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: generative_modelling
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'no_public_benchmark: Zhao et al. 2022. torch required.'
+  - name: TabNet
+    tier: sota
+    depends_on: []
+    nn_excluded: true
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - nonlinear_interactions
+    purpose: 'TabNet (Arik & Pfister 2019): attentive tabular deep net; sequential feature attention.'
+    real_life_examples:
+    - Tabular deep learning baseline
+    - Feature-attribution-friendly DL
+    config:
+      n_steps: int
+      n_epochs: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: TabNet
+      algorithm_source_url: https://arxiv.org/abs/1908.07442
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: generative_modelling
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'no_public_benchmark: TabNet per-dataset (torch; CPU-feasible)'
+  metrics:
+  - name: downstream_accuracy
+    combination: anchor
+    direction: higher
+    responsibility: Train downstream model on synthetic, test on real; utility of synthetic data.
+    special: Depends on downstream model and train size; report 3 model families.
+    not_implemented_in_cadw: true
+  - name: runtime_s
+    combination: diagnostic
+    direction: lower
+    responsibility: Wall-clock training time.
+    special: GPU-dependent; not comparable to CPU runs.
+- id: S2
+  name: Diffusion (tabular)
+  description: Denoising diffusion probabilistic models adapted to tabular data.
+  real_life:
+  - High-fidelity synthetic data
+  - Generative modeling
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: downstream_accuracy, combination: anchor, direction: higher, responsibility: "Train-on-synthetic / test-on-real ML utility.", special: "Same as S1; report 3 model families.", not_implemented_in_cadw: true}
+    - downstream_accuracy
+    note: No unified leaderboard.
+  models:
+  - name: TabDDPM
+    tier: baseline
+    depends_on: []
+    nn_excluded: true
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    purpose: 'Kotelnikov et al. 2022: diffusion for tabular data. Gaussian for continuous, multinomial diffusion for categorical. Best quality on many benchmarks. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.'
+    real_life_examples:
+    - Synthetic tabular data
+    - Privacy-preserving synthesis
+    config:
+      timesteps: int
+      epochs: int
+      batch_size: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/yandex-research/tab-ddpm
+      algorithm: TabDDPM
+      algorithm_source_url: https://arxiv.org/abs/2209.15421
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: generative_modelling
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'no_public_benchmark: Kotelnikov et al. 2022. torch required.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Kotelnikov et al. 2022: diffusion for tabular data. Gaussian for continuous, multinomial diffusion f... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: TabSyn
+    tier: sota
+    depends_on: []
+    nn_excluded: true
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - probabilistic
+    - representation
+    purpose: 'Zhang et al. 2023: diffusion in latent space of a VAE. Combines VAE compression with diffusion generation; better efficiency. Last priority (v0.9.130+): CPU-feasible but training is hours-days; implement after verified CADW core.'
+    real_life_examples:
+    - Efficient synthetic data
+    - High-quality tabular
+    config:
+      latent_dim: int
+      timesteps: int
+      epochs: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://github.com/amazon-science/tabsyn
+      algorithm: TabSyn
+      algorithm_source_url: https://arxiv.org/abs/2310.09656
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: generative_modelling
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'no_public_benchmark: Zhang et al. 2023. torch required.'
+  - name: TabDDPM_classifier
+    tier: sota
+    depends_on: []
+    nn_excluded: true
+    tier_level: tier3_export
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - nonlinear_interactions
+    purpose: TabDDPM-trained synthetic data + downstream classifier; diffusion features via nonlinear discriminative fit.
+    real_life_examples:
+    - Downstream-on-synthetic tabular
+    - Privacy-preserving ML
+    config:
+      epochs: int
+      batch_size: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: TabDDPM_classifier
+      algorithm_source_url: https://arxiv.org/abs/2209.15421
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: generative_modelling
+      n_datasets: null
+      metric: downstream_accuracy
+      value: null
+      note: 'no_public_benchmark: diffusion-classifier per-dataset (torch; CPU slow)'
+  metrics:
+  - name: downstream_accuracy
+    combination: anchor
+    direction: higher
+    responsibility: Train-on-synthetic / test-on-real ML utility.
+    special: Same as S1; report 3 model families.
+    not_implemented_in_cadw: true

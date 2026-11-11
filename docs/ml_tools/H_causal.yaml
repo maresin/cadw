@@ -53,38 +53,41 @@ subtypes:
       value: 0.1
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: 2 * d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      trees: "meta_learners.py MetaLearnerModel.state_nbytes: trees * 4096; kind='t' => len(mu1.trees_) + len(mu0.trees_) = 2 * n_estimators"
-      propensity: "meta_learners.py: propensity_ is np.ndarray (n,) per-row; len(propensity_)*8 = n*f64"
-      header: "meta_learners.py: +1024 (trees*4096 + prop*8 + 1024)"
-      fit_transient: "meta_learners.py _collect: Xs.append + np.vstack (AP2); n*d*f64 peak, backlog v0.9.142"
-      collect_guard: "meta_learners.py _collect: check_batch(extra_factor=2.0) + check_state(n*(d*8+16)) per batch"
-      fit_guard: "meta_learners.py fit_meta_learner: check_state via _collect"
-    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+      trees: 'meta_learners.py MetaLearnerModel.state_nbytes: trees * 4096; kind=''t'' => len(mu1.trees_) + len(mu0.trees_) = 2 * n_estimators'
+      propensity: 'meta_learners.py: propensity_ is np.ndarray (n,) per-row; len(propensity_)*8 = n*f64'
+      header: 'meta_learners.py: +1024 (trees*4096 + prop*8 + 1024)'
+      fit_transient: 'meta_learners.py _collect: Xs.append + np.vstack (AP2); n*d*f64 peak, backlog v0.9.142'
+      collect_guard: 'meta_learners.py _collect: check_batch(extra_factor=2.0) + check_state(n*(d*8+16)) per batch'
+      fit_guard: 'meta_learners.py fit_meta_learner: check_state via _collect'
+    min_ram_formula: 2 * d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = 2×GBDT + propensity(d)."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: n_estimators*2*4096 + n*8 + 1024, parametrized (n, n_estimators)"
-      state_ratio_linear: "test_state_ratio_linear: 5x n -> ratio 2-5 (propensity dominates for small trees)"
-      fit_refuse: "test_fit_refuses_at_tight: n=1e6 + budget=1MB -> MLE (via _collect check_state)"
-      cells_passed: "3/3"
-      runtime_sec: "~15"
+      subsample_note: Subsample cap 20000 rows (S2b-2a); state = 2×GBDT + propensity(d).
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: n_estimators*2*4096 + n*8 + 1024, parametrized (n, n_estimators)'
+      state_ratio_linear: 'test_state_ratio_linear: 5x n -> ratio 2-5 (propensity dominates for small trees)'
+      fit_refuse: 'test_fit_refuses_at_tight: n=1e6 + budget=1MB -> MLE (via _collect check_state)'
+      cells_passed: 3/3
+      runtime_sec: ~15
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
       fit: batched 'two arm-separated GBDT fits, each P1a codes path.'
-      predict: 'per-batch (mu1 - mu0).'
+      predict: per-batch (mu1 - mu0).
     primitive_reuse:
     - reduce
     - spill_dir
     - codes_bin
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1; independent of n. Module: cadw.ml.meta_learners.'
   - name: S_learner
     tier: baseline
     tier_level: tier1_core
@@ -119,37 +122,40 @@ subtypes:
       value: 0.12
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
-    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: 2 * d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      trees: "meta_learners.py MetaLearnerModel.state_nbytes: trees * 4096; kind='s' => len(s_model.trees_) = n_estimators"
-      propensity: "meta_learners.py: propensity_ is np.ndarray (n,) per-row; len(propensity_)*8 = n*f64"
-      header: "meta_learners.py: +1024"
-      fit_transient: "meta_learners.py _collect: Xs.append + np.vstack (AP2); n*(d+1)*f64 peak (treatment as feature); backlog v0.9.142"
-      collect_guard: "meta_learners.py _collect: check_batch(extra_factor=2.0) + check_state(n*(d*8+16)) per batch"
-    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+      trees: 'meta_learners.py MetaLearnerModel.state_nbytes: trees * 4096; kind=''s'' => len(s_model.trees_) = n_estimators'
+      propensity: 'meta_learners.py: propensity_ is np.ndarray (n,) per-row; len(propensity_)*8 = n*f64'
+      header: 'meta_learners.py: +1024'
+      fit_transient: 'meta_learners.py _collect: Xs.append + np.vstack (AP2); n*(d+1)*f64 peak (treatment as feature); backlog v0.9.142'
+      collect_guard: 'meta_learners.py _collect: check_batch(extra_factor=2.0) + check_state(n*(d*8+16)) per batch'
+    min_ram_formula: 2 * d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = GBDT + propensity(d)."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: n_estimators*4096 + n*8 + 1024, parametrized (n, n_estimators)"
-      state_ratio_linear: "test_state_ratio_linear: 5x n -> ratio 2-5 (propensity dominates for small trees)"
-      fit_refuse: "test_fit_refuses_at_tight: n=1e6 + budget=1MB -> MLE"
-      cells_passed: "3/3"
-      runtime_sec: "~15"
+      subsample_note: Subsample cap 20000 rows (S2b-2a); state = GBDT + propensity(d).
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: n_estimators*4096 + n*8 + 1024, parametrized (n, n_estimators)'
+      state_ratio_linear: 'test_state_ratio_linear: 5x n -> ratio 2-5 (propensity dominates for small trees)'
+      fit_refuse: 'test_fit_refuses_at_tight: n=1e6 + budget=1MB -> MLE'
+      cells_passed: 3/3
+      runtime_sec: ~15
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     transient_factor: 1.0
     state_type: iterative
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
       fit: batched 'single GBDT with treatment as feature (P1a codes path).'
-      predict: 'per-batch (mu(x,1) - mu(x,0)).'
+      predict: per-batch (mu(x,1) - mu(x,0)).
     primitive_reuse:
     - reduce
     - spill_dir
     - codes_bin
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1; independent of n. Module: cadw.ml.meta_learners.'
   - name: DR_learner
     tier: sota
     depends_on:
@@ -186,12 +192,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [local_structure]
-    purpose: "Generalized Random Forest (Athey 2019): honest-split local CATE estimation."
-    real_life_examples: ["Heterogeneous treatment effects", "Subgroup policy targeting"]
-    config: {n_trees: int, honesty: bool}
+    roles:
+    - local_structure
+    purpose: 'Generalized Random Forest (Athey 2019): honest-split local CATE estimation.'
+    real_life_examples:
+    - Heterogeneous treatment effects
+    - Subgroup policy targeting
+    config:
+      n_trees: int
+      honesty: bool
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CausalForest', algorithm_source_url: 'https://arxiv.org/abs/1510.04342', algorithm_source_kind: paper, attribution: literature, task_type: causal, n_datasets: null, metric: cate_rmse, value: null, note: 'no_public_benchmark: CausalForest per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: CausalForest
+      algorithm_source_url: https://arxiv.org/abs/1510.04342
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: causal
+      n_datasets: null
+      metric: cate_rmse
+      value: null
+      note: 'no_public_benchmark: CausalForest per-dataset'
   metrics:
   - name: ate_error
     combination: anchor
@@ -231,37 +252,38 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: 2 * d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      state_nbytes: "uplift.py:371-372 -- _TLearnerShim.state_nbytes: m1_.state_nbytes() + m0_.state_nbytes()"
-      breakdown: "uplift.py:_fit_uplift_two_model -- 2 separate fit_gbdt_classifier calls (arm=1.0, arm=0.0)"
-      B_C: ""
-    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+      state_nbytes: 'uplift.py:371-372 -- _TLearnerShim.state_nbytes: m1_.state_nbytes() + m0_.state_nbytes()'
+      breakdown: uplift.py:_fit_uplift_two_model -- 2 separate fit_gbdt_classifier calls (arm=1.0, arm=0.0)
+      B_C: ''
+    min_ram_formula: 2 * d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = 2×GBDT trees + 256."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_bounded: actual > 0"
-      state_ooc: "test_*_state_independent_of_n: ratio <=3.0"
-      guard_refuse: "test_*_guard_refuses: 0.001 MB -> MemoryLimitExceeded"
-      cells_passed: "3/3"
-      runtime_sec: "~3"
+      subsample_note: Subsample cap 20000 rows (S2b-2a); state = 2×GBDT trees + 256.
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_*_state_bounded: actual > 0'
+      state_ooc: 'test_*_state_independent_of_n: ratio <=3.0'
+      guard_refuse: 'test_*_guard_refuses: 0.001 MB -> MemoryLimitExceeded'
+      cells_passed: 3/3
+      runtime_sec: ~3
     bounded_state: true
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     state_class: O(d)
     state_type: iterative
     n_scalability: constant
     streaming_strategy:
-      fit: "per-arm GBDT fit (hist reduce per tree)."
-      predict: "per-batch dual GBDT predict; CATE = p1(x) - p0(x)."
-    primitive_reuse: [reduce]
+      fit: per-arm GBDT fit (hist reduce per tree).
+      predict: per-batch dual GBDT predict; CATE = p1(x) - p0(x).
+    primitive_reuse:
+    - reduce
     tier: baseline
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: Two-model uplift (see _fit_uplift_two_model); reference baseline.
@@ -283,6 +305,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1; independent of n. Module: cadw.ml.uplift.'
   - name: CausalTree
     cadw_module: cadw.ml.uplift
     cadw_function: fit_uplift
@@ -290,37 +314,38 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: 2 * d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      state_nbytes: "uplift.py:219-220 -- UpliftModel.state_nbytes: sum(tr.state_nbytes()) + 1024"
-      breakdown: "uplift.py:_CausalTree -- honest leaf: separate train/holdout split; state = tree nodes"
-      B_C: ""
-    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+      state_nbytes: 'uplift.py:219-220 -- UpliftModel.state_nbytes: sum(tr.state_nbytes()) + 1024'
+      breakdown: 'uplift.py:_CausalTree -- honest leaf: separate train/holdout split; state = tree nodes'
+      B_C: ''
+    min_ram_formula: 2 * d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = sum(causal trees) + 1024."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_bounded: actual > 0"
-      state_ooc: "test_*_state_independent_of_n: ratio <=3.0"
-      guard_refuse: "test_*_guard_refuses: 0.001 MB -> MemoryLimitExceeded"
-      cells_passed: "3/3"
-      runtime_sec: "~3"
+      subsample_note: Subsample cap 20000 rows (S2b-2a); state = sum(causal trees) + 1024.
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_*_state_bounded: actual > 0'
+      state_ooc: 'test_*_state_independent_of_n: ratio <=3.0'
+      guard_refuse: 'test_*_guard_refuses: 0.001 MB -> MemoryLimitExceeded'
+      cells_passed: 3/3
+      runtime_sec: ~3
     bounded_state: true
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     state_class: O(d)
     state_type: iterative
     n_scalability: constant
     streaming_strategy:
-      fit: "n_estimators × per-tree: train/holdout split + ED-gain split search + honest leaf update."
-      predict: "per-batch causal tree descend; leaf τ prediction; O(batch × n_trees × depth)."
-    primitive_reuse: [reduce]
+      fit: 'n_estimators × per-tree: train/holdout split + ED-gain split search + honest leaf update.'
+      predict: per-batch causal tree descend; leaf τ prediction; O(batch × n_trees × depth).
+    primitive_reuse:
+    - reduce
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: ED-divergence splits + honest leaves (Rzepakowski-Jaroszewicz 2012, Wager-Athey 2018).
@@ -344,22 +369,39 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1; independent of n. Module: cadw.ml.uplift.'
   - name: CausalForest
     tier: sota
     depends_on:
     - cadw.ml._causal_common.dr_score
-    depends_on_backlog: "PRIMITIVES_BACKLOG §L11"
+    depends_on_backlog: PRIMITIVES_BACKLOG §L11
     depends_on_status: planned
     tier_level: tier2_wrapper
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [local_structure]
-    purpose: "Generalized Random Forest (Athey 2019): local CATE estimation via honest trees; used for uplift targeting."
-    real_life_examples: ["Uplift targeting with local CATE", "Subgroup policy for uplift"]
-    config: {n_trees: int, honesty: bool}
+    roles:
+    - local_structure
+    purpose: 'Generalized Random Forest (Athey 2019): local CATE estimation via honest trees; used for uplift targeting.'
+    real_life_examples:
+    - Uplift targeting with local CATE
+    - Subgroup policy for uplift
+    config:
+      n_trees: int
+      honesty: bool
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CausalForest', algorithm_source_url: 'https://arxiv.org/abs/1510.04342', algorithm_source_kind: paper, attribution: literature, task_type: causal, n_datasets: null, metric: qini_coefficient, value: null, note: 'no_public_benchmark: causal forest uplift per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: CausalForest
+      algorithm_source_url: https://arxiv.org/abs/1510.04342
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: causal
+      n_datasets: null
+      metric: qini_coefficient
+      value: null
+      note: 'no_public_benchmark: causal forest uplift per-dataset'
   - name: DR_learner_uplift
     tier: sota
     depends_on:
@@ -368,12 +410,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "Doubly-robust meta-learner for uplift; propensity + outcome models give semiparametric efficiency."
-    real_life_examples: ["Semiparametric uplift estimation", "Robust Qini vs misspecification"]
-    config: {n_estimators: int, propensity: 'logistic'}
+    roles:
+    - probabilistic
+    purpose: Doubly-robust meta-learner for uplift; propensity + outcome models give semiparametric efficiency.
+    real_life_examples:
+    - Semiparametric uplift estimation
+    - Robust Qini vs misspecification
+    config:
+      n_estimators: int
+      propensity: logistic
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'DR_learner_uplift', algorithm_source_url: 'https://arxiv.org/abs/1712.05898', algorithm_source_kind: paper, attribution: literature, task_type: causal, n_datasets: null, metric: qini_coefficient, value: null, note: 'no_public_benchmark: DR-learner per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: DR_learner_uplift
+      algorithm_source_url: https://arxiv.org/abs/1712.05898
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: causal
+      n_datasets: null
+      metric: qini_coefficient
+      value: null
+      note: 'no_public_benchmark: DR-learner per-dataset'
   metrics:
   - name: qini
     combination: anchor

@@ -6,96 +6,202 @@
 section: V
 name: Uncertainty quantification
 subtypes:
-  # NOT-ENSEMBLE (V1): calibration alternatives (Platt/Isotonic) — fusion breaks calibration
-  - id: V1
-    name: "Calibration"
-    description: "Post-hoc adjustment of predicted probabilities so that P(y=1|p_hat) = p_hat. Improves reliability of classifiers / soft scores."
-    real_life: ["Risk-critical decision systems", "Post-hoc classifier reliability", "Ensemble probability fusion"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [ece, brier_score], note: "No unified calibration LB; ECE is the canonical metric."}
-    models:
-      - name: PlattScaling
-        tier: baseline
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-          reference_impl_ready: true
-        roles: [calibration]
-        purpose: "Platt 1999: logistic sigmoid fit on scores. Simple, 2 parameters; preserves ranking; standard calibration baseline. CADW impl exists (cadw.ml.calibration.fit_calibration, Platt default)."
-        real_life_examples: ["Calibrate SVM/logistic scores", "Rank-preserving calibration"]
-        config: {method: 'platt'}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/calibration.json', algorithm: 'cadw.ml.calibration (platt)', algorithm_source_url: 'cadw/ml/calibration.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: uncertainty_quantification, n_datasets: null, metric: ece, value: null, note: 'CADW impl: fit_calibration(method="platt"); reference also sklearn.calibration.CalibratedClassifierCV.'}
-
-      - name: TemperatureScaling
-        tier: baseline
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [calibration]
-        purpose: "Guo et al. 2017: single temperature parameter on softmax logits. Standard for neural nets; preserves accuracy; 1 parameter."
-        real_life_examples: ["Neural softmax calibration", "Confidence reliability"]
-        config: {temperature: float}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://arxiv.org/abs/1706.04599', algorithm: 'temperature scaling', algorithm_source_url: 'https://arxiv.org/abs/1706.04599', algorithm_source_kind: paper, attribution: literature, task_type: uncertainty_quantification, n_datasets: null, metric: ece, value: null, note: 'Guo et al. 2017 per-dataset ECE.'}
-
-      - name: IsotonicCalibration
-        tier: sota
-        depends_on: []
-        tier_level: tier1_core
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-          reference_impl_ready: true
-        roles: [calibration]
-        purpose: "Zadrozny & Elkan 2002: non-parametric monotonic piecewise-constant map. More flexible than Platt; overfits on small calibration data. CADW impl exists (fit_calibration(method='isotonic'))."
-        real_life_examples: ["Non-linear calibration map", "Large calibration set"]
-        config: {method: 'isotonic'}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/calibration.json', algorithm: 'cadw.ml.calibration (isotonic)', algorithm_source_url: 'cadw/ml/calibration.py', algorithm_source_kind: code, attribution: cadw_measured, task_type: uncertainty_quantification, n_datasets: null, metric: ece, value: null, note: 'CADW impl: fit_calibration(method="isotonic").'}
+- id: V1
+  name: Calibration
+  description: Post-hoc adjustment of predicted probabilities so that P(y=1|p_hat) = p_hat. Improves reliability of classifiers / soft scores.
+  real_life:
+  - Risk-critical decision systems
+  - Post-hoc classifier reliability
+  - Ensemble probability fusion
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: ece, combination: anchor, direction: lower, responsibility: "Expected Calibration Error: |p_hat - empirical|, binned. Lower = better calibrated.", special: "Bin-count sensitive; report with 15 or 20 bins. Not comparable across different bin counts.", not_implemented_in_cadw: true}
-      - {name: brier_score, combination: diagnostic, direction: lower, responsibility: "Mean squared error of probabilities (proper scoring rule).", special: "Combines calibration + sharpness; not pure calibration metric."}
-
-  # NOT-ENSEMBLE (V2): conformal alternatives (tighter vs simpler) — fusion impossible
-  - id: V2
-    name: "Conformal prediction"
-    description: "Distribution-free prediction intervals with finite-sample coverage guarantee (under exchangeability)."
-    real_life: ["Risk-critical intervals", "Model-agnostic uncertainty", "Guaranteed coverage"]
-    benchmarks:
-      - {name: cadw_internal, url: "https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches", metrics: [empirical_coverage, mean_interval_width], note: "No unified conformal LB; coverage is the canonical metric."}
-    models:
-      - name: SplitConformal
-        tier: baseline
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [calibration]
-        purpose: "Papadopoulos 2002 / Vovk 2005: split conformal. Hold-out calibration set; interval = prediction +/- quantile of calibration residuals. 1/n coverage guarantee."
-        real_life_examples: ["Interval around point predictions", "Model-agnostic uncertainty"]
-        config: {coverage: float, calibration_fraction: float}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://arxiv.org/abs/2107.07511', algorithm: 'split conformal', algorithm_source_url: 'https://arxiv.org/abs/2107.07511', algorithm_source_kind: paper, attribution: literature, task_type: uncertainty_quantification, n_datasets: null, metric: empirical_coverage, value: null, note: 'Angelopoulos & Bates 2021 tutorial; standard method.'}
-
-      - name: CVplus
-        tier: sota
-        depends_on: []
-        tier_level: tier2_wrapper
-        implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
-        roles: [calibration]
-        purpose: "Barber et al. 2021: cross-conformal (CV+) prediction. Uses k-fold residuals; finite-sample coverage without split loss; tighter intervals than split conformal."
-        real_life_examples: ["Tighter intervals (no holdout loss)", "Small-data conformal"]
-        config: {coverage: float, n_folds: int}
-        benchmark_results:
-          - {benchmark: cadw_internal, benchmark_url: 'https://arxiv.org/abs/2107.07511', algorithm: 'CV+ conformal', algorithm_source_url: 'https://arxiv.org/abs/2107.07511', algorithm_source_kind: paper, attribution: literature, task_type: uncertainty_quantification, n_datasets: null, metric: empirical_coverage, value: null, note: 'Barber et al. 2021; CV+ method.'}
+    - ece
+    - brier_score
+    note: No unified calibration LB; ECE is the canonical metric.
+  models:
+  - name: PlattScaling
+    tier: baseline
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+      reference_impl_ready: true
+    roles:
+    - calibration
+    purpose: 'Platt 1999: logistic sigmoid fit on scores. Simple, 2 parameters; preserves ranking; standard calibration baseline. CADW impl exists (cadw.ml.calibration.fit_calibration, Platt default).'
+    real_life_examples:
+    - Calibrate SVM/logistic scores
+    - Rank-preserving calibration
+    config:
+      method: platt
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/calibration.json
+      algorithm: cadw.ml.calibration (platt)
+      algorithm_source_url: cadw/ml/calibration.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: uncertainty_quantification
+      n_datasets: null
+      metric: ece
+      value: null
+      note: 'CADW impl: fit_calibration(method="platt"); reference also sklearn.calibration.CalibratedClassifierCV.'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Platt 1999: logistic sigmoid fit on scores. Simple, 2 parameters; preserves ranking; standard calibr... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: TemperatureScaling
+    tier: baseline
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    purpose: 'Guo et al. 2017: single temperature parameter on softmax logits. Standard for neural nets; preserves accuracy; 1 parameter.'
+    real_life_examples:
+    - Neural softmax calibration
+    - Confidence reliability
+    config:
+      temperature: float
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://arxiv.org/abs/1706.04599
+      algorithm: temperature scaling
+      algorithm_source_url: https://arxiv.org/abs/1706.04599
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: uncertainty_quantification
+      n_datasets: null
+      metric: ece
+      value: null
+      note: Guo et al. 2017 per-dataset ECE.
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Guo et al. 2017: single temperature parameter on softmax logits. Standard for neural nets; preserves... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: IsotonicCalibration
+    tier: sota
+    depends_on: []
+    tier_level: tier1_core
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+      reference_impl_ready: true
+    roles:
+    - calibration
+    purpose: 'Zadrozny & Elkan 2002: non-parametric monotonic piecewise-constant map. More flexible than Platt; overfits on small calibration data. CADW impl exists (fit_calibration(method=''isotonic'')).'
+    real_life_examples:
+    - Non-linear calibration map
+    - Large calibration set
+    config:
+      method: isotonic
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/calibration.json
+      algorithm: cadw.ml.calibration (isotonic)
+      algorithm_source_url: cadw/ml/calibration.py
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: uncertainty_quantification
+      n_datasets: null
+      metric: ece
+      value: null
+      note: 'CADW impl: fit_calibration(method="isotonic").'
+  metrics:
+  - name: ece
+    combination: anchor
+    direction: lower
+    responsibility: 'Expected Calibration Error: |p_hat - empirical|, binned. Lower = better calibrated.'
+    special: Bin-count sensitive; report with 15 or 20 bins. Not comparable across different bin counts.
+    not_implemented_in_cadw: true
+  - name: brier_score
+    combination: diagnostic
+    direction: lower
+    responsibility: Mean squared error of probabilities (proper scoring rule).
+    special: Combines calibration + sharpness; not pure calibration metric.
+- id: V2
+  name: Conformal prediction
+  description: Distribution-free prediction intervals with finite-sample coverage guarantee (under exchangeability).
+  real_life:
+  - Risk-critical intervals
+  - Model-agnostic uncertainty
+  - Guaranteed coverage
+  benchmarks:
+  - name: cadw_internal
+    url: https://github.com/maresin/Cadw_framework/tree/main/.pingis/benches
     metrics:
-      - {name: empirical_coverage, combination: anchor, direction: target, responsibility: "Observed fraction of true y in prediction interval; should match target coverage (e.g. 0.95).", special: "Target = nominal coverage; deviation matters.", not_implemented_in_cadw: true}
-      - {name: mean_interval_width, combination: diagnostic, direction: lower, responsibility: "Average interval width; tighter is better at same coverage.", special: "Trades off with coverage; report jointly."}
+    - empirical_coverage
+    - mean_interval_width
+    note: No unified conformal LB; coverage is the canonical metric.
+  models:
+  - name: SplitConformal
+    tier: baseline
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    purpose: 'Papadopoulos 2002 / Vovk 2005: split conformal. Hold-out calibration set; interval = prediction +/- quantile of calibration residuals. 1/n coverage guarantee.'
+    real_life_examples:
+    - Interval around point predictions
+    - Model-agnostic uncertainty
+    config:
+      coverage: float
+      calibration_fraction: float
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://arxiv.org/abs/2107.07511
+      algorithm: split conformal
+      algorithm_source_url: https://arxiv.org/abs/2107.07511
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: uncertainty_quantification
+      n_datasets: null
+      metric: empirical_coverage
+      value: null
+      note: Angelopoulos & Bates 2021 tutorial; standard method.
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Papadopoulos 2002 / Vovk 2005: split conformal. Hold-out calibration set; interval = prediction +/-... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+  - name: CVplus
+    tier: sota
+    depends_on: []
+    tier_level: tier2_wrapper
+    implementation_status:
+      described_only: true
+      not_implemented_in_cadw: true
+    roles:
+    - calibration
+    purpose: 'Barber et al. 2021: cross-conformal (CV+) prediction. Uses k-fold residuals; finite-sample coverage without split loss; tighter intervals than split conformal.'
+    real_life_examples:
+    - Tighter intervals (no holdout loss)
+    - Small-data conformal
+    config:
+      coverage: float
+      n_folds: int
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: https://arxiv.org/abs/2107.07511
+      algorithm: CV+ conformal
+      algorithm_source_url: https://arxiv.org/abs/2107.07511
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: uncertainty_quantification
+      n_datasets: null
+      metric: empirical_coverage
+      value: null
+      note: Barber et al. 2021; CV+ method.
+  metrics:
+  - name: empirical_coverage
+    combination: anchor
+    direction: target
+    responsibility: Observed fraction of true y in prediction interval; should match target coverage (e.g. 0.95).
+    special: Target = nominal coverage; deviation matters.
+    not_implemented_in_cadw: true
+  - name: mean_interval_width
+    combination: diagnostic
+    direction: lower
+    responsibility: Average interval width; tighter is better at same coverage.
+    special: Trades off with coverage; report jointly.
