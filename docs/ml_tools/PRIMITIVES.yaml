@@ -744,6 +744,25 @@ primitives:
   streaming_variant: null
   consumers: [knn_query, knn_query_stream, core_distances, pairwise_kernel]
 
+- name: nan_sq_dists
+  cadw_function: cadw.ops.linalg.nan_sq_dists
+  module: cadw.ops.linalg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n_q * n_x * d * f64 * 2 + (n_q * n_x) * f64 * 2 + 256"
+  min_ram_formula: "d * f64 * 2 + 2 * f64 + 256"
+  formula_evidence:
+    alloc: "linalg.py -- (n_q, n_x, d) broadcast: diff, common, + sum_sq, n_common"
+  # v0.9.199: partial-distance kNN (sklearn nan_euclidean_distances
+  # squared=True). Caller chunks n_x (KNNImputer does per-donor-col).
+  intrinsic_bound:
+    axis: n_x
+    bound: 1000000
+    reason: "Dense (n_q, n_x, d) broadcast; caller chunks n_x via imputer per-donor-col loop. sklearn nan_euclidean_distances parity."
+  streaming_variant: null
+  consumers: [fit_knn_imputer]
+
 - name: sgd_streaming
   cadw_function: cadw.ops.optim.sgd_streaming
   module: cadw.ops.optim

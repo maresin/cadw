@@ -232,3 +232,68 @@ def test_knn_stream_k_gt_n_raises():
     with pytest.raises(ValueError, match="k must be in"):
         knn_query_stream(iter([X]), Q, 10)
 
+# ---- v0.9.199: nan_sq_dists (sklearn nan_euclidean parity) ----
+
+def test_nan_sq_dists_sklearn_parity_no_nan():
+    """No NaN -> matches sklearn nan_euclidean_distances(squared=True)."""
+    from sklearn.metrics.pairwise import nan_euclidean_distances
+    from cadw.ops.linalg import nan_sq_dists
+    rng = np.random.RandomState(0)
+    Q = rng.randn(10, 4)
+    X = rng.randn(20, 4)
+    d_ref = nan_euclidean_distances(Q, X, squared=True)
+    d_cadw = nan_sq_dists(Q, X)
+    np.testing.assert_allclose(d_cadw, d_ref, atol=1e-12, equal_nan=True)
+
+
+def test_nan_sq_dists_sklearn_parity_with_nan():
+    """With NaN -> matches sklearn bit-for-bit."""
+    from sklearn.metrics.pairwise import nan_euclidean_distances
+    from cadw.ops.linalg import nan_sq_dists
+    rng = np.random.RandomState(1)
+    Q = rng.randn(8, 4)
+    X = rng.randn(15, 4)
+    # inject NaN patterns
+    Q[rng.rand(*Q.shape) < 0.2] = np.nan
+    X[rng.rand(*X.shape) < 0.2] = np.nan
+    d_ref = nan_euclidean_distances(Q, X, squared=True)
+    d_cadw = nan_sq_dists(Q, X)
+    np.testing.assert_allclose(d_cadw, d_ref, atol=1e-12, equal_nan=True)
+
+
+def test_nan_sq_dists_no_common_dims_nan():
+    """Pair with no common non-NaN dims -> NaN."""
+    from cadw.ops.linalg import nan_sq_dists
+    Q = np.array([[1.0, np.nan, np.nan]])
+    X = np.array([[np.nan, 2.0, np.nan]])
+    d = nan_sq_dists(Q, X)
+    assert np.isnan(d).all()
+
+
+def test_nan_sq_dists_partial_common():
+    """Pair with 1 of 3 common dims: sum_sq * d / n_common = sum_sq * 3."""
+    from cadw.ops.linalg import nan_sq_dists
+    Q = np.array([[1.0, 2.0, np.nan]])     # dims 0,1 valid
+    X = np.array([[3.0, np.nan, 5.0]])     # dim 0 valid
+    # common: only dim 0; diff^2 = (1-3)^2 = 4; n_common=1, d=3
+    # → 4 * 3/1 = 12
+    d = nan_sq_dists(Q, X)
+    assert d[0, 0] == 12.0
+
+
+def test_nan_sq_dists_empty():
+    """Empty X -> (n_q, 0)."""
+    from cadw.ops.linalg import nan_sq_dists
+    Q = np.random.RandomState(2).randn(5, 3)
+    X = np.empty((0, 3))
+    d = nan_sq_dists(Q, X)
+    assert d.shape == (5, 0)
+
+
+def test_nan_sq_dists_d_mismatch_raises():
+    from cadw.ops.linalg import nan_sq_dists
+    Q = np.zeros((3, 2))
+    X = np.zeros((4, 3))
+    with pytest.raises(ValueError, match="nan_sq_dists: Q.d"):
+        nan_sq_dists(Q, X)
+

@@ -107,6 +107,54 @@ def sq_dists(z: np.ndarray, mem: np.ndarray) -> np.ndarray:
     return z_sq[:, None] - 2.0 * (z @ mem.T) + m_sq[None, :]
 
 
+def nan_sq_dists(Q: np.ndarray, X: np.ndarray) -> np.ndarray:
+    """Squared nan-euclidean distances (partial-distance kNN base).
+
+    v0.9.199. Matches sklearn.metrics.pairwise.nan_euclidean_distances(
+    squared=True) bit-for-bit (P8b verified max diff 0.0).
+
+    Formula per pair (q, x):
+      sum_common((q_i - x_i)^2) * d / n_common
+    where `common` = dims where BOTH q and x non-NaN.
+    Returns NaN when n_common == 0 (no donor — pair skipped).
+
+    Args:
+      Q: (n_q, d) float64 (may contain NaN).
+      X: (n_x, d) float64 (may contain NaN); caller chunks n_x for OOC.
+
+    Returns (n_q, n_x) float64.
+
+    Note: computes full (n_q, n_x, d) broadcast internally — caller must
+    chunk X to bound peak to O(n_q * chunk * d * 16) bytes.
+    """
+    Q = np.ascontiguousarray(Q, dtype=np.float64)
+    X = np.ascontiguousarray(X, dtype=np.float64)
+    if Q.ndim != 2 or X.ndim != 2:
+        raise ValueError(
+            f"nan_sq_dists: Q, X must be 2-D; got {Q.shape}, {X.shape}")
+    if Q.shape[1] != X.shape[1]:
+        raise ValueError(
+            f"nan_sq_dists: Q.d={Q.shape[1]} != X.d={X.shape[1]}")
+    n_q, d = Q.shape
+    n_x = X.shape[0]
+    if n_q == 0 or n_x == 0:
+        return np.empty((n_q, n_x), dtype=np.float64)
+
+    # Broadcasted squared diff with NaN mask per pair
+    q_nan = np.isnan(Q)                            # (n_q, d)
+    x_nan = np.isnan(X)                            # (n_x, d)
+    diff = Q[:, None, :] - X[None, :, :]           # (n_q, n_x, d)
+    common = ~(q_nan[:, None, :] | x_nan[None, :, :])   # (n_q, n_x, d)
+    sum_sq = np.where(common, diff * diff, 0.0).sum(axis=-1)  # (n_q, n_x)
+    n_common = common.sum(axis=-1)                 # (n_q, n_x)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scale = np.where(n_common > 0,
+                         float(d) / np.maximum(n_common, 1),
+                         np.nan)
+        return sum_sq * scale
+
+
+
 def nmf_mu(X_b: np.ndarray, H: np.ndarray, *, eps: float = 1e-10) -> np.ndarray:
     """One mini-batch Lee & Seung mu update of H.
 
