@@ -14,6 +14,7 @@ from .gbdt import (
 from .gmm import GMMModel, fit_gmm
 from .importance import permutation_importance
 from .iforest import IsolationForestModel, fit_isolation_forest
+from .lof import LOFResult, fit_lof
 from .naive_bayes import (
     GaussianNB, fit_gaussian_nb,
     MultinomialNB, fit_multinomial_nb,
@@ -64,6 +65,7 @@ __all__ = [
     "EpsilonGreedyPolicy",
     "UCB1Policy",
     "ThompsonSamplingPolicy",
+    "LOFResult", "fit_lof",
 ]
 # v0.9.52: DWT-MLEAD (Thill, Konen, Baeck 2017)
 from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
