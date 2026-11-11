@@ -124,20 +124,56 @@ subtypes:
       - name: SpectralClustering
         tier: sota
         depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.graph.graph_laplacian
+        - cadw.ml.spectral_clustering.fit_spectral_clustering
+        - cadw.ops.graph.graph_laplacian_sparse
         - cadw.ops.graph.eigsh_topk
-        - cadw.ops.linalg.eigh_topk
-        tier_level: tier2_wrapper
+        - cadw.ops.linalg.knn_query_stream
+        tier_level: tier1_core
         implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
+          verified_in_cadw: true
+          status: verified
         roles: [representation]
         purpose: "Graph-Laplacian spectral clustering (Ng 2002); captures non-convex cluster shape via eigenvectors."
         real_life_examples: ["Non-convex cluster discovery", "Manifold-based grouping"]
         config: {n_clusters: int, affinity: string}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
+        cadw_function: fit_spectral_clustering
+        cadw_module: cadw.ml.spectral_clustering
+        input_api: df
+        bounded_state: false
+        n_scalability: linear
+        bounded_by_domain:
+          axis: n
+          bound: 1000000
+          reason: "Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain."
+        bounded_state_dims: {n: 1, n_clusters: 1, n_neighbors: 1}
+        state_class: O(n)
+        state_type: partitioned
+        ram_formula: 'n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256'
+        min_ram_formula: 'n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256'
+        formula_evidence:
+          affinity: "spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)"
+          embedding: "spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64"
+          labels: "spectral_clustering.py -- labels (n,) int -> f64: n*f64"
+          header: "spectral_clustering.py -- +256 in state_nbytes()"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          sklearn_parity: "test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align"
+          state_check: "test_state_nbytes_reasonable: < 500 KB for n=100"
+          intrinsic_bound: "test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded"
+          release: "test_release_idempotent"
+          validation: "test_bad_affinity_raises / test_nan_raises"
+          reproducibility: "test_reproducibility_same_seed"
+          cells_passed: "8/8"
+          runtime_sec: "~2"
+        streaming_strategy:
+          fit: "kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters)."
+          predict: "NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)"
+        primitive_reuse: [knn_query_stream, graph_laplacian_sparse, eigsh_topk, spill_dir]
+        migration_target: null
+        notes: "v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+."
+
     metrics:
       - {name: silhouette, combination: anchor, direction: higher, responsibility: "Unsupervised cluster separation; primary diagnostic without labels.", special: "O(n^2) naive; sample-based for large n. Not comparable across k."}
       - {name: inertia, combination: diagnostic, direction: lower, responsibility: "Within-cluster sum of squared distances (KMeans objective).", special: "Decreases with k; only comparable at same k."}
@@ -202,20 +238,56 @@ subtypes:
       - name: SpectralClustering
         tier: sota
         depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.graph.graph_laplacian
+        - cadw.ml.spectral_clustering.fit_spectral_clustering
+        - cadw.ops.graph.graph_laplacian_sparse
         - cadw.ops.graph.eigsh_topk
-        - cadw.ops.linalg.eigh_topk
-        tier_level: tier2_wrapper
+        - cadw.ops.linalg.knn_query_stream
+        tier_level: tier1_core
         implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
+          verified_in_cadw: true
+          status: verified
         roles: [representation]
         purpose: "Graph-based density clustering: mode-seeking via spectral eigenvectors of similarity graph."
         real_life_examples: ["Arbitrary-shape density cluster", "Manifold density"]
         config: {n_clusters: int, affinity: string}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: adjusted_rand_score, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
+        cadw_function: fit_spectral_clustering
+        cadw_module: cadw.ml.spectral_clustering
+        input_api: df
+        bounded_state: false
+        n_scalability: linear
+        bounded_by_domain:
+          axis: n
+          bound: 1000000
+          reason: "Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain."
+        bounded_state_dims: {n: 1, n_clusters: 1, n_neighbors: 1}
+        state_class: O(n)
+        state_type: partitioned
+        ram_formula: 'n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256'
+        min_ram_formula: 'n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256'
+        formula_evidence:
+          affinity: "spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)"
+          embedding: "spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64"
+          labels: "spectral_clustering.py -- labels (n,) int -> f64: n*f64"
+          header: "spectral_clustering.py -- +256 in state_nbytes()"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          sklearn_parity: "test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align"
+          state_check: "test_state_nbytes_reasonable: < 500 KB for n=100"
+          intrinsic_bound: "test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded"
+          release: "test_release_idempotent"
+          validation: "test_bad_affinity_raises / test_nan_raises"
+          reproducibility: "test_reproducibility_same_seed"
+          cells_passed: "8/8"
+          runtime_sec: "~2"
+        streaming_strategy:
+          fit: "kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters)."
+          predict: "NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)"
+        primitive_reuse: [knn_query_stream, graph_laplacian_sparse, eigsh_topk, spill_dir]
+        migration_target: null
+        notes: "v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+."
+
     metrics:
       - {name: adjusted_rand_score, combination: anchor, direction: higher, responsibility: "Pairwise agreement with ground truth, chance-corrected.", special: "Requires labels; use silhouette for unsupervised mode."}
       - {name: noise_ratio, combination: diagnostic, direction: target, responsibility: "Fraction of points labelled -1.", special: "Domain-dependent; high noise may signal wrong eps."}
@@ -275,22 +347,58 @@ subtypes:
       - name: SpectralClustering
         tier: sota
         depends_on:
-        - cadw.ops.linalg.rbf_kernel
-        - cadw.ops.graph.graph_laplacian
+        - cadw.ml.spectral_clustering.fit_spectral_clustering
+        - cadw.ops.graph.graph_laplacian_sparse
         - cadw.ops.graph.eigsh_topk
-        - cadw.ops.linalg.eigh_topk
+        - cadw.ops.linalg.knn_query_stream
         depends_on_backlog: "PRIMITIVES_BACKLOG §L3, §L6, §L19"
         depends_on_status: planned
-        tier_level: tier2_wrapper
+        tier_level: tier1_core
         implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
+          verified_in_cadw: true
+          status: verified
         roles: [representation]
         purpose: "Graph-spectral hierarchical clustering; reveals manifold structure lost by bottom-up linkage."
         real_life_examples: ["Non-convex hierarchical cluster", "Graph community hierarchy"]
         config: {n_clusters: int, affinity: string}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'SpectralClustering', algorithm_source_url: 'https://papers.nips.cc/paper/2001/hash/f4b9ec30ad9f68f89b29639786cb62ef-Abstract.html', algorithm_source_kind: paper, attribution: literature, task_type: clustering, n_datasets: null, metric: cophenetic_correlation, value: null, note: 'no_public_benchmark: spectral clustering per-dataset'}
+        cadw_function: fit_spectral_clustering
+        cadw_module: cadw.ml.spectral_clustering
+        input_api: df
+        bounded_state: false
+        n_scalability: linear
+        bounded_by_domain:
+          axis: n
+          bound: 1000000
+          reason: "Embedding (n, n_clusters) + affinity nnz O(n*n_neighbors) + kmeans state; sklearn ARPACK eigsh path. At n=1e6, n_neighbors=10: embedding 16 MB + affinity 240 MB. For larger n: reduce n_neighbors, or Nystroem+PCA chain."
+        bounded_state_dims: {n: 1, n_clusters: 1, n_neighbors: 1}
+        state_class: O(n)
+        state_type: partitioned
+        ram_formula: 'n * n_neighbors * f64 * 3 + n * n_clusters * f64 + n * f64 + 256'
+        min_ram_formula: 'n_neighbors * f64 * 3 + n_clusters * f64 + f64 + 256'
+        formula_evidence:
+          affinity: "spectral_clustering.py -- W csr nnz~n*n_neighbors; data+indices+indptr ~= n*n_neighbors*f64*3 (upper)"
+          embedding: "spectral_clustering.py -- embedding (n, n_clusters): n*n_clusters*f64"
+          labels: "spectral_clustering.py -- labels (n,) int -> f64: n*f64"
+          header: "spectral_clustering.py -- +256 in state_nbytes()"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          sklearn_parity: "test_sklearn_ari_parity_blobs/moons/rbf: ARI 1.0000 vs sklearn 1.0000 (3 datasets x 2 affinities); test_spectral_embedding_parity_dense/sparse: max embed diff < 1e-4 after sign align"
+          state_check: "test_state_nbytes_reasonable: < 500 KB for n=100"
+          intrinsic_bound: "test_n_above_bound_raises: n=1e6+1 -> MemoryLimitExceeded"
+          release: "test_release_idempotent"
+          validation: "test_bad_affinity_raises / test_nan_raises"
+          reproducibility: "test_reproducibility_same_seed"
+          cells_passed: "8/8"
+          runtime_sec: "~2"
+        streaming_strategy:
+          fit: "kNN affinity (sparse) -> csgraph_laplacian sym -> eigsh(-1e-5) -> sign flip -> sklearn KMeans. Affinity O(n*n_neighbors); embedding O(n*n_clusters)."
+          predict: "NOT IMPLEMENTED v0.9.203 (deferred v0.9.204+)"
+        primitive_reuse: [knn_query_stream, graph_laplacian_sparse, eigsh_topk, spill_dir]
+        migration_target: null
+        notes: "v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+."
+
     metrics:
       - {name: cophenetic_correlation, combination: anchor, direction: higher, responsibility: "Preservation of pairwise distances in dendrogram.", special: "Requires dendrogram; for flat methods (k-means) use silhouette."}
       - {name: fit_time_s, combination: diagnostic, direction: lower, responsibility: "Wall-clock fit time.", special: "Hardware-specific."}
