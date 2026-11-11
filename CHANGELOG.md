@@ -4693,6 +4693,52 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.203] — 2026-11-11 (SpectralClustering ×3, sparse graph)
+
+### v0.9.203-a — graph_laplacian_sparse + eigsh_topk sparse/sigma
+
+AP32 gap: graph_laplacian, graph_laplacian_sparse, eigsh_topk,
+mst, eigh_topk all registered (5 cards). Sklearn
+SpectralClustering affinity is scipy.sparse (P5 nnz=n*k);
+dense L at n=1e4 -> 800 MB OOM.
+
+- cadw/ops/graph.py:
+  * graph_laplacian_sparse(W: scipy.sparse, normalized) -> csr
+    (sparse I - D^-1/2 W D^-1/2 etc; P7 parity 2.78e-17 vs dense)
+  * eigsh_topk: accept sparse L via sp.issparse dispatch -> scipy
+    eigsh. + sigma param (None -> 0.0 legacy; sklearn
+    _spectral_embedding uses sigma=-1e-5 per Kniazev, P12).
+- cadw/ops/linalg.py: eigh_topk + sigma param (SM which path).
+- PRIMITIVES.yaml: 5 cards registered.
+- tests/test_ops_graph.py: +5 tests (sparse vs dense parity
+  none/sym/rw, reject dense, sparse eigsh vs dense, sigma,
+  dense delegation back-compat).
+
+### v0.9.203-b — fit_spectral_clustering (sklearn parity ARI 1.0)
+
+Pipeline: kNN affinity (sparse) -> csgraph_laplacian sym ->
+eigsh(sigma=-1e-5, v0 random) -> sign flip -> sklearn KMeans.
+ARI 1.0000 on blobs3/moons2/rbf vs sklearn 1.0000.
+
+- cadw/ml/spectral_clustering.py (new, ~370 lines):
+  * fit_spectral_clustering; SpectralClusteringResult.
+  * _spectral_embedding: byte-for-byte sklearn parity.
+  * sklearn KMeans backend (parity priority, tier2_wrapper).
+  * Intrinsic bound n<=1e6 (MemoryLimitExceeded).
+- cadw/ml/__init__.py: import + __all__.
+
+### v0.9.203-c — SpectralClustering verified (DEC-033) + YAML flip ×3
+
+- tests/test_spectral_clustering_verification.py (9 CW tests):
+  * sklearn ARI parity (blobs/moons/rbf) — actual 1.0
+  * embedding parity dense/sparse < 1e-4 after sign align
+  * state_nbytes, bounds, release, validation, reproducibility
+- docs/ml_tools/B_clustering.yaml: 3× SpectralClustering
+  (B1/B2/B3) described_only -> verified;
+  bs=false, ns=linear, bbd {n:1e6}; migration_target=null.
+
+Focused: 526 passed, 6 skipped.
+
 ## [0.9.202] — 2026-11-11 (Nystroem kernel approximation)
 
 ### v0.9.202 — fit_nystroem_kernel_map (sklearn parity, OOC in n)
