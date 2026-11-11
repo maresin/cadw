@@ -107,6 +107,41 @@ class TfidfModel:
                 rows.append(self._row(t, norm))
         return rows
 
+    def transform_iter(self, df, *, text_col, norm="l2",
+                        batch_size=None, memory_guard=None):
+        """v0.9.212: streaming CSR batches (b, V) per df batch.
+
+        Unlike transform() which returns list[tuple(indices, values)]
+        (O(n) RAM), this yields scipy.sparse.csr_matrix (b, V) per
+        input batch — OOC in n. Used by fit_lsa and sparse consumers.
+        """
+        import scipy.sparse as sp
+        mg = memory_guard or df._memory_guard
+        V = len(self.vocab_)
+        for b in df._iter_filtered_batches(batch_size=batch_size):
+            if mg is not None and hasattr(mg, "check_batch"):
+                mg.check_batch(b, name="tfidf.transform_iter",
+                               extra_factor=3.0)
+            texts = b.column(text_col).to_pylist()
+            rows = [self._row(t, norm) for t in texts]
+            indptr = np.zeros(len(rows) + 1, dtype=np.int64)
+            idx_parts = []
+            val_parts = []
+            for i, (idx, val) in enumerate(rows):
+                idx_parts.append(idx)
+                val_parts.append(val)
+                indptr[i + 1] = indptr[i] + len(idx)
+            if idx_parts:
+                indices = (np.concatenate(idx_parts)
+                           if len(idx_parts) > 1 else idx_parts[0])
+                data = (np.concatenate(val_parts)
+                        if len(val_parts) > 1 else val_parts[0])
+            else:
+                indices = np.zeros(0, dtype=np.int64)
+                data = np.zeros(0, dtype=np.float64)
+            yield sp.csr_matrix(
+                (data, indices, indptr), shape=(len(rows), V))
+
     def transform_sparse(self, df, *, text_col, norm="l2",
                          memory_guard=None, output: str = "auto"):
         """Sparse (CSR-like) rows, spillable via SpillBuffer.

@@ -21,6 +21,7 @@ from .spectral_clustering import (SpectralClusteringResult, fit_spectral_cluster
 from .truncated_svd import (TruncatedSVDResult, fit_truncated_svd)
 from .spectral_coclustering import (SpectralCoclusteringResult, fit_spectral_coclustering)
 from .spectral_biclustering import (SpectralBiclusteringResult, fit_spectral_biclustering)
+from .lsa import LsaModel, fit_lsa
 from .knn_imputer import (KNNImputerResult, fit_knn_imputer)
 from .naive_bayes import (
     GaussianNB, fit_gaussian_nb,
@@ -80,6 +81,7 @@ __all__ = [
     "TruncatedSVDResult", "fit_truncated_svd",
     "SpectralCoclusteringResult", "fit_spectral_coclustering",
     "SpectralBiclusteringResult", "fit_spectral_biclustering",
+    "LsaModel", "fit_lsa",
 ]
 # v0.9.52: DWT-MLEAD (Thill, Konen, Baeck 2017)
 from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
