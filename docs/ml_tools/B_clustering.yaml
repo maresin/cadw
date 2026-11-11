@@ -280,10 +280,9 @@ subtypes:
     - spill_dir
     migration_target: null
     notes: 'v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+.'
-    ooc_status: achievable
-    ooc_strategy: 'Plan: sparse path (implemented v0.9.203) -> flip bs=true + remove bbd after CW tests. Current bound: dense n<=1e6 for O(n*k) embedding state. Target v0.9.210.'
-    ooc_alternative: 'Sparse affinity path already implemented: graph_laplacian_sparse (v0.9.203) + eigsh_topk (sparse branch) for n>2000; dense n<=2000 path is exact. Caller picks by input density. OOC in nnz via sparse Laplacian (state O(n*k)).'
-    ooc_target_version: v0.9.210
+    ooc_status: debt
+    ooc_strategy: 'Permanent debt: X streamed (v0.9.210-a), but W (n*k_nnz) + embedding (n*k) + ARPACK matvec are intrinsic O(n). For n>1e6: subsample (disclosed) or Nystroem-chain. Guard refuses above bound.'
+    ooc_alternative: 'Subsample approximation: (a) landmark n_b<=5000 + out-of-sample transform via kNN for new points; (b) Nystroem kernel approx + PCA chain (precedent v0.9.202 for KernelPCA); (c) MiniBatchKMeans on raw features for approximate clustering. Exact O(n*k) embedding + ARPACK Lanczos matvec are intrinsic — cannot be streamed.'
   metrics:
   - name: silhouette
     combination: anchor
@@ -482,10 +481,9 @@ subtypes:
     - spill_dir
     migration_target: null
     notes: 'v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+.'
-    ooc_status: achievable
-    ooc_strategy: 'Plan: sparse path (implemented v0.9.203) -> flip bs=true + remove bbd after CW tests. Current bound: dense n<=1e6 for O(n*k) embedding state. Target v0.9.210.'
-    ooc_alternative: 'Sparse affinity path already implemented: graph_laplacian_sparse (v0.9.203) + eigsh_topk (sparse branch) for n>2000; dense n<=2000 path is exact. Caller picks by input density. OOC in nnz via sparse Laplacian (state O(n*k)).'
-    ooc_target_version: v0.9.210
+    ooc_status: debt
+    ooc_strategy: 'Permanent debt: X streamed (v0.9.210-a), but W (n*k_nnz) + embedding (n*k) + ARPACK matvec are intrinsic O(n). For n>1e6: subsample (disclosed) or Nystroem-chain. Guard refuses above bound.'
+    ooc_alternative: 'Subsample approximation: (a) landmark n_b<=5000 + out-of-sample transform via kNN for new points; (b) Nystroem kernel approx + PCA chain (precedent v0.9.202 for KernelPCA); (c) MiniBatchKMeans on raw features for approximate clustering. Exact O(n*k) embedding + ARPACK Lanczos matvec are intrinsic — cannot be streamed.'
   metrics:
   - name: adjusted_rand_score
     combination: anchor
@@ -680,10 +678,9 @@ subtypes:
     - spill_dir
     migration_target: null
     notes: 'v0.9.203: fit verified (component-wise DEC-033, sklearn SpectralClustering parity: ARI 1.0000). Pipeline: kNN affinity -> graph_laplacian_sparse sym -> eigsh(sigma=-1e-5) -> sign flip -> sklearn KMeans. Embedding diff < 1e-4. Large n: Nystroem+PCA chain. predict() v0.9.204+.'
-    ooc_status: achievable
-    ooc_strategy: 'Plan: sparse path (implemented v0.9.203) -> flip bs=true + remove bbd after CW tests. Current bound: dense n<=1e6 for O(n*k) embedding state. Target v0.9.210.'
-    ooc_alternative: 'Sparse affinity path already implemented: graph_laplacian_sparse (v0.9.203) + eigsh_topk (sparse branch) for n>2000; dense n<=2000 path is exact. Caller picks by input density. OOC in nnz via sparse Laplacian (state O(n*k)).'
-    ooc_target_version: v0.9.210
+    ooc_status: debt
+    ooc_strategy: 'Permanent debt: X streamed (v0.9.210-a), but W (n*k_nnz) + embedding (n*k) + ARPACK matvec are intrinsic O(n). For n>1e6: subsample (disclosed) or Nystroem-chain. Guard refuses above bound.'
+    ooc_alternative: 'Subsample approximation: (a) landmark n_b<=5000 + out-of-sample transform via kNN for new points; (b) Nystroem kernel approx + PCA chain (precedent v0.9.202 for KernelPCA); (c) MiniBatchKMeans on raw features for approximate clustering. Exact O(n*k) embedding + ARPACK Lanczos matvec are intrinsic — cannot be streamed.'
   metrics:
   - name: cophenetic_correlation
     combination: anchor
