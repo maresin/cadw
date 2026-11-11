@@ -4693,6 +4693,48 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.198] — 2026-11-11 (AP32 audit + LOF predict)
+
+### v0.9.198-a — AP32 public primitive audit
+
+Discovery (v0.9.197 P4 probe): 5 verified-card depends_on
+resolve importable but lack PRIMITIVES.yaml card:
+  knn_query, core_distances, sq_dists, sgd_streaming,
+  znormalize_rows.
+
+- PRIMITIVES.yaml: 5 new cards (knn_query, core_distances,
+  sq_dists, sgd_streaming, znormalize_rows).
+- tests/test_primitives_audit.py: test_all_verified_depends_on_resolve
+  (AP32): verified cards' cadw.ops.* depends_on -> card OR
+  OPS_LAYER_EXEMPT (14 pipeline ops).
+- AI_CONSTITUTION AP32: unregistered primitive dependency.
+- PRIMITIVES_BACKLOG Appendix B: ops-layer vs primitive-layer
+  taxonomy.
+
+### v0.9.198-b — LOF predict (novelty) + save_train_state
+
+fit_lof(..., save_train_state=True) preserves training
+memmaps on disk; LOFResult.predict(df, X_cols) bit-identical
+to sklearn LocalOutlierFactor(novelty=True) (parity 1.78e-15).
+
+- cadw/ml/lof.py:
+  - LOFResult: train_spill_path, X_cols, n_train fields;
+    .predict() (O(steps) via knn_query_stream + memmap lookup);
+    .release_train_state() (idempotent; predict raises after).
+  - fit_lof: save_train_state=False (default), spill_path=None.
+    Dispatch SpillDir (default) vs user-provided dir.
+  - log_fit("lof", state_bytes=...).
+- tests/test_lof_verification.py: CW-8..CW-11 + predict_spilled:
+  CW-8: requires save_train_state=True;
+  CW-9: sklearn novelty parity 1.78e-15 < 1e-6;
+  CW-10: far outlier LOF >> 1; near-cluster ~1;
+  CW-11: release idempotent + predict raises after;
+  predict_spilled state=256.
+- E_anomaly.yaml LOF: migration_target=null, streaming_strategy.
+  predict documented, notes updated.
+
+Focused: 487 passed, 5 skipped.
+
 ## [0.9.197] — 2026-11-11 (knn_query_stream + LOF)
 
 ### v0.9.197-a — knn_query_stream primitive
