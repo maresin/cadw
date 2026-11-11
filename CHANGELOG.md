@@ -4693,6 +4693,73 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.212] — 2026-11-12 (LSA: TF-IDF + sparse randomized SVD)
+
+Closes LSA gap (D from v0.9.210 was mis-scoped as quick win;
+P1-P2 probes showed tfidf.transform returns O(n) list[tuple]
+and fit_randomized_svd takes df only). Proper fix: streaming
+CSR batches + sparse randomized SVD.
+
+### v0.9.212-a — fit_lsa + TfidfModel.transform_iter
+
+- cadw/ml/tfidf.py: TfidfModel.transform_iter yields csr
+  (b, V) batches (OOC in n; replaces list[tuple] for
+  sparse consumers).
+- cadw/ml/lsa.py (new, ~310 lines):
+  * fit_lsa(df, text_col, n_components=100, ...) pipeline:
+    fit_tfidf -> transform_iter -> sparse randomized SVD.
+  * LsaModel: components_ (k,V), singular_values_ (k),
+    transform(df) -> CadwDataFrame (SpillArray, OOC in n).
+  * _fit_randomized_svd_sparse: Y = X^T X Omega (V, L) —
+    Halko 2011; state O(V*L), independent of n (more efficient
+    than Y = X Omega for tall sparse X).
+  * n_power_iter default 4 (Halko q=4 for numerical stability;
+    P6b showed q=1 error 4e-2, q=4 3e-4).
+- cadw/ml/__init__.py: import + __all__.
+
+Smoke (n=200, vocab_size=50, k=5, q=4):
+  cadw sigma: [6.29581522 5.51230864 5.07021429 4.53613972 4.47213595]
+  sk sigma:   [6.29581522 5.51230864 5.07021429 4.53613972 4.47213595]
+  sigma max diff: 6.22e-15 (bit-identical)
+  Z max diff (sign-aligned): 1.14e-13
+
+### v0.9.212-b — 12 CW tests + YAML flip + audit
+
+- tests/test_lsa_verification.py (12/12): sklearn parity,
+  transform shape, state independent of n, guard refuse,
+  reproducibility, release idempotent, validation, vocab
+  < n_components raises, transform_iter CSR parity, to_dict,
+  power_iter quality, output modes memory/auto equivalent.
+- J_nlp.yaml: LSA_TFIDF_SVD card fix
+  * cadw_function: fit_randomized_svd -> fit_lsa (was
+    misleading — LSA is pipeline, not generic SVD)
+  * bs=true, ns=constant, bounded_state_dims={V, k, n_oversamples}
+  * bdm={V: 1e5} (88 MB state at V=1e5, L~110)
+  * ram_formula: V*(k+n_oversamples)*f64*2 +
+    (k+n_oversamples)^2*f64 + V*f64*2 + k*f64 + 256
+  * ooc_status: achieved (was already; target cleared)
+- docs/audits/v0.9.212_lsa.md (new): scope, OOC declaration,
+  sklearn parity, algorithm (Halko), J_nlp status, deferred.
+
+OOC declaration (ROADMAP §OOC by primitive):
+  Pattern #1 (batch-layer), axis = n (rows/docs).
+  state = V*L*f64*2 + L*L*f64 + V*f64*2 + k*f64 + 256.
+  Independent of n. bounded_by_domain {V: 1e5}.
+  transform: X @ components.T per batch -> SpillArray (OOC in n).
+
+Distribution (unchanged): 75 achieved + 70 achievable + 4 debt
++ 79 null. LSA_TFIDF_SVD was already 'achieved' (with wrong
+cadw_function); now with correct fit_lsa.
+
+Deferred:
+- Top2Vec (J3): needs Word2Vec + UMAP (both out of CADW scope
+  or not implemented).
+- Word2Vec (J2): NN training, inference-only in CADW.
+- LDA_embedding (J2): already possible via fit_lda; card
+  refinement separate.
+
+Focused: 128 passed (12 LSA tests + schema + G22/G24/G25).
+
 ## [0.9.211] — 2026-11-11 (SpectralBiclustering, Kluger 2003)
 
 Completes B_clustering B5 spectral family (Coclustering +
