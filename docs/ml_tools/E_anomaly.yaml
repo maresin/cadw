@@ -131,13 +131,10 @@ subtypes:
     primitive_reuse: [reduce]
   - name: LOF
     tier: baseline
-    depends_on:
-    - cadw.ops.linalg.knn_query
-    - cadw.ops.linalg.core_distances
-    tier_level: tier3_export
+    tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - local_structure
     purpose: Local Outlier Factor via sklearn/PyOD; strong on clustered data.
@@ -158,6 +155,44 @@ subtypes:
       value: 0.78
       std: null
       note: canonical odds.cs.stonybrook.edu now returns HTTP 403; using wayback snapshot 2024-09-13 [legacy v0.9.44, migrated v0.9.50]
+    cadw_function: fit_lof
+    input_api: df
+    cadw_module: cadw.ml.lof
+    depends_on:
+    - cadw.ops.linalg.knn_query_stream
+    - cadw.ops.linalg.knn_query
+    - cadw.ops.linalg.core_distances
+    - cadw.core.spill.SpillDir
+    bounded_state: true
+    n_scalability: constant
+    bounded_state_dims: {k: 1, d: 1}
+    state_class: O(model)
+    state_type: partitioned
+    ram_formula: 'batch * (d + (k + 1) * 2) * f64 + batch * (k + 1) * i64 + 256'
+    min_ram_formula: '(d + (k + 1) * 2) * f64 + (k + 1) * i64 + 256'
+    formula_evidence:
+      x_batch: "lof.py -- _batch_to_X: b * d * f64 per batch"
+      knn_idx: "lof.py -- idx_mm batch: batch*(k+1)*i64"
+      knn_dist: "lof.py -- dist_mm batch: batch*(k+1)*f64"
+      random_access: "lof.py -- kdist_mm[idx_b] / lrd_mm[idx_b]: O(batch*(k+1))"
+      header: "lof.py -- +256 in LOFResult.state_nbytes()"
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      state_check: "test_state_nbytes_exact_spilled: 256 (CW-1); test_state_nbytes_exact_memory: 256 + n*9 (CW-1)"
+      state_ooc: "test_state_constant_in_n: 256 invariant for n in (100, 500, 1000) (CW-2)"
+      sklearn_parity: "test_sklearn_parity_scores: max abs diff 7.26e-8 < 1e-6 (CW-3); test_sklearn_parity_outliers_in_top (injected outliers in top-10)"
+      contamination: "test_contamination_percentile: ~10% flagged at contamination=0.1 (CW-4)"
+      guard: "test_guard_refuses_tight: MemoryLimitExceeded at max_memory_mb=0.01 (CW-5)"
+      output_spill: "test_output_disk_spilled: is_spilled + iterate + to_numpy raises (CW-6)"
+      edge: "test_k_n_minus_2 (CW-7); test_n_too_small_raises"
+      cells_passed: "8/8"
+      runtime_sec: "~5"
+    streaming_strategy:
+      fit: "5-pass SpillDir+memmap: X->disk, kNN->disk, kdist/lrd->disk+memmap random-access, LOF->SpillArray. RAM O(batch*(d+k)) per pass; state O(model) after."
+      predict: "NOT IMPLEMENTED in v0.9.197 (X memmap persistence + neighbor LRD lookup lifecycle deferred to v0.9.198)."
+    primitive_reuse: [knn_query_stream, spill_dir, memmap]
+    notes: "v0.9.197: fit verified (component-wise DEC-033, sklearn parity 7.26e-8). predict() deferred to v0.9.198 (X memmap persistence + neighbor LRD lookup lifecycle). threshold=1.0 for classic Breunig (relative score; ~50% LOF>1 for balanced data); use contamination for top-N% semantics."
+    migration_target: v0.9.198
   - name: GMMAnomaly
     tier: sota
     depends_on: []
