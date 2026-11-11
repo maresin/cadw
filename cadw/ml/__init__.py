@@ -19,6 +19,7 @@ from .kernel_pca import (KernelPCAResult, fit_kernel_pca)
 from .nystroem import (NystroemResult, fit_nystroem_kernel_map)
 from .spectral_clustering import (SpectralClusteringResult, fit_spectral_clustering)
 from .truncated_svd import (TruncatedSVDResult, fit_truncated_svd)
+from .spectral_coclustering import (SpectralCoclusteringResult, fit_spectral_coclustering)
 from .knn_imputer import (KNNImputerResult, fit_knn_imputer)
 from .naive_bayes import (
     GaussianNB, fit_gaussian_nb,
@@ -76,6 +77,7 @@ __all__ = [
     "NystroemResult", "fit_nystroem_kernel_map",
     "SpectralClusteringResult", "fit_spectral_clustering",
     "TruncatedSVDResult", "fit_truncated_svd",
+    "SpectralCoclusteringResult", "fit_spectral_coclustering",
 ]
 # v0.9.52: DWT-MLEAD (Thill, Konen, Baeck 2017)
 from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401
