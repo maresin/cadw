@@ -63,23 +63,27 @@ subtypes:
       std: null
       note: median across AMLB binary tasks; ranking only [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    ram_formula: "2 * batch * row_size + 4 * d * d * f64"
+    bounded_state_dims:
+      d: 2
+    ram_formula: 2 * batch * row_size + 4 * d * d * f64
     formula_evidence:
-      batch_term: "logistic.py:update -- X + X_aug + T1(X_aug*w); a=3.05 (iter-3 C)"
-      state_term: "logistic.py:update -- hess + hess_new + temp; b=3.97 (iter-3 C)"
-      guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
-    min_ram_formula: "2 * 1 * row_size + 4 * d * d * f64 + 512"
+      batch_term: logistic.py:update -- X + X_aug + T1(X_aug*w); a=3.05 (iter-3 C)
+      state_term: logistic.py:update -- hess + hess_new + temp; b=3.97 (iter-3 C)
+      guard: logistic.py:LogisticGradOp.batch_memory_factor = 4.0
+    min_ram_formula: 2 * 1 * row_size + 4 * d * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'batch-wise XTX / XTy Reduce; Newton/L-BFGS on d×d.'
-      predict: 'per-batch sigmoid.'
-    primitive_reuse: [reduce]
+      fit: batch-wise XTX / XTy Reduce; Newton/L-BFGS on d×d.
+      predict: per-batch sigmoid.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.logistic.'
   - name: GBDT
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_classifier
@@ -87,44 +91,47 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    ram_formula: n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256
     formula_evidence:
-      trees: "gbdt.py:_build_tree -- tree = dict[int, tuple(feat,thr,left,right,gain)|None] + leaf_values dict; ~250 B/node measured"
-      minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2 * d * f64"
-      header: "gbdt.py:_STATE_HEADER_BYTES=256"
-      state_nbytes: "gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree"
-    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+      trees: gbdt.py:_build_tree -- tree = dict[int, tuple(feat,thr,left,right,gain)|None] + leaf_values dict; ~250 B/node measured
+      minmax: gbdt.py:_MinMaxOp -- mn_, mx_ = 2 * d * f64
+      header: gbdt.py:_STATE_HEADER_BYTES=256
+      state_nbytes: gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree
+    min_ram_formula: n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
-      state_ooc: "test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0"
-      guard_refuse: "test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded"
-      correctness: "test_*_classification/regression/multiclass existing suites green"
-      cells_passed: "3/3"
-      runtime_sec: "~3"
+      fit_transient_note: 'S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch)).'
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound'
+      state_ooc: 'test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0'
+      guard_refuse: 'test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded'
+      correctness: test_*_classification/regression/multiclass existing suites green
+      cells_passed: 3/3
+      runtime_sec: ~3
     bounded_state: true
-    bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    bounded_state_dims:
+      n_estimators: 1
+      max_depth: 1
+      d: 1
     bounded_by_domain:
       axis: n
       bound: 100000
-      reason: "S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+."
+      reason: 'S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+.'
     state_class: O(model)
     state_type: iterative
     n_scalability: constant
-    tier1_core_exception: "Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: hist reduce state ~ S*F*B*f64; peak ~ batch*histsize. n-independent (trees do not grow with n)."
+    tier1_core_exception: 'Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: hist reduce state ~ S*F*B*f64; peak ~ batch*histsize. n-independent (trees do not grow with n).'
     streaming_strategy:
-      fit: "per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: hist reduce state ~ S*F*B*f64; peak ~ batch*histsize."
+      fit: 'per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: hist reduce state ~ S*F*B*f64; peak ~ batch*histsize.'
       predict: per-batch _iter_filtered_batches -> stacked X -> tree descend; O(batch × trees).
-    primitive_reuse: [reduce]
+    primitive_reuse:
+    - reduce
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: Gradient-boosted trees; SOTA on most tabular Kaggle tasks.
@@ -149,6 +156,8 @@ subtypes:
       std: null
       note: median across AMLB binary tasks [legacy v0.9.44, migrated v0.9.50]
     transient_factor: 1.0
+    ooc_status: debt
+    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
   - name: BernoulliNB
     tier: baseline
     tier_level: tier1_core
@@ -183,23 +192,28 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
-    bounded_state_dims: {d: 1, C: 1}
-    ram_formula: "2 * batch * row_size + 2 * C * d * f64"
+    bounded_state_dims:
+      d: 1
+      C: 1
+    ram_formula: 2 * batch * row_size + 2 * C * d * f64
     formula_evidence:
-      batch_term: "naive_bayes.py:update -- O3 fix keeps Xb bool; a=2.0 (iter-5)"
-      state_term: "state 8+8d per class; finalize 2*C*d*f64 (n_c, count_ones)"
-      guard: "naive_bayes.py:_BernoulliStatsOp.batch_memory_factor = 3.0 (post-O3)"
-    min_ram_formula: "2 * 1 * row_size + 2 * C * d * f64 + 512"
+      batch_term: naive_bayes.py:update -- O3 fix keeps Xb bool; a=2.0 (iter-5)
+      state_term: state 8+8d per class; finalize 2*C*d*f64 (n_c, count_ones)
+      guard: naive_bayes.py:_BernoulliStatsOp.batch_memory_factor = 3.0 (post-O3)
+    min_ram_formula: 2 * 1 * row_size + 2 * C * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'batch-wise feature count + log-prior Reduce.'
-      predict: 'per-row log-score sum.'
-    primitive_reuse: [reduce]
+      fit: batch-wise feature count + log-prior Reduce.
+      predict: per-row log-score sum.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1, C:1; independent of n. Module: cadw.ml.naive_bayes.'
   - name: NaiveBayes_multinomial
     tier: baseline
     tier_level: tier1_core
@@ -234,22 +248,27 @@ subtypes:
       std: null
       note: '[v0.9.105 DEC-012: card created to unblock fit_multinomial_nb]'
     state_class: O(d)
-    bounded_state_dims: {d: 1, C: 1}
-    ram_formula: "2 * batch * row_size + 2 * C * d * f64"
+    bounded_state_dims:
+      d: 1
+      C: 1
+    ram_formula: 2 * batch * row_size + 2 * C * d * f64
     formula_evidence:
-      batch_term: "naive_bayes.py:_MultinomialStatsOp.update -- X + X[valid]; a=2.0 (iter-3 A2)"
-      state_term: "state 8+8d per class; finalize 2*C*d*f64 (n_c, feature_sum)"
-      guard: "naive_bayes.py:_MultinomialStatsOp.batch_memory_factor = 3.0"
-    min_ram_formula: "2 * 1 * row_size + 2 * C * d * f64 + 512"
+      batch_term: naive_bayes.py:_MultinomialStatsOp.update -- X + X[valid]; a=2.0 (iter-3 A2)
+      state_term: state 8+8d per class; finalize 2*C*d*f64 (n_c, feature_sum)
+      guard: naive_bayes.py:_MultinomialStatsOp.batch_memory_factor = 3.0
+    min_ram_formula: 2 * 1 * row_size + 2 * C * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'batch-wise per-class token count + log-prior Reduce.'
-      predict: 'per-row multinomial log-score sum.'
-    primitive_reuse: [reduce]
+      fit: batch-wise per-class token count + log-prior Reduce.
+      predict: per-row multinomial log-score sum.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1, C:1; independent of n. Module: cadw.ml.naive_bayes.'
   metrics:
   - name: roc_auc
     combination: anchor
@@ -341,23 +360,27 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    ram_formula: "2 * batch * row_size + 4 * d * d * f64"
+    bounded_state_dims:
+      d: 2
+    ram_formula: 2 * batch * row_size + 4 * d * d * f64
     formula_evidence:
-      batch_term: "same (multiclass, d=C*(len+1)); a=3.05"
-      state_term: "b=3.97 (state per class multiplied by C)"
-      guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
-    min_ram_formula: "2 * 1 * row_size + 4 * d * d * f64 + 512"
+      batch_term: same (multiclass, d=C*(len+1)); a=3.05
+      state_term: b=3.97 (state per class multiplied by C)
+      guard: logistic.py:LogisticGradOp.batch_memory_factor = 4.0
+    min_ram_formula: 2 * 1 * row_size + 4 * d * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'batch-wise XTX / XTy Reduce; softmax Newton/L-BFGS; C-class state C*d² is param (C fixed).'
-      predict: 'per-batch softmax.'
-    primitive_reuse: [reduce]
+      fit: batch-wise XTX / XTy Reduce; softmax Newton/L-BFGS; C-class state C*d² is param (C fixed).
+      predict: per-batch softmax.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.logistic.'
   - name: GBDT_multiclass
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_multiclass
@@ -365,44 +388,48 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "n_estimators * n_classes * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + n_classes * f64 + 256"
+    ram_formula: n_estimators * n_classes * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + n_classes * f64 + 256
     formula_evidence:
-      trees: "gbdt.py:_fit_boosting_multiclass -- trees_ = list[round] of list[class] tree dict"
-      minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
-      header: "gbdt.py:_STATE_HEADER_BYTES=256 + K*8 base_prediction"
-      state_nbytes: "gbdt.py:GBDTMulticlassClassifier.state_nbytes -- _trees_nbytes + base_pred"
-    min_ram_formula: "n_estimators * n_classes * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + n_classes * f64 + 256"
+      trees: gbdt.py:_fit_boosting_multiclass -- trees_ = list[round] of list[class] tree dict
+      minmax: gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64
+      header: gbdt.py:_STATE_HEADER_BYTES=256 + K*8 base_prediction
+      state_nbytes: gbdt.py:GBDTMulticlassClassifier.state_nbytes -- _trees_nbytes + base_pred
+    min_ram_formula: n_estimators * n_classes * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + n_classes * f64 + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
-      state_ooc: "test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0"
-      guard_refuse: "test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded"
-      correctness: "test_*_classification/regression/multiclass existing suites green"
-      cells_passed: "3/3"
-      runtime_sec: "~3"
+      fit_transient_note: 'S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch)).'
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound'
+      state_ooc: 'test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0'
+      guard_refuse: 'test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded'
+      correctness: test_*_classification/regression/multiclass existing suites green
+      cells_passed: 3/3
+      runtime_sec: ~3
     bounded_state: true
-    bounded_state_dims: {n_estimators: 1, n_classes: 1, max_depth: 1, d: 1}
+    bounded_state_dims:
+      n_estimators: 1
+      n_classes: 1
+      max_depth: 1
+      d: 1
     bounded_by_domain:
       axis: n
       bound: 100000
-      reason: "S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+."
+      reason: 'S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+.'
     state_class: O(model)
     state_type: iterative
     n_scalability: constant
-    tier1_core_exception: "Tree-ensemble state is bounded by {n_estimators: 1, n_classes: 1, max_depth: 1, d: 1}; iter per round: K hist reduces; peak ~ K*batch*histsize. n-independent (trees do not grow with n)."
+    tier1_core_exception: 'Tree-ensemble state is bounded by {n_estimators: 1, n_classes: 1, max_depth: 1, d: 1}; iter per round: K hist reduces; peak ~ K*batch*histsize. n-independent (trees do not grow with n).'
     streaming_strategy:
-      fit: "per-tree Reduce over histograms (S nodes × F features × B bins); iter per round: K hist reduces; peak ~ K*batch*histsize."
+      fit: 'per-tree Reduce over histograms (S nodes × F features × B bins); iter per round: K hist reduces; peak ~ K*batch*histsize.'
       predict: per-batch _iter_filtered_batches -> stacked X -> tree descend; O(batch × trees).
-    primitive_reuse: [reduce]
+    primitive_reuse:
+    - reduce
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: One-vs-all softmax GBDT; SOTA on tabular multiclass.
@@ -425,6 +452,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
+    ooc_status: debt
+    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
   - name: CADWBoost
     tier: sota
     depends_on: []
@@ -434,18 +463,15 @@ subtypes:
       not_implemented_in_cadw: true
     roles:
     - nonlinear_interactions
-    purpose: 'Sandbox full gradient booster (.pingis/drafts/cadwboost/).
-      CatBoost symmetric + LightGBM leaf-wise + XGBoost hist binning + EFB +
-      9 losses + DART + GOSS + NGBoost + SHAP. 6/6 datasets better than
-      cadw.ml.gbdt (-12%..-80% rmse), OOC ratio 1.08. Promote target v0.9.124.'
+    purpose: Sandbox full gradient booster (.pingis/drafts/cadwboost/). CatBoost symmetric + LightGBM leaf-wise + XGBoost hist binning + EFB + 9 losses + DART + GOSS + NGBoost + SHAP. 6/6 datasets better than cadw.ml.gbdt (-12%..-80% rmse), OOC ratio 1.08. Promote target v0.9.124.
     real_life_examples:
     - Best-tabular regression where cadw.ml.gbdt underfits
     - Multiclass with class imbalance (focal loss)
     - Probabilistic forecast (NGBoost intervals)
     config:
       n_estimators: int
-      tree_mode: 'symmetric | leaf_wise'
-      loss: 'mse | mae | huber | quantile | logistic | focal | poisson | gamma | tweedie'
+      tree_mode: symmetric | leaf_wise
+      loss: mse | mae | huber | quantile | logistic | focal | poisson | gamma | tweedie
     cadw_module: .pingis/drafts/cadwboost
     benchmark_results:
     - benchmark: cadw_internal
@@ -462,13 +488,18 @@ subtypes:
       note: 'CADW-native sandbox: 6/6 better than cadw.ml.gbdt; OOC ratio 1.08. Not promoted (P2: ordered boosting, exact SHAP, 464-test suite).'
     state_class: O(model)
     bounded_state: true
-    bounded_state_dims: {n_estimators: 1, max_depth: 1}
+    bounded_state_dims:
+      n_estimators: 1
+      max_depth: 1
     state_type: iterative
     n_scalability: constant
     streaming_strategy:
-      fit: 'SpillDir memmap codes+y+pred; reservoir binning; MAX_OOC_BATCH=20k.'
-      predict: 'per-batch tree traversal; SpillBuffer for output.'
-    primitive_reuse: [reduce, spill_dir, memmap]
+      fit: SpillDir memmap codes+y+pred; reservoir binning; MAX_OOC_BATCH=20k.
+      predict: per-batch tree traversal; SpillBuffer for output.
+    primitive_reuse:
+    - reduce
+    - spill_dir
+    - memmap
   - name: GaussianNB
     tier: baseline
     tier_level: tier1_core
@@ -502,23 +533,28 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
-    bounded_state_dims: {d: 1, C: 1}
-    ram_formula: "2 * batch * row_size + 3 * C * d * f64"
+    bounded_state_dims:
+      d: 1
+      C: 1
+    ram_formula: 2 * batch * row_size + 3 * C * d * f64
     formula_evidence:
-      batch_term: "naive_bayes.py:update -- _stack_numeric + X[valid]; a=2.0 (iter-3 A2)"
-      state_term: "state dict: 8+16d per class (loop); finalize allocates n_c/mean/var (3*C*d*f64) -- iter-4"
-      guard: "naive_bayes.py:_GaussianStatsOp.batch_memory_factor = 3.0"
-    min_ram_formula: "2 * 1 * row_size + 3 * C * d * f64 + 512"
+      batch_term: naive_bayes.py:update -- _stack_numeric + X[valid]; a=2.0 (iter-3 A2)
+      state_term: 'state dict: 8+16d per class (loop); finalize allocates n_c/mean/var (3*C*d*f64) -- iter-4'
+      guard: naive_bayes.py:_GaussianStatsOp.batch_memory_factor = 3.0
+    min_ram_formula: 2 * 1 * row_size + 3 * C * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     transient_factor: 1.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'batch-wise per-class mean/var Reduce (Welford).'
-      predict: 'per-row Gaussian log-score sum.'
-    primitive_reuse: [reduce]
+      fit: batch-wise per-class mean/var Reduce (Welford).
+      predict: per-row Gaussian log-score sum.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1, C:1; independent of n. Module: cadw.ml.naive_bayes.'
   metrics:
   - name: accuracy
     combination: anchor
@@ -591,23 +627,27 @@ subtypes:
       std: null
       note: normalised RMSE median across AMLB regression tasks [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    ram_formula: "2 * batch * row_size + 2 * d * d * f64"
+    bounded_state_dims:
+      d: 2
+    ram_formula: 2 * batch * row_size + 2 * d * d * f64
     formula_evidence:
-      batch_term: "linear.py:245-246 -- X from _stack_numeric; X[mask] copy; a=1.92 (iter-1)"
-      state_term: "linear.py:88 -- xtx + X.T@X creates 2*d^2 (old + new); b=1.0"
-      guard: "linear.py:XTXOp.batch_memory_factor = 3.0 (2*batch + allocator)"
-    min_ram_formula: "2 * 1 * row_size + 2 * d * d * f64 + 512"
+      batch_term: linear.py:245-246 -- X from _stack_numeric; X[mask] copy; a=1.92 (iter-1)
+      state_term: linear.py:88 -- xtx + X.T@X creates 2*d^2 (old + new); b=1.0
+      guard: linear.py:XTXOp.batch_memory_factor = 3.0 (2*batch + allocator)
+    min_ram_formula: 2 * 1 * row_size + 2 * d * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'batch-wise XTX / XTy Reduce; closed-form solve.'
-      predict: 'per-batch X @ coef.'
-    primitive_reuse: [reduce]
+      fit: batch-wise XTX / XTy Reduce; closed-form solve.
+      predict: per-batch X @ coef.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.linear.'
   - name: Lasso
     tier: baseline
     tier_level: tier1_core
@@ -643,23 +683,27 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    ram_formula: "2 * batch * row_size + 2 * d * d * f64"
+    bounded_state_dims:
+      d: 2
+    ram_formula: 2 * batch * row_size + 2 * d * d * f64
     formula_evidence:
-      batch_term: "same as fit_linear (routes to XTXOp); a=1.92"
-      state_term: "same XTXOp; iter-2 D confirms l1==closed"
-      guard: "linear.py:XTXOp.batch_memory_factor = 3.0"
-    min_ram_formula: "2 * 1 * row_size + 2 * d * d * f64 + 512"
+      batch_term: same as fit_linear (routes to XTXOp); a=1.92
+      state_term: same XTXOp; iter-2 D confirms l1==closed
+      guard: linear.py:XTXOp.batch_memory_factor = 3.0
+    min_ram_formula: 2 * 1 * row_size + 2 * d * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'XTX / XTy Reduce; coordinate descent on d² state.'
-      predict: 'per-batch X @ coef.'
-    primitive_reuse: [reduce]
+      fit: XTX / XTy Reduce; coordinate descent on d² state.
+      predict: per-batch X @ coef.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.linear.'
   - name: ElasticNet
     tier: baseline
     tier_level: tier1_core
@@ -697,29 +741,33 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50; delegation to fit_linear]'
     state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    ram_formula: "2 * batch * row_size + 2 * d * d * f64"
+    bounded_state_dims:
+      d: 2
+    ram_formula: 2 * batch * row_size + 2 * d * d * f64
     formula_evidence:
-      delegation: "linear.py:658 -- fit_elasticnet returns fit_linear(..., penalty='elasticnet'); same XTXOp path"
-      batch_term: "same as fit_linear (XTXOp); a=1.92"
-      state_term: "same XTXOp; iter-2 D confirms l1==closed"
-      guard: "linear.py:XTXOp.batch_memory_factor = 3.0"
-    min_ram_formula: "2 * 1 * row_size + 2 * d * d * f64 + 512"
+      delegation: linear.py:658 -- fit_elasticnet returns fit_linear(..., penalty='elasticnet'); same XTXOp path
+      batch_term: same as fit_linear (XTXOp); a=1.92
+      state_term: same XTXOp; iter-2 D confirms l1==closed
+      guard: linear.py:XTXOp.batch_memory_factor = 3.0
+    min_ram_formula: 2 * 1 * row_size + 2 * d * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      verification_mode: "delegated to fit_linear (v0.9.107 verified)"
-      reference: "test_elasticnet_l1_ratio_0_equals_ridge + test_elasticnet_l1_ratio_1_equals_lasso (test_linear_lasso.py)"
-      cells_passed: "delegated (formula identical to fit_linear)"
-      date: "2026-11-05"
+      verification_mode: delegated to fit_linear (v0.9.107 verified)
+      reference: test_elasticnet_l1_ratio_0_equals_ridge + test_elasticnet_l1_ratio_1_equals_lasso (test_linear_lasso.py)
+      cells_passed: delegated (formula identical to fit_linear)
+      date: '2026-11-05'
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'XTX / XTy Reduce; coordinate descent on d² state (shared with fit_lasso).'
-      predict: 'per-batch X @ coef.'
-    primitive_reuse: [reduce]
+      fit: XTX / XTy Reduce; coordinate descent on d² state (shared with fit_lasso).
+      predict: per-batch X @ coef.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.linear.'
   - name: GBDT_L2
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_regressor
@@ -727,45 +775,48 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    ram_formula: n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256
     formula_evidence:
-      trees: "gbdt.py:_build_tree -- tree = dict[int, tuple|None] + leaf_values dict; ~250 B/node"
-      minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
-      header: "gbdt.py:_STATE_HEADER_BYTES=256"
-      state_nbytes: "gbdt.py:GBDTRegressor.state_nbytes -- _deep_nbytes per tree"
-    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+      trees: gbdt.py:_build_tree -- tree = dict[int, tuple|None] + leaf_values dict; ~250 B/node
+      minmax: gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64
+      header: gbdt.py:_STATE_HEADER_BYTES=256
+      state_nbytes: gbdt.py:GBDTRegressor.state_nbytes -- _deep_nbytes per tree
+    min_ram_formula: n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
-      state_ooc: "test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0"
-      guard_refuse: "test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded"
-      correctness: "test_*_classification/regression/multiclass existing suites green"
-      cells_passed: "3/3"
-      runtime_sec: "~3"
+      fit_transient_note: 'S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch)).'
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound'
+      state_ooc: 'test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0'
+      guard_refuse: 'test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded'
+      correctness: test_*_classification/regression/multiclass existing suites green
+      cells_passed: 3/3
+      runtime_sec: ~3
     bounded_state: true
-    bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    bounded_state_dims:
+      n_estimators: 1
+      max_depth: 1
+      d: 1
     bounded_by_domain:
       axis: n
       bound: 100000
-      reason: "S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+."
+      reason: 'S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+.'
     state_class: O(model)
     state_type: iterative
     n_scalability: constant
-    tier1_core_exception: "Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: hist reduce; peak ~ batch*histsize. n-independent (trees do not grow with n)."
+    tier1_core_exception: 'Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: hist reduce; peak ~ batch*histsize. n-independent (trees do not grow with n).'
     streaming_strategy:
-      fit: "per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: hist reduce; peak ~ batch*histsize."
+      fit: 'per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: hist reduce; peak ~ batch*histsize.'
       predict: per-batch _iter_filtered_batches -> stacked X -> tree descend; O(batch × trees).
-    primitive_reuse: [reduce]
+    primitive_reuse:
+    - reduce
     tier: sota
     tier_level: tier1_core
     evaluation_scope: both
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: Gradient-boosted trees with squared loss; general-purpose SOTA.
@@ -802,6 +853,8 @@ subtypes:
       std: null
       note: M2 parity on synthetic_amlb_regression_like DGP; ref(sklearn.GradientBoostingRegressor)=1.0498, verdict=consistent
     transient_factor: 1.0
+    ooc_status: debt
+    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
   - name: GaussianProcessRegressor
     tier: sota
     depends_on:
@@ -812,12 +865,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "GP regression with kernel prior; credible intervals. Top-1 on small-n tabular regression."
-    real_life_examples: ["Small-n regression with uncertainty", "Bayesian optimization surrogate"]
-    config: {kernel: string, alpha: float}
+    roles:
+    - probabilistic
+    purpose: GP regression with kernel prior; credible intervals. Top-1 on small-n tabular regression.
+    real_life_examples:
+    - Small-n regression with uncertainty
+    - Bayesian optimization surrogate
+    config:
+      kernel: string
+      alpha: float
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'GaussianProcessRegressor', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessRegressor.html', algorithm_source_kind: docs, attribution: literature, task_type: regression, n_datasets: null, metric: rmse, value: null, note: 'no_public_benchmark: GP per-dataset; not on AMLB tabular regression LB'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: GaussianProcessRegressor
+      algorithm_source_url: https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessRegressor.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: regression
+      n_datasets: null
+      metric: rmse
+      value: null
+      note: 'no_public_benchmark: GP per-dataset; not on AMLB tabular regression LB'
   metrics:
   - name: rmse
     combination: anchor
@@ -858,24 +926,23 @@ subtypes:
   - name: OneVsRest_Logistic
     tier: baseline
     tier_level: tier1_core
-    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: 2 * d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      per_estimator: "chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64"
-      header: "chains.py -- label_cols list + feature_cols list + params dict = 512"
-    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+      per_estimator: 'chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64'
+      header: chains.py -- label_cols list + feature_cols list + params dict = 512
+    min_ram_formula: 2 * d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = sum(GBDT trees) + d."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact sum + 512 (n_est, d, L parametrized)"
-      state_independent_of_n: "test_state_independent_of_n: bounded ratio <=1.5 (GBDT data-dependent nodes)"
-      formula_sanity: "test_formula_small_scale: 2*n*d*8 vstack + n_est*1.5MB GBDT / measured [0.5, 2.0]"
-      peak_linear: "test_peak_grows_linearly_with_n: ratio < 15 at 10x n"
-      bounded_domain: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
-      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
-      cells_passed: "5/5"
-
+      subsample_note: Subsample cap 20000 rows (S2b-2a); state = sum(GBDT trees) + d.
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact sum + 512 (n_est, d, L parametrized)'
+      state_independent_of_n: 'test_state_independent_of_n: bounded ratio <=1.5 (GBDT data-dependent nodes)'
+      formula_sanity: 'test_formula_small_scale: 2*n*d*8 vstack + n_est*1.5MB GBDT / measured [0.5, 2.0]'
+      peak_linear: 'test_peak_grows_linearly_with_n: ratio < 15 at 10x n'
+      bounded_domain: 'test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded'
+      tight_guard: 'test_tight_guard_raises: MemoryLimitExceeded via _FakeMB'
+      cells_passed: 5/5
     implementation_status:
       verified_in_cadw: true
       status: verified
@@ -907,35 +974,38 @@ subtypes:
       std: null
       note: subset accuracy [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'per-class binary logistic; L binary fits, each O(d²) Reduce.'
-      predict: 'per-batch stack of L sigmoids.'
-    primitive_reuse: [reduce]
+      fit: per-class binary logistic; L binary fits, each O(d²) Reduce.
+      predict: per-batch stack of L sigmoids.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1; independent of n. Module: cadw.ml.chains.'
   - name: ClassifierChains
     tier: sota
     tier_level: tier1_core
-    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: 2 * d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      per_estimator: "chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64"
-      header: "chains.py -- label_cols list + feature_cols list + params dict = 512"
-    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+      per_estimator: 'chains.py -- ChainsModel.state_nbytes = sum(GBDTModel.state_nbytes()) + 512; each GBDT: ~d^2 nodes * f64'
+      header: chains.py -- label_cols list + feature_cols list + params dict = 512
+    min_ram_formula: 2 * d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = sum(GBDT trees) + d."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact sum + 512 (n_est, d, L parametrized)"
-      state_independent_of_n: "test_state_independent_of_n: bounded ratio <=1.5 (GBDT data-dependent nodes)"
-      formula_sanity: "test_formula_small_scale: 2*n*d*8 vstack + n_est*1.5MB GBDT / measured [0.5, 2.0]"
-      peak_linear: "test_peak_grows_linearly_with_n: ratio < 15 at 10x n"
-      bounded_domain: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded"
-      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
-      cells_passed: "5/5"
-
+      subsample_note: Subsample cap 20000 rows (S2b-2a); state = sum(GBDT trees) + d.
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact sum + 512 (n_est, d, L parametrized)'
+      state_independent_of_n: 'test_state_independent_of_n: bounded ratio <=1.5 (GBDT data-dependent nodes)'
+      formula_sanity: 'test_formula_small_scale: 2*n*d*8 vstack + n_est*1.5MB GBDT / measured [0.5, 2.0]'
+      peak_linear: 'test_peak_grows_linearly_with_n: ratio < 15 at 10x n'
+      bounded_domain: 'test_guard_refuses_at_domain_bound: n=1e6 + 10MB -> MemoryLimitExceeded'
+      tight_guard: 'test_tight_guard_raises: MemoryLimitExceeded via _FakeMB'
+      cells_passed: 5/5
     implementation_status:
       verified_in_cadw: true
       status: verified
@@ -968,14 +1038,18 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'L chained logistic fits on (X + prior labels); O(d²) per classifier.'
-      predict: 'per-batch chained prediction.'
-    primitive_reuse: [reduce]
+      fit: L chained logistic fits on (X + prior labels); O(d²) per classifier.
+      predict: per-batch chained prediction.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1; independent of n. Module: cadw.ml.chains.'
   - name: ML-kNN
     tier: baseline
     depends_on:
@@ -985,12 +1059,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "Multi-label kNN with Bayesian prior (Zhang & Zhou 2007). Label posterior from neighbour counts."
-    real_life_examples: ["Multi-label text tagging", "Gene function prediction"]
-    config: {n_neighbors: int, smoothing: float}
+    roles:
+    - probabilistic
+    purpose: Multi-label kNN with Bayesian prior (Zhang & Zhou 2007). Label posterior from neighbour counts.
+    real_life_examples:
+    - Multi-label text tagging
+    - Gene function prediction
+    config:
+      n_neighbors: int
+      smoothing: float
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'ML-kNN', algorithm_source_url: 'https://scikit.ml/api/skmultilearn.adapt.mlknn.html', algorithm_source_kind: docs, attribution: literature, task_type: multilabel classification, n_datasets: null, metric: hamming_loss, value: null, note: 'no_public_benchmark: ML-kNN per-dataset; no unified multilabel LB'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: ML-kNN
+      algorithm_source_url: https://scikit.ml/api/skmultilearn.adapt.mlknn.html
+      algorithm_source_kind: docs
+      attribution: literature
+      task_type: multilabel classification
+      n_datasets: null
+      metric: hamming_loss
+      value: null
+      note: 'no_public_benchmark: ML-kNN per-dataset; no unified multilabel LB'
   metrics:
   - name: subset_accuracy
     combination: anchor
@@ -1027,25 +1116,24 @@ subtypes:
   - name: OrdinalLogit
     tier: baseline
     tier_level: tier1_core
-    ram_formula: "2 * d * f64 + 512 + 2.0 * batch * row_size"
+    ram_formula: 2 * d * f64 + 512 + 2.0 * batch * row_size
     formula_evidence:
-      beta: "ordinal.py -- OrdinalLogitModel.beta_ = (d,) f64 = d*f64"
-      theta: "ordinal.py -- OrdinalLogitModel.theta_ = (K-1,) f64 = (K-1)*f64"
-      header: "ordinal.py -- classes_ ndarray + feature_cols list + params dict = 256"
-    min_ram_formula: "2 * d * f64 + 512 + 2.0 * 1 * row_size"
+      beta: ordinal.py -- OrdinalLogitModel.beta_ = (d,) f64 = d*f64
+      theta: ordinal.py -- OrdinalLogitModel.theta_ = (K-1,) f64 = (K-1)*f64
+      header: ordinal.py -- classes_ ndarray + feature_cols list + params dict = 256
+    min_ram_formula: 2 * d * f64 + 512 + 2.0 * 1 * row_size
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      subsample_note: "Subsample cap 20000 rows (S2b-2a); state = beta(d) + theta(K-1) + 512."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_state_nbytes_exact: bit-exact, (d,K) parametrized (5/3, 10/4, 20/5)"
-      state_independent_of_n: "test_state_independent_of_n: state(n=2k)==state(n=10k)"
-      formula_sanity: "test_formula_small_scale: predicted+5MB baseline / measured in [0.5,2.0]"
-      peak_linear: "test_peak_grows_linearly_with_n: ratio < 15 at 10x n (n=3k vs 30k)"
-      bounded_domain: "test_guard_refuses_at_domain_bound: n=1e6 + 10MB guard -> MemoryLimitExceeded"
-      tight_guard: "test_tight_guard_raises: MemoryLimitExceeded via _FakeMB"
-      cells_passed: "5/5"
-
+      subsample_note: Subsample cap 20000 rows (S2b-2a); state = beta(d) + theta(K-1) + 512.
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_state_nbytes_exact: bit-exact, (d,K) parametrized (5/3, 10/4, 20/5)'
+      state_independent_of_n: 'test_state_independent_of_n: state(n=2k)==state(n=10k)'
+      formula_sanity: 'test_formula_small_scale: predicted+5MB baseline / measured in [0.5,2.0]'
+      peak_linear: 'test_peak_grows_linearly_with_n: ratio < 15 at 10x n (n=3k vs 30k)'
+      bounded_domain: 'test_guard_refuses_at_domain_bound: n=1e6 + 10MB guard -> MemoryLimitExceeded'
+      tight_guard: 'test_tight_guard_raises: MemoryLimitExceeded via _FakeMB'
+      cells_passed: 5/5
     implementation_status:
       verified_in_cadw: true
       status: verified
@@ -1078,14 +1166,18 @@ subtypes:
       std: null
       note: exact-match accuracy [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d)
-    bounded_state_dims: {d: 1}
+    bounded_state_dims:
+      d: 1
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'K-1 cumulative-logit Reduces over shared beta (d² Hessian).'
-      predict: 'per-row cumulative P(y<=k) from fitted thresholds.'
-    primitive_reuse: [reduce]
+      fit: K-1 cumulative-logit Reduces over shared beta (d² Hessian).
+      predict: per-row cumulative P(y<=k) from fitted thresholds.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:1; independent of n. Module: cadw.ml.ordinal.'
   - name: GBDT_threshold
     tier: sota
     depends_on: []
@@ -1121,12 +1213,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "Bayesian ordered probit: latent Gaussian + cutpoints; full posterior over thresholds."
-    real_life_examples: ["Ordinal survey responses", "Severity grading"]
-    config: {n_draws: int, prior_scale: float}
+    roles:
+    - probabilistic
+    purpose: 'Bayesian ordered probit: latent Gaussian + cutpoints; full posterior over thresholds.'
+    real_life_examples:
+    - Ordinal survey responses
+    - Severity grading
+    config:
+      n_draws: int
+      prior_scale: float
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'OrderedProbitBayesian', algorithm_source_url: 'https://arxiv.org/abs/2104.05494', algorithm_source_kind: paper, attribution: literature, task_type: ordinal classification, n_datasets: null, metric: mae_ordinal, value: null, note: 'no_public_benchmark: ordered probit per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: OrderedProbitBayesian
+      algorithm_source_url: https://arxiv.org/abs/2104.05494
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: ordinal classification
+      n_datasets: null
+      metric: mae_ordinal
+      value: null
+      note: 'no_public_benchmark: ordered probit per-dataset'
   metrics:
   - name: mae_ordinal
     combination: anchor
@@ -1195,23 +1302,27 @@ subtypes:
       std: null
       note: AMLB imbalance subset [legacy v0.9.44, migrated v0.9.50]
     state_class: O(d²)
-    bounded_state_dims: {d: 2}
-    ram_formula: "2 * batch * row_size + 4 * d * d * f64"
+    bounded_state_dims:
+      d: 2
+    ram_formula: 2 * batch * row_size + 4 * d * d * f64
     formula_evidence:
-      batch_term: "same (class_weight); a=3.05"
-      state_term: "b=3.97"
-      guard: "logistic.py:LogisticGradOp.batch_memory_factor = 4.0"
-    min_ram_formula: "2 * 1 * row_size + 4 * d * d * f64 + 512"
+      batch_term: same (class_weight); a=3.05
+      state_term: b=3.97
+      guard: logistic.py:LogisticGradOp.batch_memory_factor = 4.0
+    min_ram_formula: 2 * 1 * row_size + 4 * d * d * f64 + 512
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     transient_factor: 2.0
     state_type: aggregation
     bounded_state: true
     n_scalability: constant
     streaming_strategy:
-      fit: 'batch-wise class-weighted XTX / XTy Reduce.'
-      predict: 'per-batch sigmoid.'
-    primitive_reuse: [reduce]
+      fit: batch-wise class-weighted XTX / XTy Reduce.
+      predict: per-batch sigmoid.
+    primitive_reuse:
+    - reduce
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d:2; independent of n. Module: cadw.ml.logistic.'
   - name: GBDT_scale_pos_weight
     cadw_module: cadw.ml.gbdt
     cadw_function: fit_gbdt_classifier
@@ -1219,44 +1330,47 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+    ram_formula: n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256
     formula_evidence:
-      trees: "gbdt.py:_grad_hess -- weight w = where(y>0.5, pos_weight, 1.0); tree build identical"
-      minmax: "gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64"
-      header: "gbdt.py:_STATE_HEADER_BYTES=256"
-      state_nbytes: "gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree"
-    min_ram_formula: "n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256"
+      trees: gbdt.py:_grad_hess -- weight w = where(y>0.5, pos_weight, 1.0); tree build identical
+      minmax: gbdt.py:_MinMaxOp -- mn_, mx_ = 2*d*f64
+      header: gbdt.py:_STATE_HEADER_BYTES=256
+      state_nbytes: gbdt.py:GBDTClassifier.state_nbytes -- _deep_nbytes per tree
+    min_ram_formula: n_estimators * (2**(max_depth+1) - 1) * 500 + 2 * d * f64 + 256
     min_ram_evidence:
-      derived_from: "ram_formula (batch=1, auto-migrate v0.9.177)"
+      derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
-      fit_transient_note: "S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch))."
-      verification_mode: "component-wise (DEC-033)"
-      state_check: "test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound"
-      state_ooc: "test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0"
-      guard_refuse: "test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded"
-      correctness: "test_*_classification/regression/multiclass existing suites green"
-      cells_passed: "3/3"
-      runtime_sec: "~3"
+      fit_transient_note: 'S1 audit: fit transient = pred/grad/hess (n × 90 B); persistent trees bounded. Refactor planned v0.9.168+ (SpillDir memmap for grad/hess/pred → truly O(batch)).'
+      verification_mode: component-wise (DEC-033)
+      state_check: 'test_*_state_within_upper_bound: actual ∈ [0.20, 1.0] of upper_bound'
+      state_ooc: 'test_*_state_independent_of_n: same params, n=1k vs n=10k -> ratio <= 3.0'
+      guard_refuse: 'test_*_guard_refuses: n=200 + 0.001 MB -> MemoryLimitExceeded'
+      correctness: test_*_classification/regression/multiclass existing suites green
+      cells_passed: 3/3
+      runtime_sec: ~3
     bounded_state: true
-    bounded_state_dims: {n_estimators: 1, max_depth: 1, d: 1}
+    bounded_state_dims:
+      n_estimators: 1
+      max_depth: 1
+      d: 1
     bounded_by_domain:
       axis: n
       bound: 100000
-      reason: "S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+."
+      reason: 'S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, state_nbytes exact). Refactor planned v0.9.168+.'
     state_class: O(model)
     state_type: iterative
     n_scalability: constant
-    tier1_core_exception: "Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: weighted hist reduce. n-independent (trees do not grow with n)."
+    tier1_core_exception: 'Tree-ensemble state is bounded by {n_estimators: 1, max_depth: 1, d: 1}; iter per tree: weighted hist reduce. n-independent (trees do not grow with n).'
     streaming_strategy:
-      fit: "per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: weighted hist reduce."
+      fit: 'per-tree Reduce over histograms (S nodes × F features × B bins); iter per tree: weighted hist reduce.'
       predict: per-batch _iter_filtered_batches -> stacked X -> tree descend; O(batch × trees).
-    primitive_reuse: [reduce]
+    primitive_reuse:
+    - reduce
     tier: sota
     tier_level: tier1_core
     implementation_status:
       verified_in_cadw: true
       status: verified
-      verified_in_cadw: true
     roles:
     - nonlinear_interactions
     purpose: Cost-sensitive GBDT; weight positives by neg/pos ratio (XGBoost semantics).
@@ -1280,6 +1394,8 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
+    ooc_status: debt
+    ooc_strategy: 'Current: S1 audit: fit transient pred/grad/hess (n × 90 B) in RAM; codes in SpillDir memmap. Persistent state = trees (bounded, s. Guard refuses above state_limit (honest refuse).'
   - name: RUSBoost
     tier: sota
     depends_on:
@@ -1289,12 +1405,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "Random Under-Sampling + AdaBoost (Seiffert 2010); robust on skewed binary."
-    real_life_examples: ["Fraud detection (1:100)", "Medical rare-disease screening"]
-    config: {n_estimators: int, sampling_rate: float}
+    roles:
+    - probabilistic
+    purpose: Random Under-Sampling + AdaBoost (Seiffert 2010); robust on skewed binary.
+    real_life_examples:
+    - Fraud detection (1:100)
+    - Medical rare-disease screening
+    config:
+      n_estimators: int
+      sampling_rate: float
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'RUSBoost', algorithm_source_url: 'https://ieeexplore.ieee.org/document/5438940', algorithm_source_kind: paper, attribution: literature, task_type: imbalanced binary classification, n_datasets: null, metric: pr_auc, value: null, note: 'no_public_benchmark: RUSBoost per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: RUSBoost
+      algorithm_source_url: https://ieeexplore.ieee.org/document/5438940
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: imbalanced binary classification
+      n_datasets: null
+      metric: pr_auc
+      value: null
+      note: 'no_public_benchmark: RUSBoost per-dataset'
   metrics:
   - name: pr_auc
     combination: anchor
@@ -1400,12 +1531,27 @@ subtypes:
     implementation_status:
       described_only: true
       not_implemented_in_cadw: true
-    roles: [probabilistic]
-    purpose: "Conformalized Quantile Regression (Romano 2019); finite-sample coverage guarantee."
-    real_life_examples: ["Risk-sensitive point + interval forecast", "Inventory quantile planning"]
-    config: {coverage: float, n_folds: int}
+    roles:
+    - probabilistic
+    purpose: Conformalized Quantile Regression (Romano 2019); finite-sample coverage guarantee.
+    real_life_examples:
+    - Risk-sensitive point + interval forecast
+    - Inventory quantile planning
+    config:
+      coverage: float
+      n_folds: int
     benchmark_results:
-      - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'CQR', algorithm_source_url: 'https://arxiv.org/abs/1905.03222', algorithm_source_kind: paper, attribution: literature, task_type: quantile regression, n_datasets: null, metric: pinball_loss, value: null, note: 'no_public_benchmark: CQR per-dataset'}
+    - benchmark: cadw_internal
+      benchmark_url: .pingis/benches/
+      algorithm: CQR
+      algorithm_source_url: https://arxiv.org/abs/1905.03222
+      algorithm_source_kind: paper
+      attribution: literature
+      task_type: quantile regression
+      n_datasets: null
+      metric: pinball_loss
+      value: null
+      note: 'no_public_benchmark: CQR per-dataset'
   metrics:
   - name: pinball_loss
     combination: anchor
