@@ -1,6 +1,6 @@
 # CADW Roadmap
 
-Last updated: 2026-11-08 (after v0.9.141).
+Last updated: 2026-11-11 (after v0.9.203).
 
 ## Current: v0.9.185 — primitives-first correction (DEC-070)
 
@@ -75,6 +75,68 @@ Ensemble final pass-through; GBDTForecaster deferred training +
 lag matrix on SpillDir. Honest bounds.
 
 ---
+
+## OOC by primitive — decision matrix (MANDATORY, v0.9.204+)
+
+**Rule:** before writing any new function / primitive / model, state the
+OOC axis and the pattern explicitly. Three valid OOC patterns; anything
+else must have honest bound. **Update `Last updated:` above when this
+matrix changes.**
+
+### Three OOC patterns
+
+| # | Pattern | How OOC | Primitive examples | Model examples |
+|---|---|---|---|---|
+| **1** | **Batch-layer** | Input = Iterator / memmap / SpillArray; state O(batch) or O(model) | `reduce`, `knn_query_stream`, `_collect_last_w`, `_iter_target_batches`, `_iter_filtered_batches`, `SpillArray`, `SpillBuffer` | SARIMA(manual), LOF, KNNImputer, KernelPCA(transform), SpectralClustering(fit kNN affinity) |
+| **2** | **Window-truncation** | Fixed W (min(user, guard, n)); state O(W); W independent of n | `_collect_last_w` (building block); `_ses_fit_simple` (via streaming); `_ses_fit_hw` / `stl_decompose` / `_ses` (via caller truncation; cards have `intrinsic_bound` with reason) | Theta(s>1), OTM(s>1), ETS(manual), AutoETS(manual), pelt(max_window) |
+| **3** | **Intrinsic bound** | Physically O(n²) / O(n³); guard refuses above bound | `chol_solve`, `mst`, `eclat`, `eigh_topk`(dense), `nan_sq_dists` (dense broadcast), `pairwise_kernel` (dense output) | KernelPCA(fit, n≤1e4), SpectralClustering(fit, n≤1e6) |
+
+**Anti-patterns (each has a known failure):**
+- Silent O(n) allocation without bound → OOM, not clean refuse.
+- Leaf primitive called with full-n ndarray inside `bounded_state: true`
+  model, when axis not in bound → fake OOC.
+- "Window" without ApproximationInfo on truncation → AP24.
+- `streaming_variant: null` AND `intrinsic_bound: null` AND model
+  claims `bounded_state: true` for that axis → **AP33 case A** (bug).
+
+### Pre-implementation checklist (MANDATORY, write in session brief)
+
+For each new **fit_* / predict_* / transform_* / primitive**:
+
+1. **Classify:** batch-layer / window / intrinsic — mark **which axis**
+   (n / d / K / n_groups).
+2. **Pattern:** if batch-layer → existing primitive from matrix? If
+   window → caller uses `_collect_last_w`? If intrinsic → declare
+   `bounded_by_domain {axis, bound}` in card.
+3. **Callsite audit:** for each leaf primitive used, is caller batching
+   (batch-layer) OR model-level windowing (window) OR bound (intrinsic)?
+4. **Card:** `layer`, `bounded_state`, `streaming_variant`,
+   `intrinsic_bound` all **consistent** with 1-3.
+5. **Test:** bit-identical non-OOC vs OOC branch (single-batch or
+   n≤W); OOC ratio < 2.0 across 10× axis.
+
+### Consuming patterns (before writing model code)
+
+| Consumer needs OOC in | Use primitive | Do NOT use |
+|---|---|---|
+| n (rows, aggregation) | Iterator-based (`_iter_*_batches`) + state O(model) | full-n np.ndarray |
+| n (self-query, kNN on same X) | intrinsic bound n≤1e4/1e5 honest (P6 example: nan_sq_dists called per-chunk by caller) | leaf called with full X unguarded |
+| n_y (pairwise, X small/fixed) | `knn_query_stream` (X Iterator) | `knn_query(X_full, Q)` |
+| n_train (transform, Q small) | X_fit in RAM = O(model·d) if bounded; Nystroem alternative above bound | `pairwise_kernel(Q, X_train_full)` без bound |
+| K (cardinality) | HashShuffle + K_spill (TFIDF/LDA/OHE with `spill_dir=`) | `dict[word] += 1` unguarded |
+| d (features) | SGD (state O(d·K)); closed-form only if `d <= bound` | closed-form XTX при d>1e4 |
+| n_groups (TS per-entity) | HashShuffle per group + per-group window | full extract across groups |
+
+### Session discipline (added v0.9.204)
+
+- **Before any new primitive/model in a session brief:** cite this matrix
+  pattern # + axis. Session that adds `fit_X` without this line = refuse
+  to proceed, ask.
+- **After any card flip:** run G22
+  (`test_G22_leaf_deps_consistent`) + `test_primitives_audit` +
+  `test_constitution_gates`.
+- **Post-session:** if new primitive added, update this matrix "Primitive
+  examples" column + PRIMITIVES_BACKLOG Appendix B.
 
 ## Historical: v0.9.175 — OOC batched work front (DEC-067)
 

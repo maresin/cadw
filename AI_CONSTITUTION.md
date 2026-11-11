@@ -911,6 +911,51 @@ per existing card convention).
 narrower scope).
 
 
+### AP33. Leaf primitive with inconsistent card (bounded_state model)
+
+A `verified` + `bounded_state: true` model depends on a leaf primitive
+whose card has `streaming_variant: null` AND `intrinsic_bound: null` AND
+model card does NOT declare `bounded_by_window` on that axis. Three cases:
+
+- **Case A (real bug):** model claims OOC in an axis that leaf primitive
+  does NOT provide, and no bound declared → fake OOC, silent OOM risk.
+  Fix: refactor to batch-layer (add `_chunks` variant) OR add
+  `bounded_by_domain` to model card.
+- **Case B (card inconsistency, not dishonesty):** model honestly uses
+  window-truncation via `_collect_last_w` (bounded_by_window), but leaf
+  card omits BOTH `window_truncatable` AND `intrinsic_bound`. Fix: add
+  `window_truncatable {axis: n, caller_prim: _collect_last_w,
+  min_window: "<expr>", reason: "bit-identical n<=W_eff"}` to leaf card
+  (DEC-072: window check before intrinsic; `intrinsic_bound` and
+  `window_truncatable` mutually exclusive). Only if window-truncation is
+  semantically invalid, add `intrinsic_bound` instead.
+- **Case C (predict-leaf, AP29):** predict-time primitive O(steps),
+  no fit-time n-scaling. Fix: `intrinsic_bound: null` valid, card note
+  `"predict-time O(steps); fit-time no n-scaling (AP29 predict_leaf)"`.
+
+**Real case (v0.9.204):** `_ses_fit_hw`, `stl_decompose`, `_ses` cards
+had `streaming_variant: null` but DID have `window_truncatable`
+(`caller_prim: _collect_last_w`). Consumers (Theta(s>1), OTM(s>1), ETS,
+AutoETS) are `bounded_by_window` with `applies_to: params=manual` —
+truncation via `_collect_last_w`. **First draft of this AP33 added
+`intrinsic_bound` to these 3 cards — schema rejected (mutually exclusive
+with `window_truncatable`, DEC-072).** Correct: `window_truncatable` IS
+the bound; gate G22 must accept it as one of three valid (streaming_variant
+/ window_truncatable / intrinsic_bound).
+
+**Gate G22** (`test_G22_leaf_deps_consistent`): for each `verified +
+bounded_state: true` model, AST-scan the `cadw_module` file's top-level
+`from cadw.X.Y import _y` imports. Each leaf `_y` must have either
+`streaming_variant != null` OR `intrinsic_bound != null` OR model has
+`bounded_by_window` on corresponding axis. Failure = case A.
+
+**Complements:** AP29 (predict_leaf semantic), AP32 (verified depends_on
+resolution), G18 (leaf streaming_variant audit).
+
+**Anti-pattern:** add `from cadw.ts.X import _new_primitive` to a
+`bounded_state: true` model's module without checking the primitive's
+card has bound/streaming. Fix: update card first, then wire.
+
 ### §5.1. Single source of truth (one fact, one place)
 
 Every concept has exactly one canonical location:

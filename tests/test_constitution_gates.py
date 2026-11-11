@@ -1290,3 +1290,99 @@ def test_G20_partial_window_scope_requires_linear():
         + "\n".join(f"  {v}" for v in violations[:10])
     )
 
+# ============================================================================
+# G22 (v0.9.204, AP33): leaf primitive deps of verified+bounded_state models
+# must have streaming_variant or intrinsic_bound; OR model has bounded_by_window
+# ============================================================================
+
+def test_G22_leaf_deps_consistent():
+    """G22 (v0.9.204, AP33): every leaf primitive imported by a
+    verified+bounded_state model must have streaming_variant OR
+    intrinsic_bound; failure = fake OOC (case A).
+    """
+    import ast
+    import yaml
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+
+    # Load primitive cards (short name -> card)
+    prim = yaml.safe_load(
+        (root / "docs" / "ml_tools" / "PRIMITIVES.yaml").read_text())
+    cards = {(c.get("cadw_function") or "").rsplit(".", 1)[-1]: c
+             for c in (prim.get("primitives") or [])}
+
+    violations = []
+    checked = 0
+
+    for yf in sorted((root / "docs" / "ml_tools").glob("[A-Z]_*.yaml")):
+        try:
+            d = yaml.safe_load(yf.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for st in d.get("subtypes") or []:
+            for m in st.get("models") or []:
+                impl = m.get("implementation_status") or {}
+                if impl.get("status") != "verified":
+                    continue
+                if not m.get("bounded_state"):
+                    continue
+                mod = m.get("cadw_module", "")
+                if not mod:
+                    continue
+                p = root / (mod.replace(".", "/") + ".py")
+                if not p.exists():
+                    continue
+                try:
+                    tree = ast.parse(p.read_text())
+                except SyntaxError:
+                    continue
+
+                leaves = []
+                for im in ast.walk(tree):
+                    if isinstance(im, ast.ImportFrom):
+                        modname = im.module or ""
+                        if not (modname.startswith("cadw.ts") or
+                                modname.startswith("cadw.ops") or
+                                modname.startswith("cadw.ml")):
+                            continue
+                        for alias in im.names:
+                            if alias.name.startswith("_"):
+                                c = cards.get(alias.name)
+                                if c and c.get("layer") == "leaf":
+                                    leaves.append(alias.name)
+
+                if not leaves:
+                    continue
+                checked += 1
+                has_bbw = bool(m.get("bounded_by_window"))
+                for ln in leaves:
+                    c = cards[ln]
+                    sv = c.get("streaming_variant")
+                    ib = c.get("intrinsic_bound")
+                    wt = c.get("window_truncatable")
+                    if sv is not None:
+                        continue
+                    if ib is not None:
+                        continue
+                    if wt is not None:
+                        # AP33 case B valid: window_truncatable
+                        # (DEC-072: window check before intrinsic)
+                        continue
+                    if has_bbw:
+                        # case B — tolerated (card fix tracked separately)
+                        continue
+                    violations.append(
+                        f"{yf.name}::{m.get('name')} -> {ln} "
+                        f"(streaming_variant=None, intrinsic_bound=None, "
+                        f"window_truncatable=None, "
+                        f"bounded_by_window=False) — case A")
+
+    assert not violations, (
+        f"G22 (AP33): {len(violations)} leaf primitives without bound used "
+        f"by verified+bounded_state models (case A, fake OOC):\n"
+        + "\n".join(violations)
+        + f"\n\nFix: add streaming_variant or intrinsic_bound to primitive "
+        f"card, OR declare bounded_by_window on model."
+    )
+
