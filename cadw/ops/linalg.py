@@ -259,6 +259,127 @@ def knn_query(
     return top_i, top_d
 
 
+def knn_query_stream(
+    X_iter,
+    Q: np.ndarray,
+    k: int,
+    *,
+    return_dist: bool = False,
+    metric: str = "euclidean",
+    chunk_size: int | None = None,
+    memory_guard=None,
+):
+    """k nearest neighbours of Q in X (X streamed from an iterator).
+
+    v0.9.197: streaming X variant of knn_query. Additive — knn_query
+    stays (X in ndarray for caller-controlled batch). Use this when X
+    does not fit in RAM: X from memmap/SpillArray iterator.
+
+    Args:
+      X_iter: re-iterable iterator over batches. Each batch is
+              pa.RecordBatch (all columns float64) OR (b, d) np.ndarray.
+              Re-iterable required (each call iterates from start).
+      Q: (n_q, d) float64 queries; must fit in RAM (typically n_q=bat).
+      k: number of neighbours (1 <= k <= n_x; n_x checked at end).
+      return_dist: also return distances (n_q, k).
+      metric: "euclidean" (default) | "cosine".
+      chunk_size: candidate rows per X batch (if RecordBatch yields
+                  small batches, first batch's rows hint). Auto from guard.
+      memory_guard: optional MemoryGuard.
+
+    Returns:
+      idx: (n_q, k) int64 — indices into X (global, 0-based, in the
+           order X_iter yields rows).
+      dist: (n_q, k) float64 — only if return_dist=True.
+
+    State: O(n_q * k) top-k heap (same as knn_query).
+    OOC in n_x: X is not materialized; per-batch transient
+    O(n_q * chunk) same as knn_query.
+    """
+    Q = np.ascontiguousarray(Q, dtype=np.float64)
+    if Q.ndim != 2:
+        raise ValueError(f"knn_query_stream: Q must be 2-D; got {Q.shape}")
+    if metric not in ("euclidean", "cosine"):
+        raise ValueError(
+            f"knn_query_stream: metric must be 'euclidean'|'cosine'; "
+            f"got {metric!r}")
+    if k < 1:
+        raise ValueError(f"knn_query_stream: k must be >= 1; got {k}")
+
+    n_q, d = Q.shape
+
+    state_bytes = n_q * k * 8 * 2 + _KNN_STATE_HEADER
+    if memory_guard is not None:
+        memory_guard.check_state(
+            state_bytes, name="knn_query_stream.state")
+
+    if chunk_size is None:
+        chunk_size = _resolve_knn_chunk_size(n_q, d, memory_guard)
+    chunk_size = max(1, int(chunk_size))
+
+    if metric == "cosine":
+        Q_norm = Q / (np.linalg.norm(Q, axis=1, keepdims=True) + 1e-12)
+
+    top_d = np.full((n_q, k), np.inf, dtype=np.float64)
+    top_i = np.full((n_q, k), -1, dtype=np.int64)
+
+    global_offset = 0
+    for batch in X_iter:
+        # Accept pa.RecordBatch OR np.ndarray
+        if hasattr(batch, "num_columns"):  # pa.RecordBatch
+            cols = [np.asarray(batch.column(i), dtype=np.float64)
+                    for i in range(batch.num_columns)]
+            Xc = np.column_stack(cols) if cols else np.empty((0, d))
+        else:
+            Xc = np.ascontiguousarray(batch, dtype=np.float64)
+        if Xc.size == 0:
+            continue
+        if Xc.shape[1] != d:
+            raise ValueError(
+                f"knn_query_stream: X batch has d={Xc.shape[1]}, "
+                f"Q has d={d}")
+        end = global_offset + Xc.shape[0]
+
+        chunk_bytes = n_q * Xc.shape[0] * 8
+        if memory_guard is not None:
+            memory_guard.check_state(
+                chunk_bytes, name="knn_query_stream.chunk")
+
+        if metric == "euclidean":
+            D = sq_dists(Q, Xc)  # (n_q, b)
+        else:
+            Xc_norm = Xc / (
+                np.linalg.norm(Xc, axis=1, keepdims=True) + 1e-12)
+            D = 1.0 - (Q_norm @ Xc_norm.T)  # (n_q, b) in [0, 2]
+
+        merged_d = np.concatenate([top_d, D], axis=1)
+        chunk_ids = np.broadcast_to(
+            np.arange(global_offset, end, dtype=np.int64),
+            (n_q, Xc.shape[0]))
+        merged_i = np.concatenate([top_i, chunk_ids], axis=1)
+
+        part = np.argpartition(merged_d, k - 1, axis=1)[:, :k]
+        part_d = np.take_along_axis(merged_d, part, axis=1)
+        part_i = np.take_along_axis(merged_i, part, axis=1)
+        order = np.argsort(part_d, axis=1, kind="stable")
+        top_d = np.take_along_axis(part_d, order, axis=1)
+        top_i = np.take_along_axis(part_i, order, axis=1)
+
+        global_offset = end
+
+    n_x = global_offset
+    if n_x == 0:
+        raise ValueError("knn_query_stream: X_iter yielded 0 rows")
+    if k > n_x:
+        raise ValueError(f"k must be in [1, n_x={n_x}]; got {k}")
+
+    if not return_dist:
+        return top_i
+    if metric == "euclidean":
+        return top_i, np.sqrt(np.maximum(top_d, 0.0))
+    return top_i, top_d
+
+
 def core_distances(
     X: np.ndarray,
     k: int,

@@ -153,3 +153,82 @@ def test_core_distances_chunk_invariant():
     a = core_distances(X, 5, chunk_size=23)
     b = core_distances(X, 5, chunk_size=1000)
     np.testing.assert_allclose(a, b, rtol=1e-12)
+
+# ---- v0.9.197: knn_query_stream (bit-identical to knn_query) ----
+
+def test_knn_stream_ndarray_batches_bit_identical():
+    """X_iter yields ndarray batches; == knn_query(X, Q, k)."""
+    from cadw.ops.linalg import knn_query_stream
+    rng = np.random.RandomState(0)
+    n, d, n_q, k = 200, 4, 20, 5
+    X = rng.randn(n, d)
+    Q = rng.randn(n_q, d)
+    idx_a, dist_a = knn_query(X, Q, k, return_dist=True,
+                               memory_guard=MemoryGuard(max_memory_mb=500))
+    batches = [X[i:i + 50] for i in range(0, n, 50)]
+    idx_b, dist_b = knn_query_stream(iter(batches), Q, k, return_dist=True,
+                                      memory_guard=MemoryGuard(max_memory_mb=500))
+    np.testing.assert_array_equal(idx_a, idx_b)
+    np.testing.assert_allclose(dist_a, dist_b, atol=1e-12)
+
+
+def test_knn_stream_recordbatch_bit_identical():
+    """X_iter yields pa.RecordBatch; == knn_query(X, Q, k)."""
+    import pyarrow as pa
+    from cadw.ops.linalg import knn_query_stream
+    rng = np.random.RandomState(1)
+    n, d, n_q, k = 150, 3, 15, 4
+    X = rng.randn(n, d)
+    Q = rng.randn(n_q, d)
+    idx_a, dist_a = knn_query(X, Q, k, return_dist=True,
+                               memory_guard=MemoryGuard(max_memory_mb=500))
+    batches = []
+    for i in range(0, n, 30):
+        chunk = X[i:i + 30]
+        cols = [pa.array(chunk[:, j], type=pa.float64())
+                for j in range(d)]
+        batches.append(pa.RecordBatch.from_arrays(cols,
+                     names=[f"x{j}" for j in range(d)]))
+    idx_b, dist_b = knn_query_stream(iter(batches), Q, k,
+                                      return_dist=True,
+                                      memory_guard=MemoryGuard(max_memory_mb=500))
+    np.testing.assert_array_equal(idx_a, idx_b)
+    np.testing.assert_allclose(dist_a, dist_b, atol=1e-12)
+
+
+def test_knn_stream_single_batch_k_eq_n():
+    """Edge: k=n_x, single batch."""
+    from cadw.ops.linalg import knn_query_stream
+    rng = np.random.RandomState(2)
+    X = rng.randn(10, 3)
+    Q = rng.randn(2, 3)
+    idx, dist = knn_query_stream(iter([X]), Q, 10, return_dist=True,
+                                  memory_guard=MemoryGuard(max_memory_mb=500))
+    assert idx.shape == (2, 10)
+    assert (idx >= 0).all() and (idx < 10).all()
+
+
+def test_knn_stream_cosine_metric():
+    """Cosine metric bit-identical."""
+    from cadw.ops.linalg import knn_query_stream
+    rng = np.random.RandomState(3)
+    X = rng.randn(80, 4)
+    Q = rng.randn(10, 4)
+    idx_a, dist_a = knn_query(X, Q, 5, return_dist=True, metric="cosine",
+                               memory_guard=MemoryGuard(max_memory_mb=500))
+    batches = [X[i:i + 20] for i in range(0, 80, 20)]
+    idx_b, dist_b = knn_query_stream(iter(batches), Q, 5,
+                                      return_dist=True, metric="cosine",
+                                      memory_guard=MemoryGuard(max_memory_mb=500))
+    np.testing.assert_array_equal(idx_a, idx_b)
+    np.testing.assert_allclose(dist_a, dist_b, atol=1e-12)
+
+
+def test_knn_stream_k_gt_n_raises():
+    """k > n_x raises (checked at end of iteration)."""
+    from cadw.ops.linalg import knn_query_stream
+    X = np.random.RandomState(4).randn(5, 2)
+    Q = np.random.RandomState(5).randn(2, 2)
+    with pytest.raises(ValueError, match="k must be in"):
+        knn_query_stream(iter([X]), Q, 10)
+

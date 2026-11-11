@@ -509,6 +509,25 @@ primitives:
   streaming_variant: null
   consumers: ['SARIMAForecaster']
 
+- name: knn_query_stream
+  cadw_function: cadw.ops.linalg.knn_query_stream
+  module: cadw.ops.linalg
+  layer: leaf
+  status: draft
+  bounded_state: false
+  ram_formula: "n_q * k * f64 * 2 + _KNN_STATE_HEADER + n_q * batch * f64"
+  min_ram_formula: "k * f64 * 2 + _KNN_STATE_HEADER + 1 * f64"
+  formula_evidence:
+    state: "linalg.py -- state_bytes = n_q*k*8*2 + _KNN_STATE_HEADER"
+    chunk: "linalg.py -- chunk_bytes = n_q * Xc.shape[0] * 8 per batch"
+  # v0.9.197: streaming X (Iterator[pa.RecordBatch | ndarray]).
+  # Bit-identical to knn_query when X_iter yields 1 batch = X.
+  # v0.9.198 backlog: public primitive audit (DEC-071 covers only
+  # ^def _name(; knn_query/core_distances unregistered).
+  intrinsic_bound: null
+  streaming_variant: null
+  consumers: ['LOF', 'KNNImputer (v0.9.198+ pilot)']
+
 - name: _hannan_rissanen
   cadw_function: cadw.ts.models._hannan_rissanen
   module: cadw.ts.models
