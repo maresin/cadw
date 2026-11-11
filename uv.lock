@@ -46,7 +46,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/85/ae/7f2031ea76140444b
 
 [[package]]
 name = "cadw-framework"
-version = "0.9.214"
+version = "0.9.215"
 source = { virtual = "." }
 dependencies = [
     { name = "numpy" },

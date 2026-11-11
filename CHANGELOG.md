@@ -4693,6 +4693,75 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.215] — 2026-11-12 (B1-B4/B6 completion: DBSCAN, Agglomerative, KMeansOnly, EKZ)
+
+Closes B1-B4/B6 cluster implementations. B_clustering: 13 of
+24 implemented (54%; remaining 11 are sota-reference null).
+
+### v0.9.215-a/b — fit_dbscan (Ester 1996)
+
+- cadw/ml/dbscan.py (new, ~340 lines):
+  * Core detection: chunked sq_dists(Q, X_batch) <= eps^2,
+    count >= min_samples.
+  * Union-Find (path compression, union by rank).
+  * Border assignment: non-core with core neighbor -> that
+    cluster.
+  * Labels via SpillArray (output='auto' default).
+- Smoke: n_clusters=2, n_noise=9, ARI vs sklearn=1.0000.
+- OOC: labels/core SpillArray; UF O(n) intrinsic debt;
+  bdm {n: 1e6}.
+- 12 CW tests (sklearn parity, all-noise, single cluster,
+  core mask, guard, validation, state_nbytes, to_dict,
+  labels compacted, output modes, reproducible, border).
+
+### v0.9.215-c — fit_kmeans_only + fit_euclidean_kmeans_z
+
+- cadw/ml/kmeans_only.py (new, ~2.6 KB): B6 consensus
+  baseline; thin wrapper over verified fit_kmeans.
+- cadw/ml/euclidean_kmeans_z.py (new, ~4.7 KB): shape-aware
+  baseline; per-row z-normalize + fit_kmeans.
+- Both Pattern #1 batch-layer, state O(k*d); ooc_status
+  achieved.
+
+### v0.9.215-d/e — fit_agglomerative + MH/NUTS fix
+
+- cadw/ml/agglomerative.py (new, ~280 lines):
+  * All 4 linkages (ward/complete/average/single) via
+    scipy.cluster.hierarchy dense linkage.
+  * Exact sklearn parity (ARI=1.0 on 4 linkages).
+  * O(n^2) intrinsic; refuse_at_guard {n: 5000}.
+  * Approximate single-linkage via k-NN + MST deferred
+    v0.9.216+ (opt-in mode='approx').
+- W_probabilistic.yaml fix (honest debt):
+  * MetropolisHastings: achievable -> debt (full-data per
+    iter intrinsic; SGLD/SGHMC approximation v0.9.216+).
+  * NUTS: null -> debt (Hamiltonian full-data per leapfrog).
+
+Distribution:
+  v0.9.214: 75 achieved + 69 achievable +  6 debt + 78 null
+  v0.9.215: 77 achieved + 64 achievable + 10 debt + 77 null
+  achieved +2 (KMeansOnly, EuclideanKMeansZ)
+  debt +4 (DBSCAN, Agglomerative, MH, NUTS)
+
+B_clustering implemented 13 of 24 (54%):
+  B1 (Centroid): 3 — KMeans, MiniBatchKMeans, Spectral
+  B2 (Density): 2 — DBSCAN, Spectral
+  B3 (Hierarchical): 2 — Agglomerative, Spectral
+  B4 (Shape): 1 — EuclideanKMeansZ
+  B5 (Biclustering): 4 — Coclustering, Biclustering, Bimax,
+    PlaidModel (v0.9.207-214)
+  B6 (Ensemble): 1 — KMeansOnly
+  Remaining 11 = sota-reference null (no plan, reference-only).
+
+Deferred v0.9.216+:
+- Approximate single-linkage via k-NN + MST (opt-in mode).
+- SGLD/SGHMC (MH/NUTS approximations).
+- VI family (MeanFieldVI, SVI, BlackBoxVI) — chunked CAVI.
+- Consensus clustering (B6 ×3): needs multiple base
+  clusterings + co-association primitive.
+
+Focused: 128 passed (12 Agglomerative + schema + G22/G24/G25).
+
 ## [0.9.214] — 2026-11-12 (PlaidModel: Lazzeroni & Owen 2002)
 
 Closes B_clustering B5 (Biclustering) — 4 of 4 implemented.
