@@ -4693,6 +4693,58 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.205] — 2026-11-11 (svd_topk + TruncatedSVD)
+
+First release with mandatory OOC-by-primitive declaration
+(ROADMAP §OOC by primitive, v0.9.204). Pattern #1
+(batch-layer, axis=n_rows): svd_topk chunked Gram Reduce;
+state O(d^2); OOC in n.
+
+### v0.9.205-a — svd_topk primitive (chunked Gram, batch-layer)
+
+- cadw/ops/linalg.py: svd_topk (P2 verified sigma atol 6e-14
+  vs scipy SVD; sklearn TruncatedSVD(arpack, tol=0) parity).
+  Pass 1: chunked Gram Reduce (state O(d^2)); eigh_topk(LA);
+  svd_flip; Pass 2 (optional U) via SpillArray.
+- PRIMITIVES.yaml: svd_topk card (layer=batch, bounded_state=
+  true, intrinsic_bound {d: 1e4}; OOC in n_rows).
+- tests/test_linalg_svd.py: 6 CW + 5 parametrized:
+  * scipy.linalg.svd parity (sigma, |V| atol 1e-9)
+  * sklearn TruncatedSVD(arpack) parity (2 parametrized)
+  * OOC ratio (state n-independent)
+  * compute_u (reconstruction)
+  * guard refuses, validation
+
+### v0.9.205-b — fit_truncated_svd (sklearn parity, arpack)
+
+Smoke: sigma=1.78e-14, components_=5.02e-15, ev=3.55e-15,
+evr=9.02e-17, transform=4.07e-14 (n=200 d=40 k=5; n=500
+d=100 k=10 similar).
+
+- cadw/ml/truncated_svd.py (new, ~370 lines):
+  * fit_truncated_svd (algorithm='arpack' only; sklearn default
+    'randomized' deferred v0.9.206)
+  * TruncatedSVDResult: components_ / singular_values_ /
+    explained_variance_ / explained_variance_ratio_;
+    transform streaming via SpillArray (OOC in n_q).
+  * 2-pass streaming for explained variance (E[X^2]-E[X]^2
+    per batch + X stats).
+  * Pattern #1 batch-layer; state O(model).
+- cadw/ml/__init__.py: import + __all__.
+
+### v0.9.205-c — TruncatedSVD verified (DEC-033) + YAML flip ×2
+
+- tests/test_truncated_svd_verification.py (12 tests / 14 cases).
+- C_dim_reduction.yaml: TruncatedSVD + randomized_svd
+  described_only -> verified; bs=true, ns=constant,
+  state_class=O(d^2), state_dims={d,k}, migration_target=null.
+
+First OOC-by-primitive mandate applied: svd_topk card declares
+Pattern #1 + intrinsic_bound {d: 1e4} (Gram state). No fake
+OOC; no silent leaf without bound.
+
+Focused: 500 passed, 5 skipped.
+
 ## [0.9.204] — 2026-11-11 (OOC-by-primitive mandate + AP33 + G22)
 
 ### v0.9.204 — process fix-up (no code change)
