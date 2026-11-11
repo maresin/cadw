@@ -4693,6 +4693,69 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.209] — 2026-11-11 (debt -> achievable with plan)
+
+User feedback (v0.9.208): «bounded_by_domain — это крайний
+случай». Treat as debt-with-plan, not as final. For every
+debt card with concrete OOC alternative -> ooc_status=
+achievable, bounded_by_domain KEPT (honest current limitation),
+ooc_alternative + ooc_target_version filled. Permanent debt
+reserved for physically impossible (O(n^2) intrinsic).
+
+### v0.9.209-a — Anomaly(17) + GBDT(6) -> achievable; STRAY permanent
+
+- Anomaly-output (17 of 18, all except STRAY): SpillArray(width=1)
+  for decision_scores + DEC-036 reservoir; CUSUM precedent
+  v0.9.173. Target v0.9.180+ (DEC-066).
+- GBDT (6: A1/2/3/6, D1.GBDTForecaster, E2): round-by-round
+  SpillArray (LambdaMART v0.9.87-P2b-full-2 precedent; partial
+  v0.9.172). Target v0.9.180+ (DEC-065).
+- STRAY (1): stays debt permanent. O(n^2) pairwise distances
+  intrinsic (DEC-040, DEC-067 group F). refuse_at_guard.
+
+### v0.9.209-b — Spectral(3) + KernelPCA + CoxPH + TS(3) + OTHER(2)
+
+All 10 debt -> achievable with algorithm-aware plans:
+- SpectralClustering ×3: graph_laplacian_sparse v0.9.203 +
+  eigsh_topk sparse in place; target v0.9.210 (flip bs=true after
+  CW tests).
+- KernelPCA: Nystroem v0.9.202 closes n>1e4 debt; target v0.9.210.
+- CoxPH: fit/predict already OOC; concordance O(n) intrinsic
+  (Fenwick v0.9.180+); statistical bound n<=1e6 separate.
+- AutoTheta: _ses_fit_hw streaming P3 backlog; target v0.9.194+.
+- EnsembleForecaster/TemporalHierarchy/TransformedTargetForecaster:
+  composite OOC when members OOC; target v0.9.194+.
+- VAR: streaming XTX (BVAR/VECM precedent, DEC-057 F3);
+  target v0.9.192+.
+
+### v0.9.209-c — 6 high-priority achievable polished + ROADMAP
+
+Concrete ooc_strategy for 6 priority described_only+achievable
+(from P1 probe: exactly these 6 matched priority):
+  DBSCAN, t-SNE, ItemKNN, HDBSCAN, TVAE, MeanFieldVI.
+
+ROADMAP: new subsection '§OOC-by-card fields (v0.9.208+)'
+documents ooc_status enum, fields, distribution (75/72/1/80),
+user-feedback policy (bounded_by_domain is крайний случай, not
+final), gates G24/G25.
+
+Final distribution (v0.9.209):
+  75 achieved   (Pattern #1/#2, verified)
+  72 achievable (plan + alternative + target)
+   1 debt       (STRAY permanent; O(n^2) intrinsic)
+  80 null       (9 not_a_model + 71 sota_reference)
+
+Note on 6 unfound polish targets (BisectingKMeans, CausalForest,
+GPLVM, GaussianProcessRegressor, RandomSurvivalForest,
+SpectralBiclustering): their actual ooc_status is null
+(sota_reference) or achieved, not achievable+described_only.
+The POLISH dict was over-eager; P1 probe priority list (6) matched
+exactly what was polished. No-op.
+
+Diff: 3 commits, 164+/91- across 14 YAML + ROADMAP.
+
+Focused: 115 passed (G24/G25 hard + schema).
+
 ## [0.9.208] — 2026-11-11 (OOC-by-card schema + 148 fills)
 
 Formalize OOC as explicit contract in cards (user feedback:
