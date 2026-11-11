@@ -543,8 +543,8 @@ subtypes:
     depends_on: []
     tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - local_structure
     purpose: 'Bottom-up hierarchical: merge closest pairs by linkage (ward/complete/average/single). O(n^2) memory naive.'
@@ -568,8 +568,36 @@ subtypes:
       metric: cophenetic_correlation
       value: null
       note: 'no_public_benchmark: no unified clustering LB.'
-    ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Bottom-up hierarchical: merge closest pairs by linkage (ward/complete/average/single). O(n^2) memory... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_status: debt
+    ooc_strategy: 'Debt (permanent; all linkages dense scipy O(n^2) intrinsic). refuse_at_guard {n: 5000}.'
+    cadw_function: fit_agglomerative
+    cadw_module: cadw.ml.agglomerative
+    input_api: df
+    bounded_state: false
+    n_scalability: refuse_at_guard
+    refuse_above: 5000
+    bounded_by_domain:
+      axis: n
+      bound: 5000
+      reason: 'All four linkages (ward/complete/average/single) require dense scipy linkage O(n^2) intrinsic. refuse_at_guard {n: 5000}. Approximate single-linkage via k-NN graph + MST deferred v0.9.216+ (opt-in mode=''approx'').'
+    bounded_state_dims:
+      n: 1
+      n_neighbors: 1
+    ram_formula: n * d * f64 + n * n * f64 + 256
+    min_ram_formula: 2 * 1 * f64 + 2 * 2 * f64 + 256
+    formula_evidence:
+      dense_X: 'agglomerative.py -- X: n*d*f64'
+      dense_linkage: 'agglomerative.py -- scipy linkage Z: n*n*f64 (O(n^2))'
+      header: agglomerative.py -- 256 byte header
+    fit_batched: true
+    predict_batched: null
+    primitive_reuse: []
+    streaming_strategy:
+      fit: 'Materialize X (n*d) + scipy dense linkage O(n^2). refuse_at_guard {n: 5000}.'
+      predict: n/a (fit-only; new points assign via nearest leaf).
+    ooc_target_version: null
+    ooc_alternative: Permanent (dense O(n^2) intrinsic). Approximate single-linkage via k-NN graph + MST v0.9.216+ (opt-in mode='approx'; HDBSCAN-style, loses exact sklearn parity at high k_neighbors).
+    migration_target: null
   - name: BIRCH
     cross_ref: N_density.BIRCH
     tier: sota

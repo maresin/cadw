@@ -167,8 +167,10 @@ subtypes:
       metric: ess
       value: null
       note: Metropolis 1953.
-    ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Metropolis et al. 1953: random-walk MH. Propose + accept/reject. Simple; tuning-sensitive; slow mixi... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_status: debt
+    ooc_strategy: 'Permanent debt (full-data likelihood per iter intrinsic). ooc_status: achievable -> debt (v0.9.215-d fix).'
+    ooc_target_version: null
+    ooc_alternative: 'Permanent. Full-data likelihood per iteration intrinsic (MCMC requires complete dataset for accept/reject). Approximations: (a) SGLD/SGHMC (mini-batch, v0.9.216+); (b) subsample-based pseudo-marginal (loses exact posterior); (c) VI (MeanFieldVI, SVI).'
   - name: NUTS
     tier: sota
     depends_on: []
@@ -198,6 +200,10 @@ subtypes:
       metric: ess
       value: null
       note: Hoffman & Gelman 2014; Stan/PyMC default.
+    ooc_status: debt
+    ooc_target_version: null
+    ooc_alternative: 'Permanent. Hamiltonian trajectories require full-data gradient evaluations per leapfrog step. Approx: SGHMC (stochastic gradient Hamiltonian MC, v0.9.216+) — mini-batch gradient, posterior approximation; loses exact NUTS auto-tuning.'
+    ooc_strategy: 'Permanent debt (Hamiltonian full-data per leapfrog intrinsic). ooc_status: null -> debt (v0.9.215-d fix).'
   metrics:
   - name: ess
     combination: anchor
