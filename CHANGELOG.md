@@ -4693,6 +4693,29 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.201] — 2026-11-11 (sigmoid/cosine kernels + LOF auto)
+
+### v0.9.201 — pairwise_kernel sigmoid/cosine + LOF contamination='auto'
+
+Small API closures completing sklearn parity for KernelPCA
+kernel family + LOF contamination modes.
+
+- cadw/ops/linalg.py: sigmoid (tanh(gamma*X@Y.T+coef0)) +
+  cosine (X_norm @ Yc_norm.T). _SUPPORTED_KERNELS now 6
+  (linear/rbf/poly/laplacian/sigmoid/cosine — matches sklearn
+  pairwise_kernels). gamma skipped for cosine (unused).
+- cadw/ml/lof.py: contamination accepts None | float(0,1) |
+  'auto'. 'auto' -> threshold 1.5 (sklearn offset_=-1.5
+  constant, no percentile needed -> works with output='disk').
+  Float c unchanged (percentile, requires output='memory').
+- tests: +3 kernel tests (sigmoid/cosine sklearn parity,
+  cosine gamma-ignored); +4 LOF tests (auto=1.5, labels
+  sklearn parity, auto+disk, bad string raises).
+- YAML notes: LOF (auto works any output), pairwise_kernel
+  (6 kernels).
+
+Focused: 539 passed, 5 skipped.
+
 ## [0.9.200] — 2026-11-11 (pairwise_kernel linear + KernelPCA)
 
 ### v0.9.200-a — pairwise_kernel 'linear' + card (AP32)
