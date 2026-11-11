@@ -4693,6 +4693,43 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.199] — 2026-11-11 (nan_sq_dists + KNNImputer)
+
+### v0.9.199-a — nan_sq_dists primitive
+
+Partial-distance kNN base; sklearn.metrics.pairwise.nan_euclidean_distances(squared=True) parity (P8b max diff 0.0).
+Formula: sum_common((q-x)^2) * d / n_common; NaN when n_common=0.
+
+- cadw/ops/linalg.py: nan_sq_dists (~45 lines, chunked X)
+- PRIMITIVES.yaml: card (leaf, draft, intrinsic_bound n_x)
+- tests/test_linalg_knn.py: +6 tests (sklearn parity, no-common-
+  NaN, partial-common, empty, d-mismatch)
+
+### v0.9.199-b — fit_knn_imputer (sklearn parity, OOC in n)
+
+5-phase per-column kNN among donors via nan_sq_dists.
+Smoke: uniform max diff 0.0; distance 1.4e-13.
+
+- cadw/ml/knn_imputer.py (new, ~450 lines): fit_knn_imputer,
+  KNNImputerResult (state O(model); .transform streaming via
+  Dataset.from_batches; .release_train_state). All-NaN cols
+  dropped (sklearn behavior).
+- cadw/ml/__init__.py: import + __all__.
+- tests/test_knn_imputer_verification.py (new, 15 tests:
+  CW-1..CW-12 + 3 validation).
+- docs/ml_tools/O_eda.yaml KNNImputer: described_only -> verified,
+  bs=true, ns=constant, bsd={k,d}, sklearn parity evidence.
+
+### v0.9.199-b2-fix — P10a sklearn fallback + R2 formula
+
+CW-6 discovered (P10a): sklearn donors_mask = donor-col-NaN, NOT
+dist-validity. Fix: donors_mat unmasked; dist-NaN -> weight 0;
+np.ma.average fallback (sum(w)=0 -> unweighted mean). P11: 0.0.
+
+R2: ram_formula state-only (n_x_chunk transient -> fit_transient_note).
+
+Focused: 490 passed, 5 skipped.
+
 ## [0.9.198] — 2026-11-11 (AP32 audit + LOF predict)
 
 ### v0.9.198-a — AP32 public primitive audit
