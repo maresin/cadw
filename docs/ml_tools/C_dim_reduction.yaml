@@ -88,18 +88,58 @@ subtypes:
       - name: KernelPCA
         tier: sota
         depends_on:
+        - cadw.ops.linalg.pairwise_kernel
+        - cadw.ops.linalg.eigh_topk
         - cadw.ops.linalg.rbf_kernel
         - cadw.ops.linalg.eigh_topk
-        tier_level: tier2_wrapper
+        tier_level: tier1_core
         implementation_status:
-          described_only: true
-          not_implemented_in_cadw: true
+          verified_in_cadw: true
+          status: verified
         roles: [nonlinear_interactions]
         purpose: "Kernel PCA (Scholkopf 1998): nonlinear projection via kernel-induced feature map."
         real_life_examples: ["Nonlinear feature compression", "Denoising with kernel ridge"]
         config: {n_components: int, kernel: string}
         benchmark_results:
           - {benchmark: cadw_internal, benchmark_url: '.pingis/benches/', algorithm: 'KernelPCA', algorithm_source_url: 'https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.KernelPCA.html', algorithm_source_kind: docs, attribution: literature, task_type: dimensionality_reduction, n_datasets: null, metric: reconstruction_error, value: null, note: 'no_public_benchmark: kernel PCA per-dataset'}
+        cadw_function: fit_kernel_pca
+        cadw_module: cadw.ml.kernel_pca
+        input_api: df
+        bounded_state: false
+        n_scalability: linear
+        bounded_by_domain:
+          axis: n
+          bound: 10000
+          reason: "O(n^2) kernel matrix + eigh copy (intrinsic per DEC-075). At n=1e4: K=800 MB, eigh copy 800 MB; guard refuses above. Options: subsample or Nystroem approximation (v0.9.201+)."
+        bounded_state_dims: {n: 1, d: 1, k: 1}
+        state_class: O(n)
+        state_type: aggregation
+        ram_formula: 'n * d * f64 + n * f64 + n * k * f64 + k * f64 + 256'
+        min_ram_formula: '2 * n * n * f64 + n * d * f64 + 256'
+        formula_evidence:
+          X_fit: "kernel_pca.py -- X_fit.nbytes (n*d*f64)"
+          K_fit_rows: "kernel_pca.py -- K_fit_rows.nbytes (n*f64)"
+          K_fit_all: "kernel_pca.py -- +8 scalar"
+          eigvals: "kernel_pca.py -- eigenvalues.nbytes (k*f64)"
+          eigvecs: "kernel_pca.py -- eigenvectors.nbytes (n*k*f64)"
+          header: "kernel_pca.py -- +256 in state_nbytes()"
+        measurement:
+          verification_mode: "component-wise (DEC-033)"
+          state_check: "test_state_nbytes_exact: bit-exact per-term (CW-1, 3 parametrized)"
+          state_growth: "test_state_grows_with_n: state O(n) honest (bounded_state=false) (CW-2)"
+          sklearn_parity: "test_sklearn_parity_fit_transform kernel in {linear,rbf,poly} max diff < 1e-9 (CW-3..5); test_sklearn_parity_transform same (CW-6); test_n_components_none_drops_zeros (CW-7); test_remove_zero_eig (CW-8); test_gamma_none_default (CW-11)"
+          intrinsic_bound: "test_n_above_intrinsic_bound_raises: n=10001 -> MemoryLimitExceeded (CW-9)"
+          release: "test_release_idempotent_and_predict_raises (CW-10)"
+          validation: "test_empty_X_cols / bad_kernel / bad_gamma / nan_X raises (CW-12)"
+          cells_passed: "12/12 (parametrized: ~18 total test cases)"
+          runtime_sec: "~5"
+          fit_transient_note: "K (n,n) + eigh copy = 2*n^2*f64 per bound; intrinsic. Honest bounded_by_domain {n: 1e4} per DEC-075."
+        streaming_strategy:
+          fit: "X into RAM (n<=1e4) -> K (n,n) via pairwise_kernel -> centerer -> eigh_topk LA -> svd_flip -> remove_zero_eig. Intrinsic O(n^2) per DEC-075."
+          transform: "Per Q batch: pairwise_kernel(X_fit, Q_batch) -> centerer.transform -> @ scaled_alphas. OOC in n_q via Dataset.from_batches (O(batch*n_train) peak)."
+        primitive_reuse: [pairwise_kernel, eigh_topk]
+        migration_target: null
+        notes: "v0.9.200: fit + transform verified (component-wise DEC-033, sklearn KernelPCA parity: linear/rbf/poly max diff ~1.9e-15 on n=60, all 3 kernels). Intrinsic O(n^2) fit transient (bounded_by_domain {n:1e4}, DEC-075); transform streaming via pairwise_kernel(X_fit, Q_batch) — OOC in n_q. For n>1e4: Nystroem approximation (v0.9.201+). Kernels supported: linear, rbf, poly, laplacian. sigmoid/cosine deferred v0.9.201+."
       - name: SparsePCA
         tier: sota
         depends_on:
