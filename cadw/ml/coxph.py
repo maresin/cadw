@@ -293,6 +293,12 @@ def _breslow_streaming(sorted_reader, X_cols, time_col, event_col, b, mg,
     refuses if pending ties block exceeds budget (pathological all-ties).
     """
     d = len(X_cols)
+    # v0.9.206: G2 guard-before-alloc. State = 2*d*d*8 + 2*d*8 + 256
+    # (S2 + info @ d*d*8 each; S1 + grad @ d*8 each; header). At d=1e4
+    # state = 1.6 GB — без guard'а silent OOM в Newton loop.
+    if mg is not None and hasattr(mg, "check_state"):
+        mg.check_state(2 * d * d * 8 + 2 * d * 8 + 256,
+                       name="coxph.breslow_streaming.state")
     S0 = 0.0
     S1 = np.zeros(d)
     S2 = np.zeros((d, d))

@@ -109,3 +109,68 @@ def test_state_bounded_by_n_events():
 
 
 # ---- 3: fit OOC (external_sort Newton) ----
+
+
+# ---- G2: breslow_streaming guard fires BEFORE np.zeros ----
+
+def test_breslow_streaming_guard_fires():
+    """v0.9.206-b (G2): _breslow_streaming must refuse at tight guard
+    before np.zeros((d,d)) allocations.
+
+    Direct call bypasses fit_coxph (which has its own guards at
+    coxph.py:601,648 for baseline hazard). This test isolates the
+    breslow_streaming state allocation path.
+    """
+    from cadw.ml.coxph import _breslow_streaming
+    from cadw.core.memory_guard import MemoryLimitExceeded
+
+    d = 100
+    n = 5
+    rng = np.random.RandomState(0)
+    cols = {f"x{j}": pa.array(rng.randn(n), type=pa.float64())
+            for j in range(d)}
+    cols["T"] = pa.array(np.arange(n, dtype=np.float64))
+    cols["E"] = pa.array(np.ones(n, dtype=np.float64))
+    batch = pa.RecordBatch.from_pydict(cols)
+    reader = [batch]  # list of pa.RecordBatch (sorted_reader)
+
+    X_cols = [f"x{j}" for j in range(d)]
+    b = np.zeros(d, dtype=np.float64)
+
+    # State = 2*100*100*8 + 2*100*8 + 256 = 161,856 B (~160 KB).
+    # Guard 0.001 MB = ~1048 B budget -> state_limit ~524 B -> refuse.
+    tight_mg = MemoryGuard(max_memory_mb=0.001)
+    with pytest.raises(MemoryLimitExceeded) as exc_info:
+        _breslow_streaming(reader, X_cols, "T", "E", b, tight_mg)
+    assert "coxph.breslow_streaming.state" in str(exc_info.value), (
+        f"expected 'coxph.breslow_streaming.state' in error; "
+        f"got: {exc_info.value}")
+
+
+def test_breslow_streaming_passes_at_adequate_guard():
+    """v0.9.206-b: _breslow_streaming succeeds with 100 MB guard."""
+    from cadw.ml.coxph import _breslow_streaming
+
+    d = 20
+    n = 10
+    rng = np.random.RandomState(1)
+    cols = {f"x{j}": pa.array(rng.randn(n), type=pa.float64())
+            for j in range(d)}
+    cols["T"] = pa.array(np.arange(n, dtype=np.float64))
+    cols["E"] = pa.array(
+        np.array([1.0] * 3 + [0.0] * (n - 3)), type=pa.float64())
+    batch = pa.RecordBatch.from_pydict(cols)
+    reader = [batch]
+
+    X_cols = [f"x{j}" for j in range(d)]
+    b = np.zeros(d, dtype=np.float64)
+
+    mg = MemoryGuard(max_memory_mb=100)
+    grad, info, ll, n_events = _breslow_streaming(
+        reader, X_cols, "T", "E", b, mg)
+    assert grad.shape == (d,)
+    assert info.shape == (d, d)
+    assert n_events == 3
+
+
+
