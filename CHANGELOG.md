@@ -4693,6 +4693,45 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.200] — 2026-11-11 (pairwise_kernel linear + KernelPCA)
+
+### v0.9.200-a — pairwise_kernel 'linear' + card (AP32)
+
+sklearn KernelPCA default kernel='linear'; CADW lacked it.
+Additive (non-breaking). AP32 gap: pairwise_kernel was
+depended-on but unregistered.
+
+- cadw/ops/linalg.py: linear branch; gamma skip for linear.
+- PRIMITIVES.yaml: pairwise_kernel card (leaf, draft,
+  intrinsic_bound n_x).
+- tests/test_linalg_kernels.py: +4 tests (manual, chunk,
+  sklearn linear_kernel parity, gamma-ignored).
+
+### v0.9.200-b — fit_kernel_pca (sklearn parity, intrinsic n<=1e4)
+
+5-phase via pairwise_kernel + eigh_topk LA + svd_flip +
+PSD clipping. transform streaming via pairwise_kernel(X_fit,
+Q_batch). Honest bounded_by_domain {n: 1e4} per DEC-075.
+Smoke: fit_transform 1.9e-15; transform 1.3e-15 (linear/rbf/
+poly).
+
+- cadw/ml/kernel_pca.py (new, ~360 lines): fit_kernel_pca,
+  KernelPCAResult (fit_transform/transform/state_nbytes/
+  release_train_state), _KernelCenterer, _svd_flip, PSD clip.
+- cadw/ml/__init__.py: import + __all__.
+
+### v0.9.200-c — KernelPCA verification (12 CW) + YAML flip + PSD clip
+
+- tests/test_kernel_pca_verification.py (new, 13 tests):
+  CW-1..CW-12 + 3 parametrized kernel parity per test.
+- C_dim_reduction.yaml KernelPCA: described_only -> verified;
+  tier2_wrapper -> tier1_core; bs=false, ns=linear,
+  bbd {n: 1e4}; migration_target=null.
+- PSD clip fix (P7): sklearn _check_psd_eigenvalues parity
+  (small_pos_ratio=1e-12*max_eig). CW-7/CW-8 pass.
+
+Focused: 511 passed, 5 skipped.
+
 ## [0.9.199] — 2026-11-11 (nan_sq_dists + KNNImputer)
 
 ### v0.9.199-a — nan_sq_dists primitive
