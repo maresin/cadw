@@ -914,6 +914,13 @@ UNCARDED_WHITELIST = {
     # fit_minibatch_kmeans -> B_clustering.B1.MiniBatchKMeans (draft);
     # fit_pca -> C_dim_reduction.C1.PCA (draft).
     # No uncarded public fit_* remain.
+    # v0.9.202: infrastructure (like fit_stacking / fit_ab_test),
+    # not a model card. Caller-facing utility for KernelPCA n>1e4.
+    "fit_nystroem_kernel_map": (
+        "infrastructure; sklearn Nystroem parity; NystroemResult"
+        " (not a model card; use fit_kernel_pca(n>1e4) chain or"
+        " direct transform). See DEC-047 whitelist rationale.",
+    ),
 }
 
 

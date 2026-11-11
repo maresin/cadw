@@ -16,6 +16,7 @@ from .importance import permutation_importance
 from .iforest import IsolationForestModel, fit_isolation_forest
 from .lof import LOFResult, fit_lof
 from .kernel_pca import (KernelPCAResult, fit_kernel_pca)
+from .nystroem import (NystroemResult, fit_nystroem_kernel_map)
 from .knn_imputer import (KNNImputerResult, fit_knn_imputer)
 from .naive_bayes import (
     GaussianNB, fit_gaussian_nb,
@@ -70,6 +71,7 @@ __all__ = [
     "LOFResult", "fit_lof",
     "KNNImputerResult", "fit_knn_imputer",
     "KernelPCAResult", "fit_kernel_pca",
+    "NystroemResult", "fit_nystroem_kernel_map",
 ]
 # v0.9.52: DWT-MLEAD (Thill, Konen, Baeck 2017)
 from .dwt_mlead import DwtMleadResult, fit_dwt_mlead  # noqa: E402,F401

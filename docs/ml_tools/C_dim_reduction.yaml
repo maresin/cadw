@@ -139,7 +139,7 @@ subtypes:
           transform: "Per Q batch: pairwise_kernel(X_fit, Q_batch) -> centerer.transform -> @ scaled_alphas. OOC in n_q via Dataset.from_batches (O(batch*n_train) peak)."
         primitive_reuse: [pairwise_kernel, eigh_topk]
         migration_target: null
-        notes: "v0.9.200: fit + transform verified (component-wise DEC-033, sklearn KernelPCA parity: linear/rbf/poly max diff ~1.9e-15 on n=60, all 3 kernels). Intrinsic O(n^2) fit transient (bounded_by_domain {n:1e4}, DEC-075); transform streaming via pairwise_kernel(X_fit, Q_batch) — OOC in n_q. For n>1e4: Nystroem approximation (v0.9.201+). Kernels supported: linear, rbf, poly, laplacian. sigmoid/cosine deferred v0.9.201+."
+        notes: "v0.9.200: fit + transform verified (component-wise DEC-033, sklearn KernelPCA parity 1.9e-15 all 3 kernels). Intrinsic O(n^2) fit transient (bounded_by_domain {n:1e4}, DEC-075). transform streaming via pairwise_kernel(X_fit, Q_batch). v0.9.202: fit_nystroem_kernel_map available as alternative for n>1e4 (bit-identical sklearn Nystroem for n<=1e7, reservoir fallback above + ApproximationInfo). Recommended large-n flow: Nystroem(k=100..500) -> PCA on feature map. Kernels: linear, rbf, poly, laplacian, sigmoid, cosine (full sklearn pairwise_kernels)."
       - name: SparsePCA
         tier: sota
         depends_on:
