@@ -986,10 +986,10 @@ subtypes:
   - name: Bimax
     tier: baseline
     depends_on: []
-    tier_level: tier2_wrapper
+    tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - local_structure
     purpose: 'Bimax (Prelic 2006): binary biclustering; local rule-based pattern submatrices.'
@@ -1012,14 +1012,36 @@ subtypes:
       value: null
       note: 'no_public_benchmark: Bimax per-dataset'
     ooc_status: debt
-    ooc_strategy: 'Permanent debt: Bimax is exponential by construction (Prelic 2006). Honest refuse_at_guard {min(r,c): 20}. Realistic binary biclustering size after guard refusal ~20. Larger r,c: use subsampling (disclosed) or switch algorithm.'
-    ooc_alternative: 'Permanent debt: Prelic 2006 recursive divide-and-conquer is exponential O(r*c*beta^min(r,c)), beta~1.5 (intrinsic algorithmic limit). At min(r,c)=20: ~3300 ops; at min(r,c)=100: ~4e17 — infeasible. No streaming removes exponential search. Alternative for large r,c: sample rows/cols (disclosed), or use PlaidModel (polynomial ALS per layer, also debt) for continuous data.'
+    ooc_strategy: Permanent debt (O(r*c*beta^min(r,c)) exponential intrinsic). refuse_at_guard {min(r,c) <= 25}. max_iterations=100_000 cap; max_biclusters=1000.
+    ooc_alternative: 'Permanent. Exponential in min(r,c). Approx: MAX-PLAID formulation (relax all-1 to >=alpha coverage) or biclique enumeration with size cap. Neither preserves exact Bimax inclusion-maximal property.'
     bounded_state: false
     n_scalability: refuse_at_guard
     bounded_by_domain:
       axis: min(r,c)
-      bound: 20
-      reason: 'Bimax recursive divide-and-conquer: exponential O(r*c*beta^min(r,c)), beta~1.5. At min=20 ~3300 ops; min=100 ~4e17 infeasible. No streaming removes exponential search. Alternative for larger: sample (disclosed) or PlaidModel.'
+      bound: 25
+      reason: 'Bimax is O(r*c*beta^min(r,c)) — exponential in min(r,c). Prelic 2006 §2: intrinsic algorithmic limit; cannot stream without losing inclusion-maximal property. Refuse at min(r,c) > 25 (2^25 ~ 33M paths).'
+    cadw_function: fit_bimax
+    cadw_module: cadw.ml.bimax
+    input_api: df
+    refuse_above: 25
+    bounded_state_dims:
+      r: 1
+      c: 1
+      n_biclusters: 1
+    ram_formula: r * c * i8 + n_biclusters * (r + c) * i64 + 256
+    min_ram_formula: min_rows * min_cols * i8 + 1 * (min_rows + min_cols) * i64 + 256
+    formula_evidence:
+      A_state: 'bimax.py -- A (r, c) int8 binary: r*c*i8'
+      bicluster_store: 'bimax.py -- each bicluster (R, C): (r+c)*i64'
+      header: bimax.py -- 256 byte header
+    fit_batched: false
+    predict_batched: null
+    primitive_reuse: []
+    streaming_strategy:
+      fit: Recursive divide-and-conquer on binary A (in RAM). Exponential in min(r,c); refuse_at_guard 25. max_iterations=100_000 cap.
+      predict: n/a (fit-only; labels via biclusters_ memberships).
+    ooc_target_version: null
+    migration_target: null
   metrics:
   - name: mean_squared_residue
     combination: anchor
