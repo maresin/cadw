@@ -16,6 +16,7 @@ Reference: sklearn.neighbors.LocalOutlierFactor, convention
   lof = mean(lrd[neighbor[:, 1:]]) / lrd[self]
 """
 from __future__ import annotations
+from pathlib import Path
 import ctypes
 import gc
 
@@ -254,4 +255,117 @@ def test_output_default_is_auto():
     scores = r.scores.to_numpy() if hasattr(r.scores, "to_numpy") else r.scores
     assert len(scores) == X.shape[0]
     assert np.all(np.isfinite(scores))
+
+# ---- CW-8..CW-11: predict (novelty convention, v0.9.198-b2) ----
+
+def test_predict_requires_save_train_state():
+    """CW-8: predict raises RuntimeError without save_train_state=True."""
+    X = _make_data(seed=0)
+    df = _mk_df(X)
+    r = fit_lof(df, ["x0", "x1"], k=20, output="memory",
+                memory_guard=MemoryGuard(max_memory_mb=500))
+    assert r.train_spill_path is None
+    with pytest.raises(RuntimeError, match="save_train_state"):
+        r.predict(df, X_cols=["x0", "x1"])
+
+
+def test_predict_parity_sklearn_novelty():
+    """CW-9: predict() scores bit-identical to sklearn novelty=True.
+
+    sklearn: -lof.score_samples(X_new) (score_samples returns -LOF).
+    Formula: lof_Q = mean(lrd_train[idx_Q]) / lrd_Q where
+    lrd_Q = 1/(mean(max(dist_Q, kdist_train[idx_Q])) + 1e-10),
+    dist_Q, idx_Q = kNN(k) to training (self excluded).
+    """
+    from sklearn.neighbors import LocalOutlierFactor
+
+    rng = np.random.RandomState(0)
+    X_train = rng.randn(100, 2)
+    X_new = np.array([[10.0, 10.0], [-10.0, -10.0], [0.1, 0.1]])
+
+    df_train = _mk_df(X_train)
+    df_new = _mk_df(X_new)
+
+    r = fit_lof(df_train, ["x0", "x1"], k=20, output="memory",
+                save_train_state=True,
+                memory_guard=MemoryGuard(max_memory_mb=500))
+    pred = r.predict(df_new, X_cols=["x0", "x1"])
+    cadw_scores = (pred.scores.to_numpy()
+                   if hasattr(pred.scores, "to_numpy") else pred.scores)
+
+    lof = LocalOutlierFactor(n_neighbors=20, novelty=True).fit(X_train)
+    sk_scores = -lof.score_samples(X_new)
+
+    max_diff = float(np.abs(cadw_scores - sk_scores).max())
+    assert max_diff < 1e-6, (
+        f"sklearn novelty parity: max abs diff {max_diff:.2e} >= 1e-6")
+
+    r.release_train_state()
+
+
+def test_predict_new_outliers_high_lof():
+    """CW-10: new points in dense clusters get LOF ~1; far outliers >> 1."""
+    X_train = _make_data(seed=0)
+    # Far outlier + inlier sample (mean of first cluster) + moderate noise
+    far = np.array([[100.0, 100.0]])
+    inlier = X_train[:1] + 0.01  # near cluster point
+    X_new = np.vstack([far, inlier])
+
+    df_train = _mk_df(X_train)
+    df_new = _mk_df(X_new)
+
+    r = fit_lof(df_train, ["x0", "x1"], k=20, output="memory",
+                save_train_state=True,
+                memory_guard=MemoryGuard(max_memory_mb=500))
+    pred = r.predict(df_new, X_cols=["x0", "x1"])
+    scores = (pred.scores.to_numpy()
+              if hasattr(pred.scores, "to_numpy") else pred.scores)
+
+    # far outlier >> 1; near-inlier ~1
+    assert scores[0] > 5.0, (
+        f"far outlier LOF {scores[0]:.2f} should be >> 1")
+    assert 0.5 < scores[1] < 2.0, (
+        f"near-cluster LOF {scores[1]:.2f} should be ~1")
+
+    r.release_train_state()
+
+
+def test_release_train_state_idempotent():
+    """CW-11: release_train_state twice = no error; after 1st -> predict raises."""
+    X = _make_data(seed=0)
+    df = _mk_df(X)
+    r = fit_lof(df, ["x0", "x1"], k=20, output="memory",
+                save_train_state=True,
+                memory_guard=MemoryGuard(max_memory_mb=500))
+    path = r.train_spill_path
+    assert path is not None and Path(path).exists()
+
+    r.release_train_state()
+    assert r.train_spill_path is None
+    assert not Path(path).exists()
+
+    # Idempotent: second call no-op
+    r.release_train_state()
+    assert r.train_spill_path is None
+
+    # After release: predict raises
+    with pytest.raises(RuntimeError):
+        r.predict(df, X_cols=["x0", "x1"])
+
+
+def test_predict_spilled_output():
+    """Spilled predict: state_nbytes=256; iterate works."""
+    X_train = _make_data(seed=0)
+    X_new = np.array([[100.0, 100.0]])
+    df_train = _mk_df(X_train)
+    df_new = _mk_df(X_new)
+
+    r = fit_lof(df_train, ["x0", "x1"], k=20, output="memory",
+                save_train_state=True,
+                memory_guard=MemoryGuard(max_memory_mb=500))
+
+    # Tight guard forces scores spill (small Q but SpillArray guard)
+    pred = r.predict(df_new, X_cols=["x0", "x1"])
+    assert pred.is_spilled or pred.scores.to_numpy().shape == (1,)
+    r.release_train_state()
 

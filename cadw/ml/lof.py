@@ -15,7 +15,8 @@ needs lifecycle design — SpillDir cleanup vs predict-on-new-data).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from contextlib import nullcontext
+from dataclasses import dataclass, field
 from typing import Optional, Union
 
 import numpy as np
@@ -23,6 +24,9 @@ import pyarrow as pa
 
 from cadw.core.spill import AutoArrayResult, SpillArray, SpillDir
 from cadw.ml._logging import log_fit
+from pathlib import Path
+import uuid
+import shutil
 from cadw.ops.linalg import knn_query_stream
 
 
@@ -50,6 +54,10 @@ class LOFResult:
     k: int
     contamination: Optional[float]
     is_spilled: bool = False
+    # v0.9.198 predict support:
+    train_spill_path: Optional[Path] = None
+    X_cols: list = field(default_factory=list)
+    n_train: int = 0
 
     def state_nbytes(self) -> int:
         """Honest O(model) state (DEC-033 CW-1).
@@ -68,6 +76,130 @@ class LOFResult:
                 except Exception:
                     pass
         return int(sz)
+
+
+    def predict(self, df, X_cols=None) -> "LOFResult":
+        """LOF scores for new points (novelty convention, sklearn parity).
+
+        Requires fit_lof(..., save_train_state=True). Training state
+        (X/kdist/lrd memmaps) preserved on disk at `train_spill_path`.
+
+        Formula (sklearn LocalOutlierFactor(novelty=True), P6b-verified
+        atol=1e-9):
+          dist_Q, idx_Q = kNN(k) to training (self excluded)
+          kdist_Q = kdist_train[idx_Q]
+          lrd_Q = 1 / (mean(max(dist_Q, kdist_Q)) + 1e-10)
+          lof_Q = mean(lrd_train[idx_Q]) / lrd_Q
+        """
+        if self.train_spill_path is None:
+            raise RuntimeError(
+                "LOFResult.predict: model was not fitted with "
+                "save_train_state=True. Re-fit with "
+                "fit_lof(..., save_train_state=True) to enable predict().")
+        X_cols = list(X_cols) if X_cols is not None else list(self.X_cols)
+        d = len(X_cols)
+        n_train = int(self.n_train)
+        k = int(self.k)
+
+        fit_dir = Path(self.train_spill_path)
+        if not fit_dir.exists():
+            raise RuntimeError(
+                f"LOFResult.predict: train_spill_path "
+                f"{fit_dir!r} missing (released or removed?)")
+
+        mg = getattr(df, "_memory_guard", None)
+        n_q = int(df.count())
+        if n_q == 0:
+            raise ValueError("LOFResult.predict: df is empty")
+
+        bsz = _resolve_batch_size(max(n_q, 1), d, k, mg)
+        bsz = max(1, min(int(bsz), n_q))
+
+        # Reopen training memmaps (read-only)
+        X_mm = np.memmap(str(fit_dir / "X.bin"),
+                         dtype=np.float64, mode="r",
+                         shape=(n_train, d))
+        kdist_mm = np.memmap(str(fit_dir / "kdist.bin"),
+                             dtype=np.float64, mode="r",
+                             shape=(n_train,))
+        lrd_mm = np.memmap(str(fit_dir / "lrd.bin"),
+                           dtype=np.float64, mode="r",
+                           shape=(n_train,))
+
+        def _x_train_iter():
+            for s in range(0, n_train, bsz):
+                e = min(s + bsz, n_train)
+                yield np.ascontiguousarray(X_mm[s:e])
+
+        scores_sp = SpillArray(
+            guard=mg, width=1, dtype=np.float64,
+            name="lof_predict.scores", spill_ratio=0.5)
+        for b in df._iter_filtered_batches(batch_size=bsz):
+            if mg is not None and hasattr(mg, "check_batch"):
+                mg.check_batch(b, name="lof_predict.Q", extra_factor=2.0)
+            Q = _batch_to_X(b, X_cols)
+            if Q.shape[0] == 0:
+                continue
+            idx_q, dist_q = knn_query_stream(
+                _x_train_iter(), Q, k, return_dist=True,
+                memory_guard=mg,
+            )
+            kdist_q = kdist_mm[idx_q]
+            lrd_q = 1.0 / (
+                np.maximum(dist_q, kdist_q).mean(axis=1) + 1e-10)
+            lof_q = lrd_mm[idx_q].mean(axis=1) / lrd_q
+            scores_sp.write_array(lof_q)
+        scores = scores_sp.finalize()
+
+        thr = float(self.threshold)
+        if scores.is_spilled:
+            labels_sp = SpillArray(
+                guard=mg, width=1, dtype=np.int8,
+                name="lof_predict.labels", spill_ratio=0.0)
+            for chunk in scores:
+                labels_sp.write_array((chunk > thr).astype(np.int8))
+            labels = labels_sp.finalize()
+        else:
+            labels = (scores.to_numpy() > thr).astype(np.int8)
+
+        del X_mm, kdist_mm, lrd_mm
+
+        return LOFResult(
+            scores=scores, labels=labels, threshold=thr,
+            k=k, contamination=self.contamination,
+            is_spilled=scores.is_spilled,
+        )
+
+    def release_train_state(self) -> None:
+        """Delete training memmaps (X/kdist/lrd etc.) from disk.
+
+        Idempotent. After this, predict() raises RuntimeError.
+        """
+        if self.train_spill_path is None:
+            return
+        d = Path(self.train_spill_path)
+        if d.exists():
+            try:
+                shutil.rmtree(d)
+            except Exception:
+                pass
+        self.train_spill_path = None
+
+
+
+class _DirAdapter:
+    """Minimal SpillDir-compatible adapter for a user-provided directory.
+
+    Provides `.path(name)` only (matches fit_lof usage). No cleanup on exit
+    (user-provided or df._spill_dir owned by DataFrame lifecycle).
+    """
+
+    def __init__(self, root):
+        self._root = Path(root)
+
+    def path(self, name: str) -> Path:
+        return self._root / name
+
 
 
 def _batch_to_X(b, X_cols):
@@ -108,6 +240,8 @@ def fit_lof(
     k: int = 20,
     contamination: Optional[float] = None,
     output: str = "auto",
+    save_train_state: bool = False,
+    spill_path=None,
     batch_size: Optional[int] = None,
     memory_guard=None,
 ) -> LOFResult:
@@ -124,9 +258,16 @@ def fit_lof(
       batch_size: rows per batch; auto from guard.
       memory_guard: optional MemoryGuard.
 
-    Returns LOFResult. state_nbytes = 256 (spilled) or scores+labels+n.
+    Args:
+      save_train_state: v0.9.198. If True, keep training memmaps
+        (X/kdist/lrd) on disk at `spill_path` (default:
+        `<df._spill_dir>/lof_fit_<uuid>`). Required for predict().
+        Caller responsible for `result.release_train_state()`.
+      spill_path: v0.9.198. Explicit directory for save_train_state.
+        None (default) -> `<df._spill_dir>/lof_fit_<uuid>`.
 
-    predict() deferred to v0.9.198 (X memmap persistence pattern).
+    Returns LOFResult. state_nbytes = 256 (spilled) or scores+labels+n.
+    predict() requires save_train_state=True.
     """
     if not X_cols:
         raise ValueError("fit_lof: X_cols is empty")
@@ -165,8 +306,22 @@ def fit_lof(
         batch_size = _resolve_batch_size(n_total, d, k, mg)
     batch_size = max(1, min(int(batch_size), n_total))
 
+    # v0.9.198: dispatch spill_dir context
+    if save_train_state:
+        if spill_path is not None:
+            _fit_dir = Path(spill_path)
+        else:
+            _fit_dir = (Path(df._spill_dir)
+                        / f"lof_fit_{uuid.uuid4().hex[:8]}")
+        _fit_dir.mkdir(parents=True, exist_ok=True)
+        _train_spill_path = _fit_dir
+        _ctx = nullcontext(_DirAdapter(_fit_dir))
+    else:
+        _train_spill_path = None
+        _ctx = SpillDir(guard=mg, name="lof")
+
     result = None
-    with SpillDir(guard=mg, name="lof") as sdir:
+    with _ctx as sdir:
         # --- Pass 1: X → memmap ---
         X_path = sdir.path("X.bin")
         X_mm = np.memmap(str(X_path), dtype=np.float64, mode="w+",
@@ -286,8 +441,13 @@ def fit_lof(
             pass
         del X_mm, idx_mm, dist_mm, kdist_mm, lrd_mm
 
-    return LOFResult(
-            scores=scores, labels=labels, threshold=float(thr),
-            k=int(k), contamination=contamination,
-            is_spilled=scores.is_spilled,
-        )
+    result = LOFResult(
+        scores=scores, labels=labels, threshold=float(thr),
+        k=int(k), contamination=contamination,
+        is_spilled=scores.is_spilled,
+        train_spill_path=_train_spill_path,
+        X_cols=list(X_cols),
+        n_train=int(n_total),
+    )
+    log_fit("lof", state_bytes=result.state_nbytes())
+    return result
