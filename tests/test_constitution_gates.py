@@ -1505,15 +1505,12 @@ def test_G24_ooc_status_required():
                 if (status == "verified" or has_bbd) and not m.get("ooc_status"):
                     missing.append(f"{yf.stem}.{m.get('name')}")
 
-    if missing:
-        warnings.warn(
-            f"G24 (v0.9.208 soft): {len(missing)} verified/debt cards "
-            f"without ooc_status; hard-fail v0.9.210:\n" +
-            "\n".join(f"  {x}" for x in missing[:10]) +
-            (f"\n  ... ({len(missing)-10} more)" if len(missing) > 10 else ""),
-            stacklevel=2,
-        )
-    # soft — always pass in v0.9.208
+    assert not missing, (
+        f"G24 (v0.9.208 hard): {len(missing)} verified/debt cards "
+        f"without ooc_status:\n" +
+        "\n".join(f"  {x}" for x in missing[:15]) +
+        (f"\n  ... ({len(missing)-15} more)" if len(missing) > 15 else "")
+    )
 
 
 # ============================================================================

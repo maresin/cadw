@@ -1080,6 +1080,8 @@ subtypes:
       metric: hamming_loss
       value: null
       note: 'no_public_benchmark: ML-kNN per-dataset; no unified multilabel LB'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Multi-label kNN with Bayesian prior (Zhang & Zhou 2007). Label posterior from neighbour counts... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   metrics:
   - name: subset_accuracy
     combination: anchor
@@ -1205,6 +1207,8 @@ subtypes:
       value: 0.6
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: GBDT on cumulative logits; SOTA when relations are nonlinear... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: OrderedProbitBayesian
     tier: sota
     depends_on:
@@ -1493,6 +1497,8 @@ subtypes:
       value: 0.5
       std: null
       note: pinball loss, not rmse; use for ranking only [legacy v0.9.44, migrated v0.9.50]
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: Linear quantile regression (pinball loss); fast baseline... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: GBDT_pinball
     tier: sota
     depends_on:
@@ -1522,6 +1528,8 @@ subtypes:
       value: 0.46
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    ooc_status: achievable
+    ooc_strategy: 'Not implemented. Planned approach: GBDT with pinball loss; SOTA for nonlinear quantile regression... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: CQR
     tier: sota
     depends_on:
