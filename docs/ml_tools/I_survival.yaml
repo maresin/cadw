@@ -129,8 +129,10 @@ subtypes:
     - reduce
     - memmap
     - spill_dir
-    ooc_status: debt
-    ooc_strategy: 'Current: CoxPH c-index statistically unstable at n>1e6 (v0.9.97 do-not-re-solve); concordance_index O(n) intrinsic (Ts/Es/Rs). fi. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: concordance streaming (Fenwick) -> OOC complete. Current: fit/predict OOC; concordance O(n) intrinsic. Target v0.9.180+ for concordance; bbd remains for c-index statistical stability.'
+    ooc_alternative: fit_coxph and predict_risk already OOC (external_sort Newton v0.9.93 + _breslow_streaming v0.9.206). Only concordance_index O(n) intrinsic (Ts/Es/Rs arrays); Fenwick streaming planned ROADMAP §v0.9.180+. Statistical bound n<=1e6 for c-index stability is separate concern (DEC-097 do-not-re-solve).
+    ooc_target_version: v0.9.210
   - name: KaplanMeier
     cadw_function: fit_kaplan_meier
     cadw_module: cadw.ml.kaplan_meier

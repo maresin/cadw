@@ -484,8 +484,10 @@ subtypes:
       auto_from_guard: true
       truncation_loss: STL + Theta fit on last W_eff (bit-identical n<=W_eff)
       applies_to: params=manual
-    ooc_status: debt
-    ooc_strategy: 'Current: CV-selection over STM/OTM × additive/multiplicative; CV needs full y for holdout split (O(n) transient). _Multiplicative. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: _ses_fit_hw streaming (P3) + CV on W_eff window. Current: CV needs full y for holdout. Target v0.9.194+.'
+    ooc_alternative: '_ses_fit_hw streaming variant P3 backlog (ROADMAP §Permanent discipline §B, v0.9.189). CV holdout on last W_eff; precedent: ETS/Theta already bounded_by_window (v0.9.192).'
+    ooc_target_version: v0.9.194+
   - name: SARIMA
     cadw_module: cadw.ts.models
     cadw_function: SARIMAForecaster
@@ -712,8 +714,10 @@ subtypes:
       metric: mase
       value: null
       note: CADW-native ensemble; see .pingis/benches/ensemble.json (v0.9.82).
-    ooc_status: debt
-    ooc_strategy: 'Current: Per-member AutoForecastPipeline: base forecaster (Naive 1n, Theta 2n, ETS 2-3n) + AutoStationarizer (1n) + fitted (1n). Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: composite OOC when members OOC (Naive/Theta/ETS). Current: per-member pipeline state O(n). Target v0.9.194+.'
+    ooc_alternative: 'Pass-through composite: base members become windowed when each member is. Deferred until members (Naive/Theta/ETS) are bounded_by_window (v0.9.194+). Per-member state inherited.'
+    ooc_target_version: v0.9.194+
   - name: OTMThetaForecaster
     tier: sota
     tier_level: tier1_core
@@ -862,8 +866,10 @@ subtypes:
     primitive_reuse:
     - reduce
     - sort
-    ooc_status: debt
-    ooc_strategy: 'Current: Single-series temporal hierarchy; state = y_base(n) + per-level aggregates + forecaster states = O(n_total). n=1e6 stati. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: composite OOC when members OOC. Current: single-series hierarchy, state = y_base(n). Target v0.9.194+.'
+    ooc_alternative: 'Composite: y_base(n) + per-level aggregates. Base pass-through via _collect_last_w (already used by members). Per-level forecasters streaming when members are.'
+    ooc_target_version: v0.9.194+
   - name: TransformedTargetForecaster
     tier: baseline
     tier_level: tier1_core
@@ -938,8 +944,10 @@ subtypes:
     primitive_reuse:
     - reduce
     - stl_decompose
-    ooc_status: debt
-    ooc_strategy: 'Current: Pipeline state = base forecaster + sum(transformer state). STL transformer O(n) (3n arrays); Differencer O(1). n>1e6 = 2. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: transforms streaming (STL bounded_by_window v0.9.192) + base forecaster streaming. Target v0.9.194+.'
+    ooc_alternative: Pipeline state = base forecaster + sum(transformer state). STL transformer O(n); if STL bounded_by_window (v0.9.192) and base forecaster bounded -> OOC.
+    ooc_target_version: v0.9.194+
   - name: backtest_forecaster
     tier: baseline
     not_a_model: true
@@ -1278,8 +1286,10 @@ subtypes:
       std: null
       note: 'M2 parity on synthetic_m4_like_multivariate DGP: RMSE(cadw_forecast, statsmodels_forecast)=0.0 (5.8e-18 round-off); verdict=consistent'
     transient_factor: 1.0
-    ooc_status: debt
-    ooc_strategy: 'Current: Multi-series VAR(p); state = Y_ (n, k) + coef_ (k, k*p) + intercept_ (k) = n*k*f64 + k*k*p*f64 + k*f64 + 256. k, p small. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: streaming XTX + rolling buf (BVAR precedent). Current: state = Y_(n,k) + coef_. Target v0.9.192+ (DEC-057 F3).'
+    ooc_alternative: Streaming XTX += X.T@X (DEC-057 F3); BVAR/VECM precedent (streaming XTX + rolling buf last-p). State O(k^2*p^2), independent of n.
+    ooc_target_version: v0.9.192+
   - name: GBDT_multiseries
     cadw_module: cadw.ts.models
     cadw_function: GBDTForecaster

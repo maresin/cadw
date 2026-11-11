@@ -301,8 +301,10 @@ subtypes:
     - eigh_topk
     migration_target: null
     notes: 'v0.9.200: fit + transform verified (component-wise DEC-033, sklearn KernelPCA parity 1.9e-15 all 3 kernels). Intrinsic O(n^2) fit transient (bounded_by_domain {n:1e4}, DEC-075). transform streaming via pairwise_kernel(X_fit, Q_batch). v0.9.202: fit_nystroem_kernel_map available as alternative for n>1e4 (bit-identical sklearn Nystroem for n<=1e7, reservoir fallback above + ApproximationInfo). Recommended large-n flow: Nystroem(k=100..500) -> PCA on feature map. Kernels: linear, rbf, poly, laplacian, sigmoid, cosine (full sklearn pairwise_kernels).'
-    ooc_status: debt
-    ooc_strategy: 'Current: O(n^2) kernel matrix + eigh copy (intrinsic per DEC-075). At n=1e4: K=800 MB, eigh copy 800 MB; guard refuses above. Opt. Guard refuses above state_limit (honest refuse).'
+    ooc_status: achievable
+    ooc_strategy: 'Plan: document Nystroem alternative in docstring + remove bbd for large n via Nystroem. Current bound: n<=1e4 (K=800 MB at bound). Target v0.9.210.'
+    ooc_alternative: 'For n>1e4 use Nystroem (fit_nystroem_kernel_map, verified v0.9.202): random subsample m=O(sqrt(n)), linear kernel + transform streaming. For n<=1e4 exact (this card). O(n^2) kernel matrix + eigh copy intrinsic per DEC-075.'
+    ooc_target_version: v0.9.210
   - name: SparsePCA
     tier: sota
     depends_on:
