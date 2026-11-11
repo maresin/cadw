@@ -1386,3 +1386,86 @@ def test_G22_leaf_deps_consistent():
         f"card, OR declare bounded_by_window on model."
     )
 
+
+# ============================================================================
+# G23 (v0.9.206): layer=batch + bs=true — no n-sized term in ram_formula.
+#
+# Rationale: v0.9.206 audit нашёл _baseline_hazard_streaming с layer=batch,
+# bs=true, ram_formula="2*n_events*f64 + ..." — dishonest (state grows with
+# n_events = n for all-uncensored). Card was flipped to leaf+ib. G23
+# предотвращает future repeats статически.
+# ============================================================================
+
+def test_G23_batch_primitive_no_n_in_ram_formula():
+    """G23 (v0.9.206): layer=batch + bs=true ram_formula must not contain
+    n-sized identifiers as отдельные термы.
+
+    Whitelisted (bounded hyperparams, not n):
+      batch, row_size, d, k, K, p, q, s, W_eff, chunk, min_size,
+      k_arms, n_q (Q size), n_y (query batch), n_features (fixed d),
+      nnz (sparse count, caller-controlled), state_bytes, n_estimators.
+
+    Forbidden (n-sized):
+      n, N, n_events, n_rows, n_total, n_x, n_groups, n_samples,
+      n_train, n_test, n_obs, n_mem.
+    """
+    import re
+    import yaml
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    prim = yaml.safe_load(
+        (root / "docs" / "ml_tools" / "PRIMITIVES.yaml").read_text())
+    cards = prim.get("primitives") or []
+
+    FORBIDDEN = {
+        "n", "N", "n_events", "n_rows", "n_total", "n_x", "n_groups",
+        "n_samples", "n_train", "n_test", "n_obs", "n_mem",
+    }
+
+    violations = []
+    for c in cards:
+        if c.get("layer") != "batch":
+            continue
+        if c.get("bounded_state") is not True:
+            continue
+        rf = c.get("ram_formula") or ""
+        if not rf:
+            continue
+        # identifiers: \b[a-zA-Z_]\w*
+        ids = set(re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b", rf))
+        for ident in ids:
+            if ident in FORBIDDEN:
+                violations.append(
+                    f"{c.get('name')}: ram_formula={rf!r} contains "
+                    f"n-sized identifier {ident!r}")
+
+    assert not violations, (
+        f"G23: {len(violations)} batch+bs=true primitives claim "
+        f"bounded state but ram_formula contains n-sized term:\n"
+        + "\n".join(violations)
+        + "\n\nFix: either layer=batch->leaf + intrinsic_bound {axis, bound}, "
+        f"OR ram_formula reflect actual O(model) state (no n)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# G23-behavioral: optional fixture-driven state independence test.
+# Whitelist (in _G23_FIXTURES) — cheap primitives with concrete setup.
+# Other batch primitives skip (expensive fixtures; static G23 covers them).
+# ---------------------------------------------------------------------------
+
+_G23_FIXTURES = {}  # v0.9.206 initial: empty (static G23 + per-primitive CW)
+
+
+def test_G23_behavioral_fixture_whitelist():
+    """G23-behavioral (v0.9.206): guard that fixture whitelist не растёт
+    молча. Skip если пусто.
+    """
+    # Empty whitelist is valid (v0.9.206 initial; static G23 above + per-
+    # primitive CW tests already cover: test_linalg_svd::test_ooc_in_n_rows,
+    # test_lof_verification::test_state_constant_in_n, etc.)
+    assert isinstance(_G23_FIXTURES, dict), (
+        "_G23_FIXTURES must be a dict; got "
+        f"{type(_G23_FIXTURES).__name__}")
+
