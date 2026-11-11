@@ -155,6 +155,145 @@ def nan_sq_dists(Q: np.ndarray, X: np.ndarray) -> np.ndarray:
 
 
 
+def svd_topk(
+    df,
+    X_cols,
+    k: int,
+    *,
+    compute_u: bool = False,
+    batch_size=None,
+    memory_guard=None,
+):
+    """Top-k SVD via chunked Gram Reduce (batch-layer, OOC in n_rows).
+
+    v0.9.205 (ROADMAP §OOC by primitive pattern #1):
+      Pass 1: G += X_batch.T @ X_batch (Reduce, state O(d^2))
+      eigh_topk(G, k, which="LA") -> V (d, k), sigma = sqrt(clip(lambda, 0))
+      svd_flip(V.T, u_based_decision=False) for sklearn TruncatedSVD parity
+      Pass 2 (if compute_u): U_batch = X_batch @ V / sigma -> SpillArray.
+
+    Args:
+      df: CadwDataFrame with X_cols numeric (no NaN allowed).
+      X_cols: list[str] (d columns).
+      k: number of components (1 <= k <= min(n, d)).
+      compute_u: if True, compute U (n, k) as AutoArrayResult (SpillArray,
+        OOC in n); if False (default), U=None (fit_transform computes
+        X @ V / sigma or X @ V directly as needed).
+      batch_size: rows per batch; auto from guard.
+      memory_guard: optional MemoryGuard.
+
+    Returns:
+      (U, sigma, V):
+        U: (n_rows, k) AutoArrayResult OR None
+        sigma: (k,) f64 — descending, clipped to >= 0
+        V: (d, k) f64 — descending columns (columns_ = V.T)
+
+    Sklearn TruncatedSVD(algorithm="arpack", tol=0) parity:
+      singular_values_ == sigma (atol 1e-9)
+      components_ == V.T after svd_flip (atol 1e-9)
+
+    OOC in n_rows: state = d*d*f64*2 (G + eigh working copy) + k*f64*2 + 256;
+    independent of n. bounded_by_domain {d: 1e4} (d^2*16 = 1.6 GB at d=1e4);
+    guard refuses above. For d>1e4 use sparse path (not this primitive).
+    """
+    import pyarrow as pa
+
+    if not X_cols:
+        raise ValueError("svd_topk: X_cols is empty")
+    if k < 1:
+        raise ValueError(f"svd_topk: k must be >= 1; got {k}")
+    missing = [c for c in X_cols if c not in df.columns]
+    if missing:
+        raise KeyError(
+            f"svd_topk: columns missing: {missing}; available: {df.columns}")
+
+    mg = memory_guard or getattr(df, "_memory_guard", None)
+    n_total = int(df.count())
+    d = len(X_cols)
+    if n_total < 1:
+        raise ValueError(f"svd_topk: n must be >= 1; got {n_total}")
+    if k > min(n_total, d):
+        raise ValueError(
+            f"svd_topk: k={k} > min(n={n_total}, d={d})")
+
+    if batch_size is None:
+        batch_size = max(1, min(n_total, 1000))
+    batch_size = max(1, min(int(batch_size), n_total))
+
+    # State guard: G (d, d) + eigh copy + sigma + V
+    state_bytes = d * d * 8 * 2 + k * 8 * 2 + 256
+    if mg is not None and hasattr(mg, "check_state"):
+        mg.check_state(state_bytes, name="svd_topk.state")
+
+    # ---- Pass 1: G = X^T X (chunked Reduce) ----
+    G = np.zeros((d, d), dtype=np.float64)
+    n_processed = 0
+    for b in df._iter_filtered_batches(batch_size=batch_size):
+        if mg is not None and hasattr(mg, "check_batch"):
+            mg.check_batch(b, name="svd_topk.X", extra_factor=2.0)
+        X_b = _batch_to_X_svd(b, X_cols)
+        if X_b.shape[0] == 0:
+            continue
+        if np.isnan(X_b).any():
+            raise ValueError(
+                "svd_topk: X contains NaN; impute first (fit_knn_imputer)")
+        G += X_b.T @ X_b
+        n_processed += X_b.shape[0]
+    if n_processed != n_total:
+        raise RuntimeError(
+            f"svd_topk: X rows mismatch ({n_processed} != {n_total})")
+
+    # ---- eigh_topk on G ----
+    # LA = largest algebraic; eigenvalues of X^T X are sigma^2 (>=0)
+    lam, V = eigh_topk(G, k, which="LA", memory_guard=mg)
+    # Clip tiny negatives (numerical)
+    lam = np.maximum(lam, 0.0)
+    sigma = np.sqrt(lam)
+
+    # svd_flip parity with sklearn (u_based_decision=False -> flip based on VT)
+    # Vt = V.T (k, d); per-row (component) max abs; sign-flip
+    Vt = V.T.copy()
+    max_abs_rows = np.argmax(np.abs(Vt), axis=1)
+    signs = np.sign(Vt[np.arange(Vt.shape[0]), max_abs_rows])
+    signs[signs == 0] = 1.0
+    Vt = Vt * signs[:, np.newaxis]
+    V = Vt.T  # back to (d, k)
+
+    # ---- Pass 2 (optional): U = X V / sigma ----
+    U = None
+    if compute_u:
+        from cadw.core.spill import SpillArray
+        U_sp = SpillArray(
+            guard=mg, width=k, dtype=np.float64,
+            name="svd_topk.U", spill_ratio=0.5)
+        sigma_safe = np.maximum(sigma, 1e-12)
+        for b in df._iter_filtered_batches(batch_size=batch_size):
+            if mg is not None and hasattr(mg, "check_batch"):
+                mg.check_batch(b, name="svd_topk.U", extra_factor=3.0)
+            X_b = _batch_to_X_svd(b, X_cols)
+            if X_b.shape[0] == 0:
+                continue
+            U_b = (X_b @ V) / sigma_safe[None, :]
+            U_sp.write_array(U_b)
+        U = U_sp.finalize()
+
+    return U, sigma, V
+
+
+def _batch_to_X_svd(b, X_cols):
+    """Extract (b, d) f64 from pa.RecordBatch (NaN preserved)."""
+    import pyarrow as pa
+    arrs = []
+    for c in X_cols:
+        col = b.column(c)
+        if not pa.types.is_floating(col.type):
+            col = col.cast(pa.float64())
+        arrs.append(col.to_numpy(zero_copy_only=False).astype(
+            np.float64, copy=False))
+    return np.column_stack(arrs) if arrs else np.empty((b.num_rows, 0))
+
+
+
 def nmf_mu(X_b: np.ndarray, H: np.ndarray, *, eps: float = 1e-10) -> np.ndarray:
     """One mini-batch Lee & Seung mu update of H.
 

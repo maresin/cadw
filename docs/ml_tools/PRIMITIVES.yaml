@@ -763,6 +763,32 @@ primitives:
   streaming_variant: null
   consumers: [fit_knn_imputer]
 
+- name: svd_topk
+  cadw_function: cadw.ops.linalg.svd_topk
+  module: cadw.ops.linalg
+  layer: batch
+  status: draft
+  bounded_state: true
+  ram_formula: "d * d * f64 * 2 + k * f64 * 2 + batch * d * f64 + 256"
+  min_ram_formula: "d * d * f64 * 2 + k * f64 * 2 + 256"
+  formula_evidence:
+    gram: "linalg.py -- G = zeros((d, d)): d*d*f64 (chunked Reduce)"
+    eigh: "linalg.py -- eigh_topk(G, k): d*d*f64 copy + V (d,k) f64"
+    batch: "linalg.py -- X_b (batch, d); G += X_b.T @ X_b"
+  # v0.9.205: chunked Gram (batch-layer). Pass 2 (compute_u) uses
+  # SpillArray (OOC in n via disk). bounded_by_domain {d: 1e4} (state
+  # d^2*16 = 1.6 GB). For d>1e4 caller uses scipy.sparse.linalg.svds.
+  intrinsic_bound:
+    axis: d
+    bound: 10000
+    reason: "d^2 Gram state (d^2*8*2 with eigh copy) = 1.6 GB at d=1e4; d>1e4 -> scipy svds path (caller responsibility, leaf fallback). OOC in n_rows via chunked Reduce; state independent of n."
+  streaming_strategy:
+    fit: "chunked Gram Reduce (state O(d^2)) -> eigh_topk(LA) -> svd_flip -> optional Pass 2 U via SpillArray"
+    predict: "n/a (primitive returns U, sigma, V directly; transform = X @ V / sigma)"
+  primitive_reuse: [eigh_topk, spill_array]
+  consumers: [TruncatedSVD, randomized_svd (v0.9.206+), SpectralCoclustering (v0.9.207+), SpectralBiclustering (v0.9.207+), LSA embedding (v0.9.208+)]
+  notes: "sklearn TruncatedSVD(algorithm='arpack', tol=0) parity: sigma atol 6e-14, components_ (V.T after svd_flip) atol 1e-9 (P2 verified)."
+
 - name: pairwise_kernel
   cadw_function: cadw.ops.linalg.pairwise_kernel
   module: cadw.ops.linalg
