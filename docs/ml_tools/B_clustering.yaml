@@ -1011,8 +1011,15 @@ subtypes:
       metric: mean_squared_residue
       value: null
       note: 'no_public_benchmark: Bimax per-dataset'
-    ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Bimax (Prelic 2006): binary biclustering; local rule-based pattern submatrices... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_status: debt
+    ooc_strategy: 'Permanent debt: Bimax is exponential by construction (Prelic 2006). Honest refuse_at_guard {min(r,c): 20}. Realistic binary biclustering size after guard refusal ~20. Larger r,c: use subsampling (disclosed) or switch algorithm.'
+    ooc_alternative: 'Permanent debt: Prelic 2006 recursive divide-and-conquer is exponential O(r*c*beta^min(r,c)), beta~1.5 (intrinsic algorithmic limit). At min(r,c)=20: ~3300 ops; at min(r,c)=100: ~4e17 — infeasible. No streaming removes exponential search. Alternative for large r,c: sample rows/cols (disclosed), or use PlaidModel (polynomial ALS per layer, also debt) for continuous data.'
+    bounded_state: false
+    n_scalability: refuse_at_guard
+    bounded_by_domain:
+      axis: min(r,c)
+      bound: 20
+      reason: 'Bimax recursive divide-and-conquer: exponential O(r*c*beta^min(r,c)), beta~1.5. At min=20 ~3300 ops; min=100 ~4e17 infeasible. No streaming removes exponential search. Alternative for larger: sample (disclosed) or PlaidModel.'
   metrics:
   - name: mean_squared_residue
     combination: anchor
