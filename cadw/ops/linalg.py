@@ -476,7 +476,7 @@ def core_distances(
 #   when Cholesky fails (kernel matrix not strictly PSD due to noise).
 # ============================================================================
 
-_SUPPORTED_KERNELS = ("linear", "rbf", "poly", "laplacian")
+_SUPPORTED_KERNELS = ("linear", "rbf", "poly", "laplacian", "sigmoid", "cosine")
 _KERNEL_STATE_HEADER = 256
 
 
@@ -511,11 +511,13 @@ def pairwise_kernel(
     Args:
       X: (n_x, d) float64.
       Y: (n_y, d) float64.
-      kernel: "linear" | "rbf" | "poly" | "laplacian".
+      kernel: "linear" | "rbf" | "poly" | "laplacian" | "sigmoid" | "cosine".
         - linear:    K = <x, y>
         - rbf:       K = exp(-gamma * ||x-y||^2)
         - poly:      K = (gamma * <x,y> + coef0) ** degree
         - laplacian: K = exp(-gamma * ||x-y||_1)
+        - sigmoid:   K = tanh(gamma * <x,y> + coef0)
+        - cosine:    K = <x,y> / (||x|| * ||y||)
       gamma, degree, coef0: kernel hyperparameters.
       chunk_size: Y rows per chunk (auto from guard if None).
       memory_guard: optional MemoryGuard.
@@ -536,7 +538,7 @@ def pairwise_kernel(
     if kernel not in _SUPPORTED_KERNELS:
         raise ValueError(
             f"kernel must be one of {_SUPPORTED_KERNELS}; got {kernel!r}")
-    if kernel != "linear" and gamma <= 0:
+    if kernel not in ("linear", "cosine") and gamma <= 0:
         raise ValueError(f"gamma must be > 0; got {gamma}")
     if kernel == "poly":
         if degree < 1:
@@ -553,6 +555,12 @@ def pairwise_kernel(
         chunk_size = _resolve_kernel_chunk_size(n_x, d, memory_guard)
     chunk_size = max(1, int(chunk_size))
 
+    # cosine: L2-normalize X once (Yc normalized per chunk)
+    X_norm = None
+    if kernel == "cosine":
+        Xn = np.linalg.norm(X, axis=1, keepdims=True)
+        X_norm = X / np.maximum(Xn, 1e-12)
+
     K = np.empty((n_x, n_y), dtype=np.float64)
     for start in range(0, n_y, chunk_size):
         end = min(start + chunk_size, n_y)
@@ -568,8 +576,13 @@ def pairwise_kernel(
             Kc = np.exp(-gamma * np.maximum(D2, 0.0))
         elif kernel == "poly":
             Kc = (gamma * (X @ Yc.T) + coef0) ** degree
+        elif kernel == "sigmoid":
+            Kc = np.tanh(gamma * (X @ Yc.T) + coef0)
+        elif kernel == "cosine":
+            Yn = np.linalg.norm(Yc, axis=1, keepdims=True)
+            Ycn = Yc / np.maximum(Yn, 1e-12)
+            Kc = X_norm @ Ycn.T
         else:  # laplacian
-            # chunked L1 distance
             diff = X[:, None, :] - Yc[None, :, :]
             Kc = np.exp(-gamma * np.abs(diff).sum(axis=2))
         K[:, start:end] = Kc

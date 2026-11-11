@@ -45,6 +45,8 @@ class LOFResult:
         ~50% of points will have LOF > 1.0 for balanced data. This is
         NOT "flag half as outliers" — it's the natural LOF=1 reference
         boundary. For "top-N% flagged", use contamination.
+      * contamination="auto": threshold = 1.5 (sklearn offset_=-1.5
+        constant; no percentile -> works with any output).
       * contamination=c (0<c<0.5): threshold = (1-c) percentile of
         scores; requires output="memory".
     """
@@ -52,7 +54,7 @@ class LOFResult:
     labels: Union[np.ndarray, AutoArrayResult]
     threshold: float
     k: int
-    contamination: Optional[float]
+    contamination: Union[float, str, None] = None
     is_spilled: bool = False
     # v0.9.198 predict support:
     train_spill_path: Optional[Path] = None
@@ -238,7 +240,7 @@ def fit_lof(
     X_cols,
     *,
     k: int = 20,
-    contamination: Optional[float] = None,
+    contamination: Union[float, str, None] = None,
     output: str = "auto",
     save_train_state: bool = False,
     spill_path=None,
@@ -276,16 +278,24 @@ def fit_lof(
     if output not in ("memory", "auto", "disk"):
         raise ValueError(
             f"fit_lof: output must be 'memory'|'auto'|'disk'; got {output!r}")
+    # v0.9.201: contamination accepts None | float in (0,1) | "auto"
     if contamination is not None:
-        if not (0.0 < float(contamination) < 1.0):
-            raise ValueError(
-                f"fit_lof: contamination must be in (0, 1); "
-                f"got {contamination!r}")
-        if output != "memory":
-            raise NotImplementedError(
-                f"fit_lof: contamination={contamination!r} requires "
-                f"output='memory' (percentile over full scores array). "
-                f"Use output='memory' or contamination=None.")
+        if isinstance(contamination, str):
+            if contamination != "auto":
+                raise ValueError(
+                    f"fit_lof: contamination str must be 'auto'; "
+                    f"got {contamination!r}")
+        else:
+            # numeric
+            if not (0.0 < float(contamination) < 1.0):
+                raise ValueError(
+                    f"fit_lof: contamination must be None | float in "
+                    f"(0, 1) | 'auto'; got {contamination!r}")
+            if output != "memory":
+                raise NotImplementedError(
+                    f"fit_lof: contamination={contamination!r} requires "
+                    f"output='memory' (percentile over full scores array). "
+                    f"Use output='memory' or contamination=None|'auto'.")
 
     mg = memory_guard or getattr(df, "_memory_guard", None)
 
@@ -414,8 +424,13 @@ def fit_lof(
         scores = scores_sp.finalize()
 
         # --- labels (threshold) ---
-        if contamination is not None:
-            # output="memory" enforced at top
+        # v0.9.201: contamination='auto' -> threshold 1.5 (sklearn offset_
+        # = -1.5 constant; predict: neg_factor < -1.5 -> score > 1.5).
+        # No percentile -> works with any output.
+        if contamination == "auto":
+            thr = 1.5
+        elif contamination is not None:
+            # float: output="memory" enforced at top
             scores_np = scores.to_numpy()
             thr = float(np.percentile(
                 scores_np, 100.0 * (1.0 - float(contamination))))

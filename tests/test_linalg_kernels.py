@@ -204,3 +204,38 @@ def test_linear_kernel_ignores_gamma():
     K2 = pairwise_kernel(X, Y, kernel="linear", gamma=1000.0)
     np.testing.assert_allclose(K1, K2, atol=1e-14)
 
+# ---- v0.9.201: sigmoid + cosine kernels ----
+
+def test_sigmoid_kernel_sklearn_parity():
+    """sigmoid: tanh(gamma X@Y.T + coef0) == sklearn sigmoid_kernel."""
+    from sklearn.metrics.pairwise import sigmoid_kernel
+    from cadw.ops.linalg import pairwise_kernel
+    rng = np.random.RandomState(0)
+    X = rng.randn(12, 4)
+    Y = rng.randn(17, 4)
+    K_cadw = pairwise_kernel(X, Y, kernel="sigmoid",
+                              gamma=0.5, coef0=1.0)
+    K_sk = sigmoid_kernel(X, Y, gamma=0.5, coef0=1.0)
+    np.testing.assert_allclose(K_cadw, K_sk, atol=1e-12)
+
+
+def test_cosine_kernel_sklearn_parity():
+    """cosine: <x,y>/(||x||*||y||) == sklearn cosine_similarity."""
+    from sklearn.metrics.pairwise import cosine_similarity
+    from cadw.ops.linalg import pairwise_kernel
+    rng = np.random.RandomState(1)
+    X = rng.randn(10, 5)
+    Y = rng.randn(15, 5)
+    K_cadw = pairwise_kernel(X, Y, kernel="cosine")
+    K_sk = cosine_similarity(X, Y)
+    np.testing.assert_allclose(K_cadw, K_sk, atol=1e-12)
+
+
+def test_cosine_kernel_ignores_gamma():
+    """cosine: gamma unused; any gamma fine."""
+    from cadw.ops.linalg import pairwise_kernel
+    X = np.random.RandomState(2).randn(8, 3)
+    K1 = pairwise_kernel(X, X, kernel="cosine", gamma=0.001)
+    K2 = pairwise_kernel(X, X, kernel="cosine", gamma=1000.0)
+    np.testing.assert_allclose(K1, K2, atol=1e-14)
+

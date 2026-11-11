@@ -191,7 +191,7 @@ subtypes:
       fit: "5-pass SpillDir+memmap: X->disk, kNN->disk, kdist/lrd->disk+memmap random-access, LOF->SpillArray. RAM O(batch*(d+k)) per pass; state O(model) after."
       predict: "O(steps) via knn_query_stream + memmap lrd[kdist] lookup. Requires fit_lof(..., save_train_state=True); training memmaps (X/kdist/lrd) persist on disk at train_spill_path. sklearn LocalOutlierFactor(novelty=True) parity 1.78e-15 (CW-9)."
     primitive_reuse: [knn_query_stream, spill_dir, memmap]
-    notes: "v0.9.197 fit verified (component-wise DEC-033, sklearn parity 7.26e-8). v0.9.198 predict supported via save_train_state=True (sklearn novelty=True parity 1.78e-15). Caller must release_train_state() after; without it, predict() raises RuntimeError. threshold=1.0 for classic Breunig (relative score; ~50% LOF>1 for balanced data); use contamination for top-N% semantics."
+    notes: "v0.9.197 fit verified (sklearn parity 7.26e-8). v0.9.198 predict via save_train_state=True (sklearn novelty parity 1.78e-15). v0.9.201 contamination='auto' (sklearn offset_=-1.5 parity; works with any output); float c needs output=memory (percentile). Caller must release_train_state() after."
     migration_target: null
   - name: GMMAnomaly
     tier: sota

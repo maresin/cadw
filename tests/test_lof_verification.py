@@ -369,3 +369,57 @@ def test_predict_spilled_output():
     assert pred.is_spilled or pred.scores.to_numpy().shape == (1,)
     r.release_train_state()
 
+# ---- v0.9.201: contamination='auto' (sklearn offset_=-1.5 parity) ----
+
+def test_contamination_auto_parity():
+    """contamination='auto' -> threshold 1.5 (sklearn offset_=-1.5)."""
+    X = _make_data(seed=0)
+    df = _mk_df(X)
+    r = fit_lof(df, ["x0", "x1"], k=20, contamination="auto",
+                output="memory",
+                memory_guard=MemoryGuard(max_memory_mb=500))
+    assert r.threshold == 1.5, (
+        f"auto threshold: {r.threshold} (expected 1.5)")
+    r.release_train_state()
+
+
+def test_contamination_auto_sklearn_labels_parity():
+    """labels match sklearn LOF contamination='auto' (offset_=-1.5)."""
+    from sklearn.neighbors import LocalOutlierFactor
+    X = _make_data(seed=0)
+    df = _mk_df(X)
+    r = fit_lof(df, ["x0", "x1"], k=20, contamination="auto",
+                output="memory",
+                memory_guard=MemoryGuard(max_memory_mb=500))
+    labels = (r.labels.to_numpy()
+              if hasattr(r.labels, "to_numpy") else r.labels)
+    sk = LocalOutlierFactor(n_neighbors=20, contamination="auto")
+    y_sk = sk.fit_predict(X)  # -1 outlier, +1 inlier
+    sk_outlier = (y_sk == -1)
+    cadw_outlier = (labels == 1)  # cadw labels: 1=outlier
+    n_match = int((sk_outlier == cadw_outlier).sum())
+    assert n_match == len(X), (
+        f"labels parity: {n_match}/{len(X)} (sklearn offset_={sk.offset_})")
+    r.release_train_state()
+
+
+def test_contamination_auto_works_with_disk_output():
+    """'auto' does not require percentile -> output='disk' works."""
+    X = _make_data(seed=0)
+    df = _mk_df(X)
+    r = fit_lof(df, ["x0", "x1"], k=20, contamination="auto",
+                output="disk",
+                memory_guard=MemoryGuard(max_memory_mb=500))
+    assert r.is_spilled
+    assert r.threshold == 1.5
+    r.release_train_state()
+
+
+def test_contamination_bad_string_raises():
+    X = _make_data(seed=0)
+    df = _mk_df(X)
+    with pytest.raises(ValueError, match="str must be 'auto'"):
+        fit_lof(df, ["x0", "x1"], k=20, contamination="something",
+                output="memory",
+                memory_guard=MemoryGuard(max_memory_mb=500))
+

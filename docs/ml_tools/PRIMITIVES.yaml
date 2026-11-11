@@ -782,6 +782,7 @@ primitives:
     reason: "Dense (n_x, n_y) output; KernelPCA/KernelRidge/GP intrinsic O(n^2) per bound; caller chunks Y for OOC in n_y."
   streaming_variant: null
   consumers: [KernelPCA (v0.9.200+), SpectralClustering, GP regression, KernelRidge, GPLVM]
+  notes: "v0.9.200-201: kernels linear/rbf/poly/laplacian/sigmoid/cosine (sklearn pairwise_kernels parity). KernelPCA default linear."
 
 - name: sgd_streaming
   cadw_function: cadw.ops.optim.sgd_streaming
