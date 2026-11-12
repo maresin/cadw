@@ -246,7 +246,16 @@ class _SortedStream:
     def count(self) -> int:
         return self._n_total
 
-    def _iter_filtered_batches(self):
+    def _iter_filtered_batches(self, batch_size=None):
+        """Yield RecordBatches from the external_sort output.
+
+        batch_size kwarg is accepted for CadwDataFrame API compatibility
+        (gbdt._binning_pass calls with batch_size=...) but IGNORED: IPC
+        format has fixed batch boundaries from sort-time. Memory guard
+        in _binning_pass handles whatever size arrives via Reduce.
+
+        P26e / v0.9.229-e: was TypeError on batch_size= -> 11 test fails.
+        """
         from cadw.io.batch_reader import ArrowIPCBatchReader
         reader = ArrowIPCBatchReader(str(self.path), None)
         try:
