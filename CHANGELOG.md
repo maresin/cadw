@@ -4693,6 +4693,59 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.216] — 2026-11-12 (achievable audit + ROADMAP restore)
+
+Post-incident restoration. Prior session (transcript said
+v0.9.206, actual HEAD v0.9.215) committed v0.9.207-a over
+existing v0.9.207-215. Detected via P17 probe (git log /
+reflog / branch --contains): 8adb1cb -> reset --hard 87a749f
+(v0.9.215). 18/18 SpectralCoclustering tests pass at v0.9.215.
+
+Root cause: stale ROADMAP ("Current: v0.9.185", 30 releases
+behind HEAD). Fix: restore ROADMAP + establish pre-session
+probe rule (git log + describe + __version__ + ROADMAP Current).
+
+### v0.9.216-a — ROADMAP restore
+
+- Last updated: 2026-11-11 (v0.9.203) -> 2026-11-12 (v0.9.216)
+- Current: v0.9.185 (primitives-first) -> v0.9.216 (achievable
+  audit + ROADMAP restore). Adds session state (116 verified /
+  77 achieved / 64 achievable / 10 debt), condensed history
+  v0.9.186-215 (30 releases), incident note + pre-session rule.
+- Next 3 sessions: v0.9.186-188 (TS Wave 2) -> v0.9.217-219
+  (SpectralBiclustering / Anomaly SpillArray / GBDT).
+- Status baseline: 40 fns / 56 cards -> 228 cards, ooc_status
+  breakdown (77 achieved / 64 achievable / 10 debt / 77 None).
+- Preserved: OOC-by-primitive matrix, Historicals, Lessons, Do
+  not re-solve, Backlog, Permanent/Session discipline.
+
+### v0.9.216-b — achievable audit (64 cards, 6 buckets)
+
+- docs/audits/v0.9.216_achievable_audit.md (269 lines, ~12 KB):
+  every ooc_status=achievable card assigned to exactly one
+  bucket (3+6+5+15+2+33 = 64).
+- Buckets:
+  * intrinsic (3): CoxPH, KernelPCA, SpectralBiclustering
+  * GBDT family (6): round-by-round SpillArray, v0.9.219
+  * TS streaming (5): P3/P4 primitives needed, v0.9.220+
+  * Anomaly SpillArray (15 cards / 11 unique): output='memory'
+    -> 'auto' (CUSUM precedent), v0.9.218
+  * BinarySegmentation (2 / 1 unique): external cumsum or
+    intrinsic, v0.9.221+
+  * no_module (33): unimplemented, separate track
+- Key finding: earlier AST "quick-flip" heuristic (P20e) was
+  wrong — _iter_filtered_batches in fit = input streaming, not
+  state OOC. All 64 require real refactor, not YAML-only flip.
+- 5 duplicate cards (EIF/Sub-PCA/KMeansAD/Autoencoder D3.1+D3.3;
+  BinarySeg D3.2+D5): effective unique achievable = 59.
+- Recommended session plan v0.9.217-222 (~10-13 sessions):
+  SpectralBiclustering -> Anomaly SpillArray -> GBDT -> TS
+  streaming -> BinSeg decision -> no-module track.
+
+No model code changes; no YAML flips (intentional — audit only).
+
+Focused: 120 passed (schema, gates, roadmap).
+
 ## [0.9.215] — 2026-11-12 (B1-B4/B6 completion: DBSCAN, Agglomerative, KMeansOnly, EKZ)
 
 Closes B1-B4/B6 cluster implementations. B_clustering: 13 of
