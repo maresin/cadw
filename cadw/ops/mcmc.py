@@ -240,3 +240,219 @@ def gibbs(
             if sample_count >= n_samples:
                 break
     return samples
+
+
+
+def srvr_hmc(
+    df,
+    grad_log_den_data_fn: Callable,
+    grad_log_den_prior_fn: Callable,
+    theta_init: np.ndarray,
+    *,
+    n_samples: int = 1000,
+    n_burnin: int = 3000,
+    L: int = 10,
+    B: int = 100,
+    reset_batch_size: "int | None" = None,
+    lr: float = 0.01,
+    gamma: float = 20.0,
+    u: float = 1.0,
+    seed: int = 0,
+    memory_guard: Optional[MemoryGuard] = None,
+) -> np.ndarray:
+    """SRVR-HMC (Zou, Xu, Gu NeurIPS 2019).
+
+    Stochastic Variance-Reduced HMC with exponential integrator and
+    semi-stochastic gradients. Two advantages over SGHMC:
+      (1) Variance reduction: g_k = mean_B[∇f(x_k) - ∇f(x_prev)] + g_prev
+          instead of noisy mean_B[∇f(x_k)].
+      (2) No V_hat / C tuning: friction γ and inverse mass u are
+          explicit parameters; the SDE (not its discretization) sets
+          the stationary distribution.
+
+    Reference: https://proceedings.neurips.cc/paper/2019/file/c3535febaff29fcb7c0d20cbe94391c7-Paper.pdf
+
+    Update (exponential integrator, exact for constant g over [t, t+η]):
+      v_{k+1} = e^{-γη} v_k - (u/γ)(1 - e^{-γη}) g_k + e^v_k
+      x_{k+1} = x_k + (1/γ)(1 - e^{-γη}) v_k
+              - (u/γ²)(γη - 1 + e^{-γη}) g_k + e^x_k
+
+    Noise (joint Gaussian, per-dimension independent block):
+      Var(e^v) = u(1 - e^{-2γη})
+      Var(e^x) = (u/γ²)(2γη - 3 + 4e^{-γη} - e^{-2γη})
+      Cov(e^x, e^v) = (u/γ)(1 - 2e^{-γη} + e^{-2γη})
+
+    Semi-stochastic gradient (g_k is mean ∇f = -∇log_posterior):
+      k mod L == 0  (reset): g_k = (1/n) Σ_all ∇f_i(x_k)
+      k mod L != 0  (inner): g_k = (1/B) Σ_B [∇f_i(x_k) - ∇f_i(x_prev)]
+                                  + g_prev_k
+    where ∇f_i = -∇log p(y_i | x), and prior grad is added separately
+    as ∇f_prior = -∇log p(x).
+
+    OOC: reset streams full data (O(reset_batch_size·row_size) peak);
+    inner steps use one B-sized batch (O(B·row_size)). State = 4d
+    floats (x, v, x_prev, g_prev). Total OOC.
+
+    Args:
+      df: CadwDataFrame.
+      grad_log_den_data_fn: (batch, theta) -> (d,) = Σ_batch ∇log p(y|x).
+      grad_log_den_prior_fn: (theta) -> (d,) = ∇log p(theta).
+      theta_init: (d,).
+      n_samples, n_burnin: standard.
+      L: reset interval (steps between full-gradient snapshots).
+      B: inner mini-batch size.
+      reset_batch_size: streaming batch for reset pass; None -> B.
+      lr: step size η.
+      gamma: friction coefficient γ (per-unit-time). Default 20 matches
+        SGHMC C=20 equivalent (γη ~ 0.2 per step at lr=0.01).
+      u: inverse mass. Default 1.
+      seed, memory_guard: standard.
+
+    Returns:
+      (n_samples, d) posterior draws.
+    """
+    if not callable(grad_log_den_data_fn) or not callable(grad_log_den_prior_fn):
+        raise TypeError("grad fns must be callable")
+    theta = np.asarray(theta_init, dtype=np.float64).copy()
+    if theta.ndim != 1:
+        raise ValueError(f"theta_init 1-D; got {theta.shape}")
+    d = theta.size
+    if n_samples < 1:
+        raise ValueError(f"n_samples >= 1; got {n_samples}")
+    if n_burnin < 0:
+        raise ValueError(f"n_burnin >= 0; got {n_burnin}")
+    if L < 1:
+        raise ValueError(f"L >= 1; got {L}")
+    if B < 1:
+        raise ValueError(f"B >= 1; got {B}")
+    if lr <= 0:
+        raise ValueError(f"lr > 0; got {lr}")
+    if gamma <= 0:
+        raise ValueError(f"gamma > 0; got {gamma}")
+    if u <= 0:
+        raise ValueError(f"u > 0; got {u}")
+
+    mg = memory_guard or df._memory_guard
+    if reset_batch_size is None:
+        reset_batch_size = B
+    reset_batch_size = max(1, int(reset_batch_size))
+    B = max(1, int(B))
+    d_check = d
+
+    # State: x, v, x_snapshot, g_snapshot_data (4d) + samples (n_samples*d)
+    mg.check_state(4 * d * 8 + n_samples * d * 8 + 256,
+                   name="srvr_hmc.state")
+
+    x = theta.copy()
+    v = np.zeros(d, dtype=np.float64)
+    x_snapshot = x.copy()
+    g_snapshot_data = np.zeros(d, dtype=np.float64)  # ∇U(x_snapshot)
+
+    # Noise coefficients (Springer exponential integrator)
+    e1 = float(np.exp(-gamma * lr))
+    e2 = float(np.exp(-2.0 * gamma * lr))
+    var_x = u / (gamma ** 2) * (2.0 * gamma * lr - 3.0 + 4.0 * e1 - e2)
+    var_v = u * (1.0 - e2)
+    cov_xv = u / gamma * (1.0 - 2.0 * e1 + e2)
+    if var_x <= 0 or var_v <= 0:
+        raise ValueError(
+            f"srvr_hmc: negative variance (var_x={var_x:.2e}, "
+            f"var_v={var_v:.2e}); reduce lr or increase gamma. "
+            f"Constraint: exponential integrator needs stable η, γ.")
+    L00 = float(np.sqrt(var_x))
+    L10 = float(cov_xv) / L00
+    L11_sq = var_v - L10 * L10
+    if L11_sq < 0:
+        raise ValueError(
+            f"srvr_hmc: noise covariance not PSD (L11²={L11_sq:.2e})")
+    L11 = float(np.sqrt(L11_sq))
+
+    # Update coefficients
+    coef_v = e1
+    coef_g_v = -u / gamma * (1.0 - e1)
+    coef_v_x = (1.0 - e1) / gamma
+    coef_g_x = -u / (gamma ** 2) * (gamma * lr - 1.0 + e1)
+
+    # Batch cycling iterator (mini-batch)
+    def _batch_gen():
+        while True:
+            for b in df._iter_filtered_batches(batch_size=B):
+                yield b
+    batch_iter = _batch_gen()
+
+    rng = np.random.default_rng(seed)
+    samples = np.empty((n_samples, d), dtype=np.float64)
+    sample_idx = 0
+    total_iter = int(n_burnin) + int(n_samples)
+
+    for k in range(total_iter):
+        # P73 FIX: snapshot-based gradient (Zou 2019 eq. 2.2)
+        #   g_k = (1/B) Σ_B [∇f_i(x_k) - ∇f_i(x̃)] + ∇f(x̃)
+        # where x̃ = x_snapshot (fixed at last reset). NOT recursive.
+        if k % L == 0:
+            # Reset: full streaming pass, fix snapshot
+            g_sum_logp = np.zeros(d, dtype=np.float64)
+            n_total = 0
+            for b in df._iter_filtered_batches(batch_size=reset_batch_size):
+                mg.check_batch(b, name="srvr_hmc.reset", extra_factor=3.0)
+                g_sum_logp += np.asarray(grad_log_den_data_fn(b, x),
+                                          dtype=np.float64)
+                n_total += b.num_rows
+            if n_total == 0:
+                raise ValueError("srvr_hmc: empty df")
+            # P75 FIX: ∇U_data(x̃) = -Σ_all ∇log p_data(x̃) (total, not mean).
+            # Prior g_prior = ∇U_prior(x) is already full scale (no /n).
+            # Missing n× here caused target-posterior mismatch:
+            # effective U = mean_U_data + U_prior => N(1, 1/2), not
+            # N(n·ȳ/(n+1), 1/(n+1)).
+            g_snapshot_data = -g_sum_logp
+            x_snapshot = x.copy()
+            g_data_k = g_snapshot_data  # for current step, use snapshot
+        else:
+            try:
+                b = next(batch_iter)
+            except StopIteration:
+                batch_iter = _batch_gen()
+                b = next(batch_iter)
+            mg.check_batch(b, name="srvr_hmc.minibatch", extra_factor=3.0)
+            n_b = b.num_rows
+            grad_curr = np.asarray(grad_log_den_data_fn(b, x),
+                                    dtype=np.float64)
+            grad_snapshot = np.asarray(
+                grad_log_den_data_fn(b, x_snapshot), dtype=np.float64)
+            # P75 FIX: SVRG correction with n_total/n_b scale (Horvitz-
+            # Thompson-like unbiased estimator for full ∇U_data(x_k) - ∇U_data(x̃)).
+            #   ∇U_data(x_k) - ∇U_data(x̃) = -Σ_all ∇log p(x_k) + Σ_all ∇log p(x̃)
+            #                              ≈ -(n_total/n_b) Σ_batch [∇log p(x_k) - ∇log p(x̃)]
+            #   => g_data_k = g_snapshot_data - (n_total/n_b) * delta_sum
+            delta_sum = grad_curr - grad_snapshot  # sum over batch
+            g_data_k = g_snapshot_data - (float(n_total) / float(n_b)) * delta_sum
+
+        g_prior = -np.asarray(grad_log_den_prior_fn(x), dtype=np.float64)
+        g_total = g_data_k + g_prior
+
+        if not np.isfinite(g_total).all():
+            raise RuntimeError(
+                f"srvr_hmc: grad non-finite at iter {k}")
+
+        # Correlated noise (per-dim independent)
+        z0 = rng.standard_normal(d)
+        z1 = rng.standard_normal(d)
+        ex = L00 * z0
+        ev = L10 * z0 + L11 * z1
+
+        # Update (both use OLD v)
+        v_new = coef_v * v + coef_g_v * g_total + ev
+        x_new = x + coef_v_x * v + coef_g_x * g_total + ex
+
+        x = x_new
+        v = v_new
+
+        if k >= int(n_burnin) and sample_idx < int(n_samples):
+            samples[sample_idx] = x.copy()
+            sample_idx += 1
+
+    if sample_idx < int(n_samples):
+        raise RuntimeError(
+            f"srvr_hmc: collected {sample_idx}/{n_samples}")
+    return samples
