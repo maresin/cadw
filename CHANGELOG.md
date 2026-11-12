@@ -4693,6 +4693,65 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.222] — 2026-11-12 (CadwBoost bench + tests batch 1)
+
+CadwBoost promote work, part 1/2. Prototype fully verified
+against README claims; tests batch 1 written (34 tests). No
+code promote yet (v0.9.223); counts unchanged.
+
+### v0.9.222-a — Bench audit + tests batch 1
+
+docs/audits/v0.9.222_cadwboost_bench.md (119 lines):
+- Bench reproduced README final: 5/5 datasets better with
+  leaf_wise (-12% to -68% RMSE); speed 1.5-6x faster than
+  cadw.ml.gbdt (P1 vectorization).
+- API note: predict/predict_proba for binary -> 1D probability
+  (LightGBM-style), not (n,2) (sklearn). Documented.
+- Missing methods (v0.9.223): predict_batched(df),
+  class-level save_json/load_json, state_nbytes docstring.
+- Promote plan v0.9.223-224 (unchanged).
+
+tests/test_cadwboost_baseline.py (+13):
+  binary/regression/multiclass fit+predict, symmetric vs
+  leaf_wise, reproducibility, n_estimators/depth effects,
+  forecaster recursive, ngboost interval coverage, binary
+  proba 1D shape, predict==proba (logistic), multiclass
+  proba (n, K).
+
+tests/test_cadwboost_losses.py (+10):
+  9 losses grad/hess shape; mse exact formula; logistic grad
+  in [-1,1] hess in [0, 0.25]; huber delta scaling; quantile
+  direction (asserts CURRENT inverted convention with TODO
+  for v0.9.223 fix).
+
+tests/test_cadwboost_cw.py (+5):
+  CW-2 state n-independent (<=500KB); state bounded across
+  n (ratio <=1.5); ooc vs memory bit-identical; CW-5 ooc
+  ratio <2.0 at n=50k->200k; state scales with n_estimators
+  (data-dependent tree depth).
+
+Bugs documented for v0.9.223:
+- QuantileLoss convention inverted: q=0.9 penalizes
+  overprediction MORE than underprediction (standard quantile
+  regression: q=0.9 penalizes underpredict more). Internally
+  consistent, but document/fix during promote.
+- df._dataset.iter_batches() is generator; use
+  df._iter_filtered_batches() (fixed in test, not code bug).
+
+### Session tally (unchanged)
+
+- achieved: 79
+- achievable: 43
+- debt: 29
+- (none): 77
+
+Targeted: 34 passed (baseline 13, losses 10, CW 5, batch1
+fix 3 + 3 test-method re-assertions).
+
+v0.9.223 (next): tests batch 2 (~21: EFB, sampling, missing,
+serialize, shap, df, ooc extended) + promote start (git mv
+cadwboost/ -> cadw/ml/cadwboost/ + adapt API).
+
 ## [0.9.221] — 2026-11-12 (CadwBoost pilot TRUE OOC + GBDT debt)
 
 Session scope: v0.9.221 GBDT round-by-round SpillArray (target
