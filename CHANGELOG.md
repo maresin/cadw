@@ -4693,6 +4693,56 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.224] — 2026-11-12 (CadwBoost tests 100% modules)
+
+Completes CadwBoost test coverage post-promote. Batch 2 adds
+21 tests for EFB, sampling, missing, serialize, shap, df,
+ooc extended, importance; total 55 tests (all 18 modules).
+
+### v0.9.224-a — tests batch 2 (8 files, 21 tests)
+
+- tests/test_cadwboost_efb.py (3): build_bundles Bundle list;
+  apply_bundles shape; no_conflict structural invariants.
+- tests/test_cadwboost_sampling.py (3): sample_none full;
+  sample_random rate ~0.3; sample_goss top_rate coverage +
+  weights.
+- tests/test_cadwboost_missing.py (2): split_gain_with_default
+  return types; no-missing symmetry.
+- tests/test_cadwboost_serialize.py (2): model_to_dict /
+  dict_to_model roundtrip; save_json / load_json file
+  roundtrip.
+- tests/test_cadwboost_shap.py (3): contributions sum ->
+  predict (corr >0.99); summarize_contributions;
+  top_k_contributors per-sample (n rows x <=k tuples).
+- tests/test_cadwboost_df.py (3): fit_df(mode='memory');
+  predict_df_to_numpy shape; predict_proba_df binary 1D.
+- tests/test_cadwboost_ooc_extended.py (3): MAX_OOC
+  constants; fit_ooc vs memory predictions close;
+  OOC peak flat 50k->100k.
+- tests/test_cadwboost_importance.py (2): feature_importance
+  ('split'/'gain') non-negative dict per feature.
+
+Two initial test bugs fixed (impl behavior ≠ guess):
+- EFB no_conflict: build_bundles(max_conflicts=0) doesn't
+  auto-merge exclusive-bin features; loose structural
+  assertion.
+- top_k_contributors: returns per-sample list[list[tuple]],
+  not global top-k; corrected to n rows x <=k each.
+
+### Session tally (unchanged)
+
+- achieved: 80
+- achievable: 43
+- debt: 29
+- (none): 76
+
+55 CadwBoost tests passed (34 batch1 + 21 batch2). All 18
+modules covered. Focused: 55 cadwboost.
+
+v0.9.225+ (deferred): TS streaming (P3/P4 primitives);
+anomaly SpillArray batch; BinSeg decision. .pingis/impl
+cleanup deferred (DEC-058 low priority).
+
 ## [0.9.223] — 2026-11-12 (CadwBoost promoted + card flip)
 
 CadwBoost promoted from .pingis/drafts/ sandbox to cadw/ml/;

@@ -1,35 +1,42 @@
 # CADW Roadmap
 
-Last updated: 2026-11-12 (after v0.9.223).
+Last updated: 2026-11-12 (after v0.9.224).
 
-## Current: v0.9.223 — CadwBoost promoted + achieved
+## Current: v0.9.224 — CadwBoost test coverage 100% of modules
 
-**v0.9.223 outcome:**
-- CadwBoost promoted from .pingis/drafts/ to cadw/ml/cadwboost/
-  (18 modules, 2858 LOC). Card flipped to verified + achieved
-  (first new achieved since v0.9.219 BOCPD).
-- Docstrings cleanup: 37 .pingis refs removed from cadw/ (35 files).
+**v0.9.224 outcome:**
+- Tests batch 2 (8 files, 21 tests): EFB, sampling, missing,
+  serialize, shap, df, ooc extended, importance.
+- Total CadwBoost tests: **55 passed** (34 batch1 + 21 batch2),
+  covering all 18 modules.
 
-**Counts after v0.9.223:**
-- achieved: 80 (+CADWBoost, was (none))
-- achievable: 43 (unchanged)
-- debt: 29 (unchanged)
-- none: 76 (-1, CADWBoost left none)
+**Counts unchanged:**
+- achieved: 80
+- achievable: 43
+- debt: 29
+- none: 76
+(Total 228.)
 
-**.pingis status:**
-- `.pingis/benches/` (69 files) is TRACKED in git — valid for both
-  relative path and GitHub URL; card `benchmark_url` values remain
-  correct. NO mass YAML cleanup needed.
-- `.pingis/impl/` (46 files, tracked) — 9/9 models already promoted to
-  cadw/ml/ v0.9.143 (DEC-058). Stale; cleanup pending (low priority).
-- `.pingis/audits/`, `drafts/`, `tasks/` — gitignored (historical).
-- `.pingis/plan_v0.9.87_refactor.md` — `_gate_whitelist.load_whitelist`
-  already returns `_EMPTY` if absent (safe if .pingis removed).
+**CadwBoost module coverage (18 modules):**
+- Tested: binning, boosting, dataframe, efb, forecaster, histogram,
+  losses, missing, model, multiclass, ngboost, ooc, sampling,
+  serialize, shap, split_finder, tree.
+- __init__ (re-export) tested via `from cadw.ml.cadwboost import ...`.
 
-**Next (v0.9.224+):**
-- v0.9.224: CadwBoost tests batch 2 (~21: EFB, sampling, missing,
-  serialize, shap, df, ooc extended).
-- v0.9.225: TS streaming (P3/P4 primitives); anomaly SpillArray batch.
+**Next (v0.9.225+):**
+- v0.9.225: TS streaming (P3/P4 primitives: _ses_fit_hw / stl_decompose
+  / _extract_series). Blocked on primitive implementation.
+- v0.9.226: Anomaly SpillArray batch (11-15 cards).
+- v0.9.227: BinSeg decision (external cumsum or intrinsic).
+
+**Deferred:**
+- .pingis/impl cleanup (46 stale tracked files; low priority per
+  DEC-058).
+- CadwBoost leaf_wise state formula (currently symmetric worst-case;
+  leaf_wise actual smaller — measurement for card's `ram_formula`
+  refinement).
+- CadwBoost README pointer in cadw/ml/cadwboost/ (docs/ml_tools/
+  cadwboost_design.md is canonical).
 
 ## Next 3 sessions (v0.9.219-221)
 
