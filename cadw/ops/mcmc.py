@@ -456,3 +456,260 @@ def srvr_hmc(
         raise RuntimeError(
             f"srvr_hmc: collected {sample_idx}/{n_samples}")
     return samples
+
+
+
+def nuts(
+    df,
+    log_den_data_fn: Callable,
+    log_den_prior_fn: Callable,
+    grad_log_den_data_fn: Callable,
+    grad_log_den_prior_fn: Callable,
+    theta_init: np.ndarray,
+    *,
+    n_samples: int = 1000,
+    n_burnin: int = 1000,
+    max_tree_depth: int = 10,
+    lr: float = 0.1,
+    target_accept: float = 0.8,
+    delta_max: float = 1000.0,
+    gamma_da: float = 0.05,
+    t0_da: float = 10.0,
+    kappa_da: float = 0.75,
+    seed: int = 0,
+    memory_guard: Optional[MemoryGuard] = None,
+) -> np.ndarray:
+    """No-U-Turn Sampler (Hoffman & Gelman 2014 JMLR, Algorithm 6).
+
+    EXACT posterior (no tempering). Fit-time O(n) per leapfrog step
+    (full-data gradient). Intrinsic bounded_by_domain {n: 1e5},
+    precedent: W_probabilistic NUTS card = debt.
+
+    Algorithm:
+      1. Recursive BuildTree (paper Algorithm 6): depth-doubling tree
+         of leapfrog steps; U-turn stop; multinomial sampling over
+         leaves weighted by Boltzmann exp(-ΔH).
+      2. Dual averaging (paper §3.2, Nesterov 2009):
+           h_bar = (1-1/(t+t0))·h_bar + (1/(t+t0))·(target_accept - α)
+           log_ε = μ - (sqrt(t)/γ)·h_bar
+           ε_bar = exp(x_eta·log_ε + (1-x_eta)·log_ε_bar),
+                   x_eta = t^{-kappa}
+         μ = log(10·lr_init) (Stan default).
+      3. Leapfrog integrator:
+           r_half = r + (ε/2)·∇log p(θ)
+           θ_new = θ + ε·r_half
+           r_new = r_half + (ε/2)·∇log p(θ_new)
+    Energy: H(θ, r) = -log p(θ) + 0.5·r·r.
+
+    Args:
+      df: CadwDataFrame.
+      log_den_data_fn: (batch, theta) -> float, Σ_batch log p(y|x, θ).
+      log_den_prior_fn: (theta) -> float, log p(theta).
+      grad_log_den_data_fn: (batch, theta) -> (d,), Σ_batch ∇log p(y|x, θ).
+      grad_log_den_prior_fn: (theta) -> (d,), ∇log p(theta).
+      theta_init: (d,).
+      n_samples, n_burnin: standard.
+      max_tree_depth: max depth of binary tree (paper: 10).
+      lr: initial step size ε₀ (Stan: 0.1; dual-averaged to ε_bar).
+      target_accept: dual-averaging target (Stan: 0.8).
+      delta_max: numerical floor for U-turn (paper: 1000).
+      gamma_da, t0_da, kappa_da: dual-averaging hyperparams (Stan).
+      seed, memory_guard: standard.
+
+    Returns:
+      (n_samples, d) posterior draws.
+
+    Raises:
+      RuntimeError: non-finite gradient.
+    """
+    theta = np.asarray(theta_init, dtype=np.float64).copy()
+    if theta.ndim != 1:
+        raise ValueError(f"theta_init 1-D; got {theta.shape}")
+    d = theta.size
+    if n_samples < 1:
+        raise ValueError(f"n_samples >= 1; got {n_samples}")
+    if n_burnin < 0:
+        raise ValueError(f"n_burnin >= 0; got {n_burnin}")
+    if max_tree_depth < 1:
+        raise ValueError(f"max_tree_depth >= 1; got {max_tree_depth}")
+    if lr <= 0:
+        raise ValueError(f"lr > 0; got {lr}")
+    if not (0.0 < target_accept < 1.0):
+        raise ValueError(f"target_accept in (0,1); got {target_accept}")
+
+    mg = memory_guard or df._memory_guard
+    mg.check_state(d * 8 * 4 + n_samples * d * 8 + 256, name="nuts.state")
+
+    rng = np.random.default_rng(seed)
+
+    # Cache batches for one pass per leapfrog call. To avoid re-streaming
+    # df for every gradient call (which would be O(n * n_leapfrog) I/O),
+    # we batch once per outer step. But NUTS with full-data intrinsic
+    # means each grad call must scan all data. Solution: buffer the
+    # reset-batch contents once per outer iteration.
+    # Trade-off: n <= 1e5 * d * 8 bytes = bounded_by_domain.
+    _bs_default = 10000
+    batches_cache: list = []
+    cached_n_total = 0
+
+    def _reload_cache():
+        nonlocal batches_cache, cached_n_total
+        batches_cache = list(df._iter_filtered_batches(
+            batch_size=_bs_default))
+        cached_n_total = sum(b.num_rows for b in batches_cache)
+
+    def _joint(theta_):
+        """-H(θ, r) without kinetic: log p(θ) + Σ log p(y|θ)."""
+        if not batches_cache:
+            _reload_cache()
+        lp = float(log_den_prior_fn(theta_))
+        for b in batches_cache:
+            lp += float(log_den_data_fn(b, theta_))
+        return lp
+
+    def _grad_joint(theta_):
+        """∇log p(θ) + Σ ∇log p(y|θ)."""
+        if not batches_cache:
+            _reload_cache()
+        g = np.asarray(grad_log_den_prior_fn(theta_),
+                       dtype=np.float64).copy()
+        for b in batches_cache:
+            g += np.asarray(grad_log_den_data_fn(b, theta_),
+                            dtype=np.float64)
+        if not np.isfinite(g).all():
+            raise RuntimeError("nuts: non-finite gradient")
+        return g
+
+    def _leapfrog(theta_, r_, eps_):
+        g0 = _grad_joint(theta_)
+        r_half = r_ + 0.5 * eps_ * g0
+        theta_new = theta_ + eps_ * r_half
+        g1 = _grad_joint(theta_new)
+        r_new = r_half + 0.5 * eps_ * g1
+        return theta_new, r_new
+
+    def _build_tree(theta_, r_, log_u_, v_, j_, eps_, joint0_):
+        """Algorithm 6 BuildTree; returns
+        (theta_minus, r_minus, theta_plus, r_plus, theta_prime,
+         log_size, n_valid, s)."""
+        if j_ == 0:
+            theta_new, r_new = _leapfrog(theta_, r_, v_ * eps_)
+            lp_new = _joint(theta_new)
+            kinetic_new = 0.5 * float(np.dot(r_new, r_new))
+            joint_new = lp_new - kinetic_new
+            # log_size = -ΔH = joint_new - joint0  (joint0 = -H0)
+            log_size = joint_new - joint0_
+            n_valid = 1 if log_u_ <= log_size else 0
+            s = 1 if log_u_ < log_size + delta_max else 0
+            return (theta_new, r_new, theta_new, r_new, theta_new,
+                    log_size, n_valid, s)
+
+        # Build first subtree
+        (tm, rm, tp, rp, t_prime, ls1, n1, s1) = _build_tree(
+            theta_, r_, log_u_, v_, j_ - 1, eps_, joint0_)
+        if not s1:
+            return (tm, rm, tp, rp, t_prime, ls1, n1, s1)
+
+        # Build second subtree from extended endpoint
+        if v_ == -1:
+            (tm2, rm2, _, _, t2, ls2, n2, s2) = _build_tree(
+                tm, rm, log_u_, v_, j_ - 1, eps_, joint0_)
+            tm_final, rm_final = tm2, rm2
+            tp_final, rp_final = tp, rp
+        else:
+            (_, _, tp2, rp2, t2, ls2, n2, s2) = _build_tree(
+                tp, rp, log_u_, v_, j_ - 1, eps_, joint0_)
+            tm_final, rm_final = tm, rm
+            tp_final, rp_final = tp2, rp2
+
+        # Multinomial over t_prime, t2
+        log_total = float(np.logaddexp(ls1, ls2))
+        p1 = float(np.exp(ls1 - log_total)) if np.isfinite(log_total) else 0.5
+        t_new = t_prime if rng.uniform() < p1 else t2
+
+        # U-turn check on new endpoints
+        delta = tp_final - tm_final
+        uturn = (np.dot(delta, rm_final) < 0
+                 or np.dot(delta, rp_final) < 0)
+        s_new = s2 if not uturn else 0
+        return (tm_final, rm_final, tp_final, rp_final,
+                t_new, log_total, n1 + n2, s_new)
+
+    # Dual averaging init
+    mu = float(np.log(10.0 * lr))
+    log_eps_bar = 0.0
+    h_bar = 0.0
+    eps = float(lr)
+
+    samples = np.empty((n_samples, d), dtype=np.float64)
+    sample_idx = 0
+    total_iter = int(n_burnin) + int(n_samples)
+
+    for m in range(1, total_iter + 1):
+        # Reload cache each outer step: guarantees fresh data view.
+        _reload_cache()
+
+        # Sample momentum; joint0 = target_logp - 0.5*r·r
+        r0 = rng.standard_normal(d)
+        joint0_no_kinetic = _joint(theta)
+        joint0 = joint0_no_kinetic - 0.5 * float(np.dot(r0, r0))
+        log_u = float(np.log(rng.uniform())) + joint0  # log(U[0,e^{-H0}])
+
+        # Initialise tree
+        theta_m = theta.copy()
+        r_m = r0.copy()
+        theta_p = theta.copy()
+        r_p = r0.copy()
+        theta_new = theta.copy()
+        n_valid = 1
+        s = 1
+        j = 0
+        log_size_total = 0.0
+
+        while s and j < max_tree_depth:
+            v_dir = 1 if rng.uniform() < 0.5 else -1
+            if v_dir == -1:
+                (theta_m, r_m, _, _,
+                 theta_prime, ls_sub, n_sub, s) = _build_tree(
+                    theta_m, r_m, log_u, v_dir, j, eps, joint0)
+            else:
+                (_, _, theta_p, r_p,
+                 theta_prime, ls_sub, n_sub, s) = _build_tree(
+                    theta_p, r_p, log_u, v_dir, j, eps, joint0)
+
+            if s:
+                # Multinomial over current tree (theta_new) vs new subtree
+                if j == 0:
+                    p_new = 1.0 if ls_sub >= log_size_total else 0.5
+                else:
+                    log_total = float(np.logaddexp(
+                        log_size_total, ls_sub))
+                    p_new = float(np.exp(ls_sub - log_total))                         if np.isfinite(log_total) else 0.5
+                if rng.uniform() < p_new:
+                    theta_new = theta_prime
+                n_valid += n_sub
+                log_size_total = float(np.logaddexp(
+                    log_size_total, ls_sub))
+            j += 1
+
+        # Accept/reject via multinomial (already applied to theta_new)
+        if sample_idx < n_samples and m > n_burnin:
+            samples[sample_idx] = theta_new
+            sample_idx += 1
+
+        # Dual averaging: α = mean acceptance prob over tree
+        accept_prob = float(n_valid) / float(2 ** min(j, max_tree_depth))
+        accept_prob = min(accept_prob, 1.0 - 1e-12)
+        eta = 1.0 / (m + t0_da)
+        h_bar = (1.0 - eta) * h_bar + eta * (target_accept - accept_prob)
+        log_eps = mu - (np.sqrt(m) / gamma_da) * h_bar
+        x_eta = m ** (-kappa_da)
+        log_eps_bar = x_eta * log_eps + (1.0 - x_eta) * log_eps_bar
+        eps = float(np.exp(log_eps_bar))
+
+        theta = theta_new
+
+    if sample_idx < n_samples:
+        raise RuntimeError(
+            f"nuts: collected {sample_idx}/{n_samples} samples")
+    return samples
