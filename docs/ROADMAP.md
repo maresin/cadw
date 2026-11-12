@@ -1,95 +1,49 @@
 # CADW Roadmap
 
-Last updated: 2026-11-12 (after v0.9.216).
+Last updated: 2026-11-12 (after v0.9.217; v0.9.218 in progress).
 
-## Current: v0.9.216 — achievable audit + ROADMAP restore
+## Current: v0.9.218 — T²+Q achieved + 6 TBD audit
 
-**Session state (228 cards across [A-Z]_*.yaml, P19d/P22d):**
-- Verified (status): 116
-- status=None (described_only / draft): 112
-- ooc_status=achieved: 77
-- ooc_status=achievable: 64
-- ooc_status=debt: 10
-- ooc_status=None: 77
+**State after v0.9.217 (probed counts):**
+- 116 verified / 112 status=None
+- ooc_status: 78 achieved / 59 achievable / 14 debt / 77 None
+- Total cards: 228 (116+112 verified+none; ooc sum 228)
 
-**Recent history (v0.9.186-215, 30 releases, condensed):**
-- v0.9.186-207: TS refactor + 50-primitive audit + Spectral co-clustering
-- v0.9.208: OOC-by-card schema (ooc_status / ooc_strategy /
-  ooc_target_version / ooc_alternative); 148 fills
-- v0.9.209: debt -> achievable classification (26 with plan; 10 debt)
-- v0.9.210-215: SpectralClustering sparse refactor + honest revert;
-  SpectralBiclustering (Kluger 2003); LSA + sparse SVD; Bimax
-  (Prelic 2006); PlaidModel (Lazzeroni-Owen 2002); DBSCAN (Ester
-  1996); Agglomerative (dense scipy) + wrappers
+**v0.9.217 delivered:**
+- Hampel: achieved via streaming df path (output='auto' default),
+  SpillArray for scores+labels; state O(1) spilled (256 B);
+  fit transient O(batch + w); 13 streaming tests (bit-identical +
+  batch_size invariant). Precedent: CUSUM v0.9.173, ZMS v0.9.113.
+- DWT-MLEAD, Autoencoder x2, PatchMemoryAD -> debt (intrinsic):
+  DWT full-n log2 levels; AE/PMA train over full X (n_w x w).
+  bounded_by_domain n<=1e6 honest.
+- Audit v0.9.216 correction: anomaly_spill 15 -> 12 cards
+  (11 -> 8 unique); intrinsic 3 -> 6.
 
-**v0.9.216 — achievable audit**
+**v0.9.218 scope (this session):**
+- v0.9.218-a: this ROADMAP restore.
+- v0.9.218-b: T²+Q achieved — streaming 4-array output
+  (decision_scores, t2_scores, q_scores, labels); Welford O(d²)
+  fit (already batch); map max over t2/q SpillArray. contamination
+  requires output='memory' (percentile).
+- v0.9.218-c: audit 6 TBD (Sub-PCA, EIF, KMeansAD, BOCPD, KShapeAD,
+  S2G) — classification based on core impl probe, no code changes.
 
-See `docs/audits/v0.9.216_achievable_audit.md` for full 64-card
-breakdown. Summary:
-- **0 flip-ready** (verified candidates all intrinsic)
-- **3 intrinsic/honest debt**: CoxPH, KernelPCA, SpectralBiclustering
-- **~28 refactor-plan-valid**: GBDT x5 (round-by-round SpillArray);
-  TS x6 (streaming primitives P3/P4 pending); anomaly x15
-  (output='auto' SpillArray); Binseg x2 (external cumsum or
-  accept as intrinsic)
-- **~33 no-module** (unimplemented; needs `fit_*` first)
-- **5 duplicate cards** (EIF/Sub-PCA/KMeansAD/Autoencoder/BinSeg
-  appear in two subtypes)
+## Next 3 sessions (v0.9.219-221)
 
-**Key finding:** `bounded_by_domain` on achievable cards is honest;
-flip requires real refactor, not YAML-only. Earlier AST "quick-flip"
-heuristic was wrong (fit has `_iter_filtered_batches` = input
-streaming, not state OOC).
+### v0.9.219 — TS streaming (P3/P4 primitives)
+AutoTheta, EnsembleForecaster, VAR need _ses_fit_hw streaming (P3) +
+stl_decompose (P4) + _extract_series streaming (P1). Effort 2-3 sess.
 
-**Session prior incident (v0.9.207-a duplicate, resolved):** session
-started from stale transcript; v0.9.207-a overwrote v0.9.207-215
-(SpectralCoclustering). Detected via P17 probe (git log), reverted
-to 87a749f (v0.9.215). **Rule: before ANY session work, probe**
-`git log --oneline -1`, `git describe --tags`, `grep __version__
-cadw/__init__.py`, `docs/ROADMAP.md "Current:"`. If ROADMAP is stale
-vs HEAD — **fix ROADMAP first**, then plan work. v0.9.216 executes
-this rule (restores ROADMAP to v0.9.215/216).
+### v0.9.220 — GBDT round-by-round SpillArray
+GBDT, GBDT_multiclass, GBDT_L2, GBDT_scale_pos_weight x2,
+GBDTForecaster (6 cards). Target: achieved. Precedent: LambdaMART
+v0.9.87-P2b-full-2. Effort 2-3 sess.
 
-## Next 3 sessions (v0.9.217-219)
-
-### v0.9.217 — SpectralBiclustering refactor (1-1.5 sessions)
-
-Current (P24f): `A (r*c) + A_norm (r*c) + U (r*n_sv) + rows_ind
-(n_rc*n_cc, r) + columns_ind` — all materialized in RAM. At r=1e5,
-c=1e4 -> 16 GB. Guard refuses above `r*c*8 = 1e9` bytes.
-
-Refactor to Pattern #1 (precedent Coclustering v0.9.207):
-- 2-pass normalize (row_sum / col_sum via chunked Reduce)
-- `svd_topk` on streamed A_norm (no A materialization)
-- Stream U output directly into Z_df (no `np.vstack`)
-- Chunked `_project_and_cluster` (A_batch @ vt.T -> fit_kmeans on
-  streamed projected df, precedent Coclustering pass 3-4)
-- Labels as `SpillArray(int64, width=1)`
-- rows_ind / columns_ind: SpillArray (or omit; sklearn-compat
-  convenience only)
-Target: achieved, `bounded_by_window {gram_dim: 1e4}` (remove
-`bounded_by_domain {r*c: 1e9}`).
-
-### v0.9.218 — Anomaly SpillArray batch (1-1.5 sessions)
-
-11-12 anomaly models: Hampel, EIF, Sub-PCA, KShapeAD, DWT-MLEAD,
-Autoencoder, KMeansAD, PatchMemoryAD, BOCPD, T-squared+Q, S2G
-(15 cards, 11 unique — 4 dup).
-Current: `output='memory'` default -> decision_scores/labels as
-`np.ndarray (n,)` -> O(n) state.
-Refactor: `output='auto'` default -> SpillArray (precedent CUSUM
-v0.9.173, ZMS v0.9.113).
-Target: achieved batch (11 unique models).
-
-### v0.9.219 — GBDT round-by-round SpillArray (2-3 sessions)
-
-GBDT, GBDT_multiclass, GBDT_L2, GBDT_scale_pos_weight ×2.
-Current: fit transient pred/grad/hess = O(n*90B) in RAM (S1 audit
-v0.9.168).
-Refactor: SpillDir memmap for grad/hess/pred (precedent LambdaMART
-v0.9.87-P2b-full-2).
-Target: achieved, remove `bounded_by_domain {n: 1e5}` (fit transient
-O(batch)).
+### v0.9.221 — Remaining anomaly achieved (from v0.9.218-c audit)
+Based on audit outcome: achievable candidates likely Sub-PCA
+(2-pass window_scores -> map n) and KShapeAD/S2G (if sliding-based).
+Effort 0.5-1 sess.
 
 ## OOC by primitive — decision matrix (MANDATORY, v0.9.204+)
 
