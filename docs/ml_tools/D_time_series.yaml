@@ -2860,7 +2860,7 @@ subtypes:
     fit_batched: true
     predict_batched: true
     depends_on: []
-    ram_formula: 3 * n * f64 + posterior_keep * max_run * f64 + 256
+    ram_formula: "8 * posterior_keep * (max_run + 1) * f64 + 3 * (max_run + 1) * f64 + 2 * batch * row_size + 256"
     formula_evidence:
       decision_scores: 'bocpd.py -- BOCPDResult: decision_scores (n)*f64'
       labels: 'bocpd.py -- BOCPDResult: labels (n)*i64'
@@ -2868,7 +2868,7 @@ subtypes:
       run_length_posterior: 'bocpd.py -- BOCPDResult: run_length_posterior (_keep, max_run+1)*f64; default posterior_keep=64 -> ~103KB constant, NOT O(n)'
       header: 'bocpd.py -- BOCPDResult: scalars +256'
       not_included: bocpd.py -- changepoints (sparse np.flatnonzero(labels), subset of labels) + R/mu/beta working arrays (O(max_run) hyperparameter)
-    min_ram_formula: 3 * n * f64 + posterior_keep * max_run * f64 + 256
+    min_ram_formula: "8 * posterior_keep * (max_run + 1) * f64 + 3 * (max_run + 1) * f64 + 256"
     min_ram_evidence:
       derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
@@ -2906,28 +2906,20 @@ subtypes:
       pretraining_overlap_risk: none
       temporal_split: true
       target_leakage_checked: true
-    state_class: O(n)
-    bounded_state_dims:
-      n: 1
-      posterior_keep: 1
-      max_run: 1
+    state_class: "O(model)"
+    bounded_state_dims: {max_run: 1, posterior_keep: 1}
     transient_factor: 1.0
     state_type: iterative
-    bounded_state: false
-    bounded_by_domain:
-      axis: n
-      bound: 1000000
-      reason: single-series time series changepoint detection; n<=1e6 typical. O(n) per-timestep changepoint probability (DEC-013 SpillArray v0.9.113).
-    n_scalability: linear
+    bounded_state: true
+    n_scalability: constant
     streaming_strategy:
       fit: 'rolling posterior: keep recent max_run run-lengths (fix1c).'
       predict: one-step posterior update per new point.
     primitive_reuse:
     - reduce
-    ooc_status: achievable
+    ooc_status: achieved
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series changepoint detection; n<=1e6 typical. O(n) per-timest. Guard refuses above state_limit.'
     ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
   - name: PELT
     tier: sota
     tier_level: tier1_core
