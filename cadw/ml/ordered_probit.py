@@ -29,7 +29,7 @@ import pyarrow as pa
 
 from cadw.core.memory_guard import MemoryGuard
 from cadw.ml._logging import log_fit
-from cadw.ops.mcmc import sgmcmc
+from cadw.ops.mcmc import sgmcmc, srvr_hmc
 
 
 def _stack_X(batch, X_cols: Sequence[str]) -> np.ndarray:
@@ -270,7 +270,7 @@ def fit_ordered_probit(
     if y_col in X_cols:
         raise ValueError(
             f"fit_ordered_probit: {y_col!r} must not be in X_cols")
-    if method not in ("sghmc", "gibbs"):
+    if method not in ("sghmc", "gibbs", "srvr-hmc"):
         raise ValueError(
             f"fit_ordered_probit: method 'sghmc'|'gibbs'; got {method!r}")
     if prior_scale <= 0:
@@ -373,6 +373,24 @@ def fit_ordered_probit(
         a_samples = samples[:, d:]
         cutpoint_samples = np.stack(
             [_cutpoints_from_a(a, K) for a in a_samples], axis=0)
+    elif method == "srvr-hmc":
+        # v0.9.229-b/B: SRVR-HMC (Zou 2019) — variance-reduced.
+        def _gdata_srvr(batch, th):
+            return _ordered_probit_grad_log_den_data(
+                batch, th, X_cols, y_col, K)
+        def _gprior_srvr(th):
+            return _ordered_probit_grad_log_den_prior(th, prior_scale)
+        _B_srvr = min(100, max(50, int(n_total // 10)))
+        samples = srvr_hmc(
+            df, _gdata_srvr, _gprior_srvr, theta_init,
+            n_samples=int(n_samples), n_burnin=int(n_burnin),
+            L=10, B=_B_srvr, lr=float(lr), gamma=20.0, u=1.0,
+            seed=int(seed), memory_guard=mg)
+        coef_samples = samples[:, :d]
+        a_samples = samples[:, d:]
+        cutpoint_samples = np.stack(
+            [_cutpoints_from_a(a, K) for a in a_samples], axis=0)
+
     else:  # gibbs — Albert-Chib z-augmentation
         if n_total > 100000:
             from cadw.core.memory_guard import MemoryLimitExceeded
