@@ -1,31 +1,41 @@
 # CADW Roadmap
 
-Last updated: 2026-11-12 (after v0.9.219).
+Last updated: 2026-11-12 (after v0.9.220).
 
-## Current: v0.9.219 — BOCPD achieved + Sub-PCA deferred
+## Current: v0.9.220 — anomaly audit correction (3 debt)
 
-**v0.9.219 outcome:**
-- v0.9.219-a: ROADMAP Last updated fix (v0.9.218 tagged).
-- v0.9.219-b: BOCPD achieved via streaming + SpillArray (Pattern #1,
-  precedent Hampel v0.9.217). Already OOC-by-state (posterior_keep*
-  max_run); added SpillArray for anomaly_score/argmax_run/labels;
-  contamination + output != 'memory' refuses (percentile needs full
-  array). +6 streaming tests. 148 focused passed.
+**v0.9.220 outcome:**
+- v0.9.220-b: Sub-PCA x2, KShapeAD, S2G -> debt (percentile
+  intrinsic for default contamination=0.1; breaking-change path
+  documented).
 
-**Deferred to v0.9.220:**
-- Sub-PCA streaming (2-pass: window_scores -> SpillArray; map via
-  _map_max/_map_mean; contamination Optional). More complex than
-  BOCPD (n_w < n needs 2-pass rebuild). ~1 sess.
+**P38/P40 (v0.9.220 probe):** Sub-PCA/KShapeAD/S2G all have
+contamination float=0.1 (not Optional) + threshold =
+np.percentile(decision_scores, 100*(1-c)) requiring full array. Same
+class as T²+Q (v0.9.218-b). BOCPD (v0.9.219-b) was correctly
+achievable because contamination already Optional[float]=None ->
+threshold 0.5 fixed.
 
-**Counts after v0.9.219:**
-- achieved: 79 (was 78 + BOCPD)
-- achievable: 53 (was 54; -1 BOCPD; still 3 TBD: Sub-PCA, KShapeAD,
-  S2G)
-- debt: 19 (unchanged)
-- none: 77 (unchanged)
+**Anomaly final (14 cards / 13 unique):**
+- achieved: 4 (Hampel, CUSUM, ZMS, BOCPD)
+- achievable: 0
+- debt: 9 unique (DWT-MLEAD, Autoencoder, PatchMemoryAD, T²+Q, EIF,
+  KMeansAD, Sub-PCA, KShapeAD, S2G) + 4 dup
 
-**v0.9.220 plan:** Sub-PCA streaming (1 sess) + KShapeAD/S2G if time
-(2 more achieved).
+**Overall counts after v0.9.220:**
+- achieved: 79 (unchanged)
+- achievable: 50 (was 53; -3 Sub-PCA/KShapeAD/S2G unique; still 5 GBDT
+  family, 5 TS streaming, 2 BinSeg, 35 no-module etc.)
+- debt: 22 (was 19; +3 unique Sub-PCA/KShapeAD/S2G)
+- none: 77
+
+**v0.9.221 plan:** GBDT round-by-round SpillArray (5 cards:
+GBDT, GBDT_multiclass, GBDT_L2, GBDT_scale_pos_weight x2; precedent
+LambdaMART v0.9.87-P2b-full-2). Target +5 achieved.
+
+**v0.9.222+:** TS streaming (P3/P4 primitives). Anomaly API redesign
+(contamination Optional + SpillArray) requires DEC approval for
+default UX break.
 
 ## Next 3 sessions (v0.9.219-221)
 

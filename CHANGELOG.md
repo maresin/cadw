@@ -4693,6 +4693,51 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.220] — 2026-11-12 (anomaly audit correction: 3 debt)
+
+Session scope: v0.9.220 Sub-PCA (target) + audit correction
+for remaining anomaly achievable. Outcome: Sub-PCA/KShapeAD/
+S2G -> debt (percentile intrinsic; classification in v0.9.218-c
+was overly optimistic). 0 new achieved.
+
+### v0.9.220-b — 3 models -> debt (percentile intrinsic)
+
+P38/P40 probes confirmed: all 3 have contamination: float=0.1
+(not Optional) + threshold = np.percentile(decision_scores,
+100*(1-c)) requiring full scores array.
+
+- Sub-PCA x2 (D3.1 + D3.3): contamination float=0.1;
+  threshold = percentile(decision_scores) at series_impl L109;
+  _map_max also requires full window_scores.
+- KShapeAD: kshape.py L589 percentile; same class.
+- S2G: s2g.py L548 percentile; same class.
+
+Same class as T²+Q (v0.9.218-b) and EIF/KMeansAD (v0.9.218-d).
+bounded_by_domain n<=1e6 honest (16-24 MB at 1e6).
+ooc_alternative documents breaking-change path (v0.9.221+:
+contamination Optional + output='auto' + SpillArray).
+
+### Audit correction (v0.9.218-c §2)
+
+§2.1 (Sub-PCA), §2.3 (KShapeAD), §2.4 (S2G) reclassified
+achievable -> debt (v0.9.220 §10). §2.2 (BOCPD) was correctly
+achievable (v0.9.219-b).
+
+Anomaly final (14 cards / 13 unique):
+- achieved: 4 (Hampel, CUSUM, ZMS, BOCPD)
+- achievable: 0
+- debt: 9 unique (DWT-MLEAD, Autoencoder, PatchMemoryAD, T²+Q,
+  EIF, KMeansAD, Sub-PCA, KShapeAD, S2G)
+
+### Session tally (measured post-v0.9.220)
+
+- achieved: 79 (unchanged)
+- achievable: 49 (was 53; -4 cards: Sub-PCA x2, KShapeAD, S2G)
+- debt: 23 (was 19; +4 cards)
+- (none): 77 (unchanged)
+
+Focused: YAML validates + bocpd tests green (previous).
+
 ## [0.9.219] — 2026-11-12 (BOCPD achieved; Sub-PCA deferred)
 
 Session scope: v0.9.219 Sub-PCA + BOCPD (API change). Outcome:
