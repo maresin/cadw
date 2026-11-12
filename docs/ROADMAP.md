@@ -1,110 +1,95 @@
 # CADW Roadmap
 
-Last updated: 2026-11-11 (after v0.9.203).
+Last updated: 2026-11-12 (after v0.9.216).
 
-## Current: v0.9.185 — primitives-first correction (DEC-070)
+## Current: v0.9.216 — achievable audit + ROADMAP restore
 
-**Why:** v0.9.182-184 flips were dishonest — persistent state O(model)
-correct, but fit transient O(n) via leaf primitives (`_extract_series`,
-`_ses_fit`, `stl_decompose`). YAML claimed `n_scalability: constant` when
-fit-peak scales linearly.
+**Session state (228 cards across [A-Z]_*.yaml, P19d/P22d):**
+- Verified (status): 116
+- status=None (described_only / draft): 112
+- ooc_status=achieved: 77
+- ooc_status=achievable: 64
+- ooc_status=debt: 10
+- ooc_status=None: 77
 
-### v0.9.185 — honest correction
+**Recent history (v0.9.186-215, 30 releases, condensed):**
+- v0.9.186-207: TS refactor + 50-primitive audit + Spectral co-clustering
+- v0.9.208: OOC-by-card schema (ooc_status / ooc_strategy /
+  ooc_target_version / ooc_alternative); 148 fills
+- v0.9.209: debt -> achievable classification (26 with plan; 10 debt)
+- v0.9.210-215: SpectralClustering sparse refactor + honest revert;
+  SpectralBiclustering (Kluger 2003); LSA + sparse SVD; Bimax
+  (Prelic 2006); PlaidModel (Lazzeroni-Owen 2002); DBSCAN (Ester
+  1996); Agglomerative (dense scipy) + wrappers
 
-- **DEC-070** primitives-first policy (permanent).
-- **4 leaf PrimitiveCards** registered: `_extract_series`, `_ses_fit_simple`,
-  `_ses_fit_hw`, `stl_decompose`. All honest `layer: leaf`,
-  `streaming_variant: null`, `intrinsic_bound: {axis: n, bound: 1e6}`.
-- **5 model YAML reverted** (Naive, Theta, OTMTheta, ETS, AutoETS):
-  `bounded_state: false`, `n_scalability: linear`, honest `ram_formula`
-  with fit-transient term, `bounded_by_domain` restored,
-  `migration_target: v0.9.190+`.
-- **state_class O(model)** kept — persistent state IS O(model); real
-  improvement over pre-v0.9.182.
-- **Bit-identical tests** for state_nbytes + predict + in_sample: all
-  pass with `save_y=True` legacy.
+**v0.9.216 — achievable audit**
 
-### Wave 2 continuation policy (v0.9.186+)
+See `docs/audits/v0.9.216_achievable_audit.md` for full 64-card
+breakdown. Summary:
+- **0 flip-ready** (verified candidates all intrinsic)
+- **3 intrinsic/honest debt**: CoxPH, KernelPCA, SpectralBiclustering
+- **~28 refactor-plan-valid**: GBDT x5 (round-by-round SpillArray);
+  TS x6 (streaming primitives P3/P4 pending); anomaly x15
+  (output='auto' SpillArray); Binseg x2 (external cumsum or
+  accept as intrinsic)
+- **~33 no-module** (unimplemented; needs `fit_*` first)
+- **5 duplicate cards** (EIF/Sub-PCA/KMeansAD/Autoencoder/BinSeg
+  appear in two subtypes)
 
-**Do not flip** `bounded_state: true` + `n_scalability: constant` in YAML
-until all 3 conditions hold:
+**Key finding:** `bounded_by_domain` on achievable cards is honest;
+flip requires real refactor, not YAML-only. Earlier AST "quick-flip"
+heuristic was wrong (fit has `_iter_filtered_batches` = input
+streaming, not state OOC).
 
-1. PrimitiveCard registered with **streaming variant** for every leaf
-   primitive used.
-2. Model's fit path uses **streaming** primitive (not `_extract_series`).
-3. Bit-identical verification of streaming vs full (test exists).
+**Session prior incident (v0.9.207-a duplicate, resolved):** session
+started from stale transcript; v0.9.207-a overwrote v0.9.207-215
+(SpectralCoclustering). Detected via P17 probe (git log), reverted
+to 87a749f (v0.9.215). **Rule: before ANY session work, probe**
+`git log --oneline -1`, `git describe --tags`, `grep __version__
+cadw/__init__.py`, `docs/ROADMAP.md "Current:"`. If ROADMAP is stale
+vs HEAD — **fix ROADMAP first**, then plan work. v0.9.216 executes
+this rule (restores ROADMAP to v0.9.215/216).
 
-Until then: `bounded_state: false`, `bounded_by_domain: {axis: n}`,
-`ram_formula` includes fit transient. Migration target on ROADMAP.
+## Next 3 sessions (v0.9.217-219)
 
-### Streaming primitives backlog (v0.9.190+)
+### v0.9.217 — SpectralBiclustering refactor (1-1.5 sessions)
 
-| Priority | Primitive | Effort | Unblocks |
-|---|---|---|---|
-| **P1** | `_extract_series` → `_iter_target_batches` | 1-2h | All TS fit paths |
-| **P2** | `_ses_fit(s=1)` → ring-buffer variant | 1h | Naive, ETS(s=1), AutoETS(s=1) |
-| **P3** | `_ses_fit(HW, s>1)` → 2-pass streaming | 4h | ETS(s>1), AutoETS(s>1) |
-| **P4** | `stl_decompose` → streaming STL | 4h+ | Theta/OTM/ETS seasonal |
+Current (P24f): `A (r*c) + A_norm (r*c) + U (r*n_sv) + rows_ind
+(n_rc*n_cc, r) + columns_ind` — all materialized in RAM. At r=1e5,
+c=1e4 -> 16 GB. Guard refuses above `r*c*8 = 1e9` bytes.
 
-Each primitive streaming unlock → flip YAML for affected models + bit-
-identical verification + retag.
+Refactor to Pattern #1 (precedent Coclustering v0.9.207):
+- 2-pass normalize (row_sum / col_sum via chunked Reduce)
+- `svd_topk` on streamed A_norm (no A materialization)
+- Stream U output directly into Z_df (no `np.vstack`)
+- Chunked `_project_and_cluster` (A_batch @ vt.T -> fit_kmeans on
+  streamed projected df, precedent Coclustering pass 3-4)
+- Labels as `SpillArray(int64, width=1)`
+- rows_ind / columns_ind: SpillArray (or omit; sklearn-compat
+  convenience only)
+Target: achieved, `bounded_by_window {gram_dim: 1e4}` (remove
+`bounded_by_domain {r*c: 1e9}`).
 
-### Wave 2 remaining (v0.9.186+)
+### v0.9.218 — Anomaly SpillArray batch (1-1.5 sessions)
 
-| Version | Models | Approach |
-|---|---|---|
-| **v0.9.186** | SARIMA + VAR | Refactor state to O(params); honest YAML flip only after streaming primitives (v0.9.190+) |
-| **v0.9.187** | TemporalHierarchy + TransformedTarget | Composite; honest bounds |
-| **v0.9.188** | Ensemble (final) | Already passes df through; honest YAML |
-| **v0.9.189** | GBDTForecaster + GBDT_multiseries | Deferred training + lag matrix SpillDir |
+11-12 anomaly models: Hampel, EIF, Sub-PCA, KShapeAD, DWT-MLEAD,
+Autoencoder, KMeansAD, PatchMemoryAD, BOCPD, T-squared+Q, S2G
+(15 cards, 11 unique — 4 dup).
+Current: `output='memory'` default -> decision_scores/labels as
+`np.ndarray (n,)` -> O(n) state.
+Refactor: `output='auto'` default -> SpillArray (precedent CUSUM
+v0.9.173, ZMS v0.9.113).
+Target: achieved batch (11 unique models).
 
----
+### v0.9.219 — GBDT round-by-round SpillArray (2-3 sessions)
 
-## Next 3 sessions (v0.9.186-188 — Wave 2 continuation)
-
-### v0.9.186 — SARIMA + VAR refactor (0.5-1 session)
-State to O(params) (SARIMA: coefs + seasonal_cycle; VAR: B + k*p buffer).
-Honest YAML bounds (bounded_by_domain until streaming primitives land).
-Tests bit-identical + state_nbytes O(model).
-
-### v0.9.187 — TemporalHierarchy + TransformedTarget (1 session)
-Composite: pass-through df + per-inner state O(model). Honest bounds.
-
-### v0.9.188 — Ensemble + GBDTForecaster (1-1.5 sessions)
-Ensemble final pass-through; GBDTForecaster deferred training +
-lag matrix on SpillDir. Honest bounds.
-
----
-
-
-### OOC-by-card fields (v0.9.208+)
-
-Every model card has:
-- `ooc_status`: enum `achieved | achievable | debt | escape_hatch | null`
-  - `achieved` — OOC works (verified, no `bounded_by_domain`)
-  - `achievable` — plan exists (may retain `bounded_by_domain` as current
-    limitation + `ooc_alternative` + `ooc_target_version`)
-  - `debt` — permanent debt (no streaming possible; `ooc_alternative`
-    explains why; `refuse_at_guard` documented)
-  - `escape_hatch` — documented bypass (apply, to_pandas)
-  - `null` — not applicable (not_a_model, sota reference)
-- `ooc_strategy` — narrative how achieved/planned
-- `ooc_alternative` — for achievable/debt: concrete alternative approach
-- `ooc_target_version` — for achievable/debt: ROADMAP version
-
-Every primitive card (leaf/intrinsic) has:
-- `ooc_usage` — how to use this primitive in OOC context (caller pattern)
-
-**Important:** `bounded_by_domain` is NOT "final". Policy (user feedback
-v0.9.209): treat it as крайний случай. When an OOC plan exists (via
-primitives, SpillArray, or algorithm change), `ooc_status: achievable`
-with target version — bounded_by_domain kept as honest current limitation.
-
-Distribution v0.9.209: 75 achieved + 72 achievable + 1 debt (STRAY) + 80 null.
-
-Gates:
-- G24 (hard, v0.9.208-c3): verified/debt without ooc_status => FAIL
-- G25 (hard, v0.9.208-b): leaf/intrinsic without ooc_usage => FAIL
+GBDT, GBDT_multiclass, GBDT_L2, GBDT_scale_pos_weight ×2.
+Current: fit transient pred/grad/hess = O(n*90B) in RAM (S1 audit
+v0.9.168).
+Refactor: SpillDir memmap for grad/hess/pred (precedent LambdaMART
+v0.9.87-P2b-full-2).
+Target: achieved, remove `bounded_by_domain {n: 1e5}` (fit transient
+O(batch)).
 
 ## OOC by primitive — decision matrix (MANDATORY, v0.9.204+)
 
@@ -1015,13 +1000,19 @@ verified fns at v0.9.118; 32 at v0.9.119.
 
 ## Status baseline
 
-| Status | fns | cards | Что |
-|---|---|---|---|
-| verified | **40** | 56 | +3 bandits ×2 (impl promo v0.9.143) |
-| draft | **14** | 17 | 4 ts (formula pending v0.9.129) + 10 prior (BVAR/VECM, binseg×2, pelt×2, t2q, meta_learner, ab_test×3) |
-| described_only | — | 61 | 19 in B/C/R/S/T/V/W + 42 v0.9.128 candidates |
-| inference-only | — | 6 | Chronos×3, MiniLM, DeepSurv, DeepHit |
-| last-priority | — | 5 | S_generative (TVAE/CTGAN/CTAB-GAN+/TabDDPM/TabSyn) |
+| Metric | Count | Notes |
+|---|---|---|
+| Total cards | 228 | across [A-Z]_*.yaml |
+| Verified (status) | 116 | includes some achievable/debt |
+| status=None | 112 | described_only / draft / planned |
+| ooc_status=achieved | 77 | OOC confirmed |
+| ooc_status=achievable | 64 | honest debt with plan (v0.9.209) |
+| ooc_status=debt | 10 | honest debt, no plan (Spectral x3, DBSCAN, Agglom, PlaidModel, Bimax, STRAY, MH, NUTS) |
+| ooc_status=None | 77 | pre-v0.9.208 cards, no classification |
+
+**Consistency note:** `verified` (116) and `ooc_status` (74) are not
+exclusive. Many verified cards are pre-v0.9.208 (no ooc_status);
+some achievable/debt are verified-by-source but not OOC-by-practice.
 
 ---
 
