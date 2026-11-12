@@ -640,10 +640,14 @@ subtypes:
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
     transient_factor: 1.0
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-... Target: v0.9.180+. Current bound: S1 audit: state includes _X (n×d f64) + _y (n) + _idx (n) for deferred horizon t. Guard refuses above state_limit.'
-    ooc_alternative: 'Round-by-round SpillArray: grad/hess/pred to SpillDir memmap (precedent LambdaMART v0.9.87-P2b-full-2; partial in GBDT v0.9.172). Expected state O(nodes) not O(n).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent intrinsic for current gbdt: partial memmap (v0.9.172, DEC-065) leaks dirty pages to RSS at ~20-24 B/row; true OOC requires posix_fadvise/direct I/O refactor (deferred DEC-065 v0.9.173+). Multiclass additionally has cur_leaf_c = np.zeros(n_total) (gbdt.py:127) unmemmapped.
+      
+      Replacement path: CadwBoost (.pingis/drafts/cadwboost/) is TRUE OOC (ratio 0.41x at n=50k-200k, verified v0.9.221 P46/P47). Promote target v0.9.222-224 (tests + wire + CW).
+      
+      bounded_by_domain n<=1e5 honest: ~2 MB at 1e5 with 24 B/row.
   - name: EnsembleForecaster
     cadw_module: cadw.ts.ensemble
     cadw_function: EnsembleForecaster
