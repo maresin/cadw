@@ -1,6 +1,6 @@
 # CADW Roadmap
 
-Last updated: 2026-11-12 (after v0.9.217; v0.9.218 in progress).
+Last updated: 2026-11-12 (after v0.9.218).
 
 ## Current: v0.9.218 — T²+Q debt + 6 TBD audit
 
