@@ -1866,10 +1866,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) anomaly_scores + is_anomaly. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent: multilevel Haar DWT (_multilevel_haar_dwt) needs full series (log2(n) levels x n); windowed variant = different algorithm (semantic truncation, not refactor). bounded_by_domain n<=1e6 honest (~9 MB at n=1e6).
   - name: Sub-PCA
     tier: sota
     tier_level: tier1_core
@@ -2483,10 +2483,10 @@ subtypes:
       predict: per-batch reconstruction error.
     primitive_reuse:
     - strided_view
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent: training epochs over full X (n_w x w) in _fit_autoencoder_series_impl; chunked inference (v0.9.91-S6d) is second phase only. Training itself requires full window matrix in RAM. bounded_by_domain n<=1e6 honest (~24 MB at n=1e6).
   - name: KMeansAD
     tier: baseline
     tier_level: tier1_core
@@ -2672,10 +2672,10 @@ subtypes:
     - memmap
     - spill_dir
     - strided_view
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent: training epochs over full X (n_w x w) in _fit_patch_memory_ad_series_impl; same pattern as Autoencoder. bounded_by_domain n<=1e6 honest (~24 MB at n=1e6).
   metrics:
   - name: vus_pr
     combination: anchor
@@ -3851,10 +3851,10 @@ subtypes:
       predict: per-batch reconstruction error.
     primitive_reuse:
     - strided_view
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + window_scores. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent: training epochs over full X (n_w x w) in _fit_autoencoder_series_impl; chunked inference (v0.9.91-S6d) is second phase only. Training itself requires full window matrix in RAM. bounded_by_domain n<=1e6 honest (~24 MB at n=1e6).
   - name: S2G
     tier: sota
     tier_level: tier1_core
