@@ -4693,6 +4693,67 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.223] — 2026-11-12 (CadwBoost promoted + card flip)
+
+CadwBoost promoted from .pingis/drafts/ sandbox to cadw/ml/;
+card flipped to verified+achieved; .pingis refs removed from
+cadw/ docstrings. First new achieved since v0.9.219 (BOCPD).
+
+### v0.9.223-a — promote to cadw/ml/cadwboost/ (18 modules)
+
+Move from .pingis/drafts/cadwboost/ to cadw/ml/cadwboost/.
+2858 LOC, 18 modules, verified v0.9.221-222 (TRUE OOC ratio
+0.41x; 5/5 bench better with leaf_wise; 34 tests).
+
+- cadw/ml/cadwboost/ (18 modules: binning, boosting, dataframe,
+  efb, forecaster, histogram, __init__, losses, missing, model,
+  multiclass, ngboost, ooc, sampling, serialize, shap,
+  split_finder, tree).
+- Relative imports (from .X) preserved — no top-level 'from
+  cadw' circular dependency.
+- docs/ml_tools/cadwboost_design.md (moved from README, 14.5 KB).
+- scripts/cadwboost/bench_vs_gbdt.py (moved, 7.5 KB).
+- tests imports updated: cadwboost -> cadw.ml.cadwboost; sys.path
+  hack removed.
+
+### v0.9.223-b — card flip + docstrings cleanup
+
+A_classification.yaml CADWBoost card:
+- implementation_status: described_only -> verified_in_cadw
+- ooc_status: (none) -> achieved
+- cadw_module: .pingis/drafts/cadwboost -> cadw.ml.cadwboost
+- cadw_function: (none) -> CADWBoost
+- input_api: dual; fit_batched: true; predict_batched: false
+- bounded_state: true; state_class: O(model); ns: constant
+- ram_formula: n_estimators * (2**max_depth) * 500
+    + 20000*(d+1)*f64 + 400000 + 256
+- min_ram_formula + evidence; streaming_strategy + measurement
+- benchmark_url + algorithm_source_url -> docs/ml_tools/
+  cadwboost_design.md
+
+Docstrings cleanup (35 files, 37 refs):
+- .pingis/impl/X -> 'internal audit prototype'
+- .pingis/algorithm_notes/X -> 'See DECISION_LOG for reference.'
+- .pingis/benches/X -> 'internal bench'
+- .pingis/drafts/cadwboost -> 'cadw.ml.cadwboost (promoted v0.9.223)'
+- .pingis/plan_v0.9.87_refactor.md -> 'retired v0.9.223'
+
+R2 fix during flip: 'd' in ram_formula requires 'd: 1' in
+bounded_state_dims (schema); added.
+
+### Session tally
+
+- achieved: 80 (+CADWBoost; was (none))
+- achievable: 43 (unchanged)
+- debt: 29 (unchanged)
+- (none): 76 (-1, CADWBoost left none)
+
+Focused: 148 passed (34 cadwboost + schema + G23).
+
+Deferred v0.9.223-c: tests batch 2 (~21: EFB, sampling, missing,
+serialize, shap, df, ooc extended); test fallback for .pingis/
+plan_v0.9.87_refactor.md; mass YAML bench_url cleanup (~140).
+
 ## [0.9.222] — 2026-11-12 (CadwBoost bench + tests batch 1)
 
 CadwBoost promote work, part 1/2. Prototype fully verified
