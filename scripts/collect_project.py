@@ -7,12 +7,14 @@ SMART MODE (default, ~500 KB vs 2 MB full):
     last-5 CHANGELOG entries, DECISIONS.md (§13.4 truncated to last 10
     episodes), and ALL 11 AI-first methodology files (T1-T4).
 
-TINY MODE (v0.9.102, recommended for session bootstrap):
-  11 AI-first docs in full (AI_CONSTITUTION, ROADMAP, STABILITY_PROTOCOL,
-    ALGORITHM_TEMPLATE, GLOSSARY, DECISION_LOG, CHAT_PROTOCOL,
-    EXAMPLES_INDEX, PRIMITIVES_AND_PRINCIPLES, EXAMPLE_VERIFIED_CARD,
-    METHODOLOGY_ALGORITHM_SELECTION) in reading order, then CHANGELOG
-    index, then skeletonized cadw/**/*.py.
+TINY MODE (v0.9.224, recommended for session bootstrap):
+  13 AI-first docs in full (AI_CONSTITUTION, ROADMAP, STABILITY_PROTOCOL,
+    EXPERIMENT_PROCEDURE, ALGORITHM_TEMPLATE, GLOSSARY, DECISION_LOG,
+    CHAT_PROTOCOL, EXAMPLES_INDEX, PRIMITIVES_AND_PRINCIPLES,
+    EXAMPLE_VERIFIED_CARD, METHODOLOGY_ALGORITHM_SELECTION,
+    PRIMITIVES_BACKLOG) in reading order, then CHANGELOG index, then
+    skeletonized cadw/**/*.py + 7 cadwboost key modules + tests/*_verification.py
+    + tests/test_cadwboost_*.py (bodies omitted, signatures visible).
   Missing AI-first file -> exit 3 (broken tree, do not silently skip).
   Stub: older scripts/patch_*, scripts/archive/*, scripts/*.sh,
     .backups/*, uv.lock, older CHANGELOG entries, older §13.4 episodes.
@@ -99,6 +101,9 @@ TINY_FULL = {
     # These are procedural references; update only on template change.
     "tests/test_coxph_verification.py",     # CoxPH-precedent (v0.9.114)
     "tests/test_chains_verification.py",    # 5-CW final template (v0.9.118)
+    # v0.9.224: CadwBoost CW template (state/OOC/guard pattern for
+    # promoted prototype; canonical copy-paste for future promotes).
+    "tests/test_cadwboost_cw.py",
 }
 TINY_SKELETON = {
     "cadw/core/memory_guard.py",
@@ -120,6 +125,16 @@ TINY_SKELETON = {
     # v0.9.143: schema.py — visible fields (ModelCard dataclass,
     # R-rules, VALID_STATE_CLASS). Essential for YAML edits in session.
     "docs/ml_tools/schema.py",
+    # v0.9.224: CadwBoost key modules (promoted v0.9.223). Skeleton
+    # shows class signatures + state_nbytes + fit_df/predict_df API;
+    # bodies omitted. Remaining 11 modules stubbed (less critical).
+    "cadw/ml/cadwboost/model.py",       # CADWBoost class + fit_df + state_nbytes
+    "cadw/ml/cadwboost/ooc.py",         # fit_ooc TRUE OOC pattern
+    "cadw/ml/cadwboost/losses.py",      # 9 losses (quantile bug ref)
+    "cadw/ml/cadwboost/dataframe.py",   # fit_df / predict_df / predict_proba_df
+    "cadw/ml/cadwboost/tree.py",        # symmetric + leaf_wise builders
+    "cadw/ml/cadwboost/efb.py",         # EFB (Exclusive Feature Bundling)
+    "cadw/ml/cadwboost/multiclass.py",  # CADWBoostMulticlass
 }
 
 
@@ -376,8 +391,9 @@ def main() -> int:
             # v0.9.119: all verification tests skeletonized in tiny.
             # Shows test names + imports + parametrize; bodies omitted.
             # Universal — no per-file list, works for future verifications.
-            elif (rel.startswith("tests/test_")
-                  and rel.endswith("_verification.py")):
+            elif ((rel.startswith("tests/test_")
+                   and rel.endswith("_verification.py"))
+                  or rel.startswith("tests/test_cadwboost_")):
                 mode = "skeleton"
             else:
                 mode = "stub"
