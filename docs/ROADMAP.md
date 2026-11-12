@@ -1166,23 +1166,35 @@ Violations caught by **G18** (`tests/test_constitution_gates.py`).
 pattern from last W_eff is a valid semantic variant (pelt precedent,
 DEC-067 §3/§6). Do NOT declare intrinsic without checking window first.
 
-### §D. Testing discipline — targeted after changes, full before tag
+### §D. Testing discipline — targeted only
 
-Per-session rule (v0.9.192, user feedback):
+Per-session rule (v0.9.217 update, user feedback — **hard rule**):
 
 | Change | Run |
 |---|---|
 | Model-specific code | that model's tests + `test_ml_tools_schema.py` |
 | Shared primitive | its tests + 1-2 representative consumers |
 | YAML flip | `test_ml_tools_schema.py` + `test_constitution_gates.py` + affected model tests |
-| Version bump / release tag | **full regression** (`pytest -q -m "not slow"`) — once |
+| Version bump / release tag | **same targeted tests** — no full suite |
 
-**Why:** models are isolated (distinct code paths, distinct tests). Full
-suite after each sub-commit costs ~3 min × N per session with zero
-additional signal. Full suite is meaningful once, before tag.
+**Full suite is EXPLICITLY FORBIDDEN unless user asks.** Reasons:
+- Tagging cadence: ~30 min per release in active session. Full suite
+  (30+ min, slow E2E dominates) cannot fit every tag.
+- Models are isolated (distinct code paths, distinct tests). Targeted
+  tests catch regressions in changed code. Untouched code has its own
+  baseline (already tested in its release).
+- Pre-existing failures (spectral_biclustering, spectral_clustering
+  bench deps, test_als_verification flake) make full suite noisy and
+  fail-tag-correlation meaningless.
 
-**Anti-pattern:** running full suite after every c1/c2/c3 sub-commit
-"just in case". In v0.9.188-191 this wasted ~30 min.
+**When full suite IS appropriate:**
+- User explicitly says "run full".
+- Post-campaign checkpoint (e.g. after 10+ releases, end of day).
+- Before major version (v1.0).
+
+**Anti-pattern (confirmed twice, v0.9.188-191 + v0.9.217):** running
+full fast "before tag, just in case". Wastes 30 min per release with
+zero actionable signal.
 
 ### §E. G18 is formal, not semantic
 
