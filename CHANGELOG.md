@@ -47,6 +47,77 @@ backfilled this session; details in git log + ROADMAP).
   trap, adaptive EMA V_hat/C, single momentum init).
 - YAML: OrderedProbit achieved; MH/NUTS (W_probabilistic) debt→achievable.
 
+### v0.9.229-b1 — srvr_hmc primitive + verify_tag.py
+
+- `cadw/ops/mcmc.py::srvr_hmc` — Zou, Xu, Gu (NeurIPS 2019)
+  stochastic variance-reduced HMC. Exponential integrator +
+  snapshot-based SVRG semi-stochastic gradient.
+  P76 verified: primitive == reference (bit-identical, max|diff|=0);
+  Gaussian N(1.998, 0.0316): mean=1.9946, std=0.0363 (ratio 1.15).
+  P75 fix: data gradient must be SUM (×n), not mean (n× under-scale
+  caused N(1,1/2) instead of N(1.998,1/1001)).
+- `scripts/verify_tag.py` — automates AP31 §6.5: git status empty,
+  version consistency (3 files), tag on HEAD, CHANGELOG entry,
+  clean-checkout import. P77 fix: grep -cF (literal [ in CHANGELOG).
+- 10 tests in tests/test_srvr_hmc.py (parity, Gaussian, OOC ratio,
+  guard, determinism, invalid).
+
+### v0.9.229-b2 — ordered_probit srvr-hmc integration + verification
+
+- `fit_ordered_probit(method='srvr-hmc')` — wraps `srvr_hmc` with
+  `_ordered_probit_grad_log_den_data` / `_grad_log_den_prior`.
+- 28 tests in tests/test_ordered_probit_verification.py:
+  CW-1 state exact (3 methods × 3 d), CW-2 state n-independent,
+  CW-3 state bounded, CW-4 guard refuse, correctness (Bayes-bound
+  pre-computed), cutpoints monotone, methods_agree (3-method parity),
+  determinism, invalid.
+- P78/P79 fix: anchor+indent check for branch insertion.
+- P80 fix: `_make_df` beta_true auto-length from d.
+
+### v0.9.229-c1 — nuts primitive (Hoffman 2014) + reference oracle
+
+- `cadw/ops/mcmc.py::nuts` — Hoffman & Gelman (JMLR 2014,
+  Algorithm 6). Recursive BuildTree + dual averaging (Stan defaults:
+  gamma=0.05, t0=10, kappa=0.75) + leapfrog integrator.
+  P82 first-try pass: Gaussian N(1.998, 0.0316), mean=1.9905,
+  std=0.0288 (ratio 0.91) — exact, no tempering.
+- EXACT posterior; intrinsic fit-time O(n) per leapfrog (full-data
+  gradient). bounded_by_domain n≤1e5.
+- 10 tests in tests/test_nuts.py (independent _reference_nuts oracle,
+  bit-identical parity atol=1e-8, Gaussian, determinism, guard,
+  invalid).
+
+### v0.9.229-c2 — ordered_probit nuts integration + 4-method suite
+
+- `fit_ordered_probit(method='nuts')` — full wiring via
+  `_ordered_probit_log_den_data` / `_log_den_prior` (added) +
+  gradient fns (existing). max_tree_depth param exposed (default 8).
+- Tests rewrite (v0.9.229-c2-fix3, P86): `_METHODS` = 3 fast (gibbs,
+  sghmc, srvr-hmc); NUTS via `test_nuts_method_smoke` (max_tree_depth=3,
+  n_burnin=20) — full NUTS accuracy at primitive level in test_nuts.py.
+  Fast: 11.79s / 24 passed. Slow: 43.64s / 7 passed (correctness,
+  cutpoints monotone, methods_agree). P85/P86: perf fix —
+  max_tree_depth param (was hardcoded 8), @slow markers, n reductions.
+
+### v0.9.229-d — multi-method Pareto-frontier pattern (DEC-078 + §5.4)
+
+- **DEC-078** (DECISION_LOG): pattern formalized. Three orthogonal
+  axes (accuracy × scalability × speed/memory), not binary exact/approx.
+  Canonical examples: `fit_linear(solver=closed|sgd)`,
+  `fit_ordered_probit(method=gibbs|sghmc|srvr-hmc|nuts)`,
+  `fit_gbdt(tree_mode=exact|histogram)`. Design rules: default=fast OOC,
+  exact=oracle (feasible always implemented), parity test required
+  at axis≤exact_bound.
+- **AI_CONSTITUTION §5.4**: design checklist for new multi-method
+  models. Reference: DEC-078.
+- **ROADMAP** Current v0.9.229: added b1/b2/c1/c2/d rows + MCMC
+  framework + pattern notes.
+- **CHANGELOG**: sub-sections b1/b2/c1/c2/d added under v0.9.229.
+- **scripts/verify_tag.py** sub-tag policy (P81, Q4 = A): strict
+  on-HEAD check for all tags. Historical sub-tags (b1, b2, c1, c2)
+  FAIL on-HEAD after HEAD moves forward — correct behavior for
+  intermediate checkpoints, docstring note added.
+
 **Counts:** achieved 86, achievable 45, debt 29.
 
 **Lessons:**

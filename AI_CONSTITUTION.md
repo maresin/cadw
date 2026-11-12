@@ -1066,6 +1066,62 @@ freeze is a **declared convention** (this §), enforced by review.
 
 ---
 
+### §5.4. Multi-method Pareto-frontier (DEC-078, v0.9.229)
+
+**Pattern.** Multi-method models expose ≥2 methods covering distinct
+Pareto-optimal points on **three orthogonal axes** — not one binary
+exact/approx. Reference: DEC-078.
+
+**Axes:**
+
+| Axis | Poles | Check |
+|---|---|---|
+| Accuracy | exact ↔ approximate | Documented per method (e.g. `coef_err` vs truth) |
+| Scalability | O(n)-bound ↔ OOC (any n) | `bounded_by_domain` (exact) vs `n_scalability: constant` (OOC) |
+| Speed / Memory | slow / O(d²) ↔ fast / O(d) | `ram_formula` state term |
+
+**Rules (enforced for new models; existing multi-method models grandfathered
+until next touch):**
+
+1. **Default = fast OOC** method (`sghmc`, `solver='sgd'`, `tree_mode='histogram'`).
+   Exact methods (`gibbs`, `nuts`, `solver='closed'`) are opt-in.
+2. **Exact method required** if feasible at any axis ≤ bound. Its role:
+   oracle for approximate methods on the same axis at small values.
+3. **YAML per-method:** `bounded_by_domain.reason` must enumerate WHICH methods
+   are bounded (`method in {gibbs, nuts}: intrinsic O(n); sghmc/srvr-hmc OOC
+   at any n`). `n_scalability` refers to the **default** method only.
+4. **Parity test required** at `axis ≤ exact_bound`: approx vs exact,
+   documented tolerance + sample size in `measurement.note`. No parity claim
+   without test.
+5. **No duplicate oracles:** if exact method is verified at primitive level
+   (`test_nuts.py` bit-identical to reference), model-level integration
+   needs only smoke (`test_nuts_method_smoke`), not full parity.
+
+**Checklist for new multi-method models:**
+
+- [ ] Enumerate distinct Pareto-frontier points (≥2 if feasible)
+- [ ] Identify default = fast OOC (not exact — exact opt-in)
+- [ ] Exact method implemented if physically feasible
+- [ ] `method` / `solver` / `tree_mode` param enum explicitly lists all
+- [ ] YAML `bounded_by_domain.reason` per-method
+- [ ] Parity test approx-vs-exact (n≤exact_bound), with tolerance documented
+- [ ] If exact primitive verified: no duplicate at model level, only smoke
+
+**Where NOT to apply:**
+
+- Single-method models (`fit_kmeans`, `fit_dbscan`): no frontier.
+- Intrinsic O(n) only (`fit_binseg`, `fit_stray`): `bounded_by_domain` /
+  `refuse_at_guard`, no fast OOC exists.
+- Deferred methods: do NOT list unimplemented `method` values in
+  `params_supported` — violates R5.
+
+**Reference implementation:** `fit_ordered_probit` (v0.9.229-c2):
+4 methods (`sghmc` default OOC approx / `srvr-hmc` OOC approx /
+`gibbs` exact O(n) / `nuts` exact O(n·leapfrog)), parity tests in
+`tests/test_ordered_probit_verification.py::test_methods_agree`.
+
+---
+
 ## §6. Roadmap summary (3 sessions)
 
 **Next sessions** (see docs/ROADMAP.md for details):

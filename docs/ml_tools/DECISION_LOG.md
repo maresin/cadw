@@ -3327,3 +3327,85 @@ fit-time or predict-time. Future primitive cards require:
 
 See AP29 (new, AI_CONSTITUTION §5) for enforcement.
 
+
+
+---
+
+## DEC-078 (2026-11-13, v0.9.229) — Multi-method Pareto-frontier (exact/approx × scalable/bounded × fast/slow)
+
+**Q:** v0.9.229 session revealed `fit_ordered_probit(method=sghmc|gibbs|srvr-hmc|nuts)`. Is this "exact vs approximate"? Or broader?
+
+**A:** Broader. Three **independent** axes, not one binary:
+
+| Axis | Poles |
+|---|---|
+| **Accuracy** | exact ↔ approximate |
+| **Scalability** | O(n)-bound (bounded_by_domain) ↔ OOC (any n) |
+| **Speed / Memory** | slow / O(d²) ↔ fast / O(d) |
+
+A method occupies a **point** on the Pareto-frontier; models expose **multiple**
+methods covering distinct Pareto-optimal points. The choice is not
+"accuracy vs scalability" — it's **which corner of the frontier**.
+
+### Canonical examples in current codebase
+
+| Model | Slow exact | Fast exact (OOC) | Approx OOC |
+|---|---|---|---|
+| `fit_ordered_probit` | `gibbs` (O(n), n≤1e5), `nuts` (O(n·leapfrog), n≤1e5) | — | `sghmc` (default), `srvr-hmc` (variance-reduced) |
+| `fit_linear` | `solver='closed'` (O(d²) state, bit-identical) | — | `solver='sgd'` (O(d) state, converges) |
+| `fit_coxph` | `solver='closed'` (Newton, O(d²)) | — | `solver='sgd'` (O(d)) |
+| `fit_gbdt` | `tree_mode='exact'` (sort-based) | `tree_mode='histogram'` (bins, OOC) | — |
+| `fit_pca` | `solver='closed'` | — | `solver='sgd'` |
+
+**Note (from v0.9.229 session, P82):** some pairs are **both OOC but differ in speed/memory**
+(linear `closed` vs `sgd` — both `Reduce`-based, both OOC in n; difference is `O(d²)` vs
+`O(d)` state). This is a distinct Pareto-axis: **speed×memory under equal n-scalability**.
+
+### Design rules
+
+1. **Default method = fast OOC** (`sghmc`, `solver='sgd'`, `tree_mode='histogram'`). Exact
+   methods are opt-in: `gibbs`, `nuts`, `solver='closed'`.
+2. **If an exact method is feasible** under some bound on some axis, it MUST be implemented.
+   Exact methods serve as **ground-truth oracles** for approximate methods on the same axis
+   at small values — this is how we validate that approximation is faithful (P46/P63/P64/
+   P76/P82: approx vs exact parity tests).
+3. **Per-method YAML** — `method` / `solver` / `tree_mode` / `params_supported` enum
+   lists ALL Pareto-frontier points explicitly. `bounded_by_domain` is **per-method**
+   (`method in {gibbs, nuts}: intrinsic O(n); sghmc/srvr-hmc OOC at any n`).
+   `n_scalability` refers to the **default** method.
+4. **Parity test required** for every exact/approx pair at `axis ≤ exact_bound`. Test
+   documents tolerance + sample size in YAML `measurement.note`. Cannot claim parity
+   without test.
+5. **No duplicate oracles.** If an exact method exists in a **primitive** (e.g. `test_nuts.py`
+   validates `nuts` primitive independently), integration tests only need a **smoke**
+   (`test_nuts_method_smoke` in `test_ordered_probit_verification.py`), not full parity
+   repeated at model level.
+
+### Where not to apply
+
+- **Single-method models** (`fit_kmeans`, `fit_dbscan`, `fit_lof`): one method, no frontier.
+- **Intrinsic O(n) with no cheaper variant** (`fit_binseg`, `fit_stray`): no fast OOC exists
+  → `bounded_by_domain` + `refuse_at_guard`. Not a Pareto-frontier case.
+- **Deferred methods** (e.g. `_grid_search` variants): if a variant isn't implemented, do
+  NOT list it in `method` / `params_supported`. Empty promises violate R5 (verified = R1-R4
+  + no open backlog).
+
+### Rationale
+
+**Prior state (before DEC-078):** `method` / `solver` existed ad-hoc, documented per-model
+in prose (some in YAML `measurement.note`, some in docstrings, some only in DEC entries).
+No cross-model pattern: `solver=closed|sgd` in `linear`/`coxph` and `method=gibbs|sghmc|
+srvr-hmc|nuts` in `ordered_probit` were unrelated narratives.
+
+**After DEC-078:** single framework vocabulary — axes are named, Pareto-frontier is
+required, default = fast OOC, exact = oracle. Future Bayesian models (`W_probabilistic`
+cards: `MeanFieldVI`, `SVI`, `BlackBoxVI`, `MetropolisHastings`, `NUTS`) will follow
+this pattern: exact methods (HMC/NUTS) as oracle, VI as fast OOC approximations, with
+parity documented.
+
+**Reference:** AI_CONSTITUTION §5.4 (design checklist); ROADMAP v0.9.229 (session
+outcome); v0.9.229-c2 (ordered_probit quad-method as reference implementation).
+
+---
+
+<!-- end DEC-078 -->

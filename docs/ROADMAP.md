@@ -14,6 +14,23 @@ Last updated: 2026-11-13 (after v0.9.229).
 | v0.9.226 | ListNet (G1) + `_ltr_common.listnet_grad` sign fix | 83 → 84 |
 | v0.9.227 | DR_learner (H1) | 84 → 85 |
 | v0.9.229-a | OrderedProbitBayesian (A5) + `mcmc::sgmcmc` + `mcmc::gibbs` + `numeric::norm_cdf` | 85 → 86 |
+| v0.9.229-b1 | `mcmc::srvr_hmc` primitive + `scripts/verify_tag.py` (AP31 automation) | — |
+| v0.9.229-b2 | OrderedProbit `srvr-hmc` integration + 28 verification tests | — |
+| v0.9.229-c1 | `mcmc::nuts` primitive (Hoffman 2014) + reference oracle | — |
+| v0.9.229-c2 | OrderedProbit `nuts` integration + 4-method verification suite | — |
+| v0.9.229-d | Multi-method Pareto-frontier pattern (DEC-078 + §5.4) | — |
+
+
+**MCMC framework (v0.9.229-b/c):** `cadw/ops/mcmc.py` — 4 primitives
+(`sgmcmc`, `gibbs`, `srvr_hmc`, `nuts`), all verified against
+independent reference (P63/P76/P82 — bit-identical primitive parity;
+Gaussian recovery: mean within 0.1 of analytic, std within 1.5×).
+
+**Multi-method pattern (v0.9.229-d):** `fit_ordered_probit` now offers
+4 methods on a Pareto-frontier (exact/approx × scalable/bounded ×
+speed/memory). General pattern formalized in DEC-078 + AI_CONSTITUTION
+§5.4. Future Bayesian models (`W_probabilistic` cards) follow this
+pattern: exact as oracle, approx as default.
 
 **Counts:** achieved 86, achievable 45 (MH/NUTS debt→achievable via SGHMC), debt 29.
 

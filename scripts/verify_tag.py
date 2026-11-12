@@ -12,6 +12,11 @@ Exit code: 0 if all checks pass, 1 otherwise.
 
 Rationale: v0.9.229 session had TWO AP31 violations (v0.9.229-a missed
 4 files; v0.9.229 missed uv.lock). Automate to prevent recurrence.
+
+Sub-tag policy (DEC-078 / P81): all tags require on-HEAD (strict).
+Historical sub-tags (e.g. v0.9.229-b1 after v0.9.229-b2 lands) FAIL
+on-HEAD by design — intermediate checkpoints, not release tips. Do
+not relax to reachability; stale tags are honest signal.
 """
 import argparse
 import os
