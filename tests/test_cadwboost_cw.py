@@ -1,11 +1,4 @@
 """v0.9.222-a: CadwBoost component-wise verification (DEC-033)."""
-import sys
-from pathlib import Path
-
-_DRAFT = Path(__file__).resolve().parent.parent / ".pingis" / "drafts" / "cadwboost"
-if str(_DRAFT) not in sys.path:
-    sys.path.insert(0, str(_DRAFT))
-
 import numpy as np
 import pyarrow as pa
 import pytest
@@ -32,8 +25,8 @@ def _mk_df(n, d=4, seed=0, kind="reg"):
 # CW-2: state_nbytes n-independent
 @pytest.mark.parametrize("n", [1000, 5000, 20000])
 def test_state_nbytes_n_independent(n):
-    from cadwboost import CADWBoost
-    from cadwboost.dataframe import fit_df
+    from cadw.ml.cadwboost import CADWBoost
+    from cadw.ml.cadwboost.dataframe import fit_df
     df = _mk_df(n, 4)
     m = CADWBoost(n_estimators=10, max_depth=4, loss="mse",
                    tree_mode="symmetric", random_state=42)
@@ -46,8 +39,8 @@ def test_state_nbytes_n_independent(n):
 
 def test_state_nbytes_bounded_across_n():
     """state(n=1k) vs state(n=20k) ratio <= 1.5 (tree shape may vary slightly)."""
-    from cadwboost import CADWBoost
-    from cadwboost.dataframe import fit_df
+    from cadw.ml.cadwboost import CADWBoost
+    from cadw.ml.cadwboost.dataframe import fit_df
     states = []
     for n in (1000, 20000):
         df = _mk_df(n, 4, seed=0)
@@ -62,8 +55,8 @@ def test_state_nbytes_bounded_across_n():
 
 # OOC vs memory bit-identical
 def test_ooc_vs_memory_bitexact():
-    from cadwboost import CADWBoost
-    from cadwboost.dataframe import fit_df, predict_df_to_numpy
+    from cadw.ml.cadwboost import CADWBoost
+    from cadw.ml.cadwboost.dataframe import fit_df, predict_df_to_numpy
     df = _mk_df(2000, 4, seed=1)
     m_mem = CADWBoost(n_estimators=10, max_depth=4, loss="mse",
                        tree_mode="symmetric", random_state=42)
@@ -90,8 +83,8 @@ def test_ooc_vs_memory_bitexact():
 # CW-5: OOC ratio
 def test_ooc_ratio_under_2():
     """Peak ratio n=200k vs n=50k < 2.0 (true OOC)."""
-    from cadwboost import CADWBoost
-    from cadwboost.ooc import fit_ooc
+    from cadw.ml.cadwboost import CADWBoost
+    from cadw.ml.cadwboost.ooc import fit_ooc
 
     def _peak(n):
         mg = MemoryGuard(max_memory_mb=1000)
@@ -112,8 +105,8 @@ def test_ooc_ratio_under_2():
 # Guard behavior
 def test_guard_accepts_moderate():
     """Moderate guard accepts (n=1k, state ~20KB)."""
-    from cadwboost import CADWBoost
-    from cadwboost.dataframe import fit_df
+    from cadw.ml.cadwboost import CADWBoost
+    from cadw.ml.cadwboost.dataframe import fit_df
     df = _mk_df(1000, 4)
     m = CADWBoost(n_estimators=10, max_depth=4, loss="mse",
                    tree_mode="symmetric", random_state=42)
@@ -130,8 +123,8 @@ def test_symmetric_state_formula():
     split, so 2^depth worst case rarely reached. Formula for guard should
     use 2^depth (worst case); test asserts proportional growth only.
     """
-    from cadwboost import CADWBoost
-    from cadwboost.dataframe import fit_df
+    from cadw.ml.cadwboost import CADWBoost
+    from cadw.ml.cadwboost.dataframe import fit_df
     df = _mk_df(1000, 4)
     m10 = CADWBoost(n_estimators=10, max_depth=4, loss="mse",
                      tree_mode="symmetric", random_state=42)

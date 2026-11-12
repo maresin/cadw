@@ -1,11 +1,4 @@
 """v0.9.222-a: CadwBoost losses — numerical grad/hess check."""
-import sys
-from pathlib import Path
-
-_DRAFT = Path(__file__).resolve().parent.parent / ".pingis" / "drafts" / "cadwboost"
-if str(_DRAFT) not in sys.path:
-    sys.path.insert(0, str(_DRAFT))
-
 import numpy as np
 import pytest
 
@@ -28,7 +21,7 @@ def _numerical_grad(loss, y, p, eps=1e-5):
     ("quantile", np.array([1.0, 2.0, 3.0, 4.0])),
 ])
 def test_regression_losses_grad(name, y):
-    from cadwboost.losses import make_loss
+    from cadw.ml.cadwboost.losses import make_loss
     loss = make_loss(name)
     p = np.array([0.5, 1.5, 2.5, 3.5])
     g_analytic, _ = loss.grad_hess(y, p)
@@ -43,7 +36,7 @@ def test_regression_losses_grad(name, y):
     ("focal", np.array([0.0, 1.0, 0.0, 1.0])),
 ])
 def test_classification_losses_grad(name, y):
-    from cadwboost.losses import make_loss
+    from cadw.ml.cadwboost.losses import make_loss
     loss = make_loss(name)
     raw = np.array([-1.0, 1.0, -0.5, 0.5])
     g, h = loss.grad_hess(y, raw)
@@ -58,7 +51,7 @@ def test_classification_losses_grad(name, y):
     ("tweedie", np.array([1.0, 2.0, 3.0, 4.0])),
 ])
 def test_count_losses_grad(name, y):
-    from cadwboost.losses import make_loss
+    from cadw.ml.cadwboost.losses import make_loss
     loss = make_loss(name)
     raw = np.array([0.1, 0.5, 0.2, 0.8])
     g, h = loss.grad_hess(y, raw)
@@ -66,7 +59,7 @@ def test_count_losses_grad(name, y):
 
 
 def test_make_loss_dispatch():
-    from cadwboost.losses import make_loss
+    from cadw.ml.cadwboost.losses import make_loss
     for name in ("mse", "mae", "huber", "quantile", "logistic", "focal",
                  "poisson", "gamma", "tweedie"):
         loss = make_loss(name)
@@ -75,7 +68,7 @@ def test_make_loss_dispatch():
 
 def test_mse_grad_formula():
     """MSE: grad = p - y, hess = 1."""
-    from cadwboost.losses import MSELoss
+    from cadw.ml.cadwboost.losses import MSELoss
     loss = MSELoss()
     y = np.array([1.0, 2.0])
     p = np.array([0.5, 2.5])
@@ -85,7 +78,7 @@ def test_mse_grad_formula():
 
 
 def test_logistic_grad_in_unit_range():
-    from cadwboost.losses import LogisticLoss
+    from cadw.ml.cadwboost.losses import LogisticLoss
     loss = LogisticLoss()
     y = np.array([0.0, 1.0, 0.0, 1.0])
     p = np.array([0.2, 0.8, 0.4, 0.6])
@@ -97,7 +90,7 @@ def test_logistic_grad_in_unit_range():
 
 
 def test_huber_delta():
-    from cadwboost.losses import HuberLoss
+    from cadw.ml.cadwboost.losses import HuberLoss
     loss1 = HuberLoss(delta=1.0)
     loss10 = HuberLoss(delta=10.0)
     y = np.array([0.0])
@@ -119,7 +112,7 @@ def test_quantile_direction():
     as bug for v0.9.223 wire fix; test asserts current behavior to
     prevent regression until fixed.
     """
-    from cadwboost.losses import QuantileLoss
+    from cadw.ml.cadwboost.losses import QuantileLoss
     loss = QuantileLoss(quantile=0.9)
     y = np.array([1.0])
     p_below = np.array([0.0])  # underpredict

@@ -1,12 +1,4 @@
 """v0.9.222-a: CadwBoost baseline tests (fit/predict per class)."""
-import sys
-from pathlib import Path
-
-# Draft path (before promote v0.9.223)
-_DRAFT = Path(__file__).resolve().parent.parent / ".pingis" / "drafts" / "cadwboost"
-if str(_DRAFT) not in sys.path:
-    sys.path.insert(0, str(_DRAFT))
-
 import numpy as np
 import pytest
 
@@ -34,7 +26,7 @@ def _mk_multiclass(n=500, d=4, seed=0):
 
 
 def test_binary_fit_predict():
-    from cadwboost import CADWBoost
+    from cadw.ml.cadwboost import CADWBoost
     from sklearn.metrics import roc_auc_score
     X, y = _mk_binary()
     m = CADWBoost(n_estimators=20, max_depth=4, loss="logistic",
@@ -47,7 +39,7 @@ def test_binary_fit_predict():
 
 
 def test_regression_fit_predict():
-    from cadwboost import CADWBoost
+    from cadw.ml.cadwboost import CADWBoost
     X, y = _mk_regression()
     m = CADWBoost(n_estimators=20, max_depth=4, loss="mse",
                   tree_mode="leaf_wise", random_state=42)
@@ -59,7 +51,7 @@ def test_regression_fit_predict():
 
 
 def test_multiclass_fit_predict():
-    from cadwboost import CADWBoostMulticlass
+    from cadw.ml.cadwboost import CADWBoostMulticlass
     X, y = _mk_multiclass()
     m = CADWBoostMulticlass(n_estimators=20, max_depth=4, random_state=42)
     m.fit(X, y)
@@ -71,7 +63,7 @@ def test_multiclass_fit_predict():
 
 def test_symmetric_vs_leaf_wise():
     """Both modes fit; leaf_wise RMSE <= symmetric on XOR (leaf better)."""
-    from cadwboost import CADWBoost
+    from cadw.ml.cadwboost import CADWBoost
     rng = np.random.RandomState(45)
     X = rng.randn(500, 4)
     y = ((X[:, 0] > 0) * (X[:, 1] > 0) + (X[:, 2] > 0) * (X[:, 3] > 0)).astype(np.float64)
@@ -88,7 +80,7 @@ def test_symmetric_vs_leaf_wise():
 
 
 def test_reproducibility():
-    from cadwboost import CADWBoost
+    from cadw.ml.cadwboost import CADWBoost
     X, y = _mk_regression()
     m1 = CADWBoost(n_estimators=10, max_depth=4, loss="mse",
                     tree_mode="leaf_wise", random_state=42).fit(X, y)
@@ -98,7 +90,7 @@ def test_reproducibility():
 
 
 def test_n_estimators_affects_loss():
-    from cadwboost import CADWBoost
+    from cadw.ml.cadwboost import CADWBoost
     X, y = _mk_regression()
     m10 = CADWBoost(n_estimators=10, max_depth=4, loss="mse",
                      tree_mode="leaf_wise", random_state=42).fit(X, y)
@@ -110,7 +102,7 @@ def test_n_estimators_affects_loss():
 
 
 def test_max_depth_affects_state():
-    from cadwboost import CADWBoost
+    from cadw.ml.cadwboost import CADWBoost
     X, y = _mk_regression()
     m_d3 = CADWBoost(n_estimators=10, max_depth=3, loss="mse",
                       tree_mode="symmetric", random_state=42).fit(X, y)
@@ -121,7 +113,7 @@ def test_max_depth_affects_state():
 
 
 def test_forecaster_recursive():
-    from cadwboost import fit_forecaster
+    from cadw.ml.cadwboost import fit_forecaster
     rng = np.random.RandomState(0)
     n = 200
     series = np.sin(np.arange(n) * 0.1) + 0.05 * rng.normal(size=n)
@@ -132,7 +124,7 @@ def test_forecaster_recursive():
 
 
 def test_ngboost_interval():
-    from cadwboost import CADWBoostNGBoost
+    from cadw.ml.cadwboost import CADWBoostNGBoost
     X, y = _mk_regression()
     m = CADWBoostNGBoost(n_estimators=10, max_depth=3)
     m.fit(X, y)
@@ -144,7 +136,7 @@ def test_ngboost_interval():
 
 def test_binary_predict_equals_proba():
     """LogisticLoss: predict == sigmoid(raw) == predict_proba (LightGBM-style)."""
-    from cadwboost import CADWBoost
+    from cadw.ml.cadwboost import CADWBoost
     X, y = _mk_binary()
     m = CADWBoost(n_estimators=10, max_depth=3, loss="logistic",
                    tree_mode="leaf_wise", random_state=42).fit(X, y)
@@ -153,7 +145,7 @@ def test_binary_predict_equals_proba():
 
 def test_binary_predict_proba_1d():
     """predict_proba for binary returns 1D (P(y=1)), LightGBM-style."""
-    from cadwboost import CADWBoost
+    from cadw.ml.cadwboost import CADWBoost
     X, y = _mk_binary()
     m = CADWBoost(n_estimators=10, max_depth=3, loss="logistic",
                    tree_mode="leaf_wise", random_state=42).fit(X, y)
@@ -162,7 +154,7 @@ def test_binary_predict_proba_1d():
 
 
 def test_multiclass_proba_shape():
-    from cadwboost import CADWBoostMulticlass
+    from cadw.ml.cadwboost import CADWBoostMulticlass
     X, y = _mk_multiclass()
     m = CADWBoostMulticlass(n_estimators=10, max_depth=3, random_state=42).fit(X, y)
     p = m.predict_proba(X)
