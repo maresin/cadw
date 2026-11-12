@@ -1956,10 +1956,17 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + labels. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent intrinsic for default contamination (float=0.1): threshold = percentile(decision_scores, 100*(1-c)) requires full scores array; decision_scores = _map_max(window_scores) also full. P36/P38 confirmed. bounded_by_domain n<=1e6 honest (~3n*8 = 24 MB at 1e6).
+      
+      Achievable path (v0.9.221+, breaking change):
+      - contamination: float|None = 0.1; if None -> threshold=n_sigma*std (default 3.0)
+      - output='auto'|'disk' + SpillArray decision_scores/labels/window_scores
+      - 2-pass streaming: window_scores -> SpillArray; _map_max via deque
+      
+      Same pattern as T²+Q v0.9.218-b (intrinsic alternative).
   - name: KShapeAD
     tier: sota
     tier_level: tier1_core
@@ -2047,10 +2054,12 @@ subtypes:
     - memmap
     - spill_dir
     - strided_view
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent intrinsic for default contamination (float=0.1): threshold = np.percentile(decision_scores, 100*(1-c)) (kshape.py L589) requires full scores array. P40 confirmed. bounded_by_domain n<=1e6 honest (~2n*8 = 16 MB at 1e6).
+      
+      Achievable path (v0.9.221+, breaking change): contamination Optional + output='auto' + SpillArray (precedent Hampel).
   - name: EIF
     tier: sota
     tier_level: tier1_core
@@ -3643,10 +3652,17 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + labels. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent intrinsic for default contamination (float=0.1): threshold = percentile(decision_scores, 100*(1-c)) requires full scores array; decision_scores = _map_max(window_scores) also full. P36/P38 confirmed. bounded_by_domain n<=1e6 honest (~3n*8 = 24 MB at 1e6).
+      
+      Achievable path (v0.9.221+, breaking change):
+      - contamination: float|None = 0.1; if None -> threshold=n_sigma*std (default 3.0)
+      - output='auto'|'disk' + SpillArray decision_scores/labels/window_scores
+      - 2-pass streaming: window_scores -> SpillArray; _map_max via deque
+      
+      Same pattern as T²+Q v0.9.218-b (intrinsic alternative).
   - name: KMeansAD
     tier: sota
     tier_level: tier1_core
@@ -3939,10 +3955,12 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series TS anomaly; n<=1e6 typical. O(n) decision_scores + node_ids + embe. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent intrinsic for default contamination (float=0.1): threshold = np.percentile(ts_scores, 100*(1-c)) (s2g.py L548) requires full scores array. P40 confirmed. bounded_by_domain n<=1e6 honest (~2n*8 = 16 MB at 1e6).
+      
+      Achievable path (v0.9.221+, breaking change): contamination Optional + output='auto' + SpillArray (precedent Hampel).
   metrics:
   - name: vus_pr
     combination: anchor
