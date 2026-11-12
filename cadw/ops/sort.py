@@ -593,6 +593,7 @@ def external_sort(
     nulls_first: bool = False,
     merge_fan_in: int | None = None,
     read_batch_size: int = 1000,
+    max_buffer_bytes: int | None = None,
     log: bool = True,
 ) -> Path:
     """
@@ -634,6 +635,17 @@ def external_sort(
     # + take-copy). Reducing limit from 0.5× to 0.2× cuts peak from
     # ~3×15MB → ~3×6MB (for 30 MB budget). More runs, but bounded.
     limit = max(1, int(memory_guard.available_bytes() * 0.2))
+    # v0.9.225-c-fix3 (P25c): explicit upper bound on Phase 1 buffer.
+    # Default None = existing behavior. Consumers that need O(1) peak
+    # independent of n pass max_buffer_bytes (e.g. PairwiseLogistic
+    # uses 2*max_query_size*(d+2)*8). Write_run peak ~4x limit.
+    if max_buffer_bytes is not None:
+        mb = int(max_buffer_bytes)
+        if mb < 1:
+            raise ValueError(
+                f"external_sort: max_buffer_bytes must be >= 1; "
+                f"got {max_buffer_bytes}")
+        limit = min(limit, mb)
 
     # v0.9.31 (PINGIS AUDIT A1): phase-1 peak = 4x buf (buf + from_batches
     # + sort_indices-int64 + take). The old code accepted any user batch

@@ -9,6 +9,9 @@ from .quantile_linear import (
 from .knn_multilabel import (
     MLkNNModel, fit_knn_multilabel,
 )
+from .pairwise_logistic import (
+    PairwiseLogisticModel, fit_pairwise_logistic,
+)
 from .logistic import LogisticGradOp, LogisticModel, fit_logistic
 from .kmeans import KMeansStepOp, KMeansModel, fit_kmeans
 from .pca import PCA, fit_pca
@@ -69,6 +72,7 @@ __all__ = [
     "fit_lasso", "fit_elasticnet",
     "QuantileLinearModel", "fit_linear_quantile",
     "MLkNNModel", "fit_knn_multilabel",
+    "PairwiseLogisticModel", "fit_pairwise_logistic",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "PCA", "fit_pca",

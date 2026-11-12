@@ -128,3 +128,37 @@ Artifacts: `.pingis/audits/v0934_bugfix_report.md`,
 **Test:** `tests/test_v0949_value_counts_multichunk.py` — reproducer, pass after fix.
 
 **Bench:** not needed (correctness, not perf).
+
+---
+
+## Lambdamart: `_SortedStream._iter_filtered_batches()` missing batch_size kwarg (v0.9.225-c finding)
+
+**Discovered:** P26e v0.9.225-c session.
+
+**Symptom:** `tests/test_lambdamart.py` — 11 fails (test_errors,
+test_fit_lambdamart_uses_external_sort, etc.). All with
+`TypeError: _SortedStream._iter_filtered_batches() got an unexpected
+keyword argument 'batch_size'`.
+
+**Root cause:** `cadw/ml/lambdamart.py::_SortedStream._iter_filtered_batches(self)`
+accepts only `self`. But `cadw/ml/gbdt.py::_binning_pass` line 85 calls
+`df._iter_filtered_batches(batch_size=batch_size)`. Lambdamart reuses
+gbdt's binning pass but _SortedStream (its df-like adapter) doesn't
+mirror the full API contract.
+
+**Pre-existing:** Confirmed by `git stash push cadw/ops/sort.py` +
+`pytest tests/test_lambdamart.py` → same 11 fails. NOT caused by
+v0.9.225-c. Bug latent since v0.9.87 (P2b-full-2, when _SortedStream
+introduced).
+
+**Impact:** Lambdamart YAML claims `status: verified` but test suite
+is partially red. This is DEC-063-class dishonest card.
+
+**Fix (deferred):** Add `batch_size` kwarg to
+`_SortedStream._iter_filtered_batches` (pass-through to
+`ArrowIPCBatchReader`); update lambdamart verification tests; run
+full `test_lambdamart.py` to confirm green.
+
+**Target:** v0.9.226+ (framework + model follow-up, requires fresh
+session after v0.9.225).
+

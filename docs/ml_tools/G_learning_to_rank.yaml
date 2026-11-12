@@ -26,8 +26,46 @@ subtypes:
     - cadw.ml._ltr_common.lambdarank_grad
     tier_level: tier1_core
     implementation_status:
-      verified_by_agent: true
-      described_only: true
+      verified_in_cadw: true
+      status: verified
+    cadw_module: cadw.ml.pairwise_logistic
+    cadw_function: fit_pairwise_logistic
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {d: 1, max_query_size: 1, read_batch_size: 1}
+    state_class: O(d)
+    state_type: aggregation
+    ram_formula: d * f64 + 256 + 2 * max_query_size * (d + 2) * f64 + 4 * 2 * max_query_size * (d + 2) * f64 + read_batch_size * (d + 2) * f64 + max_query_size * (d + 2) * f64
+    min_ram_formula: d * f64 + 256 + 2 * 2 * (d + 2) * f64 + 4 * 2 * 2 * (d + 2) * f64 + 1 * (d + 2) * f64 + 2 * (d + 2) * f64
+    formula_evidence:
+      coef_state: 'pairwise_logistic.py -- coef_ = np.zeros(d); d*f64'
+      per_query_transient: 'pairwise_logistic.py -- X_q(max_query_size, d) + s(max_query_size) + grad(max_query_size) ~ max_query_size*(d+2)*f64 (guarded via mg.check_state in query_transient)'
+      header: 'pairwise_logistic.py -- PairwiseLogisticModel.state_nbytes() +256'
+      batch_term: 'pairwise_logistic.py -- sorted stream read + _stack_X; check_batch(extra_factor=2.5)'
+      sort_merge: 'pairwise_logistic.py -- external_sort with merge_fan_in=4, read_batch_size=500; merge-phase peak bounded by merge_fan_in * sort_read_batch_size * (d+2) * f64. Without explicit bounds peak was O(n_runs) = O(n/batch) — P22 confirmed 22x ratio.'
+      phase1_buffer: 'pairwise_logistic.py -- external_sort max_buffer_bytes=2*max_query_size*(d+2)*8; P25c confirmed default 0.2*budget grew with n up to min(n*row_size, 0.2*budget) before fix.'
+      write_run_transient: 'sort.py::_write_run -- ~4x buffer via from_batches + sort_indices + take (verified P26c source read).'
+      reader_batch: 'sort.py::_merge_keys / read_sorted -- one batch = read_batch_size * row_size transient during merge or iteration.'
+      per_query: 'pairwise_logistic.py -- X_q(max_q, d) + s(max_q) + grad(max_q) ~ max_q*(d+2)*f64; guarded by mg.check_state(query_transient).'
+      reader_close: 'pairwise_logistic.py -- _iter_query_groups uses ArrowIPCBatchReader directly (read_sorted is a generator; closing generator does NOT release ipc.open_file mmap). Explicit close() in finally releases mmap each pass (fit reads 3x: validation + 2 epochs). P22 root cause of 22x peak ratio.'
+    min_ram_evidence:
+      derived_from: 'ram_formula with max_query_size=2 (min useful), batch=1 (auto-migrate v0.9.177)'
+    measurement:
+      verification_mode: 'component-wise (DEC-033)'
+      note: 'Combined-matrix RSS test removed (DEC-034: baseline >> fit peak at nq<=2000; P26f confirmed 8K noise floor and 18x cell variance at nq=20000). Component-wise replaces it — framework precedent: iforest (DEC-031/033/034), linucb (DEC-033), gmm, birch, kmeans_ad, sub_pca, eif.'
+      state_check: 'test_state_nbytes_exact: d*f64 + 256B bit-exact across d=2/5/20/50'
+      state_bounded: 'test_state_bounded_for_n_ge_s: max/min <= 1.5x at nq=500/1000/2000'
+      state_independent_of_n: 'test_state_independent_of_n: identical state across nq=100/500/2000 (bit-exact)'
+      batch_coef: 'test_batch_coef_isolated: d=200, batch sweep 1000/2000/4000, coef in [2.0, 4.5], median-of-5'
+      formula_sanity: 'test_formula_small_scale: d=20, batch=1000, predicted/measured in [0.5, 2.0], median-of-3'
+      guard: 'test_guard_refuses_at_tight: clean MemoryLimitExceeded'
+      correctness: 'test_score_parity_manual (predict==X@coef, atol=1e-9) + test_ranking_quality_ndcg (pairwise concordance > 0.80)'
+      cells_passed: '8/8'
+      runtime_sec: '~30'
+    roles:
     roles:
     - linear_signal
     purpose: Pairwise logistic on (item_a, item_b) preference pairs; simplest LTR baseline.
@@ -49,8 +87,9 @@ subtypes:
       value: 0.42
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50] canonical microsoft.com LETOR page returns HTTP 403; using wayback 2024-01-01 snapshot'
-    ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Pairwise logistic on (item_a, item_b) preference pairs; simplest LTR baseline... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d*f64 + 256; fit peak O(max_query_size*d) per-query transient + O(batch*row_size) sorted stream. max_query_size guard refuses oversized queries (honest). predict n-sized output guarded (predict_batched: false). Module: cadw.ml.pairwise_logistic.'
+
   - name: LambdaMART
     cadw_module: cadw.ml.lambdamart
     cadw_function: fit_lambdamart
