@@ -1,6 +1,6 @@
 """Shared whitelist parser for gate tests (G1-G4).
 
-Whitelist lives in .pingis/plan_v0.9.87_refactor.md as a machine-
+Whitelist lives in internal refactor plan (retired v0.9.223) as a machine-
 readable block:
 
     <!-- gate-whitelist

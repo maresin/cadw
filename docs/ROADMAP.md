@@ -1,38 +1,35 @@
 # CADW Roadmap
 
-Last updated: 2026-11-12 (after v0.9.221).
+Last updated: 2026-11-12 (after v0.9.223).
 
-## Current: v0.9.221 — CadwBoost pilot (TRUE OOC) + GBDT debt
+## Current: v0.9.223 — CadwBoost promoted + achieved
 
-**v0.9.221 outcome:**
-- CadwBoost prototype (`.pingis/drafts/cadwboost/`) verified TRUE OOC
-  (ratio 0.41x at n=50k-200k); promote plan v0.9.222-224 documented.
-- GBDT family (5 achievable cards) -> debt (partial OOC, DEC-065
-  RSS leak; replacement = CadwBoost).
-- `cadw.ml.gbdt` code unchanged (85 tests green).
+**v0.9.223 outcome:**
+- CadwBoost promoted from .pingis/drafts/ to cadw/ml/cadwboost/
+  (18 modules, 2858 LOC). Card flipped to verified + achieved
+  (first new achieved since v0.9.219 BOCPD).
+- Docstrings cleanup: 37 .pingis refs removed from cadw/ (35 files).
 
-**Pilot evidence** (`docs/audits/v0.9.221_cadwboost_pilot.md`):
-- CadwBoost ooc.py: 257L, np.memmap codes/y/pred + per-level histograms;
-  MAX_OOC_BATCH=20k; TRUE OOC at 4x n scale.
-- gbdt: partial memmap (v0.9.172); true OOC needs posix_fadvise refactor
-  (deferred since DEC-065); or replaced by CadwBoost.
+**Counts after v0.9.223:**
+- achieved: 80 (+CADWBoost, was (none))
+- achievable: 43 (unchanged)
+- debt: 29 (unchanged)
+- none: 76 (-1, CADWBoost left none)
 
-**Overall counts after v0.9.221:**
-- achieved: 79 (unchanged)
-- achievable: 43 (was 49; -6 GBDT family cards: GBDT, GBDT_multiclass,
-  GBDT_L2, GBDT_scale_pos_weight x2 dup, GBDTForecaster)
-- debt: 29 (was 23; +6 same)
-- none: 77 (unchanged)
+**.pingis status:**
+- `.pingis/benches/` (69 files) is TRACKED in git — valid for both
+  relative path and GitHub URL; card `benchmark_url` values remain
+  correct. NO mass YAML cleanup needed.
+- `.pingis/impl/` (46 files, tracked) — 9/9 models already promoted to
+  cadw/ml/ v0.9.143 (DEC-058). Stale; cleanup pending (low priority).
+- `.pingis/audits/`, `drafts/`, `tasks/` — gitignored (historical).
+- `.pingis/plan_v0.9.87_refactor.md` — `_gate_whitelist.load_whitelist`
+  already returns `_EMPTY` if absent (safe if .pingis removed).
 
-**v0.9.222-224 (CadwBoost promote):**
-- v0.9.222: port tests (from empty `.pingis/drafts/cadwboost/tests/`)
-  + run bench_vs_gbdt.py (7 datasets) + publish audit.
-- v0.9.223: `git mv` cadwboost into `cadw/ml/`, adapt to CADW API
-  (AutoResult / state_nbytes / CW-1..5).
-- v0.9.224: new `cadwboost` YAML cards; GBDT cards -> achieved only
-  if API-replaced; else keep gbdt debt + new cadwboost achieved cards.
-
-**v0.9.225+:** TS streaming (P3/P4 primitives).
+**Next (v0.9.224+):**
+- v0.9.224: CadwBoost tests batch 2 (~21: EFB, sampling, missing,
+  serialize, shap, df, ooc extended).
+- v0.9.225: TS streaming (P3/P4 primitives); anomaly SpillArray batch.
 
 ## Next 3 sessions (v0.9.219-221)
 

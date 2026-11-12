@@ -2,7 +2,7 @@
 
 Flags np.zeros/empty/full/ones with first shape dim in a full-n
 convention set (n_total, N, n_obs, n_full, n_samples) unless the
-function is whitelisted in .pingis/plan_v0.9.87_refactor.md.
+function is whitelisted in internal refactor plan (retired v0.9.223).
 
 Whitelisted today (refactor pending):
   cadw/ml/gbdt.py::fit_gbdt_multiclass    (P1 via SpillDir)
@@ -96,6 +96,6 @@ def test_g1_primitive_reuse(path):
         f"{rel}: n-sized allocation without SpillDir/Reduce. "
         f"Violations: {violations}. Either refactor to streaming "
         f"(Reduce, or SpillDir + ArrowIPC per METHODOLOGY §5.3), or "
-        f"add to .pingis/plan_v0.9.87_refactor.md gate-whitelist with "
+        f"add to internal refactor plan (retired) gate-whitelist with "
         f"a backlog item (e.g. 'P1', 'P2')."
     )

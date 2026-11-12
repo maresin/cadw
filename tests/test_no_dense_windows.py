@@ -11,7 +11,7 @@ Whitelisted today (refactor pending — see plan gate-whitelist):
   cadw/ml/dwt_mlead.py::_sliding_windows   (P4 strided)
   cadw/ml/patch_memory_ad.py::fit_patch_memory_ad  (P4 inline)
 
-Audit prototype (FINNEGAN via .pingis/audits/inefficiency.md):
+Audit prototype (FINNEGAN; see internal audit):
   45.7 MB dense -> 4.9 MB strided, 5.4x faster, identical output.
 
 See METHODOLOGY §5 (windowed state_type), §8 (gate G3).
@@ -98,6 +98,6 @@ def test_g3_no_dense_windows(path):
         f"Violations: {violations}. Use strided view + chunked "
         f"consumption (METHODOLOGY §5 windowed state_type; audit "
         f"prototype: 45.7 MB -> 4.9 MB, 5.4x faster), or add to "
-        f".pingis/plan_v0.9.87_refactor.md gate-whitelist with a "
+        f"internal refactor plan (retired) gate-whitelist with a "
         f"backlog item (P3/P4)."
     )
