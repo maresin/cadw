@@ -1295,7 +1295,7 @@ subtypes:
     bounded_by_domain:
       axis: n
       bound: 100000
-      reason: "method='gibbs' only; sghmc OOC at any n"
+      reason: "method in {'gibbs', 'nuts'}: intrinsic O(n); sghmc/srvr-hmc OOC at any n"
     depends_on:
     - cadw.ops.mcmc.sgmcmc
     - cadw.ops.numeric.norm_cdf
@@ -1330,7 +1330,7 @@ subtypes:
       correctness: 'test_recovers_ordered_classes (synthetic 3-class); test_cutpoints_monotone (structural); test_sghmc_vs_gibbs_agree (mean cutpoints within tol)'
       cells_passed: '6/6 (sghmc) + 4/4 (gibbs at n<=1e5)'
       runtime_sec: 'sghmc ~10; gibbs ~20'
-      note: 'Triple method. sghmc (default): Chen 2014 + Springer 2016 reference (verified P63/P64: Gaussian mean=1.989 std=0.031; ordered probit coef_err=0.032 cp_err=0.112). gibbs (opt-in): Albert-Chib 1993 exact (P46: coef_err=0.087). srvr-hmc (v0.9.229-b): Zou 2019 variance-reduced (P76: Gaussian mean=1.994 std=0.036; primitive==reference bit-identical). Hyperparameters: V_hat=I, C=20*I, lr=0.01 (sghmc); gamma=20, L=10, B=100 (srvr-hmc).'
+      note: 'Quad method. sghmc (default): Chen 2014 + Springer 2016 reference (P63/P64: Gaussian mean=1.989 std=0.031; ordered probit coef_err=0.032 cp_err=0.112). gibbs (opt-in): Albert-Chib 1993 exact (P46: coef_err=0.087). srvr-hmc (v0.9.229-b): Zou 2019 variance-reduced (P76: Gaussian mean=1.994 std=0.036; primitive== reference). nuts (v0.9.229-c): Hoffman 2014 (P82: Gaussian mean=1.991 std=0.029; first-try pass). Hyperparameters: V_hat=I, C=20*I, lr=0.01 (sghmc); gamma=20, L=10, B=100 (srvr-hmc); lr=0.1, depth=8 (nuts).'
     roles:
     - probabilistic
     purpose: 'Bayesian ordered probit: latent Gaussian + cutpoints; full posterior over thresholds.'

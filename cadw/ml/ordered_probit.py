@@ -244,6 +244,7 @@ def fit_ordered_probit(
     n_samples: int = 500,
     n_burnin: int = 3000,
     lr: float = 0.01,
+    max_tree_depth: int = 8,
     prior_scale: float = 1.0,
     seed: int = 0,
     memory_guard: Optional[MemoryGuard] = None,
@@ -270,7 +271,7 @@ def fit_ordered_probit(
     if y_col in X_cols:
         raise ValueError(
             f"fit_ordered_probit: {y_col!r} must not be in X_cols")
-    if method not in ("sghmc", "gibbs", "srvr-hmc"):
+    if method not in ("sghmc", "gibbs", "srvr-hmc", "nuts"):
         raise ValueError(
             f"fit_ordered_probit: method 'sghmc'|'gibbs'; got {method!r}")
     if prior_scale <= 0:
