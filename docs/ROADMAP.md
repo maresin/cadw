@@ -2,48 +2,46 @@
 
 Last updated: 2026-11-12 (after v0.9.217; v0.9.218 in progress).
 
-## Current: v0.9.218 — T²+Q achieved + 6 TBD audit
+## Current: v0.9.218 — T²+Q debt + 6 TBD audit
 
-**State after v0.9.217 (probed counts):**
-- 116 verified / 112 status=None
-- ooc_status: 78 achieved / 59 achievable / 14 debt / 77 None
-- Total cards: 228 (116+112 verified+none; ooc sum 228)
+**v0.9.218 outcome:**
+- v0.9.218-a: ROADMAP restore (v0.9.216 -> v0.9.218 state)
+- v0.9.218-b: T²+Q honest flip achievable -> debt (P34: contamination
+  float=0.1 requires percentile over full t2; combined requires full
+  t2+q; dec_ts requires full combined 4*n output)
+- v0.9.218-c: audit 6 TBD -> 4 achievable (Sub-PCA, BOCPD, KShapeAD,
+  S2G; require `output='auto'` API change, precedent Hampel v0.9.217)
+  + 2 debt (EIF training-over-full-window + no spill; KMeansAD
+  training O(n·k) + no spill)
 
-**v0.9.217 delivered:**
-- Hampel: achieved via streaming df path (output='auto' default),
-  SpillArray for scores+labels; state O(1) spilled (256 B);
-  fit transient O(batch + w); 13 streaming tests (bit-identical +
-  batch_size invariant). Precedent: CUSUM v0.9.173, ZMS v0.9.113.
-- DWT-MLEAD, Autoencoder x2, PatchMemoryAD -> debt (intrinsic):
-  DWT full-n log2 levels; AE/PMA train over full X (n_w x w).
-  bounded_by_domain n<=1e6 honest.
-- Audit v0.9.216 correction: anomaly_spill 15 -> 12 cards
-  (11 -> 8 unique); intrinsic 3 -> 6.
+**Anomaly final state after v0.9.218 (14 cards / 13 unique):**
+- achieved: Hampel, CUSUM, ZMS (3)
+- achievable (API, v0.9.219+): Sub-PCA, BOCPD, KShapeAD, S2G (4)
+- debt (intrinsic): DWT-MLEAD, Autoencoder x2, PatchMemoryAD, T²+Q,
+  EIF, KMeansAD (7)
 
-**v0.9.218 scope (this session):**
-- v0.9.218-a: this ROADMAP restore.
-- v0.9.218-b: T²+Q achieved — streaming 4-array output
-  (decision_scores, t2_scores, q_scores, labels); Welford O(d²)
-  fit (already batch); map max over t2/q SpillArray. contamination
-  requires output='memory' (percentile).
-- v0.9.218-c: audit 6 TBD (Sub-PCA, EIF, KMeansAD, BOCPD, KShapeAD,
-  S2G) — classification based on core impl probe, no code changes.
+**v0.9.219 plan:** Sub-PCA + BOCPD API change (see Next 3).
 
 ## Next 3 sessions (v0.9.219-221)
 
-### v0.9.219 — TS streaming (P3/P4 primitives)
-AutoTheta, EnsembleForecaster, VAR need _ses_fit_hw streaming (P3) +
-stl_decompose (P4) + _extract_series streaming (P1). Effort 2-3 sess.
+### v0.9.219 — Sub-PCA + BOCPD (API change for OOC)
+Sub-PCA: `contamination: float|None` + `output='auto'|'disk'` +
+SpillArray (decision_scores/labels/window_scores) + 2-pass streaming.
+BOCPD: already OOC-by-state (posterior_keep·max_run bounded); add
+`output='auto'` param + SpillArray for `anomaly_score`/`argmax_run`/
+`changepoints`. Effort 1-1.5 sess. Target: +2 achieved.
 
-### v0.9.220 — GBDT round-by-round SpillArray
-GBDT, GBDT_multiclass, GBDT_L2, GBDT_scale_pos_weight x2,
-GBDTForecaster (6 cards). Target: achieved. Precedent: LambdaMART
-v0.9.87-P2b-full-2. Effort 2-3 sess.
+### v0.9.220 — KShapeAD + S2G (API change, precedent Sub-PCA)
+Same pattern: output='auto' default + SpillArray + 2-pass streaming.
+Training fit transient: verify chunked (P35 showed spill=True already).
+Effort 1 sess. Target: +2 achieved.
 
-### v0.9.221 — Remaining anomaly achieved (from v0.9.218-c audit)
-Based on audit outcome: achievable candidates likely Sub-PCA
-(2-pass window_scores -> map n) and KShapeAD/S2G (if sliding-based).
-Effort 0.5-1 sess.
+### v0.9.221 — GBDT round-by-round SpillArray (5 cards)
+GBDT, GBDT_multiclass, GBDT_L2, GBDT_scale_pos_weight x2. Precedent
+LambdaMART v0.9.87-P2b-full-2. Effort 2-3 sess. Target: +5 achieved.
+
+**v0.9.222+ (deferred):** TS streaming (P3/P4 primitives per ROADMAP §B);
+AutoTheta, Ensemble, VAR.
 
 ## OOC by primitive — decision matrix (MANDATORY, v0.9.204+)
 
