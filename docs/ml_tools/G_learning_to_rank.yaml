@@ -169,10 +169,45 @@ subtypes:
     - cadw.ml._ltr_common.lambdarank_grad
     tier_level: tier2_wrapper
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
+    cadw_module: cadw.ml.listnet
+    cadw_function: fit_listnet
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {d: 1, max_query_size: 1, read_batch_size: 1}
+    state_class: O(d)
+    state_type: aggregation
+    ram_formula: d * f64 + 256 + 2 * max_query_size * (d + 2) * f64 + 4 * 2 * max_query_size * (d + 2) * f64 + read_batch_size * (d + 2) * f64 + max_query_size * (d + 2) * f64
+    min_ram_formula: d * f64 + 256 + 2 * 2 * (d + 2) * f64 + 4 * 2 * 2 * (d + 2) * f64 + 1 * (d + 2) * f64 + 2 * (d + 2) * f64
+    formula_evidence:
+      coef_state: 'listnet.py -- coef_ = np.zeros(d); d*f64'
+      header: 'listnet.py -- ListNetModel.state_nbytes() +256'
+      phase1_buffer: 'listnet.py -- external_sort max_buffer_bytes=2*max_query_size*(d+2)*8; P25c confirmed default 0.2*budget grew with n before fix.'
+      write_run_transient: 'sort.py::_write_run -- ~4x buffer via from_batches + sort_indices + take (P26c source).'
+      reader_batch: 'sort.py::_merge_keys / read_sorted -- one batch = read_batch_size * row_size transient during merge or iteration.'
+      per_query: 'listnet.py -- X_q(max_q, d) + s(max_q) + grad(max_q) ~ max_q*(d+2)*f64; guarded by mg.check_state(query_transient).'
+    min_ram_evidence:
+      derived_from: 'ram_formula with max_query_size=2, read_batch_size=1, batch=1 (auto-migrate v0.9.177)'
+    measurement:
+      verification_mode: 'component-wise (DEC-033)'
+      note: 'Combined-matrix RSS test omitted (DEC-034: baseline >> fit peak at small n; P26f 8K noise floor; framework precedent iforest/linucb/gmm). Component-wise per DEC-033.'
+      state_check: 'test_state_nbytes_exact: d*f64 + 256B bit-exact across d=2/5/20/50'
+      state_bounded: 'test_state_bounded_for_n_ge_s: max/min <= 1.5x at nq=500/1000/2000'
+      state_independent_of_n: 'test_state_independent_of_n: identical state across nq=100/500/2000'
+      formula_sanity: 'test_formula_small_scale: d=200, 5000 rows, predicted/measured in [0.5, 2.0]'
+      guard: 'test_guard_refuses_at_tight: clean MemoryLimitExceeded'
+      grad_property: 'test_listnet_grad_sum_zero: sum(grad) == 0 (softmax difference; property of primitive)'
+      correctness: 'test_score_parity_manual (predict == X@coef) + test_ranking_quality_concordance (concordance > 0.80)'
+      cells_passed: '8/8'
+      runtime_sec: '~25'
     roles:
     - probabilistic
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state d*f64 + 256; fit peak O(max_query_size*d) per-query transient + O(batch*row_size) sorted stream read. max_query_size + phase1_buffer bound peak. predict n-sized output guarded (predict_batched: false). Module: cadw.ml.listnet.'
     purpose: 'ListNet (Cao 2007): Plackett-Luce probability of permutation; listwise probabilistic LTR.'
     real_life_examples:
     - Whole-page ranking

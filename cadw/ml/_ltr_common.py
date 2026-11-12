@@ -101,20 +101,28 @@ def listnet_grad(
     s: np.ndarray,
     y: np.ndarray,
 ) -> np.ndarray:
-    """ListNet (Plackett-Luce) gradient (Cao et al. 2007).
+    """ListNet (Plackett-Luce) top-1 gradient (Cao et al. 2007).
 
     With P_y = softmax(y) and P_s = softmax(s):
-      grad_i = P_s(i) - P_y(i)
+      grad_i = P_s(i) - P_y(i)        (== ∂CE/∂s_i)
 
-    (Negative of CE gradient wrt s, i.e. the direction to move s to
-    reduce CE(P_y || P_s).)
+    This is the **positive** CE gradient ∂L/∂s where
+    L = -Σ_i P_y(i) · log P_s(i). To minimize L via gradient descent:
+      coef -= lr · X.T @ grad
+
+    NOTE (v0.9.226-fix1, P31): prior docstring claimed "Negative of
+    CE gradient ... direction to move s" — that was WRONG (source is
+    softmax(s) - softmax(y), the positive CE gradient). Consumers
+    must use `-=` step (unlike ranknet_grad which returns negative
+    direction-to-move — different convention).
 
     Args:
       s: (n,) scores.
-      y: (n,) relevance labels.
+      y: (n,) relevance labels (any real; softmax applies over query).
 
     Returns:
-      (n,) float64 gradient; sum(grad) == 0.
+      (n,) float64 gradient; sum(grad) == 0 (since both softmax sum
+      to 1, P_s - P_y sums to 0).
 
     Complexity: O(n).
     """
