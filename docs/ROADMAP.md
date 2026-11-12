@@ -1,41 +1,38 @@
 # CADW Roadmap
 
-Last updated: 2026-11-12 (after v0.9.220).
+Last updated: 2026-11-12 (after v0.9.221).
 
-## Current: v0.9.220 — anomaly audit correction (3 debt)
+## Current: v0.9.221 — CadwBoost pilot (TRUE OOC) + GBDT debt
 
-**v0.9.220 outcome:**
-- v0.9.220-b: Sub-PCA x2, KShapeAD, S2G -> debt (percentile
-  intrinsic for default contamination=0.1; breaking-change path
-  documented).
+**v0.9.221 outcome:**
+- CadwBoost prototype (`.pingis/drafts/cadwboost/`) verified TRUE OOC
+  (ratio 0.41x at n=50k-200k); promote plan v0.9.222-224 documented.
+- GBDT family (5 achievable cards) -> debt (partial OOC, DEC-065
+  RSS leak; replacement = CadwBoost).
+- `cadw.ml.gbdt` code unchanged (85 tests green).
 
-**P38/P40 (v0.9.220 probe):** Sub-PCA/KShapeAD/S2G all have
-contamination float=0.1 (not Optional) + threshold =
-np.percentile(decision_scores, 100*(1-c)) requiring full array. Same
-class as T²+Q (v0.9.218-b). BOCPD (v0.9.219-b) was correctly
-achievable because contamination already Optional[float]=None ->
-threshold 0.5 fixed.
+**Pilot evidence** (`docs/audits/v0.9.221_cadwboost_pilot.md`):
+- CadwBoost ooc.py: 257L, np.memmap codes/y/pred + per-level histograms;
+  MAX_OOC_BATCH=20k; TRUE OOC at 4x n scale.
+- gbdt: partial memmap (v0.9.172); true OOC needs posix_fadvise refactor
+  (deferred since DEC-065); or replaced by CadwBoost.
 
-**Anomaly final (14 cards / 13 unique):**
-- achieved: 4 (Hampel, CUSUM, ZMS, BOCPD)
-- achievable: 0
-- debt: 9 unique (DWT-MLEAD, Autoencoder, PatchMemoryAD, T²+Q, EIF,
-  KMeansAD, Sub-PCA, KShapeAD, S2G) + 4 dup
-
-**Overall counts after v0.9.220:**
+**Overall counts after v0.9.221:**
 - achieved: 79 (unchanged)
-- achievable: 50 (was 53; -3 Sub-PCA/KShapeAD/S2G unique; still 5 GBDT
-  family, 5 TS streaming, 2 BinSeg, 35 no-module etc.)
-- debt: 22 (was 19; +3 unique Sub-PCA/KShapeAD/S2G)
-- none: 77
+- achievable: 43 (was 49; -6 GBDT family cards: GBDT, GBDT_multiclass,
+  GBDT_L2, GBDT_scale_pos_weight x2 dup, GBDTForecaster)
+- debt: 29 (was 23; +6 same)
+- none: 77 (unchanged)
 
-**v0.9.221 plan:** GBDT round-by-round SpillArray (5 cards:
-GBDT, GBDT_multiclass, GBDT_L2, GBDT_scale_pos_weight x2; precedent
-LambdaMART v0.9.87-P2b-full-2). Target +5 achieved.
+**v0.9.222-224 (CadwBoost promote):**
+- v0.9.222: port tests (from empty `.pingis/drafts/cadwboost/tests/`)
+  + run bench_vs_gbdt.py (7 datasets) + publish audit.
+- v0.9.223: `git mv` cadwboost into `cadw/ml/`, adapt to CADW API
+  (AutoResult / state_nbytes / CW-1..5).
+- v0.9.224: new `cadwboost` YAML cards; GBDT cards -> achieved only
+  if API-replaced; else keep gbdt debt + new cadwboost achieved cards.
 
-**v0.9.222+:** TS streaming (P3/P4 primitives). Anomaly API redesign
-(contamination Optional + SpillArray) requires DEC approval for
-default UX break.
+**v0.9.225+:** TS streaming (P3/P4 primitives).
 
 ## Next 3 sessions (v0.9.219-221)
 
