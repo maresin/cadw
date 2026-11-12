@@ -4,7 +4,7 @@ Reference: Kraskov, Stoegbauer, Grassberger, *Estimating Mutual Information*,
 Phys. Rev. E 69, 066138, 2004 (MI estimator reference; CADW uses native
 histogram MI, not the kNN variant); Kursa, Rudnicki, *Feature Selection
 with the Boruta Package*, J. Stat. Softw. 36(11), 2010 (Boruta shadow
-features). See .pingis/algorithm_notes/d6_1_feature_select.md.
+features). See DECISION_LOG for algorithm reference.
 
 v0.9.43: sklearn/scipy imports removed. Native histogram MI replaces
 kNN MI; ranking preserved (contract "top-k = sklearn"), absolute values

@@ -5,7 +5,7 @@ KMeans with per-centroid streaming updates); Dempster, Laird, Rubin,
 *Maximum Likelihood from Incomplete Data via the EM Algorithm*, JRSS-B
 39(1), 1977 (EM); Pedregosa et al., *scikit-learn*, JMLR 12, 2011
 (reference implementations used in the tests).
-See .pingis/algorithm_notes/d5_3_minibatch.md.
+See DECISION_LOG for algorithm reference.
 
 Two streaming estimators share the same mini-batch contract:
 

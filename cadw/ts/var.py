@@ -4,7 +4,7 @@ Reference: Lutkepohl, *New Introduction to Multiple Time Series
 Analysis*, Springer 2005, ch. 2-3 (VAR(p) representation, OLS
 estimation, stability); Hamilton, *Time Series Analysis*, Princeton
 1994, ch. 11.
-See .pingis/algorithm_notes/d4_5_var.md.
+See DECISION_LOG for algorithm reference.
 
 VAR(p) with intercept, estimated by equation-by-equation OLS on a
 stacked lag design matrix. Supports multiple endogenous series (k >= 1),

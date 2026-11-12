@@ -4,7 +4,7 @@ Reference: Li, Chu, Langford, Schapire, *A Contextual-Bandit Approach to
 Personalized News Article Recommendation*, WWW 2010. The per-arm ridge
 update is closed form (A_a += x x^T, b_a += r x; theta_a = A_a^-1 b_a),
 so the test reference is the analytic ridge solution, not a library.
-See .pingis/algorithm_notes/d6_7_linucb.md.
+See DECISION_LOG for algorithm reference.
 
 State is O(K * d^2 + K * d) in the per-arm sufficient statistics
 (A_a, b_a), independent of n. Fit streams over batches and updates the

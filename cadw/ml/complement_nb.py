@@ -1,6 +1,6 @@
 """Complement Naive Bayes (Rennie et al. 2003) — out-of-core.
 
-Promoted from .pingis/impl/J/complement_nb.py (DEC-058).
+Promoted from internal audit prototype (DEC-058).
 See J_nlp.yaml::ComplementNB card.
 
 State: (C, V) int64 class-term counts + (C,) totals = O(C*V).

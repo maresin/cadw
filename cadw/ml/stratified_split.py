@@ -1,6 +1,6 @@
 """StratifiedSplit — thin wrapper over cadw.cv.KFold (v0.9.143-batch5).
 
-Promoted from .pingis/impl/O/stratified_split.py (DEC-058) — but
+Promoted from internal audit prototype (DEC-058) — but
 **fixed**: uses verified KFold(stratify_by=...) instead of impl's
 _annotate_roothash, which had a rng-in-loop bug (same seed per batch
 -> same random values across equally-sized batches -> correlated folds).

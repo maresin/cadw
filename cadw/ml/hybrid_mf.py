@@ -5,7 +5,7 @@ Improved Recommendations*, UAI 2001 (the "content-boosted" idea);
 Melville, Mooney, Nagarajan, *Content-Boosted Collaborative Filtering*,
 AAAI 2002; Schein et al., *Methods and Metrics for Cold-Start
 Recommendations*, SIGIR 2002 (hybrid for cold start). See
-.pingis/algorithm_notes/d2_3_hybrid_mf.md.
+internal algorithm note.
 
 Design: item factors from D.2.2 ALS are extended with content features.
 For each item we build a content vector (numeric item features, or a

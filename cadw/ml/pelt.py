@@ -4,7 +4,7 @@ Reference: Killick, Fearnhead, Eckley, *Optimal detection of changepoints
 with a linear computational cost*, JASA 107(500), 2012 (PELT);
 Truong, Oudre, Vayatis, *Selective review of offline change point detection
 methods*, Signal Processing 167, 2020 (cost functions / pruning).
-See .pingis/algorithm_notes/d4_2_pelt.md.
+See DECISION_LOG for algorithm reference.
 
 Exact PELT with the L2 (mean-shift) cost and the standard pruning rule.
 Memory is O(window): the recursion horizon can be bounded by `max_window`,

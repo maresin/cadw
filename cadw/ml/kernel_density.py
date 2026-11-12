@@ -1,6 +1,6 @@
 """Kernel Density Estimation (Gaussian kernel) — out-of-core.
 
-Promoted from .pingis/impl/N/kernel_density.py (DEC-058).
+Promoted from internal audit prototype (DEC-058).
 See N_density.yaml::KernelDensity card.
 
 Fit: reservoir-sample K centers in ONE streaming pass (vectorized

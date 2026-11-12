@@ -4,7 +4,7 @@ Reference: Burges, *From RankNet to LambdaRank to LambdaMART: An
 Overview*, MSR-TR-2010-82; Wu, Burges, Svore, Gao, *Adapting Boosting
 for Rank: A Progress Report*, ECIR 2010. LightGBM `objective=lambdarank`
 (MIT) is the API reference; LETOR 4.0 / MSLR-WEB10K are the benchmark
-sets. See .pingis/algorithm_notes/d2_1_lambdamart.md.
+sets. See DECISION_LOG for algorithm reference.
 
 Implementation notes:
 - Graded relevance y in {0,1,...,k}; queries given by a query column.

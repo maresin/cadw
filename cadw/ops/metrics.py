@@ -622,7 +622,7 @@ def _compute_roc_auc_binary(
     )
 
     # Pass 2: stream sorted, per-threshold grouping, trapezoid
-    # v0.9.34 (B3): see .pingis/benches/v0934_b3_rocauc.json
+    # v0.9.34 (B3): see internal bench
     tp = 0
     fp = 0
     prev_fpr = 0.0

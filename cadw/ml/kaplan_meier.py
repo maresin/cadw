@@ -1,6 +1,6 @@
 """Kaplan-Meier estimator (product-limit) — out-of-core (v0.9.143, DEC-058).
 
-Promoted from .pingis/impl/I/kaplan_meier.py. Pipeline:
+Promoted from internal audit prototype. Pipeline:
   1. Count total rows (single pass, O(batch)).
   2. external_sort by time_col via cadw.ops.sort (spills runs to disk).
   3. Streaming pass over sorted runs -> step function S(t) via

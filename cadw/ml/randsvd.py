@@ -4,7 +4,7 @@ Reference: Halko, Martinsson, Tropp, *Finding Structure with Randomness:
 Probabilistic Algorithms for Constructing Approximate Matrix
 Decompositions*, SIAM Review 53(2), 2011; scikit-learn TruncatedSVD /
 PCA as reference implementation.
-See .pingis/algorithm_notes/d6_4_randsvd.md.
+See DECISION_LOG for algorithm reference.
 
 Streaming randomized range finder: draw an (d x (k+p)) Gaussian test
 matrix, accumulate Y = X @ Omega over mini-batches, then do a small QR/SVD

@@ -1,6 +1,6 @@
 """NMF (Lee & Seung 1999/2001) — out-of-core via mini-batch.
 
-Promoted from .pingis/impl/J/nmf.py (DEC-058). Two YAML consumers
+Promoted from internal audit prototype (DEC-058). Two YAML consumers
 share this function: C_dim_reduction.yaml::NMF (baseline) and
 J_nlp.yaml::NMF (sota).
 

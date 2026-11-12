@@ -2,7 +2,7 @@
 
 Reference: Dempster, Schmidt, Webb, *MINIROCKET: A Very Fast (Almost
 Deterministic) Transform for Time Series Classification*, KDD 2021.
-See .pingis/algorithm_notes/d4_1_minirocket.md.
+See DECISION_LOG for algorithm reference.
 
 Design notes (deliberate, documented):
 - Kernels are length 9 with weights in {-1, +1}; exactly three +1 weights

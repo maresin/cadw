@@ -4,7 +4,7 @@ Reference: Sinnott, *Virtues of the Haversine*, Sky and Telescope 68(2),
 1984 (haversine distance); Uber Engineering, *H3: A Hierarchical Hexagonal
 Geospatial Index*, 2018 (hexagonal binning as used by h3); scipy.spatial
 cKDTree as reference for nearest-neighbour lookups.
-See .pingis/algorithm_notes/d6_5_geo.md.
+See DECISION_LOG for algorithm reference.
 
 Deliberately no h3 dependency: the hex aggregation is the h3-equivalent
 pentagon-free hexagonal binning on a local equirectangular projection

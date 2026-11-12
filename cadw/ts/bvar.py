@@ -3,7 +3,7 @@
 Reference: Litterman (1986), "Forecasting with Bayesian vector
 autoregressions", JBES; Banbura, Giannone, Reichlin (2010), "Large
 Bayesian vector autoregressions with diffuse priors", JAE. See
-.pingis/algorithm_notes/d4_5_var.md for VAR context.
+internal algorithm note for VAR context.
 
 Estimator: conjugate Normal-Inverted Wishart with Minnesota (random-
 walk) prior. Streaming via sufficient statistics XTX, XTY, YTY across

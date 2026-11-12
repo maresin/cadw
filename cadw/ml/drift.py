@@ -7,7 +7,7 @@ Stability Index as defined in Yurdakul, *Statistical Properties of Population
 Stability Index*, 2018; Deng, Xu, Kohavi, Walker, *Improving the Sensitivity
 of Online Controlled Experiments by Utilizing Pre-Experiment Data*, WSDM
 2013 (CUPED).
-See .pingis/algorithm_notes/d6_2_drift_ab.md.
+See DECISION_LOG for algorithm reference.
 
 Drift: two-sample KS on numeric columns, chi-square on categorical
 columns, and PSI with configurable bins.

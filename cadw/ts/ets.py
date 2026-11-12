@@ -5,7 +5,7 @@ Reference: Hyndman, Athanasopoulos, *Forecasting: Principles and
 Practice*, 3rd ed., OTexts 2021, ch. 8 (exponential smoothing / ETS);
 Hyndman, Koehler, Snyder, Grose, *A state space framework for automatic
 forecasting using exponential smoothing*, Int. J. Forecasting 18, 2002.
-See .pingis/algorithm_notes/d4_3_ets.md.
+See DECISION_LOG for algorithm reference.
 
 Additive-error ETS with additive trend and additive seasonality (AAA),
 estimated by minimising the one-step-ahead SSE with a bounded

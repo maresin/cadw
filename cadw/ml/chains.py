@@ -4,7 +4,7 @@ Reference: Read, Pfahringer, Holmes, Frank, *Classifier Chains for
 Multi-label Classification*, ML 85(3), 2011; Tsoumakas, Katakis,
 *Multi-Label Classification: An Overview*, IJDWM 3(3), 2007 (binary
 relevance / one-vs-rest baseline).
-See .pingis/algorithm_notes/d5_2_chains.md.
+See DECISION_LOG for algorithm reference.
 
 Each label is modelled by an in-tree GBDT binary classifier. In the chain
 variant the true previous labels are appended as features at fit time and the

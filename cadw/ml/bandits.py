@@ -1,6 +1,6 @@
 """Bandits (M_bandits) — out-of-core via Reduce (v0.9.143, DEC-058).
 
-Promoted from .pingis/impl/M/bandits.py. Three policies share a single
+Promoted from internal audit prototype. Three policies share a single
 ArmStatsOp reducer (cadw.ops.stats.arm_stats).
 
 State is O(n_arms) independent of n (bounded_state: true). Fit is

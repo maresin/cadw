@@ -1,6 +1,6 @@
 """Weibull AFT (accelerated failure time) — out-of-core (v0.9.143).
 
-Promoted from .pingis/impl/I/weibull_aft.py (DEC-058).
+Promoted from internal audit prototype (DEC-058).
 See I_survival.yaml::WeibullAFT card.
 
 Fit: single-pass Reduce over sufficient stats (XTX, XT_ty, XT_tc)

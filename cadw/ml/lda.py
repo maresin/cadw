@@ -4,7 +4,7 @@ Reference: Blei, Ng, Jordan, *Latent Dirichlet Allocation*, JMLR 3, 2003;
 Hoffman, Blei, Bach, *Online Learning for Latent Dirichlet Allocation*,
 NIPS 2010. Reference implementation in tests: sklearn
 LatentDirichletAllocation (Pedregosa et al., JMLR 12, 2011).
-See .pingis/algorithm_notes/d6_6_lda.md.
+See DECISION_LOG for algorithm reference.
 
 Streaming design: pass 1 builds a bounded vocabulary (document frequency
 capped at vocab_size); passes 2..max_iter run online variational EM -- a

@@ -6,7 +6,7 @@ Classifiers, 2000 (Platt scaling); Zadrozny, Elkan, *Transforming Classifier
 Scores into Accurate Multiclass Probability Estimates*, KDD 2002 (isotonic
 calibration); Niculescu-Mizil, Caruana, *Predicting Good Probabilities With
 Supervised Learning*, ICML 2005 (Brier score / ECE).
-See .pingis/algorithm_notes/d4_6_calibration.md.
+See DECISION_LOG for algorithm reference.
 
 Works on top of any binary classifier exposing `predict_proba(X)` and is
 exposed here as a wrapper around the in-tree GBDT binary classifier. Both

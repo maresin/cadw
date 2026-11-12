@@ -1,6 +1,6 @@
 """OneHotEncoder — out-of-core (v0.9.143-batch5, DEC-058).
 
-Promoted from .pingis/impl/O/one_hot_encoder.py.
+Promoted from internal audit prototype.
 See O_eda.yaml::OneHotEncoder card.
 
 Fit: external_sort each categorical column -> stream unique categories

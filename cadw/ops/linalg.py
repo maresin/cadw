@@ -10,7 +10,7 @@ History:
   kshape, tspq, iforest, eif, DBSCAN, HDBSCAN, LOF, bisecting,
   minibatch, spectral).
 - v0.9.143: added nmf_mu (Lee & Seung 1999 multiplicative update).
-  Promoted from .pingis/impl/J/nmf.py; consumers NMF x2 + Top2Vec
+  Promoted from internal audit prototype; consumers NMF x2 + Top2Vec
   + LDA_embedding (3 -> P1 per PRIMITIVES_BACKLOG L7).
 - v0.9.144: added knn_query (L1) + core_distances (L2).
   Chunked query against streamed X; state O(n_q * k).

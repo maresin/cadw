@@ -6,7 +6,7 @@ with single and multiple treatments*, Knowledge and Information Systems
 and inference of heterogeneous treatment effects using random forests*,
 JASA 113(523), 2018 (honest splits); Radcliffe, *Using control groups to
 estimate the benefits of a promotion*, 2007 (Qini curve and coefficient).
-See .pingis/algorithm_notes/d3_3_uplift.md.
+See DECISION_LOG for algorithm reference.
 
 Implementation: causal tree ensemble. Splits chosen on Euclidean
 divergence between treated/control outcome distributions in the children;

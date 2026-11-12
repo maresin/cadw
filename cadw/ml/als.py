@@ -1,7 +1,7 @@
 """Implicit-feedback ALS (D.2.2, Phase D, v0.9.36).
 
 Reference: Hu, Koren, Volinsky, ICDM 2008; implicit.cpu.als (BSD) API.
-See .pingis/algorithm_notes/d2_2_als.md.
+See DECISION_LOG for algorithm reference.
 
 Out-of-core: the matrix is never materialized. Each sweep sorts the
 interactions by user with external_sort, streams the sorted run, and

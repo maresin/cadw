@@ -1,6 +1,6 @@
 """ReservoirSample — uniform sample of k rows, one pass (v0.9.143-batch5).
 
-Promoted from .pingis/impl/O/reservoir.py (DEC-058).
+Promoted from internal audit prototype (DEC-058).
 See O_eda.yaml::ReservoirSample card.
 
 State = k'*d*f64 (reservoir matrix) + 256. Bounded by k (user param).

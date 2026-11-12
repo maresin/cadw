@@ -4,7 +4,7 @@ Reference: Kunzel, Sekhon, Bickel, Yu, *Metalearners for estimating
 heterogeneous treatment effects using machine learning*, PNAS 116(10),
 2019 (T-learner / S-learner definitions); Rosenbaum, Rubin, *The central
 role of the propensity score*, Biometrika 70(1), 1983 (propensity and
-positivity). See .pingis/algorithm_notes/d3_2_meta_learners.md.
+positivity). See DECISION_LOG for algorithm reference.
 
 Two meta-learners, both built on the in-tree GBDT regressor so no extra
 dependency is needed:

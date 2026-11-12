@@ -3,7 +3,7 @@
 Reference: McCullagh, *Regression Models for Ordinal Data*, JRSS-B 42(2),
 1980; Agresti, *Categorical Data Analysis*, 3rd ed., Wiley 2013, ch. 8
 (cumulative logit model); Tutz, *Regression for Categorical Data*, CUP 2012.
-See .pingis/algorithm_notes/d5_1_ordinal_logit.md.
+See DECISION_LOG for algorithm reference.
 
 Proportional-odds cumulative logit:
   P(Y <= k | x) = sigmoid(theta_k - x @ beta),  k = 1..K-1

@@ -3,7 +3,7 @@
 Reference: Cox, Regression Models and Life-Tables, JRSS-B 34(2), 1972;
 Andersen & Gill, Ann. Statist. 10(4), 1982 (counting-process/Breslow
 formulation used here); lifelines CoxPHFitter (MIT) as the API reference.
-See .pingis/algorithm_notes/d3_1_coxph.md.
+See DECISION_LOG for algorithm reference.
 
 RAM shape (stated honestly): CoxPH's Newton step is a sum over ALL events
 of risk-set quantities, and the risk set at t depends on every row with

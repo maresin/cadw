@@ -57,7 +57,7 @@ def acf(y: np.ndarray, lag: int) -> float:
 
 
 # ============================================================================
-# Arm statistics (v0.9.143, DEC-058 promotion from .pingis/impl/M/bandits.py)
+# Arm statistics (v0.9.143, DEC-058 promotion from internal audit prototype)
 # ============================================================================
 #
 # Pattern: Reduce (AI_CONSTITUTION §3.1). State O(n_arms), transient

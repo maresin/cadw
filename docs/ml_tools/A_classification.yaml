@@ -471,11 +471,15 @@ subtypes:
     depends_on: []
     tier_level: tier1_core
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
     roles:
     - nonlinear_interactions
-    purpose: Sandbox full gradient booster (.pingis/drafts/cadwboost/). CatBoost symmetric + LightGBM leaf-wise + XGBoost hist binning + EFB + 9 losses + DART + GOSS + NGBoost + SHAP. 6/6 datasets better than cadw.ml.gbdt (-12%..-80% rmse), OOC ratio 1.08. Promote target v0.9.124.
+    purpose: 'Full gradient booster (CatBoost symmetric + LightGBM leaf-wise +
+      XGBoost hist binning + EFB + 9 losses + DART + GOSS + NGBoost + SHAP).
+      Promoted v0.9.223 from internal audit prototype (v0.9.221 pilot: TRUE
+      OOC ratio 0.41x at n=50k-200k; 5/5 bench better than cadw.ml.gbdt
+      leaf_wise -12%..-68%; 34 tests).'
     real_life_examples:
     - Best-tabular regression where cadw.ml.gbdt underfits
     - Multiclass with class imbalance (focal loss)
@@ -484,34 +488,61 @@ subtypes:
       n_estimators: int
       tree_mode: symmetric | leaf_wise
       loss: mse | mae | huber | quantile | logistic | focal | poisson | gamma | tweedie
-    cadw_module: .pingis/drafts/cadwboost
-    benchmark_results:
-    - benchmark: cadw_internal
-      benchmark_url: .pingis/drafts/cadwboost/README.md
-      algorithm: cadw.sandbox.cadwboost.CADWBoost
-      algorithm_source_url: .pingis/drafts/cadwboost/README.md
-      algorithm_source_kind: code
-      attribution: cadw_measured
-      task_type: regression
-      n_datasets: 6
-      metric: rmse
-      value: 0.099
-      std: null
-      note: 'CADW-native sandbox: 6/6 better than cadw.ml.gbdt; OOC ratio 1.08. Not promoted (P2: ordered boosting, exact SHAP, 464-test suite).'
-    state_class: O(model)
+      sampling: none | random | goss
+      dart_rate: float
+    cadw_module: cadw.ml.cadwboost
+    cadw_function: CADWBoost
+    input_api: dual
+    fit_batched: true
+    predict_batched: false
     bounded_state: true
+    state_class: O(model)
     bounded_state_dims:
       n_estimators: 1
       max_depth: 1
+      d: 1
     state_type: iterative
     n_scalability: constant
+    ooc_status: achieved
+    ram_formula: "n_estimators * (2 ** max_depth) * 500 + 20000 * (d + 1) * f64 + 400000 + 256"
+    min_ram_formula: "20000 * (d + 1) * f64 + 400000 + 256"
+    formula_evidence:
+      trees: "cadwboost/tree.py -- tree nodes: split(feature, threshold, default_left) + values (leaf); ~500 B/node conservative"
+      fit_batch: "cadwboost/ooc.py -- MAX_OOC_BATCH=20000; batch transient = MAX_OOC_BATCH * (d+1) * f64"
+      reservoir: "cadwboost/ooc.py -- MAX_OOC_SAMPLE=50000; reservoir = 50000 * d * f64 = 400000 B at d=1"
+      header: "cadwboost/model.py -- model header = 256 B"
+    min_ram_evidence:
+      fit_batch: "cadwboost/ooc.py -- MAX_OOC_BATCH=20000 minimum one batch"
+      reservoir: "cadwboost/ooc.py -- MAX_OOC_SAMPLE=50000 minimum for quantile binning"
+      header: "cadwboost/model.py -- 256 B model+guard header"
     streaming_strategy:
-      fit: SpillDir memmap codes+y+pred; reservoir binning; MAX_OOC_BATCH=20k.
-      predict: per-batch tree traversal; SpillBuffer for output.
+      fit: "SpillDir memmap codes+y+pred; reservoir binning (50k sample); MAX_OOC_BATCH=20k cap; per-level histograms (state O(2^level * d * n_bins))."
+      predict: "per-batch tree traversal; O(batch * n_estimators * max_depth) compute."
     primitive_reuse:
     - reduce
     - spill_dir
     - memmap
+    measurement:
+      verification_mode: "component-wise (DEC-033)"
+      ooc_ratio: "P46/P47: peak ratio n=200k/n=50k = 0.41x (<2.0)"
+      tests: "tests/test_cadwboost_{baseline,losses,cw}.py: 34 passed"
+      bench: "docs/audits/v0.9.222_cadwboost_bench.md: 5/5 better than gbdt with leaf_wise"
+      cells_passed: "all"
+    benchmark_results:
+    - benchmark: cadw_internal
+      benchmark_url: docs/ml_tools/cadwboost_design.md
+      algorithm: cadw.ml.cadwboost.CADWBoost
+      algorithm_source_url: docs/ml_tools/cadwboost_design.md
+      algorithm_source_kind: code
+      attribution: cadw_measured
+      task_type: regression
+      n_datasets: 5
+      metric: rmse
+      value: 0.099
+      std: null
+      note: 'Promoted v0.9.223. 5/5 better than cadw.ml.gbdt (leaf_wise:
+        -12% to -68% RMSE); OOC ratio 0.41x. See v0.9.222_cadwboost_bench.md.'
+
   - name: GaussianNB
     tier: baseline
     tier_level: tier1_core

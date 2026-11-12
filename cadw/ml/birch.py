@@ -2,7 +2,7 @@
 
 Reference: Zhang, Ramakrishnan, Livny, *BIRCH: An Efficient Data Clustering
 Method for Very Large Databases*, SIGMOD 1996.
-See .pingis/algorithm_notes/d5_4_birch.md.
+See DECISION_LOG for algorithm reference.
 
 CF = (N, LS, SS) is the sufficient statistic of a sub-cluster: N points,
 vector sum LS, sum of squares SS. Streaming insertion walks the tree from

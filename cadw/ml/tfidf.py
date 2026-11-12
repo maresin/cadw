@@ -4,7 +4,7 @@ Reference: Salton, Buckley, *Term-Weighting Approaches in Automatic Text
 Retrieval*, Information Processing & Management 24(5), 1988. Reference
 implementation in tests: sklearn TfidfVectorizer (Pedregosa et al., JMLR
 12, 2011).
-See .pingis/algorithm_notes/d6_9_tfidf.md.
+See DECISION_LOG for algorithm reference.
 
 Two passes over the text column: pass 1 builds the document-frequency
 vector (and the vocabulary for a bounded vocab_size), pass 2 applies the
