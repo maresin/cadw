@@ -2138,10 +2138,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent: training per-tree extended isolation forest over full window matrix (n_w x w); paths = np.zeros(n) at L205, window_scores = np.empty(n_w) at L555. No spill API. P35 confirmed. bounded_by_domain n<=1e6 honest.
   - name: Hampel
     tier: baseline
     tier_level: tier1_core
@@ -2574,10 +2574,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent: kmeans training over full window matrix; dists_sq = np.zeros((n, k)) at L102 is O(n*k) full; reservoir (L359) used only for init sample, not for training. No spill API. P35 confirmed. bounded_by_domain n<=1e6 honest.
   - name: PatchMemoryAD
     tier: baseline
     tier_level: tier1_core
@@ -3551,10 +3551,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent: training per-tree extended isolation forest over full window matrix (n_w x w); paths = np.zeros(n) at L205, window_scores = np.empty(n_w) at L555. No spill API. P35 confirmed. bounded_by_domain n<=1e6 honest.
   - name: Sub-PCA
     tier: sota
     tier_level: tier1_core
@@ -3752,10 +3752,10 @@ subtypes:
     primitive_reuse:
     - strided_view
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: single-series time series anomaly detection; n<=1e6 typical for TSB-AD/UCR/NAB b. Guard refuses above state_limit.'
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
-    ooc_target_version: v0.9.180+
+    ooc_alternative: |
+      Permanent: kmeans training over full window matrix; dists_sq = np.zeros((n, k)) at L102 is O(n*k) full; reservoir (L359) used only for init sample, not for training. No spill API. P35 confirmed. bounded_by_domain n<=1e6 honest.
   - name: Autoencoder
     tier: baseline
     tier_level: tier1_core
