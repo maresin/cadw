@@ -1106,8 +1106,37 @@ subtypes:
     - cadw.ops.stats.normalize_weights
     tier_level: tier2_wrapper
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
+    cadw_module: cadw.ml.knn_multilabel
+    cadw_function: fit_knn_multilabel
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {max_samples: 1, d: 1, L: 1, k: 1}
+    state_class: O(model)
+    state_type: aggregation
+    ram_formula: max_samples * (d + L) * f64 + max_samples * (k + 1) * f64 + max_samples * k * L * f64 + max_samples * L * f64 + L * (k + 1) * f64 * 2 + L * f64 + 2.5 * batch * row_size + 256
+    min_ram_formula: (k + 1) * (d + L) * f64 + (k + 1) * (k + 1) * f64 + (k + 1) * k * L * f64 + (k + 1) * L * f64 + L * (k + 1) * f64 * 2 + L * f64 + 2.5 * 1 * row_size + 256
+    formula_evidence:
+      train_state: 'knn_multilabel.py -- train_X_(n_train, d) + train_Y_(n_train, L); n_train=min(max_samples, n_seen)'
+      phase1_transient: 'knn_multilabel.py -- nbr_idx(n_train, k+1) + neighbor_Y(n_train, k, L) + C(n_train, L) during _build_conditional_tables'
+      cond_tables: 'knn_multilabel.py -- prior_(L) + P_pos_(L, k+1) + P_neg_(L, k+1)'
+      header: 'knn_multilabel.py -- MLkNNModel.state_nbytes() +256'
+      batch_term: 'knn_multilabel.py -- mg.check_batch(extra_factor=2.5) in _checked_batches'
+    min_ram_evidence:
+      derived_from: 'ram_formula with max_samples=k+1 (min for self+k), batch=1 (auto-migrate v0.9.177)'
+    measurement:
+      verification_mode: 'component-wise (DEC-033)'
+      state_check: 'test_state_nbytes_exact: bit-exact across (n_train,d,L,k)'
+      state_bounded: 'test_state_independent_of_n: identical at n>=max_samples'
+      ooc: 'test_ooc_batch_fixed: median-of-3, ratio < 4.0'
+      correctness: 'test_reference_parity (vectorized==slow per-sample loop) + test_hamming_loss (<0.30 on synthetic 3-label)'
+      cells_passed: '5/5 (CW-1, CW-2, CW-5, ref-parity, hamming)'
+      runtime_sec: '~20'
+      note: 'Bayesian prior + Laplace-smoothed conditional tables (paper eq.3-4). Exact kNN, no SGD. Train_y_ from reservoir is float64 (0.0/1.0). predict materializes n x L int64 output — guard.check_state(n_total*L*8) before np.empty (predict_batched: false).'
     roles:
     - probabilistic
     purpose: Multi-label kNN with Bayesian prior (Zhang & Zhou 2007). Label posterior from neighbour counts.
@@ -1129,8 +1158,8 @@ subtypes:
       metric: hamming_loss
       value: null
       note: 'no_public_benchmark: ML-kNN per-dataset; no unified multilabel LB'
-    ooc_status: achievable
-    ooc_strategy: 'Not implemented. Planned approach: Multi-label kNN with Bayesian prior (Zhang & Zhou 2007). Label posterior from neighbour counts... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
+    ooc_status: achieved
+    ooc_strategy: 'Pattern #1 batch-layer. state max_samples*(d+L)*f64 + L*(k+1)*f64*2 + L*f64 + 256; fit peak O(max_samples) constant (Phase 1) + O(batch*row_size) transient (reservoir); predict O(batch) per chunk but n-sized output. Module: cadw.ml.knn_multilabel.'
   metrics:
   - name: subset_accuracy
     combination: anchor
