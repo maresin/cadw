@@ -3071,10 +3071,17 @@ subtypes:
       predict: per-batch T-squared/Q stats.
     primitive_reuse:
     - reduce
-    ooc_status: achievable
+    ooc_status: debt
     ooc_strategy: 'Plan: SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CU... Target: v0.9.180+. Current bound: O(n) output arrays (decision_scores, labels, t2_scores, q_scores = 4n*f64) intri. Guard refuses above state_limit.'
-    ooc_target_version: v0.9.180+
-    ooc_alternative: 'SpillArray(width=1) for decision_scores + labels; DEC-036 reservoir for contamination percentile. CUSUM precedent (v0.9.173 SpillArray). Current output=''memory'' default -> plan: output=''auto'' (spill).'
+    ooc_alternative: |
+      Permanent intrinsic for default contamination (float=0.1): t2_limit = percentile(t2) requires full t2 array; combined = max(t2/limit, q/limit) requires full t2+q; dec_ts = _map_max(combined) requires full combined (4*n output). P34 confirmed.
+      
+      Achievable path requires API redesign (v0.9.219+):
+      - contamination: float|None = 0.1; if None -> threshold=1.0 (no percentile, no full t2 required for limit)
+      - window_size=1: streaming Welford + SpillArray t2/q + element max; no map -> achievable
+      - window_size>1: monotonic-deque streaming _map_max over SpillArray combined -> achievable (deque helper new).
+      
+      Current bounded_by_domain n<=1e6 honest (4*n*8 = 32 MB at 1e6).
   - name: CUSUM
     tier: baseline
     tier_level: tier1_core
