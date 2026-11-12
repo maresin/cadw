@@ -4693,6 +4693,66 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.218] — 2026-11-12 (T²+Q debt + anomaly 6 TBD audit)
+
+Session scope: v0.9.217 anomaly follow-up. Outcome:
+T²+Q -> debt (intrinsic); EIF, KMeansAD -> debt;
+4 achievable identified for API change v0.9.219-220.
+
+### v0.9.218-a — ROADMAP restore
+
+- Current: v0.9.216 -> v0.9.218 (accurate state + Next 3
+  revised for T²+Q + 6 TBD). Probed counts: 116 verified,
+  78 achieved / 59 achievable / 14 debt / 77 None.
+
+### v0.9.218-b — T²+Q -> debt (intrinsic)
+
+P34 confirmed intrinsic for default contamination (float=0.1):
+t2_limit = percentile(t2) requires full t2 array;
+combined = max(t2/t2_limit, q/q_limit) requires full t2+q;
+dec_ts = _map_max(combined) requires full combined (4*n output).
+P34d: contamination=None crashes with TypeError (API has no
+Optional).
+
+ooc_status achievable -> debt. bounded_by_domain n<=1e6 honest.
+ooc_alternative documents achievable path (v0.9.219+):
+Optional[float] contamination + streaming Welford + SpillArray
+t2/q + monotonic-deque _map_max.
+
+### v0.9.218-c — audit 6 TBD + ROADMAP Next 3 update
+
+docs/audits/v0.9.218_anomaly_tbd_audit.md (168 lines):
+- Sub-PCA: achievable (API change; precedent Hampel) -> v0.9.219
+- BOCPD: achievable (already OOC-by-state; add output='auto')
+  -> v0.9.219 (easiest ROI)
+- KShapeAD, S2G: achievable (precedent Sub-PCA) -> v0.9.220
+- EIF, KMeansAD: debt (training over full window; no spill API)
+
+Anomaly final (14 cards / 13 unique):
+- 3 achieved (Hampel, CUSUM, ZMS)
+- 4 achievable (Sub-PCA, BOCPD, KShapeAD, S2G; API change)
+- 7 debt (DWT-MLEAD, Autoencoder x2, PatchMemoryAD, T²+Q,
+  EIF, KMeansAD)
+
+ROADMAP Current v0.9.218 + Next 3 (v0.9.219-221) revised per
+audit.
+
+### v0.9.218-d — YAML flip EIF x2 + KMeansAD x2 -> debt
+
+Per v0.9.218-c audit. P35 evidence documented in ooc_alternative
+(EIF paths/window_scores (n); KMeansAD dists_sq (n,k) full;
+reservoir only init).
+
+### Session tally (measured post-v0.9.218-d)
+
+- achieved: 78 (unchanged — no new achieved this session)
+- achievable: 54 (was 59; -1 T²+Q, -2 EIF x2, -2 KMeansAD x2 = -5)
+- debt: 19 (was 14; +1 T²+Q, +2 EIF x2, +2 KMeansAD x2 = +5)
+- (none): 77 (unchanged)
+
+Total: 228 cards unchanged. Focused: audit doc + YAML validates; no
+code change.
+
 ## [0.9.217] — 2026-11-12 (Anomaly SpillArray batch: Hampel achieved + 3 honest debt)
 
 Session scope per v0.9.216 audit §5 (Anomaly SpillArray bucket,
