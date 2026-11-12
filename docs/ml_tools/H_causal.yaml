@@ -160,10 +160,39 @@ subtypes:
     tier: sota
     depends_on:
     - cadw.ml._causal_common.dr_score
-    tier_level: tier3_export
+    tier_level: tier2_wrapper
+    ooc_status: achieved
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
+    cadw_module: cadw.ml.dr_learner
+    cadw_function: fit_dr_learner
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {d: 2}
+    state_class: O(d)
+    state_type: aggregation
+    ram_formula: 3 * d * d * f64 + 3 * batch * row_size + 4 * batch * f64 + 1024
+    min_ram_formula: 3 * d * d * f64 + 3 * 1 * row_size + 4 * 1 * f64 + 1024
+    formula_evidence:
+      xthree_logistic_xtx: 'dr_learner.py -- 3x fit_logistic; each has XTX d^2*f64 during fit; sequential not summed.'
+      per_model_iter: 'dr_learner.py -- 3x fit_logistic iterates _iter_filtered_batches; check_batch(extra_factor~3.0).'
+      aggregate: 'dr_learner.py -- aggregate pass: 4*batch*f64 (y,t,e,m1,m0,psi) + X(batch*d).'
+      header: 'dr_learner.py -- DRLearnerModel.state_nbytes +256; 3 logistic states via _one_model_state_nbytes.'
+    min_ram_evidence:
+      derived_from: 'ram_formula with batch=1 (auto-migrate v0.9.177)'
+    measurement:
+      verification_mode: 'component-wise (DEC-033)'
+      note: 'Combined-matrix RSS test omitted (DEC-034 precedent: baseline >> fit peak at small d; P38: 6.27 MB cold vs 32 KB warm, 300x allocator variance; single fit_logistic 806 KB measured vs 179 KB source-only = 4.5x Python/Arrow overhead). Framework precedent: iforest (DEC-031/033/034), linucb, gmm, birch.'
+      state_check: 'test_state_nbytes_exact: 3*(d*f64+8+256)+256 bit-exact across d'
+      state_bounded: 'test_state_independent_of_n: identical at n=500/2000/10000'
+      guard: 'test_guard_refuses_at_tight: clean MemoryLimitExceeded'
+      correctness: 'test_ate_recovers_true_effect + test_aipw_double_robustness (dr_score primitive) + test_predict_psi_recomputes_ate'
+      cells_passed: '6/6'
+      runtime_sec: '~15'
     roles:
     - nonlinear_interactions
     - probabilistic
@@ -184,6 +213,8 @@ subtypes:
       value: 0.06
       std: null
       note: '[legacy v0.9.44, migrated v0.9.50]'
+    ooc_strategy: 'Pattern #1 batch-layer. 3x fit_logistic (Reduce XTX d^2 state) + Reduce aggregate mean(dr_score). state O(d); fit peak O(d^2 + batch*row_size). df[df[t]==v] RowFilter for treated/control split (OOC). Module: cadw.ml.dr_learner.'
+
   - name: CausalForest
     tier: sota
     depends_on:

@@ -15,6 +15,9 @@ from .pairwise_logistic import (
 from .listnet import (
     ListNetModel, fit_listnet,
 )
+from .dr_learner import (
+    DRLearnerModel, fit_dr_learner,
+)
 from .logistic import LogisticGradOp, LogisticModel, fit_logistic
 from .kmeans import KMeansStepOp, KMeansModel, fit_kmeans
 from .pca import PCA, fit_pca
@@ -77,6 +80,7 @@ __all__ = [
     "MLkNNModel", "fit_knn_multilabel",
     "PairwiseLogisticModel", "fit_pairwise_logistic",
     "ListNetModel", "fit_listnet",
+    "DRLearnerModel", "fit_dr_learner",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "PCA", "fit_pca",
