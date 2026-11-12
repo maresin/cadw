@@ -4693,6 +4693,73 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.217] — 2026-11-12 (Anomaly SpillArray batch: Hampel achieved + 3 honest debt)
+
+Session scope per v0.9.216 audit §5 (Anomaly SpillArray bucket,
+target v0.9.218). Outcome: 1 achieved (Hampel), 3 honest debt
+(DWT-MLEAD, Autoencoder x2, PatchMemoryAD). Audit correction.
+
+### v0.9.217-a — Hampel achieved (streaming + SpillArray)
+
+Pattern #1 (ROADMAP §OOC-by-primitive): batch-layer, axis=n.
+Precedent: CUSUM v0.9.173, ZMS v0.9.113.
+
+- cadw/ml/hampel.py:
+  * output='memory' -> 'auto' (default)
+  * df + output='auto'|'disk': streaming batch-by-batch with
+    pending_future lookahead >= half; suffix uses real future
+    data; edge pad (x[-1]) only for last batch. Fit transient
+    O(batch + w); state O(1) spilled.
+  * df + output='memory': legacy bit-identical O(n) (back-compat).
+  * ndarray + output='disk': NotImplementedError.
+  * contamination requires output='memory' (percentile needs
+    full scores array; DEC-036 reservoir future).
+  * HampelResult.is_spilled + state_nbytes() = 256 (spilled) /
+    2n+264 (memory).
+- D_time_series.yaml: Hampel flip (achievable -> achieved):
+  * state_class O(d) -> O(1); bounded_state false -> true;
+    bounded_state_dims {n:1} -> {window_size:1}
+  * ram_formula: 2*batch*f64 + window_size*f64*4 + 256
+  * bounded_by_domain removed; ooc_status achieved
+- tests/test_hampel_verification.py (+13 streaming tests):
+  * bit-identical vs memory (6 n/w parametrized)
+  * batch_size invariant (5 batch sizes)
+  * state O(1); contamination refuse; disk forced spill;
+    iterable; guard refuse tight.
+
+Bit-identical parity: per-window median chunk-independent;
+edge pad matches np.pad(mode='edge'). pending_future buffer
+ensures >= half real future values per batch.
+
+### v0.9.217-b — honest reclassification (3 models -> debt)
+
+P30-P33 audit findings:
+- DWT-MLEAD: _multilevel_haar_dwt requires full series
+  (log2(n) levels x n). Windowed variant = different algorithm
+  (semantic truncation), not refactor.
+- Autoencoder x2 (D3.1 + D3.3): _fit_autoencoder_series_impl
+  trains epochs over full X (n_w x w); chunked inference
+  (v0.9.91-S6d) is second phase only.
+- PatchMemoryAD: same training pattern.
+
+All: ooc_status achievable -> debt (permanent intrinsic).
+bounded_by_domain n<=1e6 stays honest (~9-24 MB at n=1e6).
+ooc_target_version removed; ooc_alternative documents intrinsic
+reason.
+
+### Audit correction (v0.9.216 §5)
+
+Anomaly SpillArray bucket: 15 cards -> 12 (effective unique
+11 -> 8). Intrinsic bucket: 3 -> 6 (CoxPH, KernelPCA,
+SpectralBiclustering*, DWT-MLEAD, Autoencoder, PatchMemoryAD).
+
+Remaining TBD (v0.9.218): Sub-PCA, EIF, KMeansAD, BOCPD,
+KShapeAD, S2G (short 37-63 line wrappers, core impl needed).
+T²+Q: achievable (P33: Welford O(d²) fit, sliding inference).
+
+Focused: 158 passed (Hampel schema + G23 + roadmap); 44 passed
+(DWT+AE+PMA verification); 519 passed (fast baseline before).
+
 ## [0.9.216] — 2026-11-12 (achievable audit + ROADMAP restore)
 
 Post-incident restoration. Prior session (transcript said
