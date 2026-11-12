@@ -55,3 +55,18 @@ def sigmoid(x):
     ex = np.exp(x[~pos])
     out[~pos] = ex / (1.0 + ex)
     return out
+
+def norm_cdf(x):
+    """Standard normal CDF Φ(x) = 0.5 * (1 + erf(x / √2)).
+
+    Uses stdlib math.erf (no external dependency). Accepts scalar or
+    array (via numpy vectorize when array).
+    """
+    import math
+    import numpy as _np
+    if isinstance(x, _np.ndarray):
+        return _np.vectorize(lambda v: 0.5 * (1.0 + math.erf(
+            float(v) / math.sqrt(2.0))), otypes=[_np.float64])(x)
+    return 0.5 * (1.0 + math.erf(float(x) / math.sqrt(2.0)))
+
+

@@ -18,6 +18,9 @@ from .listnet import (
 from .dr_learner import (
     DRLearnerModel, fit_dr_learner,
 )
+from .ordered_probit import (
+    OrderedProbitModel, fit_ordered_probit,
+)
 from .logistic import LogisticGradOp, LogisticModel, fit_logistic
 from .kmeans import KMeansStepOp, KMeansModel, fit_kmeans
 from .pca import PCA, fit_pca
@@ -81,6 +84,7 @@ __all__ = [
     "PairwiseLogisticModel", "fit_pairwise_logistic",
     "ListNetModel", "fit_listnet",
     "DRLearnerModel", "fit_dr_learner",
+    "OrderedProbitModel", "fit_ordered_probit",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "PCA", "fit_pca",

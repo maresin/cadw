@@ -1289,12 +1289,48 @@ subtypes:
     ooc_strategy: 'Not implemented. Planned approach: GBDT on cumulative logits; SOTA when relations are nonlinear... Pattern chosen on implementation (ROADMAP §OOC by primitive).'
   - name: OrderedProbitBayesian
     tier: sota
-    depends_on:
-    - cadw.ml._gbdt_common.cumulative_logit_prob
     tier_level: tier2_wrapper
+    ooc_status: achieved
+    ooc_strategy: 'Dual method. sghmc (default): SGHMC over marginal (β,a)-posterior; mini-batch gradient O(batch*d); achieved OOC. gibbs: exact Albert-Chib z-augmentation; O(n) per iter, full data (bounded_by_domain n<=1e5).'
+    bounded_by_domain:
+      axis: n
+      bound: 100000
+      reason: "method='gibbs' only; sghmc OOC at any n"
+    depends_on:
+    - cadw.ops.mcmc.sgmcmc
+    - cadw.ops.numeric.norm_cdf
+    - cadw.ml._gbdt_common.cumulative_logit_prob
     implementation_status:
-      described_only: true
-      not_implemented_in_cadw: true
+      verified_in_cadw: true
+      status: verified
+    cadw_module: cadw.ml.ordered_probit
+    cadw_function: fit_ordered_probit
+    input_api: df
+    fit_batched: true
+    predict_batched: false
+    n_scalability: constant
+    bounded_state: true
+    bounded_state_dims: {d: 1, n_classes: 1, n_samples: 1}
+    state_class: O(model)
+    state_type: aggregation
+    ram_formula: n_samples * (d + n_classes) * f64 + d * f64 + n_classes * f64 + 3.0 * batch * row_size + 256
+    min_ram_formula: 1 * (d + n_classes) * f64 + d * f64 + n_classes * f64 + 3.0 * 1 * row_size + 256
+    formula_evidence:
+      samples_state: 'ordered_probit.py -- coef_samples_(n_samples,d) + cutpoints_samples_(n_samples,K-1); O(n_samples*(d+K-1))'
+      mean_state: 'ordered_probit.py -- coef_mean_(d) + cutpoints_mean_(K-1)'
+      header: 'ordered_probit.py -- OrderedProbitModel.state_nbytes +256'
+      batch_term: 'ordered_probit.py -- check_batch(extra_factor=3.0) in sgmcmc / gibbs iterations'
+    min_ram_evidence:
+      derived_from: 'ram_formula with n_samples=1, batch=1 (auto-migrate v0.9.177)'
+    measurement:
+      verification_mode: 'component-wise (DEC-033)'
+      state_check: 'test_state_nbytes_exact (d, n_classes, n_samples)'
+      state_bounded: 'test_state_independent_of_n: identical at n=500/2000/5000'
+      guard: 'test_guard_refuses_at_tight'
+      correctness: 'test_recovers_ordered_classes (synthetic 3-class); test_cutpoints_monotone (structural); test_sghmc_vs_gibbs_agree (mean cutpoints within tol)'
+      cells_passed: '6/6 (sghmc) + 4/4 (gibbs at n<=1e5)'
+      runtime_sec: 'sghmc ~10; gibbs ~20'
+      note: 'sghmc (default): Chen 2014 + Springer 2016 reference implementation verified P63 (Gaussian N(1.998, 0.0316): mean=1.989, std=0.031, ratio 1.0) and P64 (ordered probit n=1000, K=3, coef_err=0.032, cp_err=0.112, acc=0.613 = 98.9% of Bayes 0.620 per P65 analytic). gibbs (opt-in): Albert-Chib 1993 exact; P46 verified coef_err=0.087, cp_err=0.265; O(n) per iter, requires full data (bounded_by_domain n<=1e5; precedent: MH/NUTS W_probabilistic). Hyperparameters: V_hat=I, C=20*I, lr=0.01 (reference defaults, P63 grid sweep).'
     roles:
     - probabilistic
     purpose: 'Bayesian ordered probit: latent Gaussian + cutpoints; full posterior over thresholds.'
