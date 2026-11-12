@@ -4693,6 +4693,67 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.219] — 2026-11-12 (BOCPD achieved; Sub-PCA deferred)
+
+Session scope: v0.9.219 Sub-PCA + BOCPD (API change). Outcome:
+BOCPD -> achieved (easy; already OOC-by-state); Sub-PCA
+deferred to v0.9.220 (2-pass streaming more complex than
+expected). 1 new achieved.
+
+### v0.9.219-a — ROADMAP Last updated fix
+
+v0.9.218 tagged, but ROADMAP said 'v0.9.217; v0.9.218 in
+progress'. Fix.
+
+### v0.9.219-b — BOCPD achieved (streaming + SpillArray)
+
+Pattern #1 (ROADMAP §OOC-by-primitive): batch-layer, axis=n.
+Precedent: Hampel v0.9.217, CUSUM v0.9.173, ZMS v0.9.113.
+
+BOCPD already OOC-by-state (R/mu/beta O(max_run); R_hist
+O(posterior_keep*max_run) ring buffer); contamination already
+Optional[float]=None -> threshold 0.5 fixed. Streaming adds:
+SpillArray for anomaly_score/argmax_run/labels (O(n) output).
+
+- cadw/ml/bocpd.py:
+  * output='memory'|'auto' (default)|'disk'
+  * _fit_bocpd_df dispatcher; auto/disk -> _fit_bocpd_df_streaming
+  * streaming: online posterior per batch; SpillArray for
+    scores/argmax; pass 2 rebuilds masked decision_scores with
+    burn-in (score_buf_masked) + labels + changepoints
+  * contamination + output != 'memory' -> NotImplementedError
+    (percentile needs full array; DEC-036 future)
+  * full_posterior=True + output != 'memory' -> NotImplementedError
+  * ndarray + output='disk' -> NotImplementedError
+  * BOCPDResult.is_spilled; state_nbytes() = 256 + R_hist
+    (O(keep*max_run), independent of n) vs legacy O(n) memory
+- docs/ml_tools/D_time_series.yaml: BOCPD flip (achieved):
+  * state_class 'O(n)' -> 'O(model)'; bs=false -> true
+  * bounded_state_dims {n:1, posterior_keep:1, max_run:1} ->
+    {max_run:1, posterior_keep:1}
+  * n_scalability 'linear' -> 'constant'
+  * ram_formula: 8*posterior_keep*(max_run+1)*f64 +
+    3*(max_run+1)*f64 + 2*batch*row_size + 256
+  * bounded_by_domain removed
+- tests/test_bocpd_verification.py (+6 streaming tests):
+  bit-identical scores/labels/argmax/changepoints; state O(1)
+  spilled; contamination refuse; full_posterior refuse; disk
+  forced spill; ndarray+disk raises.
+
+Fixes during implementation: double-finalize RuntimeError
+(score_buf.finalize() called twice) -> finalize ONCE; burn-in
+mask was not applied to decision_scores (score diff 1.49e-02)
+-> score_buf_masked rebuild in pass 2 (v4 anchor-exact).
+
+### Session tally (measured post-v0.9.219)
+
+- achieved: 79 (+1 BOCPD)
+- achievable: 53 (-1 BOCPD; 3 remain: Sub-PCA, KShapeAD, S2G)
+- debt: 19 (unchanged)
+- (none): 77 (unchanged)
+
+Focused: 148 passed (bocpd + schema + G23).
+
 ## [0.9.218] — 2026-11-12 (T²+Q debt + anomaly 6 TBD audit)
 
 Session scope: v0.9.217 anomaly follow-up. Outcome:

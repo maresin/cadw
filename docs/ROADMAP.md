@@ -1,26 +1,31 @@
 # CADW Roadmap
 
-Last updated: 2026-11-12 (after v0.9.218).
+Last updated: 2026-11-12 (after v0.9.219).
 
-## Current: v0.9.218 — T²+Q debt + 6 TBD audit
+## Current: v0.9.219 — BOCPD achieved + Sub-PCA deferred
 
-**v0.9.218 outcome:**
-- v0.9.218-a: ROADMAP restore (v0.9.216 -> v0.9.218 state)
-- v0.9.218-b: T²+Q honest flip achievable -> debt (P34: contamination
-  float=0.1 requires percentile over full t2; combined requires full
-  t2+q; dec_ts requires full combined 4*n output)
-- v0.9.218-c: audit 6 TBD -> 4 achievable (Sub-PCA, BOCPD, KShapeAD,
-  S2G; require `output='auto'` API change, precedent Hampel v0.9.217)
-  + 2 debt (EIF training-over-full-window + no spill; KMeansAD
-  training O(n·k) + no spill)
+**v0.9.219 outcome:**
+- v0.9.219-a: ROADMAP Last updated fix (v0.9.218 tagged).
+- v0.9.219-b: BOCPD achieved via streaming + SpillArray (Pattern #1,
+  precedent Hampel v0.9.217). Already OOC-by-state (posterior_keep*
+  max_run); added SpillArray for anomaly_score/argmax_run/labels;
+  contamination + output != 'memory' refuses (percentile needs full
+  array). +6 streaming tests. 148 focused passed.
 
-**Anomaly final state after v0.9.218 (14 cards / 13 unique):**
-- achieved: Hampel, CUSUM, ZMS (3)
-- achievable (API, v0.9.219+): Sub-PCA, BOCPD, KShapeAD, S2G (4)
-- debt (intrinsic): DWT-MLEAD, Autoencoder x2, PatchMemoryAD, T²+Q,
-  EIF, KMeansAD (7)
+**Deferred to v0.9.220:**
+- Sub-PCA streaming (2-pass: window_scores -> SpillArray; map via
+  _map_max/_map_mean; contamination Optional). More complex than
+  BOCPD (n_w < n needs 2-pass rebuild). ~1 sess.
 
-**v0.9.219 plan:** Sub-PCA + BOCPD API change (see Next 3).
+**Counts after v0.9.219:**
+- achieved: 79 (was 78 + BOCPD)
+- achievable: 53 (was 54; -1 BOCPD; still 3 TBD: Sub-PCA, KShapeAD,
+  S2G)
+- debt: 19 (unchanged)
+- none: 77 (unchanged)
+
+**v0.9.220 plan:** Sub-PCA streaming (1 sess) + KShapeAD/S2G if time
+(2 more achieved).
 
 ## Next 3 sessions (v0.9.219-221)
 
