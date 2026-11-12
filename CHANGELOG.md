@@ -4693,6 +4693,64 @@ and routes through the existing primitives + MemoryGuard.
 +40 fast, 0 slow). Whitelist 31 keys.
 
 
+## [0.9.221] — 2026-11-12 (CadwBoost pilot TRUE OOC + GBDT debt)
+
+Session scope: v0.9.221 GBDT round-by-round SpillArray (target
++5 achieved). Outcome: pilot revealed CadwBoost (.pingis/drafts/)
+already TRUE OOC; GBDT family 6 cards -> debt (replacement path
+instead of patch). 0 new achieved.
+
+### v0.9.221 — GBDT family 6 cards -> debt
+
+P41-P47 probe:
+- cadw.ml.gbdt: partial memmap (v0.9.172, DEC-065) leaks dirty
+  pages to RSS at ~20-24 B/row. True OOC needs posix_fadvise
+  refactor (deferred DEC-065 v0.9.173+ for 8 releases).
+- Multiclass additionally: cur_leaf_c = np.zeros(n_total)
+  (gbdt.py:127) unmemmapped; cur_leaf_c = reduce(...) at L173
+  also materializes n per class.
+- CadwBoost (.pingis/drafts/) TRUE OOC: ratio 0.41x at
+  n=50k-200k (measure_peak_traced). See audit doc.
+
+6 GBDT cards achievable -> debt:
+- GBDT, GBDT_multiclass, GBDT_L2, GBDT_scale_pos_weight x2 dup
+  (A_classification + E_anomaly), GBDTForecaster.
+bounded_by_domain n<=1e5 honest (~2 MB at 1e5, 24 B/row).
+ooc_alternative documents replacement path.
+
+cadw.ml.gbdt unchanged (85 tests green). Not in scope:
+GBDT_threshold, GBDT_pinball (status=None, no code).
+
+### v0.9.221-b — CadwBoost pilot audit
+
+docs/audits/v0.9.221_cadwboost_pilot.md (110 lines):
+- CadwBoost TRUE OOC verified (ratio 0.41x at n=50k-200k).
+- Mechanism: ooc.py (257L) np.memmap codes/y/pred + per-level
+  histograms; MAX_OOC_BATCH=20k, MAX_OOC_SAMPLE=50k.
+- Difference vs cadw.ml.gbdt: gbdt stores per-row pred/grad/hess/
+  cur_leaf/nan_mask (memmap, RSS leak); CadwBoost stores per-level
+  histograms (never per-row scores in RAM).
+- Promote plan v0.9.222-224:
+  * v0.9.222: tests (from empty .pingis/drafts/cadwboost/tests/)
+    + bench_vs_gbdt.py run (7 datasets) + audit.
+  * v0.9.223: git mv into cadw/ml/cadwboost/, adapt to CADW
+    API (AutoResult/state_nbytes/CW-1..5).
+  * v0.9.224: new cadwboost YAML cards; GBDT cards -> achieved
+    only if API-replaced.
+
+### Session tally (measured post-v0.9.221)
+
+- achieved: 79 (unchanged)
+- achievable: 43 (was 49; -6 GBDT family)
+- debt: 29 (was 23; +6 same)
+- (none): 77 (unchanged)
+
+Decision policy: when working impl fails true OOC via memmap
+leak, build clean alternative (CadwBoost), not posix_fadvise
+patch within same API.
+
+Focused: 85 GBDT tests green (unchanged); YAML validates.
+
 ## [0.9.220] — 2026-11-12 (anomaly audit correction: 3 debt)
 
 Session scope: v0.9.220 Sub-PCA (target) + audit correction
