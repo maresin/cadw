@@ -3,6 +3,9 @@ from .linear import (
     XTXOp, LinearModel, fit_linear,
     fit_lasso, fit_elasticnet,
 )
+from .quantile_linear import (
+    QuantileLinearModel, fit_linear_quantile,
+)
 from .logistic import LogisticGradOp, LogisticModel, fit_logistic
 from .kmeans import KMeansStepOp, KMeansModel, fit_kmeans
 from .pca import PCA, fit_pca
@@ -61,6 +64,7 @@ from cadw.ml.bandits import (
 __all__ = [
     "XTXOp", "LinearModel", "fit_linear",
     "fit_lasso", "fit_elasticnet",
+    "QuantileLinearModel", "fit_linear_quantile",
     "LogisticGradOp", "LogisticModel", "fit_logistic",
     "KMeansStepOp", "KMeansModel", "fit_kmeans",
     "PCA", "fit_pca",
