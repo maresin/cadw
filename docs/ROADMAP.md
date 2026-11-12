@@ -1,42 +1,46 @@
 # CADW Roadmap
 
-Last updated: 2026-11-12 (after v0.9.224).
+Last updated: 2026-11-13 (after v0.9.229).
 
-## Current: v0.9.224 — CadwBoost test coverage 100% of modules
+## Current: v0.9.229 — 6 models (achiev. 80 → 86) + MCMC framework
 
-**v0.9.224 outcome:**
-- Tests batch 2 (8 files, 21 tests): EFB, sampling, missing,
-  serialize, shap, df, ooc extended, importance.
-- Total CadwBoost tests: **55 passed** (34 batch1 + 21 batch2),
-  covering all 18 modules.
+**Session outcome (6 tags):**
 
-**Counts unchanged:**
-- achieved: 80
-- achievable: 43
-- debt: 29
-- none: 76
-(Total 228.)
+| Version | Model / Framework | Achieved |
+|---|---|---|
+| v0.9.225-a | LinearQuantReg (A7) | 80 → 81 |
+| v0.9.225-b | ML-kNN (A4) | 81 → 82 |
+| v0.9.225-c | PairwiseLogistic (G1) + `external_sort::max_buffer_bytes` | 82 → 83 |
+| v0.9.226 | ListNet (G1) + `_ltr_common.listnet_grad` sign fix | 83 → 84 |
+| v0.9.227 | DR_learner (H1) | 84 → 85 |
+| v0.9.229-a | OrderedProbitBayesian (A5) + `mcmc::sgmcmc` + `mcmc::gibbs` + `numeric::norm_cdf` | 85 → 86 |
 
-**CadwBoost module coverage (18 modules):**
-- Tested: binning, boosting, dataframe, efb, forecaster, histogram,
-  losses, missing, model, multiclass, ngboost, ooc, sampling,
-  serialize, shap, split_finder, tree.
-- __init__ (re-export) tested via `from cadw.ml.cadwboost import ...`.
+**Counts:** achieved 86, achievable 45 (MH/NUTS debt→achievable via SGHMC), debt 29.
 
-**Next (v0.9.225+):**
-- v0.9.225: TS streaming (P3/P4 primitives: _ses_fit_hw / stl_decompose
-  / _extract_series). Blocked on primitive implementation.
-- v0.9.226: Anomaly SpillArray batch (11-15 cards).
-- v0.9.227: BinSeg decision (external cumsum or intrinsic).
+**Framework additions:**
+- `cadw/ops/sort.py::external_sort(max_buffer_bytes=)` — bound Phase 1 independently of n (P25c).
+- `cadw/ops/mcmc.py::sgmcmc` — Chen 2014 + Springer 2016; P63 (Gaussian ratio 1.0), P64 (ordered probit coef_err=0.032).
+- `cadw/ops/mcmc.py::gibbs` — generic blocked Gibbs.
+- `cadw/ops/numeric.py::norm_cdf` — Φ(x).
 
-**Deferred:**
-- .pingis/impl cleanup (46 stale tracked files; low priority per
-  DEC-058).
-- CadwBoost leaf_wise state formula (currently symmetric worst-case;
-  leaf_wise actual smaller — measurement for card's `ram_formula`
-  refinement).
-- CadwBoost README pointer in cadw/ml/cadwboost/ (docs/ml_tools/
-  cadwboost_design.md is canonical).
+**Acknowledged tech-debt:**
+- CHANGELOG gap v0.9.143..v0.9.228 — not backfilled this session (see git log + ROADMAP for details).
+
+**Next (v0.9.229-b/c/d):**
+- SRVR-HMC (Zou 2019) — variance reduction.
+- NUTS (Hoffman 2014) — auto-tuning gold standard.
+- Full ordered_probit CW-1..6 + sghmc-vs-gibbs parity.
+
+**Backlog (unchanged):**
+- Lambdamart `_SortedStream.batch_size` fix.
+- ALS/CoxPH/KaplanMeier `max_buffer_bytes` rollout.
+- ItemKNN tier3_export contradiction.
+- O_eda::BorutaSelect dishonest YAML + G18 inner-gap.
+- J::LDA_embedding AP2.
+- O::EvidentlyDrift missing.
+- 3 pre-existing test fails.
+- `scripts/verify_tag.py` — automate AP31 §6.5.
+- CHANGELOG backfill v0.9.143..v0.9.228.
 
 ## Next 3 sessions (v0.9.219-221)
 

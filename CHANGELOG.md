@@ -1,5 +1,63 @@
 ## [Unreleased]
 
+## [0.9.229] — 2026-11-13 (6 models + MCMC framework)
+
+**Session summary:** 6 models achieved (80 → 86) + 4 framework primitives.
+**Tech-debt acknowledgment:** CHANGELOG gap v0.9.143..v0.9.228 (not
+backfilled this session; details in git log + ROADMAP).
+
+### v0.9.225-a — LinearQuantReg (achieved 81)
+- `cadw.ml.quantile_linear::fit_linear_quantile` — SGD on pinball loss.
+- State O(d); component-wise DEC-033; 15 tests.
+
+### v0.9.225-b — ML-kNN (achieved 82)
+- `cadw.ml.knn_multilabel::fit_knn_multilabel` — Zhang & Zhou 2007.
+- Reservoir(X||Y) + Bayesian conditional tables; state O(max_samples·(d+L)); 12 tests.
+
+### v0.9.225-c — PairwiseLogistic (achieved 83)
+- `cadw.ml.pairwise_logistic::fit_pairwise_logistic` — RankNet (Burges 2005).
+- Uses `_ltr_common.ranknet_grad` (v0.9.154, first real consumer).
+- Framework: `external_sort(max_buffer_bytes=)` — bound Phase 1 (P25c).
+- 15 tests; component-wise DEC-033.
+
+### v0.9.226 — ListNet (achieved 84)
+- `cadw.ml.listnet::fit_listnet` — Cao 2007 listwise top-1.
+- Fix: `_ltr_common.listnet_grad` docstring (returns POSITIVE CE gradient;
+  different from ranknet_grad; caught by concordance 0.041).
+- 15 tests; component-wise DEC-033.
+
+### v0.9.227 — DR_learner (achieved 85)
+- `cadw.ml.dr_learner::fit_dr_learner` — Robins 1994 AIPW.
+- 3x fit_logistic (propensity + mu0 + mu1) + Reduce mean(dr_score).
+- `df[df[t]==v]` RowFilter for treated/control split (OOC).
+- tier_level tier3_export → tier2_wrapper (legacy).
+- 12 tests; AP31 finding (amended).
+
+### v0.9.229-a — OrderedProbitBayesian (achieved 86) + MCMC framework
+- `cadw.ml.ordered_probit::fit_ordered_probit(method='gibbs'|'sghmc')`.
+- Framework: `cadw/ops/mcmc.py::sgmcmc` (Chen 2014 + Springer 2016
+  reference; P63 Gaussian N(1.998,0.0316) → mean=1.989,std=0.031, ratio 1.0),
+  `mcmc.py::gibbs`, `numeric.py::norm_cdf`.
+- sghmc (default): P64 ordered probit coef_err=0.032, cp_err=0.112,
+  acc=0.613 (Bayes 0.620 P65; 98.9% of optimal). Achieved OOC.
+- gibbs (opt-in): Albert-Chib 1993 exact (P46: coef_err=0.087);
+  bounded_by_domain n<=1e5.
+- 5 structural bugs in v0.9.228 experimental sgmcmc superseded
+  (leapfrog order, batch-mean grad, element-wise sqrt_noise tempering
+  trap, adaptive EMA V_hat/C, single momentum init).
+- YAML: OrderedProbit achieved; MH/NUTS (W_probabilistic) debt→achievable.
+
+**Counts:** achieved 86, achievable 45, debt 29.
+
+**Lessons:**
+- MCMC primitive without oracle = 8 fix-cycles; reference file = 5 min.
+- Sanity test mean AND std (mean-only misses tempering trap P63 #422).
+- AP31 pre-tag: `git status --short` empty + `git show HEAD --stat` all
+  files + clean-checkout import. First v0.9.229-a attempt missed 4 files.
+- Bayes-accuracy bound before test design (P64 acc > 0.70 IMPOSSIBLE).
+
+---
+
 ### v0.9.142 (2026-11-08) — depends_on 100% coverage + .pingis cleanup
 
 **Counts:** 37 verified fns / 53 verified cards (unchanged).
