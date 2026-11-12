@@ -21,6 +21,27 @@ from cadw.core.memory_guard import (
 from cadw.ml.hampel import fit_hampel
 
 
+
+
+def _make_df(x, col="v"):
+    """Wrap ndarray into CadwDataFrame with single column."""
+    import pyarrow as pa
+    from cadw import CadwDataFrame
+    return CadwDataFrame.from_table(
+        pa.table({col: pa.array(np.asarray(x, dtype=np.float64),
+                                 type=pa.float64())}))
+
+
+def _collect(x):
+    """ndarray or AutoArrayResult -> flat ndarray."""
+    if isinstance(x, np.ndarray):
+        return x
+    parts = []
+    for chunk in x:
+        parts.append(np.asarray(chunk).ravel())
+    return np.concatenate(parts) if parts else np.array([])
+
+
 def _make_series(n, seed=0, n_outliers=5):
     rng = np.random.RandomState(seed)
     x = rng.standard_normal(n)
@@ -99,7 +120,7 @@ def test_output_memory_and_auto():
 def test_output_disk_raises():
     """output="disk" -> NotImplementedError (SpillArray is v0.9.116+)."""
     x = _make_series(1000, seed=5)
-    with pytest.raises(NotImplementedError, match="SpillArray.*v0.9.116"):
+    with pytest.raises(NotImplementedError, match="requires df input"):
         fit_hampel(x, window_size=7, output="disk")
 
 
@@ -165,3 +186,83 @@ def test_guard_refuses_at_domain_bound():
                      guard=MemoryGuard(max_memory_mb=10))
     finally:
         del x
+
+
+# ============================================================
+# v0.9.217: streaming (df + output='auto'|'disk')
+# ============================================================
+
+@pytest.mark.parametrize("n,w", [
+    (10, 3), (10, 7), (100, 7), (100, 15), (1000, 7), (1000, 51)])
+def test_streaming_vs_memory_bitexact(n, w):
+    """Streaming df path bit-identical to memory df path."""
+    x = _make_series(n)
+    df = _make_df(x)
+    r_mem = fit_hampel(df, "v", window_size=w, output="memory",
+                        guard=MemoryGuard(max_memory_mb=500))
+    r_auto = fit_hampel(df, "v", window_size=w, output="auto",
+                         guard=MemoryGuard(max_memory_mb=500))
+    np.testing.assert_array_equal(r_mem.decision_scores,
+                                  _collect(r_auto.decision_scores))
+    np.testing.assert_array_equal(r_mem.labels,
+                                  _collect(r_auto.labels).astype(int))
+
+
+@pytest.mark.parametrize("batch_size", [3, 7, 10, 100, 1000])
+def test_streaming_batch_size_invariant(batch_size):
+    """Streaming independent of batch_size."""
+    x = _make_series(100)
+    df = _make_df(x)
+    r1 = fit_hampel(df, "v", window_size=7, output="auto", batch_size=1,
+                     guard=MemoryGuard(max_memory_mb=500))
+    rN = fit_hampel(df, "v", window_size=7, output="auto",
+                     batch_size=batch_size,
+                     guard=MemoryGuard(max_memory_mb=500))
+    np.testing.assert_array_equal(_collect(r1.decision_scores),
+                                  _collect(rN.decision_scores))
+
+
+def test_streaming_state_spilled_o1():
+    x = _make_series(5000)
+    df = _make_df(x)
+    r = fit_hampel(df, "v", output="auto",
+                    guard=MemoryGuard(max_memory_mb=500))
+    assert r.is_spilled is True
+    assert r.state_nbytes() == 256
+
+
+def test_streaming_contamination_refuses():
+    x = _make_series(500)
+    df = _make_df(x)
+    for out in ("auto", "disk"):
+        with pytest.raises(NotImplementedError, match="contamination"):
+            fit_hampel(df, "v", contamination=0.1, output=out,
+                        guard=MemoryGuard(max_memory_mb=500))
+
+
+def test_streaming_guard_refuses_tight():
+    x = _make_series(500)
+    df = _make_df(x)
+    with pytest.raises(MemoryLimitExceeded):
+        fit_hampel(df, "v", output="auto",
+                    guard=MemoryGuard(max_memory_mb=0.01))
+
+
+def test_streaming_disk_forced_spill():
+    x = _make_series(200)
+    df = _make_df(x)
+    r = fit_hampel(df, "v", output="disk",
+                    guard=MemoryGuard(max_memory_mb=500))
+    assert r.is_spilled is True
+    assert r.state_nbytes() == 256
+
+
+def test_streaming_result_iterable():
+    x = _make_series(200)
+    df = _make_df(x)
+    r = fit_hampel(df, "v", output="auto",
+                    guard=MemoryGuard(max_memory_mb=500))
+    a = _collect(r.decision_scores)
+    b = _collect(r.decision_scores)
+    np.testing.assert_array_equal(a, b)
+
