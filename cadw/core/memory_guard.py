@@ -1450,6 +1450,62 @@ class MemoryGuard:
 
 # ---- probe_limit_mb (canonical, v0.9.130 DEC-054) ----
 
+def measure_peak_pool(fn, *args, sample_ms: float = 5.0, **kwargs):
+    """Measure peak Arrow pool bytes AND peak VmRSS during fn(*args, **kwargs).
+
+    v0.9.230 (DEC-081): pool_peak is live Arrow alloc (authoritative for
+    framework RAM claims). rss_peak is VmRSS delta (includes OS page cache
+    for spill files, glibc arena fragmentation, mmap'd IPC sinks — typically
+    4-32x above pool for external_sort workloads).
+
+    Returns:
+      {"result": fn result, "pool_peak": int, "pool_after": int,
+       "rss_peak": int}
+
+    Usage:
+      r = measure_peak_pool(fit_kaplan_meier, df, time_col="t", ...)
+      assert r["pool_peak"] < budget  # honest framework claim
+      # r["rss_peak"] documents actual machine RAM (overreporting, disclosed)
+    """
+    import gc, threading, time
+    import pyarrow as pa
+
+    pool = pa.default_memory_pool()
+    base_pool = pool.bytes_allocated()
+    base_rss = _read_vmrss_fast()
+    peak_pool = [0]
+    peak_rss = [0]
+    stop = [False]
+
+    def _sampler():
+        while not stop[0]:
+            try:
+                cur = pool.bytes_allocated()
+                if cur > peak_pool[0]:
+                    peak_pool[0] = cur
+                rss = _read_vmrss_fast()
+                if rss > peak_rss[0]:
+                    peak_rss[0] = rss
+            except Exception:
+                pass
+            time.sleep(sample_ms / 1000.0)
+
+    gc.collect()
+    t = threading.Thread(target=_sampler, daemon=True)
+    t.start()
+    try:
+        result = fn(*args, **kwargs)
+    finally:
+        stop[0] = True
+        t.join(timeout=1)
+    return {
+        "result": result,
+        "pool_peak": peak_pool[0] - base_pool,
+        "pool_after": pool.bytes_allocated() - base_pool,
+        "rss_peak": peak_rss[0] - base_rss,
+    }
+
+
 def probe_limit_mb(guard) -> float | None:
     """Probe memory limit in MB from a duck-typed guard.
 

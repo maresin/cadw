@@ -252,8 +252,10 @@ def fit_kaplan_meier(
     memory_guard=None,
     batch_size: int | None = None,
     spill_dir: Path | None = None,
-    max_buf_rows: int = 1024,             # NEW v0.9.229-f (P25c)
-    sort_buffer_bytes: int = 16_384,      # NEW v0.9.229-f (P25c, 16 KB)
+    max_buf_rows: int = 1024,             # v0.9.229-f (P25c)
+    sort_buffer_bytes: int = 16_384,      # v0.9.229-f (P25c, 16 KB)
+    merge_fan_in: int = 8,                # NEW v0.9.230 (DEC-081): Phase 2 bound
+    read_batch_size: int = 1024,          # NEW v0.9.230 (DEC-081): Phase 2 buf/run
 ) -> KaplanMeierModel:
     """Fit Kaplan-Meier on right-censored survival data.
 
@@ -272,6 +274,13 @@ def fit_kaplan_meier(
     Peak = 4*sort_buffer_bytes + max_buf_rows*5*f64 +
     4*batch*row_size + 512 ~= 168KB constant (independent of n).
     Prior: Phase 1 O(0.2*budget), buf prealloc O(state_limit), batch=n.
+
+    v0.9.230 (DEC-081): merge_fan_in=8, read_batch_size=1024 in
+    external_sort bounds Phase 2 at 3*8*1024*(row_size+16) ~= 983KB
+    (default compute_fan_in would give K=256 at 500MB budget -> 30MB
+    floor, dishonest for constant claim). Peak formula:
+    3*8*1024*(row_size+16) + max_buf_rows*5*f64 + 4*batch*row_size + 512
+    ~= 1.12MB constant in n (probe F: pool_peak 0.85/0.98MB at n=100k/1M).
     """
     mg = memory_guard or MemoryGuard(max_memory_mb=512)
 
@@ -304,7 +313,9 @@ def fit_kaplan_meier(
             value_columns=[time_col, event_col],
             memory_guard=mg,
             spill_dir=sdir.root,
-            max_buffer_bytes=sort_buffer_bytes,   # NEW v0.9.229-f (P25c)
+            max_buffer_bytes=sort_buffer_bytes,   # v0.9.229-f (P25c)
+            merge_fan_in=merge_fan_in,            # NEW v0.9.230 (DEC-081)
+            read_batch_size=read_batch_size,      # NEW v0.9.230 (DEC-081)
             log=False,
         )
         acc = _KMAccumulator(n_total=n_total, mg=mg, sdir=sdir,

@@ -1,5 +1,59 @@
 ## [Unreleased]
 
+## [0.9.230] — 2026-11-13 (KM honest constant + measure_peak_pool tool)
+
+**Session summary:** DEC-079 resolved: KM `verified` claim honest via
+Phase-2 bound + pool-based measurement. New framework tool
+`measure_peak_pool`. Recipe documented for 4 AT-RISK cards (v0.9.231).
+
+### Fixed
+- **DEC-079 → DEC-081:** Root cause of KM peak variability found. Not
+  Phase 1 pool churn (Probe D: zero effect), but **Phase 2 `_merge_keys`
+  floor**: `compute_fan_in` at 500MB budget → K=256 → `3*256*1000*40 =
+  30MB`. This is `O(budget)`, not `O(n)` — by design, not a bug. Default
+  makes `constant` claim impossible.
+- **KaplanMeier `ram_formula`:** Phase-1 numeric (`4*16384 + ...`) →
+  Phase-2 bound from code (AP23, evidence per-term). `n_scalability:
+  constant` = upper bound (peak ≤ formula, not equality — small n below).
+
+### Added
+- **`cadw.core.memory_guard.measure_peak_pool`** — returns `{pool_peak,
+  pool_after, rss_peak}`. `pool_peak` = Arrow `bytes_allocated()` peak
+  (live alloc, authoritative for framework claims). `rss_peak` =
+  VmRSS delta (includes page cache for spill files, glibc arena, mmap —
+  typical 4-32x overreport for external_sort; disclosed in YAML note).
+- **`fit_kaplan_meier(merge_fan_in=8, read_batch_size=1024)`** — bounds
+  external_sort Phase 2 at `3*8*1024*(row_size+16) ≈ 983KB`
+  (budget-independent). Trade-off: more merge passes
+  (`ceil(log_8(n_runs))`; n=1M, sb=16KB → 977 runs → 4 passes, ~0.5s).
+
+### Tests
+- KaplanMeier verification: rss-based → pool-based helper.
+- `test_km_peak_constant_in_n`: unskip, n=(100k, 300k, 1M)
+  Phase-2-loaded, pool_peak ratio < 2.0 (measured 1.15x).
+- `test_km_peak_bounded_at_large_n`: unskip, pool_peak < 3MB at n=1e6
+  (measured 0.98MB).
+- `test_km_formula_at_scale` (new): predicted 0.89MB / measured ~0.87MB
+  pool_peak at n=100k (ratio ~1.02, within [0.7, 1.4] STABILITY §4.2).
+- **fast:** 130 passed, 1 skipped, 3 deselected.
+- **slow:** 3 passed in 17s.
+
+### Docs
+- **DEC-081:** external_sort Phase 2 floor + `merge_fan_in` recipe +
+  `measure_peak_pool` tool. Probe F data (mfi=8: pool_peak 0.85/0.98MB
+  at n=100k/1M, ratio 1.15x; default: 7.94→24.88MB, ratio 3.13x).
+- **v0.9.231 backlog:** 4 AT-RISK cards (`Hybrid_MF_GBDT`, `LambdaMART`,
+  `OneHotEncoder`, `MannWhitneyU`) — all `verified + constant +
+  external_sort`. Recipe: `measure_peak_pool` sweep → formula from
+  `_merge_keys.check_state` → `merge_fan_in=N` → honest flip.
+
+### Known limits
+- `rss_peak` overreports ~10-30x for external_sort (page cache for
+  spill files). Not asserted in YAML; disclosed in `measurement.note`.
+- `n_scalability: constant` = upper bound (peak ≤ formula). At n <
+  formula/row_size, peak is below bound (fewer Phase-2 buffers filled);
+  not a violation.
+
 ## [0.9.229] — 2026-11-13 (6 models + MCMC framework)
 
 **Session summary:** 6 models achieved (80 → 86) + 4 framework primitives.

@@ -3485,3 +3485,77 @@ None — `I_survival.yaml` remains `draft` (DEC-079: peak formula not
 derivable honestly). Spill fix does NOT unblock formula; it fixes an
 OOC-path crash that prevented honest measurement at all. After this fix,
 v0.9.230 can re-derive spill-path peak formula with working code.
+
+---
+
+## DEC-081 (2026-11-13, v0.9.230) — external_sort Phase 2 floor: merge_fan_in bounds peak; pool-based measurement
+
+**Q:** KM constant claim fails in Probe C (rss 14-63MB across n=1k-1M).
+DEC-079 diagnosed "external_sort Phase 1 pool churn, unmodeled". Root cause?
+
+**A:** No. Phase isolation (Probe E2, n=1M, sb=16KB):
+
+| Phase | Peak | Source |
+|---|---|---|
+| Phase 1 (977 x `_write_run`) | 7.86 MB | bounded, not dominant |
+| Phase 2 (first `_merge_keys`) | +22 MB -> 30 MB | **dominant** |
+| Overall peak (rss) | 62.98 MB | Phase 2 + IPC sink + mmap |
+
+**Root cause:** `compute_fan_in(500MB budget, rbs=1000, row=40)` -> K=256
+(capped at max_k=256). Phase 2 `check_state(3 * K * rbs * (row+16))` =
+`3 * 256 * 1000 * 40 = 30.7 MB`. No bug — `_merge_keys` correctly
+checks before alloc. But peak = O(budget) by design (K grows with
+state_limit), so `constant in n` is **impossible** with default
+`compute_fan_in`.
+
+**Fix (v0.9.230):** `fit_kaplan_meier(external_sort(..., merge_fan_in=8,
+read_batch_size=1024))`. Phase 2 peak = `3 * 8 * 1024 * (row_size+16)`
+~= 983KB at row=24. Trade-off: more merge passes (ceil(log_8(n_runs));
+n=1M, sb=16KB -> 977 runs -> 4 passes, ~240MB extra disk I/O, ~0.5s —
+acceptable for KM).
+
+**Probe F (fresh subprocess, pool-based):**
+| config | n=100k | n=1M | ratio |
+|---|---|---|---|
+| mfi=8 | 0.85 MB | 0.98 MB | 1.15x ✓ |
+| mfi=16 | 1.08 MB | 1.94 MB | 1.80x |
+| default (256) | 7.94 MB | 24.88 MB | 3.13x (O(budget)) |
+
+Formula from code, verified:
+```
+peak = 3 * merge_fan_in * read_batch_size * (row_size + 16)   # Phase 2
+     + max_buf_rows * 5 * f64                                  # KM buf
+     + 4.0 * batch * row_size                                  # transients
+     + 512                                                      # header
+```
+Predicted 1.12MB, measured 0.85-0.98MB (ratio 1.14-1.32 in [0.7, 1.4]
+STABILITY §4.2). RSS still 14MB (page cache for 977 spill files, not
+live alloc).
+
+**Measurement tool (v0.9.230):** `memory_guard.measure_peak_pool(fn, ...)`
+returns `{result, pool_peak, pool_after, rss_peak}`:
+- `pool_peak` = Arrow `bytes_allocated()` peak (live alloc, authoritative)
+- `rss_peak` = VmRSS delta (includes page cache, glibc arena, mmap;
+  typical 4-32x pool for external_sort workloads; documented gap)
+- Verified claims use pool_peak; YAML `measurement.note` discloses rss.
+
+**v0.9.231 backlog (AT-RISK from Probe A):**
+4 cards `verified + constant + uses external_sort`:
+- Hybrid_MF_GBDT (F_recsys, `reduce, external_sort`)
+- LambdaMART (G_ltr, `external_sort, reduce, memmap, spill_dir`)
+- OneHotEncoder (O_eda, `sort`)
+- MannWhitneyU (O_eda, `external_sort`)
+
+Recipe for each: (1) `measure_peak_pool` sweep n=10k/100k/1M;
+(2) formula from `_merge_keys.check_state`; (3) if pool_peak constant
+-> honest `constant` with `merge_fan_in=N` (bound); (4) else honest
+`linear` + `bounded_by_domain`.
+
+**Probe D ruled out** `release_period` on Phase 1 (zero effect at
+n=1M, sb=16KB) — not added to `external_sort`.
+
+**Files (v0.9.230):** `cadw/core/memory_guard.py` (+measure_peak_pool),
+`cadw/ml/kaplan_meier.py` (+merge_fan_in=8, +read_batch_size=1024),
+`tests/test_survival_verification.py` (pool-based helper, unskip 2,
++formula test), `docs/ml_tools/I_survival.yaml` (verified, constant,
+formula), this DEC.

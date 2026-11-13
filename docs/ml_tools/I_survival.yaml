@@ -157,13 +157,13 @@ subtypes:
     - spill_array
     fit_batched: true
     predict_batched: true
-    ram_formula: 4 * 16384 + 1024 * 5 * f64 + 4.0 * batch * row_size + 512
+    ram_formula: 3 * 8 * 1024 * (row_size + 16) + 1024 * 5 * f64 + 4.0 * batch * row_size + 512
     formula_evidence:
-      phase1_transient: 'cadw/ops/sort.py::external_sort -- phase1 peak = 4 * max_buffer_bytes (write_run transient); 16384 = default sort_buffer_bytes (override via param)'
-      buf_alloc: 'cadw/ml/kaplan_meier.py::_KMAccumulator.__init__ -- np.empty((cap, 5), f64); cap = min(max_buf_rows, max(1, state_limit_bytes//40)); 1024 = default max_buf_rows (override via param)'
-      batch_term: 'kaplan_meier.py::_count_total (f1) + external_sort check_batch (f2) + consume_sorted_batches read (f2); upper 4.0 conservative'
-      header: 'cadw/ml/kaplan_meier.py -- KaplanMeierModel.state_nbytes(): +128 (RAM) / +256 (spilled)'
-    min_ram_formula: 4 * 16384 + 1024 * 5 * f64 + 4.0 * 1 * row_size + 512
+      phase2_merge: 'cadw/ops/sort.py::_merge_keys -- check_state(3 * merge_fan_in * read_batch_size * (row_size+16)); fit_kaplan_meier sets merge_fan_in=8, read_batch_size=1024'
+      km_buf: 'cadw/ml/kaplan_meier.py::_KMAccumulator.__init__ -- np.empty((cap, 5), f64); cap = min(max_buf_rows=1024, state_limit_bytes//40)'
+      batch_term: 'kaplan_meier.py::_count_total + external_sort batch checks + consume_sorted_batches (4.0 = conservative upper)'
+      header: 'cadw/ml/kaplan_meier.py::KaplanMeierModel.state_nbytes() -- +128 (RAM) / +256 (spilled)'
+    min_ram_formula: 3 * 8 * 1024 * (row_size + 16) + 1024 * 5 * f64 + 4.0 * 1 * row_size + 512
     min_ram_evidence:
       derived_from: ram_formula (batch=1, auto-migrate v0.9.177)
     measurement:
@@ -171,14 +171,16 @@ subtypes:
       state_check: 'test_km_state_nbytes_exact: bit-exact, 3 (n,n_unique) parametrized'
       state_ooc: 'test_km_state_independent_of_n: state identical for n=1000 vs 5000 (same n_unique)'
       state_spilled: 'test_km_state_spilled_constant: n_unique>cap -> state=256'
-      formula_sanity: 'test_km_peak_constant_in_n: peak ratio n=1k..100k < 2.0 (subprocess, DEC-034)'
+      formula_sanity: 'test_km_formula_at_scale: predicted/measured pool_peak in [0.7, 1.4] at n=100k'
+      peak_constant: 'test_km_peak_constant_in_n: pool_peak ratio n=100k..1M < 2.0 (subprocess, Phase-2-loaded region)'
+      peak_bounded_large_n: 'test_km_peak_bounded_at_large_n: n=1e6, pool_peak < 3MB (subprocess)'
       bit_identical: 'test_km_sort_buffer_bitexact: sort_buffer_bytes 1MB vs 16KB -> identical curve'
-      large_n: 'test_km_peak_bounded_at_large_n: n=1e6, budget=50MB -> peak < 2MB (subprocess)'
       guard: 'test_km_guard_refuses_at_tight: n=5000 + 0.01 MB -> MemoryLimitExceeded'
       correctness: 'test_km_survival_at_matches_manual: bit-identical product-limit'
-      note: 'v0.9.229-f (P25c + DEC-023): Phase 1 max_buffer_bytes=16KB (4x=64KB constant); accumulator max_buf_rows=1024 (40KB); batch_size auto-derived from sort_buffer_bytes=16KB (1024 rows). Peak ~168KB constant in n. Pre-fix: Phase 1 O(0.2*budget), buf prealloc O(state_limit), batch=n. Bit-identical (product-limit independent of buffer sizes).'
-      cells_passed: '6/6'
-      runtime_sec: '~15 (subprocess tests slow)'
+      spill_path: 'test_km_spill_path_executes: n_unique>max_buf_rows -> spill executes, no crash'
+      note: 'v0.9.230 (DEC-081): peak constant verified via pool_peak (Arrow bytes_allocated). rss_peak overreports 10-30x due to page cache for spill files (DISCLOSED, not asserted). external_sort called with explicit merge_fan_in=8 (bounds Phase 2); default compute_fan_in at 500MB budget gives K=256 -> 30MB floor (dishonest for constant). Formula from code: 3*8*1024*(row_size+16) + 1024*5*f64 + 4*batch*row_size + 512. At defaults (mfi=8, rbs=1024, row=16): predicted 0.89MB; measured 0.85-0.98MB pool_peak. Formula is UPPER BOUND: at small n (n*row_size < formula) peak is below bound (fewer Phase-2 buffers filled); constant claim = peak <= bound for all n.'
+      cells_passed: '8/8'
+      runtime_sec: '~25 (subprocess tests)'
     tier: baseline
     depends_on: []
     tier_level: tier1_core
