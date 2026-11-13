@@ -3409,3 +3409,79 @@ outcome); v0.9.229-c2 (ordered_probit quad-method as reference implementation).
 ---
 
 <!-- end DEC-078 -->
+
+---
+
+## DEC-080 (2026-11-13, v0.9.229-f2) — _KMAccumulator spill path broken since v0.9.116
+
+**Q:** Why did `fit_kaplan_meier` crash when DOE forced spill
+(`n_unique > max_buf_rows=1024`)?
+
+**A:** Two latent bugs in `_KMAccumulator` spill path, never surfaced
+because the spill code never executed in tests:
+
+### Bug 1: `_open_spill` discarded `__enter__()` return value
+
+```python
+self.spill_writer = spill_array_writer(path, schema)  # returns @contextmanager
+self.spill_writer.__enter__()                         # returns ArrowIPCBatchWriter; discarded
+...
+self.spill_writer.write_batch(...)                    # AttributeError: CM has no write_batch
+```
+
+`spill_array_writer` is `@contextmanager`. Its `__enter__()` returns the
+yielded writer (`ArrowIPCBatchWriter`); the context manager object itself
+has no `.write_batch`. Correct: `self.spill_writer = cm.__enter__()`
+with `cm` stored for `__exit__` in `close()`.
+
+Precedent (correct): `cadw/ml/kernel_density.py:201` uses
+`with spill_array_writer(...) as w:` — `with` captures the yielded value.
+KM needs persistent writer for incremental spill, so manual
+`__enter__`/`__exit__` is correct — as long as the returned writer is
+captured.
+
+### Bug 2 (latent): `finalize()` checked reset field
+
+`close()` reset `spill_writer=None`. `finalize()` checked
+`if self.spill_writer is not None:` (now False) → fell through to
+`self.buf[:self.n_buf]` where `self.buf=None` (set in `_open_spill`) →
+`TypeError: 'NoneType' object is not subscriptable`. Would surface
+immediately after Bug 1 fix.
+
+Fix: `_spilled` flag (set in `_open_spill`, never reset). `finalize()`
+checks `_spilled` instead of `spill_writer`.
+
+### Why latent since v0.9.116
+
+Old `cap = max(1024, state_limit_bytes // 40)`. At 500MB budget:
+`state_limit=262MB`, `cap=6.5M`. `test_km_state_spilled_constant`
+parametrized with `n_unique_target ∈ {50, 200, 500}` — never reaches
+6.5M, spill path never executed. **Silent test gap** for ~10 releases.
+
+v0.9.229-f `max_buf_rows=1024` activates spill for realistic
+`n_unique > 1024` — surfaced both bugs.
+
+### Fix (v0.9.229-f2)
+
+- `__init__`: `_spill_cm=None`, `_spilled=False`
+- `_open_spill`: `self._spill_cm = cm; self.spill_writer = cm.__enter__();
+  self._spilled = True`
+- `close`: `if self._spill_cm is not None: self._spill_cm.__exit__(...)`
+- `finalize`: `if self._spilled:` (instead of `spill_writer is not None`)
+
+### Coverage added
+
+`test_km_spill_path_executes`: `n_tl=2000, n=10000` → `n_unique ~2000`
+> 1024, forces spill, asserts fit returns without crash + `n_unique >
+  1024 + n_total == n`.
+
+`test_km_state_spilled_constant` still a no-op (parametrized `n_unique ∈
+{50, 200, 500} < 1024 cap → no spill). Deferred cleanup: retarget to
+`n_unique > 1024` OR pass `max_buf_rows=50`. Backlog v0.9.230.
+
+### YAML impact
+
+None — `I_survival.yaml` remains `draft` (DEC-079: peak formula not
+derivable honestly). Spill fix does NOT unblock formula; it fixes an
+OOC-path crash that prevented honest measurement at all. After this fix,
+v0.9.230 can re-derive spill-path peak formula with working code.

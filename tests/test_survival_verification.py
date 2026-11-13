@@ -107,6 +107,53 @@ def _warmup():
 _warmup()
 
 
+# v0.9.229-f: RSS-isolated subprocess peak measure (DEC-034 §v0.9.112).
+# In-process measure_peak_traced has SNR < 0.2 in full-suite (prior tests
+# raise baseline RSS ~1MB while KM fit peak is ~168KB). subprocess.run
+# with fresh interpreter gives clean baseline -> valid ratio.
+def _measure_km_peak_subprocess(n, *, seed=0, n_tl=100, guard_mb=500) -> int:
+    import subprocess as _sp
+    import sys as _sys
+    import os as _os
+    import json as _json
+    code = f"""
+import sys, json
+import numpy as np, pyarrow as pa
+from cadw import CadwDataFrame
+from cadw.core.memory_guard import MemoryGuard, measure_peak_traced
+from cadw.ml.kaplan_meier import fit_kaplan_meier
+
+rng = np.random.RandomState({seed})
+n = {n}
+t = rng.exponential(size=n)
+e = (rng.random(n) < 0.7).astype(np.int64)
+t = np.floor(t * {n_tl}).astype(np.float64) + 0.001
+df = CadwDataFrame.from_table(pa.table({{
+    "t": pa.array(t, type=pa.float64()),
+    "e": pa.array(e, type=pa.int64()),
+}}), memory_guard=MemoryGuard(max_memory_mb=500))
+
+mg = MemoryGuard(max_memory_mb={guard_mb})
+r = measure_peak_traced(
+    fit_kaplan_meier, df, time_col="t", event_col="e",
+    memory_guard=mg, mg=mg)
+print("PEAK_JSON:" + json.dumps({{"peak": int(r["peak_bytes"])}}))
+"""
+    from pathlib import Path as _P
+    env = {**_os.environ, "PYTHONPATH": str(_P(__file__).parent.parent)}
+    proc = _sp.run([_sys.executable, "-c", code], env=env,
+                   capture_output=True, text=True, timeout=180)
+    if proc.returncode != 0:
+        raise RuntimeError(f"subprocess failed: {proc.stderr[:800]}")
+    marker = "PEAK_JSON:"
+    line = next((l for l in proc.stdout.split("\n") if l.startswith(marker)),
+                None)
+    if not line:
+        raise RuntimeError(
+            f"no PEAK_JSON in stdout: {proc.stdout[:200]!r}")
+    return int(_json.loads(line[len(marker):])["peak"])
+
+
 # ============================================================================
 # KaplanMeier
 # ============================================================================
@@ -159,37 +206,70 @@ def test_km_state_spilled_constant(tmp_path):
     m.cleanup()
 
 
-@pytest.mark.skip(
-    reason="DEC-033/DEC-034: KM row_size=16 B, external_sort buffer bounded "
-           "by guard (500 MB >> all of n). Fit peak ~2-3 KB < RSS noise "
-           "floor ~40 KB in full-suite (signal < noise). Primary OOC "
-           "evidence is test_km_state_independent_of_n (state exact + "
-           "identical for n=1000 vs 5000), not this peak sanity check."
-)
-def test_km_ooc_at_fixed_batch():
-    """Skipped per DEC-033/DEC-034. See reason above.
+@pytest.mark.slow
+def test_km_peak_constant_in_n():
+    """v0.9.229-f (P25c + DEC-023): peak constant in n (subprocess, DEC-034).
 
-    Kept for documentation and easy un-skip if instrument improves
-    (fork-based, v0.9.111+ tooling).
+    After fix: batch_size derived from sort_buffer_bytes=16KB (1024 rows),
+    max_buffer_bytes=16KB (Phase 1 = 64KB), max_buf_rows=1024 (buf=40KB).
+    Peak ~168KB, independent of n. Single measure per n in fresh child
+    (RSS=0 baseline, no cross-test pollution).
     """
-    batch = 200
     peaks = []
-    for n in [1000, 5000]:
-        df = _make_km_df(n, seed=0, n_time_levels=100)
-        cell = []
-        for _ in range(5):
-            _malloc_trim(); gc.collect()
-            mg = MemoryGuard(max_memory_mb=500)
-            r = measure_peak_traced(
-                fit_kaplan_meier, df, time_col="t", event_col="e",
-                memory_guard=mg, batch_size=batch, mg=mg)
-            cell.append(int(r["peak_bytes"]))
-            del r; gc.collect()
-        peaks.append(int(statistics.median(cell)))
-        del df; gc.collect()
-    ratio = peaks[-1] / max(peaks[0], 1)
-    assert ratio < 3.0, f"KM peak ratio {ratio:.2f}, peaks={peaks}"
+    for n in (1000, 10_000, 100_000):
+        peaks.append(_measure_km_peak_subprocess(n))
+    ratio = max(peaks) / max(min(peaks), 1)
+    assert ratio < 2.0, f"peak ratio={ratio:.2f}; peaks={peaks}"
 
+
+def test_km_spill_path_executes():
+    """v0.9.229-f2: spill path executes without crash (regression guard).
+
+    Bug fixed: _open_spill discarded `__enter__()` return value, so
+    `self.spill_writer` was the context manager (no `.write_batch`) ->
+    AttributeError on first spill. Also `finalize()` checked
+    `spill_writer is not None`, but `close()` reset it to None ->
+    `self.buf[:n_buf]` on `buf=None` crash. Both latent since v0.9.116
+    because old cap=6.5M never triggered spill for test data.
+
+    Force spill: max_buf_rows=1024, n_unique ~2000 (n_tl=2000, n=10000).
+    """
+    n, n_tl = 10_000, 2000
+    rng = np.random.RandomState(0)
+    t = np.floor(rng.exponential(size=n) * n_tl).astype(np.float64) + 0.001
+    e = (rng.random(n) < 0.7).astype(np.int64)
+    df = CadwDataFrame.from_table(pa.table({
+        "t": pa.array(t, type=pa.float64()),
+        "e": pa.array(e, type=pa.int64()),
+    }), memory_guard=MemoryGuard(max_memory_mb=500))
+    m = fit_kaplan_meier(df, time_col="t", event_col="e",
+                         memory_guard=MemoryGuard(max_memory_mb=500))
+    assert m.n_unique > 1024, (
+        f"n_unique={m.n_unique} <= 1024, spill was not triggered "
+        f"(test precondition failed)")
+    assert m.n_total == n
+    # Spill path completed: no crash above means finalize() reached
+    # the spilled branch (self._spilled=True) without touching buf=None.
+
+
+def test_km_sort_buffer_bitexact():
+    """v0.9.229-f: sort_buffer_bytes invariant (product-limit formula)."""
+    df = _make_km_df(1000, seed=0, n_time_levels=100)
+    a = fit_kaplan_meier(df, time_col="t", event_col="e",
+                         sort_buffer_bytes=1_048_576)
+    b = fit_kaplan_meier(df, time_col="t", event_col="e",
+                         sort_buffer_bytes=16_384)
+    np.testing.assert_array_equal(a.times, b.times)
+    np.testing.assert_array_equal(a.survival, b.survival)
+    np.testing.assert_array_equal(a.greenwood, b.greenwood)
+
+
+@pytest.mark.slow
+def test_km_peak_bounded_at_large_n():
+    """v0.9.229-f (P25c + DEC-023): peak < 2MB at n=1e6, 50MB budget."""
+    peak = _measure_km_peak_subprocess(1_000_000, guard_mb=50)
+    assert peak < 2_000_000, (
+        f"peak={peak/1e6:.2f}MB > 2MB (constant claim violated)")
 
 def test_km_guard_refuses_at_tight():
     """external_sort + n=5000 + 0.01 MB → MemoryLimitExceeded."""

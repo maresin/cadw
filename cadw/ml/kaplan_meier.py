@@ -36,11 +36,16 @@ _SPILLED_HEADER_BYTES = 256
 class _KMAccumulator:
     """Streaming Kaplan-Meier step accumulator (see impl docstring)."""
 
-    def __init__(self, n_total: int, mg: MemoryGuard, sdir: SpillDir):
+    def __init__(self, n_total: int, mg: MemoryGuard, sdir: SpillDir,
+                 max_buf_rows: int = 1024):
         self.n_total = int(n_total)
         self.mg = mg
         self.sdir = sdir
-        self.cap = max(1024, int(mg.state_limit_bytes // 40))
+        # v0.9.229-f (P25c): cap buf at min(max_buf_rows, state_limit//40).
+        # Was max(1024, state_limit//40) -> buf preallocated to state_limit
+        # (~100-250MB at 500MB budget) regardless of n. Now 40KB default;
+        # spills after max_buf_rows uniques. Peak becomes constant in n.
+        self.cap = min(max_buf_rows, max(1, int(mg.state_limit_bytes // 40)))
         # G2 guard: cap*40 <= state_limit_bytes by construction, but AST
         # gate requires explicit check_state before np.empty.
         mg.check_state(self.cap * 5 * 8, name="km.buf")
@@ -48,6 +53,8 @@ class _KMAccumulator:
         self.n_buf = 0
         self.spill_path: Optional[Path] = None
         self.spill_writer = None
+        self._spill_cm = None       # v0.9.229-f2: context manager handle
+        self._spilled = False       # v0.9.229-f2: spill happened (finalize signal)
         self.n_spilled = 0
         self.S = 1.0
         self.greenwood = 0.0
@@ -80,12 +87,18 @@ class _KMAccumulator:
         self._write_one(row)
 
     def _open_spill(self):
-        if self.spill_writer is not None:
+        if self._spilled:
             return
         self.spill_path = self.sdir.path("km_steps.arrow")
-        self.spill_writer = spill_array_writer(
+        self._spill_cm = spill_array_writer(
             self.spill_path, array_schema(5, np.float64))
-        self.spill_writer.__enter__()
+        # v0.9.229-f2: capture yielded writer. Before: __enter__() return
+        # value was discarded -> 'self.spill_writer' was the
+        # _GeneratorContextManager, which lacks write_batch() ->
+        # AttributeError on first spill. Latent since v0.9.116 because
+        # cap=max(1024, state_limit//40)=6.5M at 500MB budget: n_unique
+        # <= 6.5M never spilled, so path never executed in tests.
+        self.spill_writer = self._spill_cm.__enter__()
         chunk = 4096
         for i in range(0, self.n_buf, chunk):
             self.spill_writer.write_batch(
@@ -93,6 +106,7 @@ class _KMAccumulator:
         self.n_spilled = self.n_buf
         self.n_buf = 0
         self.buf = None
+        self._spilled = True
 
     def _write_one(self, row):
         arr = np.asarray(row, dtype=np.float64).reshape(1, 5)
@@ -132,12 +146,13 @@ class _KMAccumulator:
             self.cur_t = None
 
     def close(self):
-        if self.spill_writer is not None:
-            self.spill_writer.__exit__(None, None, None)
+        if self._spill_cm is not None:
+            self._spill_cm.__exit__(None, None, None)
+            self._spill_cm = None
             self.spill_writer = None
 
     def finalize(self):
-        if self.spill_writer is not None:
+        if self._spilled:
             return {
                 "times": None, "survival": None, "greenwood": None,
                 "n_at_risk": None, "n_events": None,
@@ -237,6 +252,8 @@ def fit_kaplan_meier(
     memory_guard=None,
     batch_size: int | None = None,
     spill_dir: Path | None = None,
+    max_buf_rows: int = 1024,             # NEW v0.9.229-f (P25c)
+    sort_buffer_bytes: int = 16_384,      # NEW v0.9.229-f (P25c, 16 KB)
 ) -> KaplanMeierModel:
     """Fit Kaplan-Meier on right-censored survival data.
 
@@ -245,10 +262,29 @@ def fit_kaplan_meier(
     are passed through external_sort but not used.
 
     OOC: external_sort + streaming accumulator. Buffer spills to disk
-    when n_unique > state_limit // 40. State (non-spilled):
+    when n_unique > max_buf_rows (default 1024). State (non-spilled):
     n_unique * 5 * f64 + 128; (spilled): 256 B.
+
+    v0.9.229-f (P25c + DEC-023): external_sort(max_buffer_bytes=
+    sort_buffer_bytes) bounds Phase 1 at 4*sort_buffer_bytes (default
+    64KB). Accumulator buf capped at max_buf_rows (40KB). batch_size
+    auto-derived from sort_buffer_bytes (not whole-n single batch).
+    Peak = 4*sort_buffer_bytes + max_buf_rows*5*f64 +
+    4*batch*row_size + 512 ~= 168KB constant (independent of n).
+    Prior: Phase 1 O(0.2*budget), buf prealloc O(state_limit), batch=n.
     """
     mg = memory_guard or MemoryGuard(max_memory_mb=512)
+
+    # v0.9.229-f (DEC-023 + P25c): batch must fit one Phase-1 sort run.
+    # At batch_size=None single batch = whole n -> O(n) peak from
+    # _count_total + external_sort factory (v0.9.138/139/114 precedent).
+    if batch_size is None:
+        try:
+            _row_size = mg.estimate_row_size_from_schema(df._dataset.schema)
+        except Exception:
+            _row_size = 16
+        _rows_per_run = max(1, sort_buffer_bytes // max(1, _row_size))
+        batch_size = min(_rows_per_run, 10_000)
 
     factory = lambda: df._iter_filtered_batches(batch_size=batch_size)
     n_total = _count_total(df, time_col, mg, batch_size)
@@ -268,9 +304,11 @@ def fit_kaplan_meier(
             value_columns=[time_col, event_col],
             memory_guard=mg,
             spill_dir=sdir.root,
+            max_buffer_bytes=sort_buffer_bytes,   # NEW v0.9.229-f (P25c)
             log=False,
         )
-        acc = _KMAccumulator(n_total=n_total, mg=mg, sdir=sdir)
+        acc = _KMAccumulator(n_total=n_total, mg=mg, sdir=sdir,
+                             max_buf_rows=max_buf_rows)  # NEW v0.9.229-f
         try:
             acc.consume_sorted_batches(
                 read_sorted(sorted_path, columns=[time_col, event_col]),
