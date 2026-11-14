@@ -20,7 +20,7 @@ import json
 from pathlib import Path  # v0.9.9 (B3): for `-> Path` annotation
 from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
 
-from cadw.core.memory_guard import MemoryGuard
+from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
 from cadw.core.models import DataChars, data_chars_from_sample
 from cadw.core.planner import PipelineMemoryError, PipelinePlan, StepPlan
 from cadw.core.sampling import peek_first_batch
@@ -514,35 +514,96 @@ class Pipeline:
 
     # ---------------- plan ----------------
 
-    def plan(self, df: "CadwDataFrame") -> PipelinePlan:
-        """Pre-fit feasibility: sum(state_bytes) <= state_limit?
+    def _step_peak_estimate(self, step, dc) -> int:
+        """v0.9.233 (P2a): per-step peak via YamlFormulaModel.
 
-        Raises PipelineMemoryError if `does_not_fit`. Called automatically
-        by `fit`. Users can call explicitly for early check.
+        Resolution order:
+          1. step.cadw_function + registered in YAML registry:
+             - batch-linear formula: solve(budget) -> estimate(params)  [full peak]
+             - state-only formula (no batch term): estimate at batch=1   [state]
+          2. step.estimate_state_bytes(dc)  [fallback: no formula, or scaler]
+        """
+        from cadw.core.yaml_formula_model import get_registered_model
+        cf = getattr(step, "cadw_function", None)
+        if cf is not None:
+            model = get_registered_model(cf)
+            if model is not None:
+                budget = self._memory_guard.budget_bytes
+                try:
+                    params = model.solve(budget, dc, safety=0.7)
+                    if params is not None:
+                        return model.estimate(params, dc)
+                    # state-only formula: eval at batch=1.
+                    # Formula may reference step hyperparams (n_estimators,
+                    # max_depth for GBDT) not present in dc -> KeyError ->
+                    # fallback to step.estimate_state_bytes (honest, GBDTStep
+                    # already returns _n_nodes()*48 + 1024).
+                    return model._eval(dc, batch=1)
+                except MemoryLimitExceeded:
+                    raise  # bubble up; caller wraps in PipelineMemoryError
+                except (KeyError, NameError):
+                    pass  # missing hyperparams -> fallback
+        return step.estimate_state_bytes(dc)
+
+    def plan(self, df: "CadwDataFrame") -> PipelinePlan:
+        """v0.9.233 (P2a): pre-fit feasibility via peak, not just state.
+
+        Checks (both must fit):
+          - sum(state_bytes) <= state_limit   (state accounting)
+          - sum(peak_bytes)  <= budget_bytes  (peak accounting; includes transient)
+
+        peak_bytes comes from YamlFormulaModel for steps with cadw_function
+        (batch-linear: full formula; state-only: state). Fallback to
+        estimate_state_bytes for steps without formula (e.g. scalers,
+        CastStep). Conservative: sum of peaks across steps (no overlap
+        assumption). Refined segment composition deferred to P2b.
+
+        Raises PipelineMemoryError with step_idx + actionable describe.
         """
         sample = peek_first_batch(df._iter_filtered_batches())
         if sample is None:
             raise ValueError("Pipeline.plan: empty df")
         dc = data_chars_from_sample(sample, df.count())
 
-        state_estimates = [
-            step.estimate_state_bytes(dc) for step in self._steps
-        ]
-        total_state = sum(state_estimates)
-        state_limit = self._memory_guard.state_limit_bytes
+        state_estimates = [step.estimate_state_bytes(dc) for step in self._steps]
+        peak_estimates = []
+        for i, step in enumerate(self._steps):
+            try:
+                peak_estimates.append(self._step_peak_estimate(step, dc))
+            except MemoryLimitExceeded as e:
+                raise PipelineMemoryError(
+                    step_idx=i,
+                    step_name=self._step_names[i],
+                    estimate_bytes=0,
+                    available_bytes=self._memory_guard.budget_bytes,
+                    describe=f"{type(step).__name__}.cadw_function="
+                             f"{getattr(step, 'cadw_function', None)!r}: {e}",
+                )
 
-        fits = total_state <= state_limit
-        if not fits:
+        total_state = sum(state_estimates)
+        total_peak = sum(peak_estimates)
+        state_limit = self._memory_guard.state_limit_bytes
+        budget = self._memory_guard.budget_bytes
+
+        state_ok = total_state <= state_limit
+        peak_ok = total_peak <= budget
+
+        if not state_ok or not peak_ok:
+            # Report the tighter failing step (largest index)
+            bad_idx = max(
+                i for i in range(len(self._steps))
+                if peak_estimates[i] > (budget - total_peak + peak_estimates[i])
+            ) if not peak_ok else len(self._steps) - 1
             raise PipelineMemoryError(
-                step_idx=len(self._steps) - 1,
-                step_name=self._step_names[-1] if self._step_names else "<none>",
-                estimate_bytes=total_state,
-                available_bytes=self._memory_guard.budget_bytes,
+                step_idx=bad_idx,
+                step_name=self._step_names[bad_idx] if self._step_names else "<none>",
+                estimate_bytes=total_peak if not peak_ok else total_state,
+                available_bytes=budget,
                 describe=(
-                    f"Pipeline total_state={total_state} B "
-                    f"> state_limit={state_limit} B "
-                    f"(sum over {len(self._steps)} steps; "
-                    f"individual estimates={state_estimates})"
+                    f"Pipeline peak={total_peak} B (sum_peak) "
+                    f"vs budget={budget} B; "
+                    f"state={total_state} B vs state_limit={state_limit} B; "
+                    f"per_step_peak={peak_estimates}"
                 ),
             )
 
@@ -550,22 +611,22 @@ class Pipeline:
             StepPlan(
                 op_name=type(step).__name__,
                 params=None,
-                estimate_bytes=est,
+                estimate_bytes=peak_estimates[i],
                 input_chars=dc,
-                output_chars=dc,  # v0.9.0b: assume unchanged
+                output_chars=dc,
                 spill_before=False,
             )
-            for step, est in zip(self._steps, state_estimates)
+            for i, step in enumerate(self._steps)
         ]
 
         return PipelinePlan(
             steps=step_plans,
-            peak_bytes=total_state,
+            peak_bytes=total_peak,
             spill_boundaries=[],
             estimated_io=0,
             predicted_outcome="fits",
             reason=None,
-            available_bytes=self._memory_guard.budget_bytes,
+            available_bytes=budget,
             safety=0.7,
         )
 
@@ -824,6 +885,10 @@ class GBDTStep:
     """Wrap `fit_gbdt_regressor`. State = tree structure + leaf values."""
 
     __slots__ = ("_X_cols", "_y_col", "_kwargs", "_model")
+
+    # v0.9.233 (P2a): cadw_function for Pipeline.plan preflight wiring.
+    # Class attr (not in __slots__). Used to look up YamlFormulaModel.
+    cadw_function = "fit_gbdt_regressor"
 
     # Conservative per-node bytes: feature idx (4) + threshold (8)
     # + left (4) + right (4) + gain (8) + leaf value (8) = 36; round to 48.

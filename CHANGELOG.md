@@ -1,5 +1,46 @@
 ## [Unreleased]
 
+## [0.9.233] — 2026-11-14 (P2a: Pipeline.plan honest peak preflight)
+
+**Session summary:** Wire A (MEMORY_GUARD_ARCHITECTURE.md §4).
+`Pipeline.plan` uses `YamlFormulaModel` for peak preflight instead of
+state-only sum. Early refuse now includes transient (for batch-linear
+formulas). No changes to `fit_X`, batch sizes, or existing paths.
+
+### Changed
+- `Pipeline.plan`: two checks (both must pass):
+  - `sum(state_bytes) <= state_limit` (state accounting, unchanged)
+  - `sum(peak_bytes) <= budget_bytes` (NEW: peak accounting)
+  `peak_bytes` per step via `YamlFormulaModel`:
+  - batch-linear formula -> solve(budget) + estimate(params) [full peak]
+  - state-only formula (no batch term) -> estimate(batch=1) [state]
+  - no formula -> `step.estimate_state_bytes` [fallback]
+  Conservative sum across steps (no overlap assumption).
+
+### Added
+- `GBDTStep.cadw_function = "fit_gbdt_regressor"` (class attr) so
+  `Pipeline.plan` can look up YAML formula for GBDT steps.
+
+### Honest limitation
+- GBDT `ram_formula` is state-only (tree structure: `n_estimators *
+  (2^(d+1)-1) * 500 + ...`). Fit transient (pred/grad/hess ~ n-sized)
+  NOT in formula. `Pipeline.plan` gives honest state, but underestimates
+  peak on large n. Spec `test_plan_covers_transient` remains xfail until
+  P2b audit fixes GBDT formula (add `+ k * n * row_size` transient term).
+  This is correct: preflight is honest about its source.
+
+### Anti-scope
+- No `fit_X` signature changes.
+- No batch_size propagation between steps.
+- No changes to `get_batch_rows` / `solve_batch` / `plan_chain` semantics.
+- `test_plan_covers_transient` xfail stays (P2b fix).
+
+### Verified
+- Pipeline regression (test_pipeline.py): all green.
+- Spec (test_pipeline_streaming_spec.py): baselines stay, spec xfails
+  stay (streaming + transient gap = P2b).
+- YAML model tests unchanged.
+
 ## [0.9.232] — 2026-11-14 (MemoryGuard P1 — YamlFormulaModel)
 
 **Session summary:** P1 of MEMORY_GUARD_ARCHITECTURE.md v1.2. Code-only;
