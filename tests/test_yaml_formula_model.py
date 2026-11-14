@@ -213,3 +213,129 @@ def test_auto_guard():
     g = MemoryGuard.auto(fraction=0.1)
     assert g.budget_bytes > 0
     assert g.state_limit_bytes > 0
+
+# ---------------------------------------------------------------------------
+# All 95 real cards with realistic extras (v0.9.234 hardening)
+# ---------------------------------------------------------------------------
+
+_TEST_EXTRAS = {
+    # ML hyperparams
+    "n_estimators": 100, "max_depth": 3, "n_classes": 3,
+    "C": 10, "n_arms": 5, "n_trees": 10, "subsample_size": 256,
+    "num_kernels": 84, "n_centers": 100, "max_samples": 5000,
+    "w": 32, "V": 1000, "avg_word_len": 24,
+    "max_query_size": 100, "n_oversamples": 10, "n_cats_cols": 3,
+    "total_categories": 100, "n_layers": 3,
+    "r": 50, "c": 40, "n_biclusters": 3, "k_sv": 10,
+    "n_neighbors": 10, "n_clusters": 3, "n_components": 5,
+    "window_size": 32, "branching_factor": 50, "n_factors": 8,
+    "n_content": 10, "n_epochs": 10, "hidden_size": 32,
+    "latent_size": 8, "n_memory": 10,
+    # TS
+    "seasonal_period": 7, "period": 7,
+    "p": 2, "q": 2, "s": 12, "W_eff": 1000,
+    "levels": 3, "n_transformers": 2,
+    "n_members": 3, "n_horizons": 5,
+    # Data-dependent (from scan)
+    "n_events": 100, "U": 100, "I": 100, "n_users": 100,
+    "n_items": 100, "n_nodes": 100, "S": 1000, "n_samples": 1000,
+    # v0.9.234-fix: missing hyperparams from probe (all legit, dc.extras)
+    "posterior_keep": 50, "vocab_size": 1000, "max_level": 6,
+    "L": 5, "read_batch_size": 1000, "n_best": 10,
+}
+
+
+def test_all_real_cards_with_extras():
+    """v0.9.234: 95 real cards; with realistic extras, >= 90 evaluable.
+
+    Categorizes: eval_ok (solve int OR solve None state-only) vs
+    eval_error (KeyError) vs exception. Target: eval_error <= 5.
+
+    Known P2b gaps (allowed eval_error): SARIMA/VAR d-collision; complex
+    multi-source formulas; transient-in-n formulas.
+    """
+    from cadw.core.yaml_formula_model import (
+        BatchParams, _reset_registry, get_registered_model,
+        list_registered,
+    )
+    _reset_registry()
+    regs = list_registered()
+
+    dc = DataChars(
+        schema=pa.schema(
+            [pa.field(f"c{i}", pa.float64()) for i in range(5)]),
+        n_rows=10_000, row_size_bytes=40, k_est=10,
+        extras=dict(_TEST_EXTRAS))
+
+    eval_ok = 0
+    solve_int = 0
+    solve_none = 0
+    eval_errors = []
+    exceptions = []
+
+    for name in regs:
+        m = get_registered_model(name)
+        try:
+            m.estimate(BatchParams(batch_size=1000), dc)
+        except (KeyError, NameError) as e:
+            eval_errors.append((name, str(e)[:80]))
+            continue
+        except Exception as e:
+            exceptions.append((name, f"eval: {type(e).__name__}: {e}"))
+            continue
+        eval_ok += 1
+        try:
+            p = m.solve(100 * 1024 * 1024, dc, safety=0.7)
+        except MemoryLimitExceeded:
+            solve_int += 1  # MLE = valid outcome (state > budget)
+            continue
+        except Exception as e:
+            exceptions.append((name, f"solve: {type(e).__name__}: {e}"))
+            continue
+        if p is not None:
+            solve_int += 1
+        else:
+            solve_none += 1
+
+    total = len(regs)
+    print(
+        f"\n[test_all_real_cards_with_extras] total={total}\n"
+        f"  eval_ok={eval_ok} (solve_int={solve_int} + "
+        f"solve_none={solve_none})\n"
+        f"  eval_errors={len(eval_errors)}, exceptions={len(exceptions)}")
+    if eval_errors:
+        print("  EVAL ERRORS (P2b audit target):")
+        for n, e in eval_errors:
+            print(f"    {n}: {e}")
+    if exceptions:
+        print("  EXCEPTIONS:")
+        for n, e in exceptions:
+            print(f"    {n}: {e}")
+
+    _reset_registry()
+    # 95 cards: at least 90 evaluable (5 tolerated for known P2b gaps)
+    assert eval_ok >= 90, (
+        f"eval_ok={eval_ok}/{total}; expected >=90. "
+        f"eval_errors={[n for n, _ in eval_errors]}")
+    assert len(exceptions) == 0, f"exceptions: {exceptions}"
+
+
+def test_linearity_check_quadratic():
+    """v0.9.234: batch-quadratic formula (e.g. DBSCAN) -> solve None."""
+    import pyarrow as pa
+    from cadw.core.yaml_formula_model import YamlFormulaModel, _reset_registry
+    from cadw.core.models import DataChars as DC
+
+    # Simulate DBSCAN-like: batch*batch term
+    card = {
+        "cadw_function": "test_quad",
+        "ram_formula": "n * i32 * 2 + batch * batch * f64 + 256",
+        "implementation_status": {"status": "verified"},
+    }
+    m = YamlFormulaModel("test_quad", card)
+    dc = DC(
+        schema=pa.schema([pa.field("a", pa.float64())]),
+        n_rows=10_000, row_size_bytes=8)
+    p = m.solve(100 * 1024 * 1024, dc, safety=0.7)
+    assert p is None, f"quadratic formula should return None, got {p}"
+

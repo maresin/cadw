@@ -1,5 +1,48 @@
 ## [Unreleased]
 
+## [0.9.234] — 2026-11-15 (MemoryGuard hardening — card contract)
+
+**Session summary:** Hardening after Probe v0.9.234 revealed 24/95 cards
+work (25%). Not routine — architectural shift documented in DEC-082.
+
+### Fixed (YamlFormulaModel)
+- `_env` merges `dc.extras` (hyperparams + data params; reserved keys
+  filtered). Fixes 59 eval errors (KeyError on `n_estimators`,
+  `seasonal_period`, `V`, `C`, `n_events`, `U`, `I`, ...).
+- `solve(**extra)` merges into env per call.
+- Linearity check: sample slopes at batch=1/100/1000/10000; non-linear
+  (e.g. `batch*batch`, fit_dbscan) -> None (was: invariant violation).
+- `coef` uses mid-range slope (s2) instead of endpoints (more accurate).
+
+### Added
+- `docs/ml_tools/MEMORY_GUARD_CARD_CONTRACT.md` v1.0 (NORMATIVE):
+  formula variables, reserved names, constraints (evaluable, arithmetic,
+  linear-in-batch, invariant), code contract for fit_X writers, P2b
+  audit roadmap.
+- `tests/test_yaml_formula_model.py`: +2 tests (`all_real_cards_with_extras`
+  with `_TEST_EXTRAS` covering ML/TS/data params; `linearity_check_quadratic`).
+
+### Verified
+- 95 cards with realistic extras: eval_ok >= 90 (5 tolerated for known
+  P2b gaps: SARIMA `d` collision, etc.).
+- fit_dbscan quadratic -> solve None (was: invariant violation).
+- Existing 12 tests still green.
+
+### Scope (P2b deferred)
+- Card schema `formula_params {hyperparams, data_scan}` + R-lint.
+- 95 fit_X: provide real hyperparams (not defaults) to dc.extras.
+- Rename `d` -> `d_order` in SARIMA/VAR/BVAR/VECM.
+- Add transient terms to state-only formulas where honest (GBDT,
+  Agglomerative, EIF, KMeansAD).
+- Verification matrix per card.
+
+### Anti-scope
+- No schema extension (v0.9.235).
+- No params propagation to fit_X (wire B, user pain only).
+- Streaming spec xfail unchanged (P3).
+
+Next: P2b audit (v0.9.235+), starting with 5-10 pilot cards.
+
 ## [0.9.233] — 2026-11-14 (P2a: Pipeline.plan honest peak preflight)
 
 **Session summary:** Wire A (MEMORY_GUARD_ARCHITECTURE.md §4).

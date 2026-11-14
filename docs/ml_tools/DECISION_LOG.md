@@ -3559,3 +3559,80 @@ n=1M, sb=16KB) — not added to `external_sort`.
 `tests/test_survival_verification.py` (pool-based helper, unskip 2,
 +formula test), `docs/ml_tools/I_survival.yaml` (verified, constant,
 formula), this DEC.
+
+---
+
+## DEC-082 (2026-11-15, v0.9.234) — MemoryGuard architectural shift: card contract + code discipline
+
+**Q:** v0.9.232/233 introduced `YamlFormulaModel` + `Pipeline.plan` wire.
+Probe v0.9.234 showed 24/95 cards work (25%). Is this routine or
+architectural shift?
+
+**A:** Architectural shift. Retract "routine event" assessment.
+
+### Evidence (Probe v0.9.234, 95 registered)
+
+| Category | Count | Cause |
+|---|---|---|
+| eval + solve int | 24 | honest batch-linear |
+| eval ok, solve None | 11 | state-only formula (honest) |
+| eval error (KeyError) | **59** | formula references hyperparams/data params not in `dc` |
+| exception | 1 | fit_dbscan quadratic `batch*batch` — no linearity check |
+
+**Root cause:** prototype v2 (4 mock cards, all batch-linear, only
+`d/batch/row_size`) gave false confidence. Real cards (62%) reference
+`n_estimators`, `max_depth`, `seasonal_period`, `p/q/d/s`, `V`, `C`,
+`k`, `n_events`, `U`, `I`, etc. — neither in `DataChars` nor passed
+via `**extra`.
+
+### What changed (permanent, applies to all future development)
+
+**Card contract** (new, `MEMORY_GUARD_CARD_CONTRACT.md`):
+- `ram_formula` may reference: DataChars universal (`n`, `d`,
+  `row_size`, `batch`, `k/K`), constants, builtins, `dc.extras`
+  (hyperparams + data params), `**extra` per call.
+- Reserved names explicit (no collision with hyperparams). Known gap:
+  `d` in SARIMA/VAR (P2b rename).
+- Linearity in batch REQUIRED for `solve` → int; non-linear → None.
+
+**Code discipline** (for fit_X writers):
+- Build `dc.extras` with hyperparams + data params.
+- `mg.plan_op("fit_X", dc)` or `**extra`.
+- Handle `params is None` (fallback heuristic + LegacyFormulaWarning).
+
+**Verification procedure**:
+- Formula accuracy matrix (n × d × hyperparams × data_params) —
+  extend STABILITY_PROTOCOL.
+- Every formula name (except reserved) declared in card
+  `formula_params` (schema P2b).
+- Linearity check auto-asserted в `YamlFormulaModel.solve`.
+
+### v0.9.234 hardening (this release)
+
+1. `YamlFormulaModel._env` merges `dc.extras` (reserved filtered).
+2. `solve(**extra)` merges into env per call.
+3. Linearity check (sample slopes at 1/100/1000/10000; non-linear → None).
+4. `test_all_real_cards_with_extras`: 95 cards + `_TEST_EXTRAS`; assert
+   `eval_ok >= 90` (5 tolerated for known P2b gaps — SARIMA d, etc.).
+5. `test_linearity_check_quadratic`: fit_dbscan class → solve None.
+6. `MEMORY_GUARD_CARD_CONTRACT.md` v1.0.
+7. This DEC.
+
+### P2b scope (revised, v0.9.235+, 4-6 sessions)
+
+- Card schema: `formula_params {hyperparams, data_scan}` (R-lint).
+- 95 fit_X: provide hyperparams + data params (not defaults).
+- Rename `d` → `d_order` in SARIMA/VAR/BVAR/VECM formulas.
+- Add transient terms to state-only formulas where honest (GBDT,
+  Agglomerative, EIF, KMeansAD — n-sized arrays).
+- Verification matrix per card (extend STABILITY_PROTOCOL §4).
+- Honest downgrade for unverifiable: draft + `draft_reason`.
+
+### Anti-scope (deferred)
+
+- Full schema extension (`formula_params` field) — v0.9.235.
+- Wire B (params propagation to fit_X) — by user pain only.
+- Streaming (spec xfail) — P3.
+
+**Reference:** DEC-044 (inverse formula), DEC-067 (auto-switch),
+MEMORY_GUARD_ARCHITECTURE.md v1.2 (§3-§4 scope).

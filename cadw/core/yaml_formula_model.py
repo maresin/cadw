@@ -45,6 +45,15 @@ class YamlFormulaModel(OpMemoryModel):
         if not self._formula:
             raise ValueError(f"YamlFormulaModel({op_name}): no ram_formula")
 
+    # Reserved env keys — auto-injected, dc.extras must not override
+    _RESERVED = frozenset({
+        "n", "d", "row_size", "batch",
+        "k", "K", "k_est",
+        "f64", "f32", "i8", "i16", "i32", "i64", "bool",
+        "dict_entry_bytes", "py_str_overhead_bytes", "list_ptr_bytes",
+        "max", "min", "abs",
+    })
+
     def _env(self, dc: DataChars) -> dict:
         env = {
             "n": int(dc.n_rows),
@@ -57,6 +66,12 @@ class YamlFormulaModel(OpMemoryModel):
             env["k_est"] = kk
             env["k"] = kk
             env["K"] = kk
+        # v0.9.234 (DEC-082): merge extras (hyperparams, data params).
+        # Reserved keys filtered (auto-injected takes precedence).
+        if dc.extras:
+            for k, v in dc.extras.items():
+                if k not in self._RESERVED:
+                    env[k] = v
         return env
 
     def _eval(self, dc: DataChars, batch: int, **extra) -> int:
@@ -77,24 +92,46 @@ class YamlFormulaModel(OpMemoryModel):
 
     def solve(self, available_bytes: int, dc: DataChars, *,
               safety: float = 0.7, **extra) -> Optional[Params]:
+        """Inverse: largest batch s.t. estimate <= budget.
+
+        v0.9.234 (DEC-082): linearity check (sample slopes at 1, 100,
+        1000, 10000); non-linear formula (e.g. batch*batch) -> None.
+
+        data-dependent/hyperparams: merge dc.extras + **extra.
+        Returns None if: eval fails, batch-independent, non-linear.
+        Raises MemoryLimitExceeded if state(batch=1) > budget.
+        """
         budget = int(available_bytes * safety)
         try:
             e1 = self._eval(dc, batch=1, **extra)
+            e100 = self._eval(dc, batch=100, **extra)
             e1k = self._eval(dc, batch=1000, **extra)
+            e10k = self._eval(dc, batch=10000, **extra)
         except Exception as exc:
             logger.debug(
                 "YamlFormulaModel(%s): eval failed (%s)", self.op_name, exc)
             return None
-        coef = (e1k - e1) / 999.0
-        if coef <= 0:
-            return None  # batch-independent formula
+        s1 = (e100 - e1) / 99.0
+        s2 = (e1k - e100) / 900.0
+        s3 = (e10k - e1k) / 9000.0
+        if s1 == 0 and s2 == 0 and s3 == 0:
+            return None  # batch-independent formula (state-only)
+        # Linearity: slopes must agree within 1%
+        for a, b in ((s1, s2), (s2, s3)):
+            denom = max(abs(b), 1.0)
+            if abs(a - b) / denom > 0.01:
+                logger.debug(
+                    "YamlFormulaModel(%s): non-linear in batch "
+                    "(s1=%.3g s2=%.3g s3=%.3g)", self.op_name, s1, s2, s3)
+                return None
+        coef = s2  # mid-range slope (more accurate than endpoints)
         state = e1 - int(round(coef))
         if state >= budget:
             raise MemoryLimitExceeded(
                 f"{self.op_name}: state={state} >= budget={budget} "
                 f"(reduce params or increase budget)")
         slack = budget - state
-        batch = int(slack / coef)
+        batch = int(slack / coef) if coef > 0 else 0
         if batch < 1:
             return None
         est = self._eval(dc, batch=batch, **extra)
