@@ -408,6 +408,48 @@ class MemoryLimitExceeded(RuntimeError):
         self.options = list(options) if options else []
 
 
+def free_ram_mb() -> float:
+    """System available memory (MB). Linux /proc/meminfo, fallback sysconf.
+
+    v0.9.232: helper for MemoryGuard.auto(). Returns 0.0 if unavailable.
+    Non-deterministic; for tests/experiments only.
+    """
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1024.0
+    except (OSError, ValueError):
+        pass
+    try:
+        import os
+        return (os.sysconf("SC_AVPHYS_PAGES")
+                * os.sysconf("SC_PAGE_SIZE")) / 1e6
+    except (OSError, ValueError, AttributeError):
+        return 0.0
+
+
+def free_ram_mb() -> float:
+    """System available memory (MB). Linux /proc/meminfo, fallback sysconf.
+
+    v0.9.232: helper for MemoryGuard.auto(). Returns 0.0 if unavailable.
+    Non-deterministic; for tests/experiments only.
+    """
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1024.0
+    except (OSError, ValueError):
+        pass
+    try:
+        import os
+        return (os.sysconf("SC_AVPHYS_PAGES")
+                * os.sysconf("SC_PAGE_SIZE")) / 1e6
+    except (OSError, ValueError, AttributeError):
+        return 0.0
+
+
 class MemoryGuard:
     def __init__(
         self,
@@ -467,6 +509,34 @@ class MemoryGuard:
         )
 
     # ---------- бюджет ----------
+
+    @classmethod
+    def auto(cls, fraction: float = 0.15, **kwargs) -> "MemoryGuard":
+        """Size guard to `fraction` of currently-available RAM.
+
+        v0.9.232 (MEMORY_GUARD_ARCHITECTURE.md §7). For tests/experiments.
+        Non-deterministic (machine-dependent). Existing tests use explicit
+        max_memory_mb. Budget = contract-at-start; free RAM can drop later;
+        check_batch/check_state -> MemoryLimitExceeded (clean raise) covers.
+        """
+        mb = free_ram_mb() * float(fraction)
+        if mb < 1.0:
+            mb = 16.0  # safe floor
+        return cls(max_memory_mb=mb, **kwargs)
+
+    @classmethod
+    def auto(cls, fraction: float = 0.15, **kwargs) -> "MemoryGuard":
+        """Size guard to `fraction` of currently-available RAM.
+
+        v0.9.232 (MEMORY_GUARD_ARCHITECTURE.md §7). For tests/experiments.
+        Non-deterministic (machine-dependent). Existing tests use explicit
+        max_memory_mb. Budget = contract-at-start; free RAM can drop later;
+        check_batch/check_state -> MemoryLimitExceeded (clean raise) covers.
+        """
+        mb = free_ram_mb() * float(fraction)
+        if mb < 1.0:
+            mb = 16.0  # safe floor
+        return cls(max_memory_mb=mb, **kwargs)
 
     def mark(self, name: str) -> None:
         """Phase annotation for measure_peak_traced.
@@ -1314,6 +1384,88 @@ class MemoryGuard:
         if not _is_linear_in_batch(op_name, params, row_size):
             return None
         return _numeric_inverse_batch(op_name, params, budget, row_size)
+
+    def plan_op(
+        self,
+        op_name: str,
+        data_chars: "DataChars",
+        *,
+        budget: Optional[int] = None,
+        safety: float = 0.7,
+        **extra_params,
+    ):
+        """v0.9.232 (MEMORY_GUARD_ARCHITECTURE.md §2): plan single op via
+        YamlFormulaModel. Returns BatchParams | None.
+
+        Raises MemoryLimitExceeded if state > budget.
+        Different from solve_batch: uses available_bytes() (respects
+        _state_used), not _usable_bytes(). Callers may supply data-dependent
+        params (V, K_cat, n_events, U, I) via **extra_params.
+        """
+        from cadw.core.yaml_formula_model import get_registered_model
+        model = get_registered_model(op_name)
+        if model is None:
+            return None
+        b = budget if budget is not None else self.available_bytes()
+        return model.solve(int(b), data_chars, safety=safety, **extra_params)
+
+    def plan_chain(
+        self,
+        ops: list,
+        data_chars: "DataChars",
+        *,
+        budget: Optional[int] = None,
+        safety: float = 0.7,
+    ) -> dict:
+        """v0.9.232: plan chain of ops via YamlFormulaModel (conservative sum).
+
+        Returns {fits, peak_bytes, steps, reason}. Does NOT allocate;
+        does NOT change Pipeline.plan. Read-only preflight for P2a wire.
+        """
+        from cadw.core.yaml_formula_model import plan_chain as _pc
+        b = budget if budget is not None else self.available_bytes()
+        return _pc(list(ops), data_chars, budget=int(b), safety=safety)
+
+    def plan_op(
+        self,
+        op_name: str,
+        data_chars: "DataChars",
+        *,
+        budget: Optional[int] = None,
+        safety: float = 0.7,
+        **extra_params,
+    ):
+        """v0.9.232 (MEMORY_GUARD_ARCHITECTURE.md §2): plan single op via
+        YamlFormulaModel. Returns BatchParams | None.
+
+        Raises MemoryLimitExceeded if state > budget.
+        Different from solve_batch: uses available_bytes() (respects
+        _state_used), not _usable_bytes(). Callers may supply data-dependent
+        params (V, K_cat, n_events, U, I) via **extra_params.
+        """
+        from cadw.core.yaml_formula_model import get_registered_model
+        model = get_registered_model(op_name)
+        if model is None:
+            return None
+        b = budget if budget is not None else self.available_bytes()
+        return model.solve(int(b), data_chars, safety=safety, **extra_params)
+
+    def plan_chain(
+        self,
+        ops: list,
+        data_chars: "DataChars",
+        *,
+        budget: Optional[int] = None,
+        safety: float = 0.7,
+    ) -> dict:
+        """v0.9.232: plan chain of ops via YamlFormulaModel (conservative sum).
+
+        Returns {fits, peak_bytes, steps, reason}. Does NOT allocate;
+        does NOT change Pipeline.plan. Read-only preflight for P2a wire.
+        """
+        from cadw.core.yaml_formula_model import plan_chain as _pc
+        b = budget if budget is not None else self.available_bytes()
+        return _pc(list(ops), data_chars, budget=int(b), safety=safety)
 
     def estimate_cost(
         self,

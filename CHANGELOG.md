@@ -1,5 +1,48 @@
 ## [Unreleased]
 
+## [0.9.232] — 2026-11-14 (MemoryGuard P1 — YamlFormulaModel)
+
+**Session summary:** P1 of MEMORY_GUARD_ARCHITECTURE.md v1.2. Code-only;
+no existing behaviour changes. Validated in /tmp/memory_guard_proto_v2.py
+(11/11 equivalence vs 5 individual classes).
+
+### Added
+- `cadw.core.yaml_formula_model.YamlFormulaModel` — single class,
+  N instances driven by YAML `ram_formula`. Auto-registers 95 unique
+  verified `cadw_function` lazily on first access (RAM-only, YAML
+  unchanged). Skips broken with debug log.
+- `MemoryGuard.plan_op(op, dc, *, budget, safety, **extra)` — single-op
+  plan. Uses `available_bytes()` (respects `_state_used`), unlike
+  `solve_batch` which uses `_usable_bytes()` (no state tracking).
+- `MemoryGuard.plan_chain(ops, dc, *, budget, safety)` — preflight chain
+  planner. Conservative sum of step peaks. Does NOT touch `Pipeline.plan`
+  (P2a will wire).
+- `free_ram_mb()` + `MemoryGuard.auto(fraction=0.15)` — size guard to
+  fraction of currently-available system RAM. For tests only
+  (non-deterministic; existing tests use explicit max_memory_mb).
+- `docs/ml_tools/MEMORY_GUARD_ARCHITECTURE.md` v1.2.
+- `tests/test_yaml_formula_model.py` — 12 tests (A-H + equivalence +
+  registry + free_ram_mb + auto).
+- `tests/test_memory_guard_prototype.py` — prototype validation (12
+  tests, moved from /tmp scratch to tracked).
+
+### Semantics (validated)
+- `state > budget` -> `MemoryLimitExceeded`
+- `batch < 1` -> `None`
+- unknown op -> `None`
+- invariant `estimate(params) <= budget*safety` asserted
+
+### Anti-scope
+- No changes to `get_batch_rows`, `solve_batch`, `plan`, existing
+  `plan_pipeline`, `Pipeline.plan`, `SortMemoryModel`, 123 YAML cards.
+- No composition (P2b per-card audit).
+- No `primitive_reuse` migration.
+
+### Next
+- P2a (v0.9.233): wire `Pipeline.plan` to `plan_chain(peak)`.
+- P2b: audit 95 unique cards, composition where needed.
+- P3: streaming (spec xfail ready).
+
 ## [0.9.231] — 2026-11-13 (pipeline streaming spec — design freeze)
 
 Spec-only release. Design validated in /tmp/lazy_proto.py (8/8 exp PASS).
