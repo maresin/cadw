@@ -1,5 +1,30 @@
 ## [Unreleased]
 
+## [0.9.231] — 2026-11-13 (pipeline streaming spec — design freeze)
+
+Spec-only release. Design validated in /tmp/lazy_proto.py (8/8 exp PASS).
+No code changes; implementation deferred until MemoryGuard unification.
+
+### Added
+- tests/test_pipeline_streaming_spec.py (9 tests):
+  - Baseline (4 passed): 42 scans [Scaler, GBDT(5)]; eager per step;
+    re-iterable confirmed.
+  - Spec xfail strict=True (5): narrow fusion; 1 write barrier; path-scoped
+    BufferRegistry; plan covers transient; composite narrow folds.
+
+### Design (validated, deferred)
+- Chain = source_factory + fused transform_batch list
+- Narrow: fit(chain) 1-pass, transform_batch(batch) per batch
+- Wide: fit_chain(chain) -> Chain (may materialize)
+- Composite: recursive, narrow-only folds
+- BufferRegistry: path-scoped names, collision -> RuntimeError
+
+### Next
+v0.9.232: MemoryGuard unification (30 sites, 3 API, solve_batch broken
+on coxph/als/gbdt). Test on lazy-prototype cards.
+
+Verified: 4 passed, 5 xfailed in 3.23s.
+
 ## [0.9.230] — 2026-11-13 (KM honest constant + measure_peak_pool tool)
 
 **Session summary:** DEC-079 resolved: KM `verified` claim honest via
