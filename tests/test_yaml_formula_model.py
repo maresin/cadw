@@ -339,3 +339,22 @@ def test_linearity_check_quadratic():
     p = m.solve(100 * 1024 * 1024, dc, safety=0.7)
     assert p is None, f"quadratic formula should return None, got {p}"
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "v0.9.236: _safe_eval doesn't support ast.Call; max/min/abs in "
+        "_env are unreachable (formulas don't call them today; sort "
+        "formula uses max() but sort not in registry as batch-linear). "
+        "v0.9.237: add Call whitelist {max, min, abs} when sort formula "
+        "into registry; then unskip."
+    ),
+)
+def test_safe_eval_builtins():
+    """v0.9.237 target: _safe_eval supports max/min/abs (Call whitelist)."""
+    from cadw.ml._memory_estimate import _safe_eval
+    env = {"a": 3, "b": 7}
+    assert _safe_eval("max(a, b)", env) == 7.0
+    assert _safe_eval("min(a, b)", env) == 3.0
+    assert _safe_eval("abs(-a)", env) == 3.0
+    assert _safe_eval("max(a*b, a+b)", env) == 21.0
+    assert _safe_eval("2**3", {}) == 8.0

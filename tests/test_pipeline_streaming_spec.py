@@ -123,8 +123,7 @@ class _NarrowMockStep:
     def transform_batch(self, batch):
         return batch
 
-    def is_barrier(self) -> bool:
-        return False
+    is_barrier = False  # class attr (v0.9.236)
 
     def estimate_state_bytes(self, dc):
         return 0
@@ -171,8 +170,7 @@ class _WideMockStep:
             spill_dir=df._spill_dir,
         )
 
-    def is_barrier(self) -> bool:
-        return True
+    is_barrier = True  # class attr (v0.9.236)
 
     def estimate_state_bytes(self, dc):
         return 0
@@ -299,17 +297,8 @@ def test_chain_source_factory_reiterable():
         f"first={first_rows}, second={second_rows}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "v0.9.231-spec: BufferRegistry path-scoped names — collision "
-        "on duplicate (path, name) must raise RuntimeError. Validated in "
-        "/tmp/lazy_proto.py (experiment H). Current CADW: no BufferRegistry, "
-        "no collision detection."
-    ),
-)
 def test_buffer_collision_raises():
-    """SPEC: two steps with same path-scoped buffer name -> RuntimeError."""
+    """v0.9.236: BufferRegistry collision -> RuntimeError (implemented)."""
     from cadw.core.buffer_registry import BufferRegistry  # not yet exists
     reg = BufferRegistry()
     reg.allocate("pipeline.s0_minmax", "state", 32, kind="state")
@@ -340,16 +329,8 @@ def test_plan_covers_transient():
         f"(plan must cover transient)")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "v0.9.231-spec: composite all-narrow should fold into parent chain "
-        "(same scans/writes as flat equivalent). Validated in prototype "
-        "(experiment D = A). Current CADW: no CompositeStep, no fold."
-    ),
-)
 def test_composite_narrow_folds(scan_counter, write_counter):
-    """SPEC: composite[narrow,narrow] == flat[narrow,narrow]."""
+    """v0.9.236: composite[narrow,narrow] == flat[narrow,narrow] (same scan/write counts)."""
     from cadw.pipeline import CompositeStep  # not yet exists
 
     # Flat

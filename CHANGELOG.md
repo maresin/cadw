@@ -1,5 +1,38 @@
 ## [Unreleased]
 
+## [0.9.236] — 2026-11-15 (streaming infra: BufferRegistry + CompositeStep)
+
+**Session summary:** 2 of 5 spec xfail resolved. Infrastructure only;
+actual streaming (transform_batch + _execute_stream) is v0.9.237.
+
+### Added
+- cadw/core/buffer_registry.py::BufferRegistry (path-scoped buffer
+  names; collision -> RuntimeError). Unblocks spec
+  test_buffer_collision_raises.
+- cadw/pipeline.py::CompositeStep (sequential fit, chained transform;
+  scan/write counts equal flat equivalent). Unblocks spec
+  test_composite_narrow_folds.
+
+### Fixed
+- test_pipeline_streaming_spec.py: _NarrowMockStep.is_barrier and
+  _WideMockStep.is_barrier changed from methods to class attrs
+  (consistency with v0.9.235 protocol).
+
+### Verified
+- 2 xfail removed (buffer_collision, composite_fold -> pass).
+- Remaining 3 xfail (honest):
+  - test_narrow_narrow_zero_writes (v0.9.237 streaming)
+  - test_narrow_wide_narrow_one_materialize (v0.9.237 streaming)
+  - test_plan_covers_transient (P2b audit: GBDT transient term)
+- _safe_eval("max(...)") verified.
+- tests/test_buffer_registry.py (4 unit tests).
+
+### Next
+- v0.9.237: streaming (transform_batch + _execute_stream; unblocks 2
+  remaining streaming xfail).
+- v0.9.238+: P2b audit (GBDT transient term; formula_params schema;
+  95 cards).
+
 ## [0.9.235] — 2026-11-15 (composition fix — max sequential peak)
 
 **Session summary:** Fix v0.9.233 semantic bug. `sum_peak` was wrong:

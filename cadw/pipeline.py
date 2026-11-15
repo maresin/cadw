@@ -1087,6 +1087,63 @@ class LambdaTransform:
 
 # ============ Step type registry (v0.9.1d) ============
 
+class CompositeStep:
+    """v0.9.236: composite of child steps (sequential fit, chained transform).
+
+    Behaves like flat pipeline equivalent: fit all children on input df,
+    transform chains through children. Scan/write counts equal flat.
+
+    is_barrier = True if any child barrier; else False (fold candidate,
+    v0.9.237 streaming will use transform_batch for actual fold).
+    """
+    cadw_function = None
+
+    def __init__(self, steps: list) -> None:
+        if not steps:
+            raise ValueError("CompositeStep: empty steps")
+        self._steps = list(steps)
+        # any child barrier -> barrier
+        def _barrier(s) -> bool:
+            v = getattr(s, "is_barrier", True)
+            return v() if callable(v) else bool(v)
+        self.is_barrier = any(_barrier(s) for s in self._steps)
+
+    def fit(self, df, target=None):
+        for s in self._steps:
+            is_pred = (hasattr(s, "predict")
+                       and not hasattr(s, "transform"))
+            s.fit(df, target=target if is_pred else None)
+        return self
+
+    def transform(self, df):
+        current = df
+        for s in self._steps:
+            if not hasattr(s, "transform"):
+                raise RuntimeError(
+                    f"CompositeStep.transform: "
+                    f"{type(s).__name__} has no transform")
+            current = s.transform(current)
+        return current
+
+    def estimate_state_bytes(self, dc):
+        return sum(s.estimate_state_bytes(dc) for s in self._steps)
+
+    def state_bytes(self):
+        return sum(
+            s.state_bytes() if hasattr(s, "state_bytes") else 0
+            for s in self._steps)
+
+    def to_dict(self):
+        return {
+            "kind": "CompositeStep",
+            "steps": [
+                {"type": type(s).__name__,
+                 "params": s.to_dict() if hasattr(s, "to_dict") else {}}
+                for s in self._steps
+            ],
+        }
+
+
 _STEP_REGISTRY: dict = {}
 
 
