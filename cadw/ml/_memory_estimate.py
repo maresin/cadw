@@ -95,6 +95,10 @@ def _formula_names(formula: str) -> set[str]:
     return {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
 
 
+# v0.9.237a: whitelist for formula builtins (max/min/abs via ast.Call)
+_SAFE_CALLS = {"max": max, "min": min, "abs": abs}
+
+
 def _safe_eval(formula: str, env: dict) -> float:
     """Evaluate ram_formula. Only +/-/*//**/() and identifiers."""
     try:
@@ -137,6 +141,22 @@ def _safe_eval(formula: str, env: dict) -> float:
             if isinstance(n.op, ast.UAdd): return v
             raise ValueError(
                 f"ram_formula: unsupported unary {type(n.op).__name__}")
+        if isinstance(n, ast.Call):
+            # v0.9.237a: whitelist {max, min, abs}
+            if not isinstance(n.func, ast.Name):
+                raise ValueError(
+                    f"ram_formula: only Name calls supported; got "
+                    f"{type(n.func).__name__}")
+            name = n.func.id
+            if name not in _SAFE_CALLS:
+                raise ValueError(
+                    f"ram_formula: call to unsupported {name!r} "
+                    f"(whitelist: {sorted(_SAFE_CALLS)})")
+            if n.keywords:
+                raise ValueError(
+                    "ram_formula: keyword args in call not supported")
+            args = [_eval(a) for a in n.args]
+            return float(_SAFE_CALLS[name](*args))
         raise ValueError(
             f"ram_formula: unsupported node {type(n).__name__}")
 
