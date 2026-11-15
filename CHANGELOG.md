@@ -1,5 +1,53 @@
 ## [Unreleased]
 
+## [0.9.235] — 2026-11-15 (composition fix — max sequential peak)
+
+**Session summary:** Fix v0.9.233 semantic bug. `sum_peak` was wrong:
+peaks occur sequentially, so total peak = `max_k [cumulative_state_prior
++ peak_k]`, not sum. For N barriers (state=0, peak=30MB each) sum gives
+N*30MB false refuse; max gives 30MB correct.
+
+### Fixed (DEC-083)
+- `Pipeline.plan`: peak = max sequential accumulation, not sum.
+  - N barriers state=0 peak=30MB → total_peak=30MB (not 300MB)
+  - N stateful state=8MB peak=8MB → total_peak=sum(state)=80MB (correct,
+    all states held)
+  - first_bad_idx tracked for actionable PipelineMemoryError
+- `plan_chain` (YamlFormulaModel): same formula. Returns `state_bytes`
+  in result. Passes `state_limit` from MemoryGuard (was implicit
+  budget//2).
+- `MemoryGuard.plan_chain`: forwards `state_limit_bytes`.
+
+### Added
+- `Step.is_barrier` class attribute (default True). Narrow steps
+  override False. **Annotation only** — future state-release
+  optimization (streaming spec); not used in current formula
+  (all states held for predict).
+  - `CastStep.is_barrier = False`
+  - `DropnaStep.is_barrier = False`
+  - `StandardScaler/MinMaxScaler/MaxAbsScaler/RobustScaler.is_barrier = False`
+  - `GBDTStep.is_barrier = True` (explicit)
+- `tests/test_composition_v0235.py`: 4 tests
+  (pipeline plan barriers max-not-sum, stateful sum, 50 scalers no
+  starvation, plan_chain narrow max).
+
+### Acknowledged (not fixed in v0.9.235)
+- **State release after barrier**: user's intent (narrow state clear
+  after barrier). Requires serialize/reload cycle (state needed for
+  predict). Deferred to streaming spec P3.
+- **Pipeline.fit running state tracking**: `MemoryGuard` stateless by
+  design; each `fit_X` has its own guard. `Pipeline.fit` doesn't call
+  `check_state`. Separate gap, not manifested (fit_X own guards suffice).
+- **P2b audit** (95 cards formula_params, SARIMA `d_order` rename,
+  transient terms, verification matrix): v0.9.236+.
+
+### Anti-scope
+- No `MemoryGuard` state tracking changes (stateless by design).
+- No state serialize/reload (P3).
+- No schema changes.
+
+Next: v0.9.236 — P2b audit (5-10 pilot cards).
+
 ## [0.9.234] — 2026-11-15 (MemoryGuard hardening — card contract)
 
 **Session summary:** Hardening after Probe v0.9.234 revealed 24/95 cards

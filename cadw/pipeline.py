@@ -565,11 +565,23 @@ class Pipeline:
             raise ValueError("Pipeline.plan: empty df")
         dc = data_chars_from_sample(sample, df.count())
 
-        state_estimates = [step.estimate_state_bytes(dc) for step in self._steps]
+        # v0.9.235 (DEC-083): peak = max_k [cumulative_state_prior + peak_k].
+        # Peaks occur sequentially, not simultaneously. For N barriers with
+        # state=0 and peak=30MB: correct total = 30MB, not N*30MB.
+        # For N stateful models (state=8MB, peak=8MB): correct = sum(state)
+        # (all held), which equals N*8MB in step_k loop.
+        #
+        # state_check = sum(state_k) (all states held for predict; current impl).
+        # Future (streaming, state release after barrier): max(segment_state).
+        state_estimates = []
         peak_estimates = []
+        cumulative_state = 0
+        total_peak = 0
+        first_bad_idx = None
+        first_bad_reason = ""
         for i, step in enumerate(self._steps):
             try:
-                peak_estimates.append(self._step_peak_estimate(step, dc))
+                peak_k = self._step_peak_estimate(step, dc)
             except MemoryLimitExceeded as e:
                 raise PipelineMemoryError(
                     step_idx=i,
@@ -579,9 +591,26 @@ class Pipeline:
                     describe=f"{type(step).__name__}.cadw_function="
                              f"{getattr(step, 'cadw_function', None)!r}: {e}",
                 )
+            state_k = step.estimate_state_bytes(dc)
+            step_total_peak = cumulative_state + peak_k
+            total_peak = max(total_peak, step_total_peak)
+            cumulative_state += state_k
+            state_estimates.append(state_k)
+            peak_estimates.append(peak_k)
+            # Track first step that individually exceeds (for actionable error)
+            if first_bad_idx is None:
+                if step_total_peak > self._memory_guard.budget_bytes:
+                    first_bad_idx = i
+                    first_bad_reason = (
+                        f"step_total_peak={step_total_peak} > "
+                        f"budget={self._memory_guard.budget_bytes}")
+                elif cumulative_state > self._memory_guard.state_limit_bytes:
+                    first_bad_idx = i
+                    first_bad_reason = (
+                        f"cumulative_state={cumulative_state} > "
+                        f"state_limit={self._memory_guard.state_limit_bytes}")
 
-        total_state = sum(state_estimates)
-        total_peak = sum(peak_estimates)
+        total_state = cumulative_state
         state_limit = self._memory_guard.state_limit_bytes
         budget = self._memory_guard.budget_bytes
 
@@ -589,21 +618,22 @@ class Pipeline:
         peak_ok = total_peak <= budget
 
         if not state_ok or not peak_ok:
-            # Report the tighter failing step (largest index)
-            bad_idx = max(
-                i for i in range(len(self._steps))
-                if peak_estimates[i] > (budget - total_peak + peak_estimates[i])
-            ) if not peak_ok else len(self._steps) - 1
+            bad_idx = first_bad_idx if first_bad_idx is not None else (
+                len(self._steps) - 1)
             raise PipelineMemoryError(
                 step_idx=bad_idx,
-                step_name=self._step_names[bad_idx] if self._step_names else "<none>",
+                step_name=(
+                    self._step_names[bad_idx]
+                    if self._step_names else "<none>"),
                 estimate_bytes=total_peak if not peak_ok else total_state,
                 available_bytes=budget,
                 describe=(
-                    f"Pipeline peak={total_peak} B (sum_peak) "
+                    f"Pipeline peak={total_peak} B (max sequential) "
                     f"vs budget={budget} B; "
                     f"state={total_state} B vs state_limit={state_limit} B; "
-                    f"per_step_peak={peak_estimates}"
+                    f"per_step_peak={peak_estimates}; "
+                    f"per_step_state={state_estimates}; "
+                    f"first_failing={first_bad_reason or 'last'}"
                 ),
             )
 
@@ -813,6 +843,9 @@ class Pipeline:
 # ============ Wrappers for testing (MVP) ============
 
 class CastStep:
+    # v0.9.235: narrow step (per-batch cast, state=0, no barrier)
+    is_barrier = False
+
     """Wrap `df.astype(mapping)`. Stateless."""
 
     __slots__ = ("_mapping", "_safe")
@@ -853,6 +886,9 @@ class CastStep:
 
 
 class DropnaStep:
+    # v0.9.235: narrow step (per-batch filter, state=0, no barrier)
+    is_barrier = False
+
     """Wrap `df.dropna(how, subset)`. Stateless."""
 
     __slots__ = ("_how", "_subset")
@@ -883,6 +919,9 @@ class DropnaStep:
 
 class GBDTStep:
     """Wrap `fit_gbdt_regressor`. State = tree structure + leaf values."""
+
+    # v0.9.235: barrier (multi-round fit needs all data; state persists)
+    is_barrier = True
 
     __slots__ = ("_X_cols", "_y_col", "_kwargs", "_model")
 

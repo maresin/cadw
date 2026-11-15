@@ -1424,7 +1424,8 @@ class MemoryGuard:
         """
         from cadw.core.yaml_formula_model import plan_chain as _pc
         b = budget if budget is not None else self.available_bytes()
-        return _pc(list(ops), data_chars, budget=int(b), safety=safety)
+        return _pc(list(ops), data_chars, budget=int(b),
+                   state_limit=self.state_limit_bytes, safety=safety)
 
     def plan_op(
         self,

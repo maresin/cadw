@@ -3636,3 +3636,47 @@ via `**extra`.
 
 **Reference:** DEC-044 (inverse formula), DEC-067 (auto-switch),
 MEMORY_GUARD_ARCHITECTURE.md v1.2 (§3-§4 scope).
+
+---
+
+## DEC-083 (2026-11-15, v0.9.235) — Peak = max sequential, not sum
+
+**Q:** v0.9.233 `Pipeline.plan` used `peak_bytes = sum(step_peaks)`.
+Is this correct?
+
+**A:** No. Peaks occur **sequentially** per step; step1's peak completes
+before step2 starts (its intermediate data is on disk). Sum over-counts
+by N for N barriers. Probe v0.9.235:
+
+| N barriers (state=0, peak=30MB) | sum_peak | max_sequential | reality |
+|---|---|---|---|
+| 1 | 30 MB | 30 MB | 30 MB |
+| 10 | 300 MB | 30 MB | 30 MB |
+| 20 | 600 MB (> budget 500MB) | 30 MB | **false refuse** |
+
+**Correct formula:**
+
+```
+peak = max_k [sum(state_1..k-1) + peak_k]   # sequential, state accumulates
+state_check = sum(state_k)                  # all held for predict (current impl)
+```
+
+Behavior:
+- N barriers state=0 peak=30MB: cumulative=0, peak_k=30 → total=30MB ✓
+- N stateful state=8MB peak=8MB: cumulative grows to (N-1)*8, step_N total =
+  (N-1)*8 + 8 = N*8 = sum(state) ✓ (all held)
+- 50 scalers state=16B: total peak = 50*16 = 800B (tiny) ✓
+
+**User's intent** (also captured): "state между точками материализации
+накапливать, после материализации очищать". **Not applied in v0.9.235**:
+- Current impl: all states held (needed for `Pipeline.predict`)
+- State release requires serialize/reload (scale → disk after fit,
+  reload on predict)
+- Deferred to P3 (streaming spec, state lifecycle)
+
+**`Step.is_barrier`** added (default True, narrow override False) as
+annotation for future state-release optimization. Not used in formula
+(current impl honest via sum state).
+
+**Reference:** MEMORY_GUARD_ARCHITECTURE.md §4 (P2a wire), spec
+`test_narrow_wide_narrow_one_materialize`, user feedback 2026-11-15.

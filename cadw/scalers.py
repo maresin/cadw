@@ -207,6 +207,8 @@ class StandardScaler:
     - Nulls skipped in fit (nanmean/nanstd); nulls preserved in transform.
     - Output dtype float64 for scaled columns.
     """
+    # v0.9.235: narrow step (per-batch transform, small state)
+    is_barrier = False
 
     __slots__ = ("_columns", "_with_mean", "_with_std", "_mean", "_std")
 
@@ -304,6 +306,8 @@ class MinMaxScaler:
     - Degenerate (min==max) → constant output feature_range[0] (sklearn).
     - Nulls skipped in fit; preserved in transform.
     """
+    # v0.9.235: narrow step (per-batch transform, small state)
+    is_barrier = False
 
     __slots__ = (
         "_columns", "_feature_range", "_min", "_max", "_scale", "_min_adj",
@@ -430,6 +434,8 @@ class MaxAbsScaler:
     - All-zero column → scale=1 (avoid division by zero).
     - Nulls skipped in fit; preserved in transform.
     """
+    # v0.9.235: narrow step (per-batch transform, small state)
+    is_barrier = False
 
     __slots__ = ("_columns", "_max_abs")
 
@@ -508,6 +514,8 @@ class RobustScaler:
     - Wide data: per-column external_sort → O(d) sorts per fit.
       For d > 100, prefer StandardScaler (see §11.6).
     """
+    # v0.9.235: narrow step (per-batch transform, small state)
+    is_barrier = False
 
     __slots__ = ("_columns", "_median", "_iqr")
 

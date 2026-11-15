@@ -205,28 +205,59 @@ def _reset_registry() -> None:
 # ============================================================
 
 def plan_chain(ops: list[str], dc: DataChars, *,
-               budget: int, safety: float = 0.7) -> dict:
-    """Plan chain of ops via YamlFormulaModel (conservative sum).
+               budget: int, state_limit: Optional[int] = None,
+               safety: float = 0.7) -> dict:
+    """Plan chain of ops via YamlFormulaModel.
 
-    Returns {fits, peak_bytes, steps, reason}.
-    Conservative: peak = sum(all step peaks). Refined composition in P2b.
+    v0.9.235 (DEC-083): peak = max_k [cumulative_state_prior + peak_k].
+    Peaks are sequential; state accumulates (all held for downstream).
+
+    Returns {fits, peak_bytes, state_bytes, steps, reason}.
     """
+    if state_limit is None:
+        state_limit = budget // 2
     steps = []
-    peak = 0
+    cumulative_state = 0
+    total_peak = 0
     for op in ops:
         m = get_registered_model(op)
         if m is None:
-            return {"fits": False, "peak_bytes": peak, "steps": steps,
+            return {"fits": False, "peak_bytes": total_peak,
+                    "state_bytes": cumulative_state, "steps": steps,
                     "reason": f"{op}: not registered"}
         try:
             params = m.solve(budget, dc, safety=safety)
         except MemoryLimitExceeded as exc:
-            return {"fits": False, "peak_bytes": peak, "steps": steps,
+            return {"fits": False, "peak_bytes": total_peak,
+                    "state_bytes": cumulative_state, "steps": steps,
                     "reason": str(exc)}
         if params is None:
-            return {"fits": False, "peak_bytes": peak, "steps": steps,
-                    "reason": f"{op}: no fit"}
-        est = m.estimate(params, dc)
-        steps.append({"op_name": op, "params": params, "estimate": est})
-        peak += est
-    return {"fits": True, "peak_bytes": peak, "steps": steps, "reason": None}
+            # state-only formula (no batch term): eval at batch=1
+            try:
+                state_k = m._eval(dc, batch=1)
+            except Exception as exc:
+                return {"fits": False, "peak_bytes": total_peak,
+                        "state_bytes": cumulative_state, "steps": steps,
+                        "reason": f"{op}: eval failed: {exc}"}
+            peak_k = state_k
+            step_info = {"op_name": op, "params": None,
+                         "estimate": peak_k}
+        else:
+            peak_k = m.estimate(params, dc)
+            state_k = params.state_bytes
+            step_info = {"op_name": op, "params": params,
+                         "estimate": peak_k}
+        step_total = cumulative_state + peak_k
+        total_peak = max(total_peak, step_total)
+        cumulative_state += state_k
+        steps.append(step_info)
+    peak_ok = total_peak <= budget
+    state_ok = cumulative_state <= state_limit
+    reason = None
+    if not peak_ok:
+        reason = f"peak={total_peak} > budget={budget}"
+    elif not state_ok:
+        reason = f"state={cumulative_state} > state_limit={state_limit}"
+    return {"fits": peak_ok and state_ok, "peak_bytes": total_peak,
+            "state_bytes": cumulative_state, "steps": steps,
+            "reason": reason}
