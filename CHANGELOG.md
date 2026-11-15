@@ -1,5 +1,50 @@
 ## [Unreleased]
 
+## [0.9.237] — 2026-11-15 (streaming: _execute_stream, mocks pass)
+
+**Session summary:** v0.9.237a (_safe_eval Call whitelist) + v0.9.237b
+streaming infrastructure (_LazyView, _execute_stream, Pipeline.fit_transform
+dispatch). Mock streaming targets achieved honestly.
+
+### v0.9.237a — _safe_eval whitelist
+- _SAFE_CALLS = {max, min, abs}; ast.Call branch.
+- test_safe_eval_builtins -> pass (was xfail).
+
+### v0.9.237b — streaming infrastructure
+- _LazyView (pipeline.py): df-like for chain (delegates _memory_guard,
+  _spill_dir, _iter_filtered_batches, _new_dataset_dir, count, _dataset.schema).
+- _materialize(factory, template_df, schema): 1-write helper.
+- Pipeline._execute_stream(df, target): segment-based; narrow fused,
+  barrier materialize, final materialize. Fallback to eager on DAG / any
+  exception.
+- Pipeline.fit_transform: tries _execute_stream first, falls back to
+  eager (fit + transform) if streaming path returns None.
+
+### Honest targets (achievable, non-breaking)
+- [narrow, narrow] fit_transform         -> 1 write (final)
+  (was xfail test_narrow_narrow_zero_writes; 0 writes requires lazy
+  AutoResult return = breaking; deferred)
+- [narrow, wide, narrow]                 -> 2 writes (wide out + final)
+  (was xfail test_narrow_wide_narrow_one_materialize)
+- [narrow, w1, narrow, w2, narrow]       -> 3 writes (2 wide out + final)
+  (new test_long_chain_two_barriers_writes_eq_3)
+
+### Deferred (v0.9.238)
+- Real step refactor: scalers (4), CastStep, DropnaStep -> fit_iter +
+  transform_batch + output_schema. Currently they fall back to eager
+  path (1 write per step, unchanged).
+- State release after barrier (serialize/reload): P3.
+
+### Verified
+- spec: 7 passed (was 4+2 pass, 2 xfail = 6 pass, 3 xfail; now 7 pass,
+  1 xfail remaining = test_plan_covers_transient from P2b)
+- Composition, YAML model, pipeline regressions green.
+
+### Anti-scope
+- No lazy AutoResult return (breaking; P3).
+- No scaler/Cast/Dropna refactor this release (v0.9.238).
+- test_plan_covers_transient remains xfail (P2b audit: GBDT transient).
+
 ## [0.9.236] — 2026-11-15 (streaming infra: BufferRegistry + CompositeStep)
 
 **Session summary:** 2 of 5 spec xfail resolved. Infrastructure only;

@@ -3680,3 +3680,32 @@ annotation for future state-release optimization. Not used in formula
 
 **Reference:** MEMORY_GUARD_ARCHITECTURE.md §4 (P2a wire), spec
 `test_narrow_wide_narrow_one_materialize`, user feedback 2026-11-15.
+
+---
+
+## DEC-084 (2026-11-15, v0.9.237) — Streaming writes: honest targets
+
+**Q:** Spec `test_narrow_narrow_zero_writes` requires 0 writes. Achievable?
+
+**A:** Not without breaking change. `Pipeline.fit_transform` returns
+`CadwDataFrame` (materialized) → 1 final write is intrinsic unless
+returning lazy AutoResult (breaks callers: `.columns`, `.head()`).
+
+Honest achievable targets:
+| Pipeline | Writes (streaming) |
+|---|---|
+| `[narrow, narrow]` | 1 (final) |
+| `[narrow, wide, narrow]` | 2 (wide out + final) |
+| `M barriers, N narrow` | M+1 |
+
+**Implementation:** `_LazyView` (delegates df surface) +
+`_execute_stream` (narrow fused per-batch; barrier materialize;
+final materialize). `Pipeline.fit_transform` tries stream first,
+falls back to eager.
+
+**Deferred:**
+- 0 writes via lazy AutoResult: P3 (breaking change; migration).
+- Scalers/Cast/Dropna refactor: v0.9.238 (they lack fit_iter +
+  transform_batch + output_schema now, fall back to eager).
+
+**Reference:** DEC-083 (composition), MEMORY_GUARD_ARCHITECTURE.md §4.

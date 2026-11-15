@@ -178,6 +178,56 @@ def _merge_fanout(dfs: list) -> "CadwDataFrame":
 
 
 
+class _LazyView:
+    """v0.9.237b: lightweight df-like for streaming chain.
+
+    Only exposes what fit/transform of downstream steps need:
+    _memory_guard, _spill_dir, _iter_filtered_batches, _new_dataset_dir,
+    _dataset (minimal proxy with .schema), count() (approximate).
+    """
+    __slots__ = ("_factory", "_schema", "_template",
+                 "_memory_guard", "_spill_dir")
+
+    def __init__(self, factory, schema, template_df):
+        self._factory = factory
+        self._schema = schema
+        self._template = template_df
+        self._memory_guard = template_df._memory_guard
+        self._spill_dir = template_df._spill_dir
+
+    def _iter_filtered_batches(self, batch_size=None):
+        # batch_size ignored: factory already yields batches
+        yield from self._factory()
+
+    def _new_dataset_dir(self):
+        return self._template._new_dataset_dir()
+
+    def count(self):
+        return self._template.count()
+
+    @property
+    def _dataset(self):
+        return _LazyDatasetView(self._schema)
+
+
+class _LazyDatasetView:
+    __slots__ = ("schema",)
+    def __init__(self, schema):
+        self.schema = schema
+
+
+def _materialize(factory, template_df, schema):
+    """v0.9.237b: 1-write materialization into new Dataset."""
+    from cadw.dataset import Dataset
+    from cadw.dataframe import CadwDataFrame
+    new_ds = Dataset.from_batches(
+        schema, factory(), template_df._new_dataset_dir())
+    return CadwDataFrame(
+        new_ds,
+        memory_guard=template_df._memory_guard,
+        spill_dir=template_df._spill_dir)
+
+
 class Pipeline:
     """Sequence of Transformers. Model (if any) is LAST.
 
@@ -786,12 +836,86 @@ class Pipeline:
             "(should be unreachable — Predictor is sink, validated)"
         )
 
+    def _execute_stream(self, df, target=None):
+        """v0.9.237b: segment-based streaming executor.
+
+        Narrow chain fused per-batch; barrier materializes (1 write);
+        final materialize (1 write). Returns features df (or None on
+        fan-in DAG or missing support -> eager fallback).
+
+        Streaming eligibility per step: has fit_iter + transform_batch +
+        output_schema (v0.9.238 will add to scalers/Cast/Dropna; mocks
+        already implement).
+        """
+        graph = self._build_graph()
+        order = self._topological_order()
+        # DAG with fan-in -> fallback (linear chain only)
+        for name in order:
+            if len(graph[name]) > 1:
+                return None
+        try:
+            factory = df._iter_filtered_batches
+            schema = df._dataset.schema
+            last_features_df = None
+
+            for name in order:
+                step = self._get_step(name)
+                is_pred = _is_predictor(step)
+                has_stream = (
+                    not getattr(step, "is_barrier", True)
+                    and getattr(step, "_streamable", True)
+                    and hasattr(step, "fit_iter")
+                    and hasattr(step, "transform_batch")
+                    and hasattr(step, "output_schema"))
+
+                if is_pred:
+                    lazy = _LazyView(factory, schema, df)
+                    step.fit(lazy, target=target)
+                    last_features_df = None
+                    factory = None
+                    break
+
+                if has_stream:
+                    step.fit_iter(factory, df)
+                    prev_factory = factory
+                    prev_fn = step.transform_batch
+                    factory = (
+                        lambda pf=prev_factory, fn=prev_fn: (
+                            fn(b) for b in pf()))
+                    schema = step.output_schema(schema)
+                    last_features_df = None
+                else:
+                    # Barrier or eager-only step
+                    lazy = _LazyView(factory, schema, df)
+                    step.fit(lazy, target=None)
+                    out_df = step.transform(lazy)
+                    factory = out_df._iter_filtered_batches
+                    schema = out_df._dataset.schema
+                    last_features_df = out_df
+
+            if factory is not None:
+                last_features_df = _materialize(factory, df, schema)
+            elif last_features_df is None:
+                last_features_df = df
+
+            self._fitted = True
+            return last_features_df
+        except Exception:
+            # Any incompatibility -> caller falls back to eager
+            return None
+
     def fit_transform(
         self,
         df: "CadwDataFrame",
         target: Optional[str] = None,
     ) -> "CadwDataFrame":
-        """fit + transform; returns feature CadwDataFrame (before model)."""
+        """fit + transform; returns feature CadwDataFrame (before model).
+
+        v0.9.237b: attempts streaming path first; falls back to eager.
+        """
+        result = self._execute_stream(df, target=target)
+        if result is not None:
+            return result
         self.fit(df, target=target)
         return self.transform(df)
 
@@ -1107,6 +1231,12 @@ class CompositeStep:
             v = getattr(s, "is_barrier", True)
             return v() if callable(v) else bool(v)
         self.is_barrier = any(_barrier(s) for s in self._steps)
+        # v0.9.237b: streamable if all children streamable
+        self._streamable = all(
+            hasattr(s, "fit_iter")
+            and hasattr(s, "transform_batch")
+            and hasattr(s, "output_schema")
+            for s in self._steps)
 
     def fit(self, df, target=None):
         for s in self._steps:
@@ -1124,6 +1254,36 @@ class CompositeStep:
                     f"{type(s).__name__} has no transform")
             current = s.transform(current)
         return current
+
+    # v0.9.237b: streaming API (delegates to children; only if all streamable)
+    def fit_iter(self, batch_factory, template_df):
+        if not self._streamable:
+            raise NotImplementedError(
+                "CompositeStep.fit_iter: not all children streamable")
+        cur = batch_factory
+        for s in self._steps:
+            s.fit_iter(cur, template_df)
+            prev = cur
+            fn = s.transform_batch
+            cur = (lambda pf=prev, f=fn: (f(b) for b in pf()))
+        return self
+
+    def transform_batch(self, batch):
+        if not self._streamable:
+            raise NotImplementedError(
+                "CompositeStep.transform_batch: not all children streamable")
+        for s in self._steps:
+            batch = s.transform_batch(batch)
+        return batch
+
+    def output_schema(self, input_schema):
+        if not self._streamable:
+            raise NotImplementedError(
+                "CompositeStep.output_schema: not all children streamable")
+        schema = input_schema
+        for s in self._steps:
+            schema = s.output_schema(schema)
+        return schema
 
     def estimate_state_bytes(self, dc):
         return sum(s.estimate_state_bytes(dc) for s in self._steps)

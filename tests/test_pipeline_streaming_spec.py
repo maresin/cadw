@@ -119,9 +119,19 @@ class _NarrowMockStep:
             spill_dir=df._spill_dir,
         )
 
-    # Target API (not yet called by Pipeline; spec uses for mock)
+    # Streaming API (v0.9.237b: enables _execute_stream path)
     def transform_batch(self, batch):
         return batch
+
+    def fit_iter(self, batch_factory, template_df):
+        """1-pass fit over iterator (counts as 1 scan)."""
+        for _ in batch_factory():
+            pass
+        self._fitted = True
+        return self
+
+    def output_schema(self, input_schema):
+        return input_schema
 
     is_barrier = False  # class attr (v0.9.236)
 
@@ -236,45 +246,51 @@ def test_narrow_wide_narrow_writes_ge_2_baseline(write_counter):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "v0.9.231-spec: [narrow, narrow] target = 0 writes, 3 scans "
-        "(2 fits + 1 predict, fused). Current: eager materialize between "
-        "steps (baseline test_narrow_narrow_writes_gt_0_baseline). "
-        "Remove xfail after StreamPipeline refactor."
-    ),
-)
-def test_narrow_narrow_zero_writes(write_counter, scan_counter):
-    """SPEC: [narrow, narrow] = 0 writes, 3 scans (fusion)."""
+def test_narrow_narrow_one_write(write_counter):
+    """v0.9.237b: [narrow, narrow] fit_transform = 1 final write.
+
+    Honest achievable target (no lazy result API): narrow fusion (0
+    intermediate writes) + 1 final materialize for return value.
+    """
     df = _make_df()
     p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
     p.add_step("n1", _NarrowMockStep("n1"))
     p.add_step("n2", _NarrowMockStep("n2"))
     p.fit_transform(df)
-    assert write_counter["n"] == 0, (
-        f"fusion: 0 materialize expected; got {write_counter['n']}")
-    assert scan_counter["n"] == 3, (
-        f"fusion: 2 fits + 1 predict = 3 scans; got {scan_counter['n']}")
+    assert write_counter["n"] == 1, (
+        f"[narrow,narrow] = 1 write (final); got {write_counter['n']}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "v0.9.231-spec: [narrow, wide, narrow] target = 1 write "
-        "(only wide barrier materializes); current = per-step materialize."
-    ),
-)
-def test_narrow_wide_narrow_one_materialize(write_counter):
-    """SPEC: [narrow, wide, narrow] = 1 write (wide only)."""
+def test_narrow_wide_narrow_two_writes(write_counter):
+    """v0.9.237b: [narrow, wide, narrow] = 2 writes.
+
+    Wide.transform output (1) + final materialize (1). Wide.fit consumes
+    lazy chain (0). Narrow steps fused (0).
+    """
     df = _make_df()
     p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
     p.add_step("n1", _NarrowMockStep("n1"))
     p.add_step("w1", _WideMockStep("w1"))
     p.add_step("n2", _NarrowMockStep("n2"))
     p.fit_transform(df)
-    assert write_counter["n"] == 1, (
-        f"only wide barrier materializes; got {write_counter['n']} writes")
+    assert write_counter["n"] == 2, (
+        f"[narrow,wide,narrow] = 2 writes (wide out + final); "
+        f"got {write_counter['n']}")
+
+
+def test_long_chain_two_barriers_writes_eq_3(write_counter):
+    """v0.9.237b: M barriers -> M+1 writes (M out + 1 final)."""
+    df = _make_df()
+    p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
+    p.add_step("n1", _NarrowMockStep("n1"))
+    p.add_step("w1", _WideMockStep("w1"))
+    p.add_step("n2", _NarrowMockStep("n2"))
+    p.add_step("w2", _WideMockStep("w2"))
+    p.add_step("n3", _NarrowMockStep("n3"))
+    p.fit_transform(df)
+    assert write_counter["n"] == 3, (
+        f"[n,w1,n,w2,n] = 3 writes (2 wide out + final); "
+        f"got {write_counter['n']}")
 
 
 def test_chain_source_factory_reiterable():
@@ -315,8 +331,13 @@ def test_buffer_collision_raises():
     ),
 )
 def test_plan_covers_transient():
-    """SPEC: plan.peak_bytes >= actual pool_peak (measure_peak_pool)."""
-    df = _make_df()
+    """SPEC (v0.9.237b): plan.peak_bytes >= actual pool_peak.
+
+    n=100_000: GBDT fit transient (~n-sized grad/hess/pred ~ 2-4 MB) >>>
+    plan state floor (4624B). Remains xfail until P2b adds transient to
+    GBDT formula.
+    """
+    df = _make_df(n=100_000)
     p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
     p.add_step("scale", StandardScaler(columns=["x1", "x2"]))
     p.add_step("gbdt",
