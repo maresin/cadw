@@ -233,9 +233,9 @@ class Pipeline:
 
     Usage:
         pipe = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
-        pipe.add_step("cast", CastStep({"v": "float64"}))
-        pipe.add_step("dropna", DropnaStep(how="any"))
-        pipe.add_step("model", GBDTStep(X_cols=["v"], y_col="y"))
+        pipe.add_step("scale", StandardScaler(columns=["v"]))
+        pipe.add_step("model", ModelStep("fit_linear", X_cols=["v"], y_col="y"))
+        # (StandardScaler / ModelStep are user-defined or reference steps)
         pipe.fit(train_df, target="y")
         preds = pipe.predict(test_df)  # CadwDataFrame with y_pred
     """
@@ -401,7 +401,7 @@ class Pipeline:
         - Each step must implement `to_dict()` → dict. State (fitted
           model) goes into `state/<step_name>.json` if non-trivial.
         - Raises NotImplementedError for steps without to_dict (e.g.
-          LambdaTransform — callable not serializable).
+          arbitrary callable — not serializable).
 
         Returns Path to pipeline.json.
         """
@@ -528,8 +528,9 @@ class Pipeline:
                 )
             step_cls = _STEP_REGISTRY[type_name]
             params = step_data.get("params", {})
-            # Merge state into params for GBDTStep (it expects dict with
-            # both "params" and "state" keys)
+            # Merge state into params: step.from_dict receives both
+            # "params" and optional "state" keys (convention: from_dict
+            # reads d.get("params"), d.get("state"))
             combined = params.copy() if isinstance(params, dict) else {}
             if step_data.get("has_state"):
                 state_file = base_dir / step_data["state_file"]
@@ -538,10 +539,7 @@ class Pipeline:
                         f"from_json: state file {state_file} not found"
                     )
                 combined["state"] = json.loads(state_file.read_text())
-            if type_name == "GBDTStep":
-                step = step_cls.from_dict(combined)
-            else:
-                step = step_cls.from_dict(combined)
+            step = step_cls.from_dict(combined)
             pipe.add_step(
                 step_data["name"], step, inputs=step_data["inputs"],
             )
@@ -586,8 +584,7 @@ class Pipeline:
                     # state-only formula: eval at batch=1.
                     # Formula may reference step hyperparams (n_estimators,
                     # max_depth for GBDT) not present in dc -> KeyError ->
-                    # fallback to step.estimate_state_bytes (honest, GBDTStep
-                    # already returns _n_nodes()*48 + 1024).
+                    # fallback to step.estimate_state_bytes (honest state floor).
                     return model._eval(dc, batch=1)
                 except MemoryLimitExceeded:
                     raise  # bubble up; caller wraps in PipelineMemoryError
@@ -605,8 +602,8 @@ class Pipeline:
         peak_bytes comes from YamlFormulaModel for steps with cadw_function
         (batch-linear: full formula; state-only: state). Fallback to
         estimate_state_bytes for steps without formula (e.g. scalers,
-        CastStep). Conservative: sum of peaks across steps (no overlap
-        assumption). Refined segment composition deferred to P2b.
+        fallback). Conservative: sum of peaks across steps (no overlap
+        assumption).
 
         Raises PipelineMemoryError with step_idx + actionable describe.
         """
@@ -964,345 +961,7 @@ class Pipeline:
         )
 
 
-# ============ Wrappers for testing (MVP) ============
-
-class CastStep:
-    # v0.9.235: narrow step (per-batch cast, state=0, no barrier)
-    is_barrier = False
-
-    """Wrap `df.astype(mapping)`. Stateless."""
-
-    __slots__ = ("_mapping", "_safe")
-
-    def __init__(self, mapping: dict, *, safe: bool = True) -> None:
-        self._mapping = dict(mapping)
-        self._safe = safe
-
-    def fit(self, df, target=None):
-        return self
-
-    def transform(self, df):
-        return df.astype(self._mapping, safe=self._safe)
-
-    def estimate_state_bytes(self, dc):
-        return 0
-
-    def state_bytes(self):
-        return 0
-
-    def to_dict(self) -> dict:
-        """v0.9.1c: serialize params. pa.DataType → str alias."""
-        return {
-            "mapping": {
-                col: str(dt) for col, dt in self._mapping.items()
-            },
-            "safe": self._safe,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "CastStep":
-        import pyarrow as pa
-        mapping = {
-            col: pa.type_for_alias(str(dt)) if isinstance(dt, str) else dt
-            for col, dt in d["mapping"].items()
-        }
-        return cls(mapping, safe=bool(d.get("safe", True)))
-
-
-class DropnaStep:
-    # v0.9.235: narrow step (per-batch filter, state=0, no barrier)
-    is_barrier = False
-
-    """Wrap `df.dropna(how, subset)`. Stateless."""
-
-    __slots__ = ("_how", "_subset")
-
-    def __init__(self, how: str = "any", subset=None) -> None:
-        self._how = how
-        self._subset = list(subset) if subset is not None else None
-
-    def fit(self, df, target=None):
-        return self
-
-    def transform(self, df):
-        return df.dropna(how=self._how, subset=self._subset)
-
-    def estimate_state_bytes(self, dc):
-        return 0
-
-    def state_bytes(self):
-        return 0
-
-    def to_dict(self) -> dict:
-        return {"how": self._how, "subset": self._subset}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "DropnaStep":
-        return cls(how=d.get("how", "any"), subset=d.get("subset"))
-
-
-class GBDTStep:
-    """Wrap `fit_gbdt_regressor`. State = tree structure + leaf values."""
-
-    # v0.9.235: barrier (multi-round fit needs all data; state persists)
-    is_barrier = True
-
-    __slots__ = ("_X_cols", "_y_col", "_kwargs", "_model")
-
-    # v0.9.233 (P2a): cadw_function for Pipeline.plan preflight wiring.
-    # Class attr (not in __slots__). Used to look up YamlFormulaModel.
-    cadw_function = "fit_gbdt_regressor"
-
-    # Conservative per-node bytes: feature idx (4) + threshold (8)
-    # + left (4) + right (4) + gain (8) + leaf value (8) = 36; round to 48.
-    _NODE_BYTES = 48
-
-    def __init__(
-        self,
-        X_cols,
-        y_col: str,
-        **kwargs,
-    ) -> None:
-        if isinstance(X_cols, str):
-            X_cols = [X_cols]
-        self._X_cols = list(X_cols)
-        self._y_col = y_col
-        self._kwargs = dict(kwargs)
-        self._model = None
-
-    def _n_nodes(self) -> int:
-        n_est = int(self._kwargs.get("n_estimators", 100))
-        max_d = int(self._kwargs.get("max_depth", 3))
-        # Level-wise: full binary tree of depth d has 2^(d+1) - 1 nodes.
-        return n_est * ((1 << (max_d + 1)) - 1)
-
-    def estimate_state_bytes(self, dc):
-        # Tree structure dominates; +1 KiB for metadata (feature names,
-        # bin boundaries, base prediction).
-        return self._n_nodes() * self._NODE_BYTES + 1024
-
-    def state_bytes(self):
-        if self._model is None:
-            return 0
-        actual = 0
-        for tree in self._model.trees_:
-            actual += len(tree["structure"]) * self._NODE_BYTES
-            actual += len(tree["leaf_values"]) * 8
-        return actual + 1024
-
-    def fit(self, df, target=None):
-        from cadw.ml.gbdt import fit_gbdt_regressor
-        if target is None:
-            target = self._y_col
-        if target != self._y_col:
-            raise ValueError(
-                f"GBDTStep.fit: target={target!r} != y_col={self._y_col!r}"
-            )
-        self._model = fit_gbdt_regressor(
-            df, self._X_cols, self._y_col,
-            memory_guard=df._memory_guard,
-            **self._kwargs,
-        )
-        return self
-
-    def predict(self, df):
-        if self._model is None:
-            raise RuntimeError("GBDTStep.predict: not fitted")
-        return self._model.predict(df)
-
-    def to_dict(self) -> dict:
-        """v0.9.1c: serialize params + state (fitted model).
-
-        Returns params always; state only if fitted (`model` is None →
-        state=None). `from_dict` with state=None → unfitted step.
-        """
-        out = {
-            "params": {
-                "X_cols": list(self._X_cols),
-                "y_col": self._y_col,
-                "kwargs": dict(self._kwargs),
-            },
-            "state": None,
-        }
-        if self._model is not None:
-            from cadw._serialization import gbdt_regressor_to_dict
-            out["state"] = {
-                "kind": "gbdt_regressor",
-                "data": gbdt_regressor_to_dict(self._model),
-            }
-        return out
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "GBDTStep":
-        params = d.get("params", {})
-        step = cls(
-            X_cols=params["X_cols"],
-            y_col=params["y_col"],
-            **params.get("kwargs", {}),
-        )
-        state = d.get("state")
-        if state is not None:
-            kind = state.get("kind")
-            if kind == "gbdt_regressor":
-                from cadw._serialization import gbdt_regressor_from_dict
-                step._model = gbdt_regressor_from_dict(state["data"])
-            else:
-                raise ValueError(
-                    f"GBDTStep.from_dict: unknown state kind {kind!r}"
-                )
-        return step
-
-
-class LambdaTransform:
-    """Test helper: apply Arrow-native fn to a source column, append
-    `{src_col}_{feature_name}` (v0.9.1b — for DAG tests and simple
-    feature engineering). Stateless."""
-
-    __slots__ = ("_src_col", "_feature_name", "_fn", "_out_type")
-
-    def __init__(
-        self,
-        src_col: str,
-        feature_name: str,
-        fn,
-        out_type,
-    ) -> None:
-        self._src_col = src_col
-        self._feature_name = feature_name
-        self._fn = fn
-        self._out_type = out_type
-
-    def fit(self, df, target=None):
-        return self
-
-    def transform(self, df):
-        return df._apply_column_transform(
-            self._src_col, self._feature_name, self._fn, self._out_type,
-            accessor="lambda",
-        )
-
-    def estimate_state_bytes(self, dc):
-        return 0
-
-    def state_bytes(self):
-        return 0
-
-    def to_dict(self) -> dict:
-        """v0.9.1c: LambdaTransform NOT serializable (callable fn).
-
-        Raise with clear message: define a custom step class implementing
-        to_dict / from_dict, or wrap your function in a named class.
-        """
-        raise NotImplementedError(
-            "LambdaTransform cannot be serialized: `fn` is a callable, "
-            "not JSON-serializable. Define a custom step class with "
-            "to_dict()/from_dict() instead, or use only named wrappers "
-            "(CastStep, DropnaStep, GBDTStep) in pipelines you intend "
-            "to save."
-        )
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "LambdaTransform":
-        raise NotImplementedError(
-            "LambdaTransform cannot be deserialized. Use a custom step "
-            "class with to_dict/from_dict."
-        )
-
-
 # ============ Step type registry (v0.9.1d) ============
-
-class CompositeStep:
-    """v0.9.236: composite of child steps (sequential fit, chained transform).
-
-    Behaves like flat pipeline equivalent: fit all children on input df,
-    transform chains through children. Scan/write counts equal flat.
-
-    is_barrier = True if any child barrier; else False (fold candidate,
-    v0.9.237 streaming will use transform_batch for actual fold).
-    """
-    cadw_function = None
-
-    def __init__(self, steps: list) -> None:
-        if not steps:
-            raise ValueError("CompositeStep: empty steps")
-        self._steps = list(steps)
-        # any child barrier -> barrier
-        def _barrier(s) -> bool:
-            v = getattr(s, "is_barrier", True)
-            return v() if callable(v) else bool(v)
-        self.is_barrier = any(_barrier(s) for s in self._steps)
-        # v0.9.237b: streamable if all children streamable
-        self._streamable = all(
-            hasattr(s, "fit_iter")
-            and hasattr(s, "transform_batch")
-            and hasattr(s, "output_schema")
-            for s in self._steps)
-
-    def fit(self, df, target=None):
-        for s in self._steps:
-            is_pred = (hasattr(s, "predict")
-                       and not hasattr(s, "transform"))
-            s.fit(df, target=target if is_pred else None)
-        return self
-
-    def transform(self, df):
-        current = df
-        for s in self._steps:
-            if not hasattr(s, "transform"):
-                raise RuntimeError(
-                    f"CompositeStep.transform: "
-                    f"{type(s).__name__} has no transform")
-            current = s.transform(current)
-        return current
-
-    # v0.9.237b: streaming API (delegates to children; only if all streamable)
-    def fit_iter(self, batch_factory, template_df):
-        if not self._streamable:
-            raise NotImplementedError(
-                "CompositeStep.fit_iter: not all children streamable")
-        cur = batch_factory
-        for s in self._steps:
-            s.fit_iter(cur, template_df)
-            prev = cur
-            fn = s.transform_batch
-            cur = (lambda pf=prev, f=fn: (f(b) for b in pf()))
-        return self
-
-    def transform_batch(self, batch):
-        if not self._streamable:
-            raise NotImplementedError(
-                "CompositeStep.transform_batch: not all children streamable")
-        for s in self._steps:
-            batch = s.transform_batch(batch)
-        return batch
-
-    def output_schema(self, input_schema):
-        if not self._streamable:
-            raise NotImplementedError(
-                "CompositeStep.output_schema: not all children streamable")
-        schema = input_schema
-        for s in self._steps:
-            schema = s.output_schema(schema)
-        return schema
-
-    def estimate_state_bytes(self, dc):
-        return sum(s.estimate_state_bytes(dc) for s in self._steps)
-
-    def state_bytes(self):
-        return sum(
-            s.state_bytes() if hasattr(s, "state_bytes") else 0
-            for s in self._steps)
-
-    def to_dict(self):
-        return {
-            "kind": "CompositeStep",
-            "steps": [
-                {"type": type(s).__name__,
-                 "params": s.to_dict() if hasattr(s, "to_dict") else {}}
-                for s in self._steps
-            ],
-        }
-
 
 _STEP_REGISTRY: dict = {}
 
@@ -1320,8 +979,9 @@ def register_step_type(name: str, cls: type) -> None:
     Overwrites existing registration with warning (same pattern as
     `register_model` in memory_guard.py — §9.7).
 
-    Built-in types (`CastStep`, `DropnaStep`, `GBDTStep`) are pre-registered;
-    override allowed for custom implementations of standard interfaces.
+    Built-in step types (`CompositeStep`, `ColumnTransformer`,
+    `StandardScaler`, `MinMaxScaler`, `MaxAbsScaler`, `RobustScaler`) are
+    registered at import of `cadw.steps` / `cadw.scalers`.
 
     Usage:
         >>> from cadw.pipeline import register_step_type
@@ -1361,13 +1021,16 @@ def register_step_type(name: str, cls: type) -> None:
 def unregister_step_type(name: str) -> None:
     """Remove custom step type from registry (for tests / cleanup).
 
-    Built-in types (`CastStep`, `DropnaStep`, `GBDTStep`) cannot be
-    unregistered (they're always available for from_json).
+    Built-in types (`CompositeStep`, `ColumnTransformer`, scalers) cannot
+    be unregistered (re-registered on import of `cadw.steps` / `cadw.scalers`).
     """
-    if name in ("CastStep", "DropnaStep", "GBDTStep"):
+    _BUILTINS = ("CompositeStep", "ColumnTransformer",
+                 "StandardScaler", "MinMaxScaler", "MaxAbsScaler",
+                 "RobustScaler")
+    if name in _BUILTINS:
         raise ValueError(
             f"unregister_step_type: cannot unregister built-in type "
-            f"{name!r}"
+            f"{name!r} (re-registered on import of cadw.steps / cadw.scalers)"
         )
     _STEP_REGISTRY.pop(name, None)
 
@@ -1375,272 +1038,3 @@ def unregister_step_type(name: str) -> None:
 def list_step_types() -> list:
     """Return sorted list of registered step type names."""
     return sorted(_STEP_REGISTRY.keys())
-
-
-# Pre-register built-in wrappers. `__serialization_name__` set to the
-# canonical name so `to_json` writes it (and `from_json` finds it).
-# `ColumnTransformer` is registered at the bottom of this module,
-# AFTER its class definition (see below).
-_STEP_REGISTRY["CastStep"] = CastStep
-_STEP_REGISTRY["DropnaStep"] = DropnaStep
-_STEP_REGISTRY["GBDTStep"] = GBDTStep
-for _pre_name, _pre_cls in list(_STEP_REGISTRY.items()):
-    setattr(_pre_cls, "__serialization_name__", _pre_name)
-
-
-# ============ ColumnTransformer (v0.9.1d) ============
-
-class ColumnTransformer:
-    """Apply different transformers to different column subsets.
-
-    sklearn-style column fanout. Each transformer is fit and applied
-    to `df[cols]` subset; outputs are concatenated (column union).
-
-    Args:
-        transformers: list of (name, cols, step) triples.
-            - name: str, unique identifier per transformer.
-            - cols: str or list[str] — column subset the transformer sees.
-            - step: any Transformer (fit + transform contract).
-        remainder: 'drop' (default) | 'passthrough'.
-            - 'drop': columns not claimed by any transformer are dropped.
-            - 'passthrough': they appear unchanged at the end of output.
-
-    Valid cases:
-        - Disjoint `cols` across transformers (each column claimed by ≤1).
-        - Transformers preserve row count (no dropna inside).
-        - Unique transformer names.
-        - `remainder='drop'` with all cols claimed.
-        - `remainder='passthrough'` with some cols unclaimed.
-        - Transformer emits new columns (e.g. LambdaTransform appends
-          `{col}_{feat}`) — new cols appear in output.
-
-    Invalid cases (raise at construction):
-        - Empty `transformers` → ValueError.
-        - Duplicate transformer `name` → ValueError.
-        - Overlapping `cols` across transformers → ValueError.
-        - Empty `cols` in a transformer → ValueError.
-        - `step` missing `fit` or `transform` → TypeError.
-        - `remainder` not in ('drop', 'passthrough') → ValueError.
-
-    Invalid cases (raise at transform):
-        - `cols` column missing from input df → KeyError.
-        - Transformer changed row count (e.g. dropna inside) → RuntimeError.
-        - Duplicate output column name across transformers → RuntimeError.
-
-    Output column order:
-        [t1 output cols..., t2 output cols..., ..., remainder cols...]
-        Where "t_i output cols" = whatever `t_i.transform()` emitted.
-
-    Examples:
-        >>> ct = ColumnTransformer([
-        ...     ('num', ['a', 'b'], CastStep({'a': 'float64', 'b': 'float64'})),
-        ...     ('cat', ['c'], CastStep({'c': 'int32'})),
-        ... ], remainder='drop')
-        >>> ct.fit(df)
-        >>> out = ct.transform(df)  # columns: a, b, c
-    """
-
-    __slots__ = ("_transformers", "_remainder")
-
-    def __init__(
-        self,
-        transformers: list,
-        *,
-        remainder: str = "drop",
-    ) -> None:
-        if remainder not in ("drop", "passthrough"):
-            raise ValueError(
-                f"ColumnTransformer: remainder must be 'drop' or "
-                f"'passthrough'; got {remainder!r}"
-            )
-        if not transformers:
-            raise ValueError(
-                "ColumnTransformer: transformers must be non-empty list"
-            )
-
-        names_seen: set = set()
-        cols_claimed: dict = {}  # col → transformer name
-        normalized: list = []
-
-        for entry in transformers:
-            if not isinstance(entry, (list, tuple)) or len(entry) != 3:
-                raise TypeError(
-                    f"ColumnTransformer: each transformer must be "
-                    f"(name, cols, step) triple; got {entry!r}"
-                )
-            name, cols, step = entry
-
-            if not isinstance(name, str) or not name:
-                raise ValueError(
-                    f"ColumnTransformer: transformer name must be "
-                    f"non-empty str; got {name!r}"
-                )
-            if name in names_seen:
-                raise ValueError(
-                    f"ColumnTransformer: duplicate transformer name "
-                    f"{name!r}; existing={sorted(names_seen)}"
-                )
-            names_seen.add(name)
-
-            if isinstance(cols, str):
-                cols = [cols]
-            else:
-                cols = list(cols)
-            if not cols:
-                raise ValueError(
-                    f"ColumnTransformer: transformer {name!r}: cols "
-                    f"must be non-empty"
-                )
-            for c in cols:
-                if not isinstance(c, str):
-                    raise TypeError(
-                        f"ColumnTransformer: transformer {name!r}: cols "
-                        f"must be str; got {type(c).__name__}"
-                    )
-                if c in cols_claimed:
-                    raise ValueError(
-                        f"ColumnTransformer: column {c!r} claimed by "
-                        f"both {cols_claimed[c]!r} and {name!r} — each "
-                        f"column can belong to at most one transformer"
-                    )
-                cols_claimed[c] = name
-
-            if not (hasattr(step, "fit") and hasattr(step, "transform")):
-                raise TypeError(
-                    f"ColumnTransformer: transformer {name!r} "
-                    f"({type(step).__name__}) must have fit + transform "
-                    f"(Transformer contract); Predictors cannot be "
-                    f"inside ColumnTransformer (only as final Pipeline step)"
-                )
-
-            normalized.append((name, cols, step))
-
-        self._transformers = normalized
-        self._remainder = remainder
-
-    def fit(self, df, target=None):
-        """Fit each transformer on its column subset."""
-        for name, cols, step in self._transformers:
-            for c in cols:
-                if c not in df.columns:
-                    raise KeyError(
-                        f"ColumnTransformer.fit: transformer {name!r}: "
-                        f"column {c!r} not in {df.columns}"
-                    )
-            subset = df[cols]
-            step.fit(subset, target=None)
-        return self
-
-    def transform(self, df):
-        """Apply each transformer to its subset; column-union output."""
-        n_orig = df.count()
-        claimed = set()
-        for _, cols, _ in self._transformers:
-            claimed.update(cols)
-
-        results = []
-        out_col_owner: dict = {}  # col → transformer name (for duplicate check)
-
-        for name, cols, step in self._transformers:
-            for c in cols:
-                if c not in df.columns:
-                    raise KeyError(
-                        f"ColumnTransformer.transform: transformer "
-                        f"{name!r}: column {c!r} not in {df.columns}"
-                    )
-            subset = df[cols]
-            out = step.transform(subset)
-            n_out = out.count()
-            if n_out != n_orig:
-                raise RuntimeError(
-                    f"ColumnTransformer: transformer {name!r} changed "
-                    f"row count: {n_orig} -> {n_out}. ColumnTransformer "
-                    f"requires row-preserving transformers (column-level "
-                    f"only). If you need row filtering, apply it before "
-                    f"ColumnTransformer."
-                )
-            for c in out.columns:
-                if c in out_col_owner:
-                    raise RuntimeError(
-                        f"ColumnTransformer: duplicate output column "
-                        f"{c!r} from transformers "
-                        f"{out_col_owner[c]!r} and {name!r}. Use distinct "
-                        f"column names or check for overlapping transforms."
-                    )
-                out_col_owner[c] = name
-            results.append(out)
-
-        if self._remainder == "passthrough":
-            remainder_cols = [c for c in df.columns if c not in claimed]
-            if remainder_cols:
-                results.append(df[remainder_cols])
-
-        return _merge_fanout(results)
-
-    def estimate_state_bytes(self, dc) -> int:
-        return sum(
-            step.estimate_state_bytes(dc)
-            for _, _, step in self._transformers
-        )
-
-    def state_bytes(self) -> int:
-        return sum(
-            step.state_bytes()
-            for _, _, step in self._transformers
-        )
-
-    def to_dict(self) -> dict:
-        """Serialize to JSON-compatible dict (nested state inline)."""
-        entries = []
-        for name, cols, step in self._transformers:
-            if not (hasattr(step, "to_dict") and callable(step.to_dict)):
-                raise NotImplementedError(
-                    f"ColumnTransformer.to_dict: nested step {name!r} "
-                    f"({type(step).__name__}) does not implement to_dict()"
-                )
-            # v0.9.9 (N1): use __serialization_name__ (set by
-            # register_step_type) so from_json finds the same key.
-            entries.append({
-                "name": name,
-                "cols": list(cols),
-                "type": getattr(
-                    type(step), "__serialization_name__",
-                    type(step).__name__,
-                ),
-                "step_dict": step.to_dict(),
-            })
-        return {
-            "transformers": entries,
-            "remainder": self._remainder,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "ColumnTransformer":
-        entries = []
-        for entry in d.get("transformers", []):
-            type_name = entry["type"]
-            if type_name not in _STEP_REGISTRY:
-                raise NotImplementedError(
-                    f"ColumnTransformer.from_dict: unknown nested step "
-                    f"type {type_name!r}. Register via "
-                    f"register_step_type({type_name!r}, ...) or use "
-                    f"built-in wrappers: {list_step_types()}"
-                )
-            step_cls = _STEP_REGISTRY[type_name]
-            step = step_cls.from_dict(entry["step_dict"])
-            entries.append((entry["name"], entry["cols"], step))
-        return cls(entries, remainder=d.get("remainder", "drop"))
-
-    def __repr__(self) -> str:
-        parts = ", ".join(
-            f"{name}={list(cols)}" for name, cols, _ in self._transformers
-        )
-        return (
-            f"ColumnTransformer([{parts}], remainder={self._remainder!r})"
-        )
-
-
-# v0.9.1d-fix1 (§13.4/151): register ColumnTransformer AFTER its class
-# definition (pre-registration block runs before class exists).
-_STEP_REGISTRY["ColumnTransformer"] = ColumnTransformer
-ColumnTransformer.__serialization_name__ = "ColumnTransformer"

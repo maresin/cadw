@@ -115,22 +115,6 @@ def test_transformer_has_transform_but_not_predict():
     assert "predict" not in required
 
 
-def test_gbdt_step_satisfies_predictor_not_transformer():
-    """GBDTStep: fit + predict, no transform → Predictor only."""
-    from cadw.pipeline import GBDTStep, Predictor, Transformer
-    step = GBDTStep(["x"], "y", n_estimators=5)
-    assert isinstance(step, Predictor)
-    assert not isinstance(step, Transformer)
-
-
-def test_cast_step_satisfies_transformer_not_predictor():
-    """CastStep: fit + transform, no predict → Transformer only."""
-    from cadw.pipeline import CastStep, Predictor, Transformer
-    step = CastStep({"v": "float64"})
-    assert isinstance(step, Transformer)
-    assert not isinstance(step, Predictor)
-
-
 # ============ grep tooling (§13.4/152) ============
 
 def test_grep_and_warn_finds_hits(tmp_path, capsys):
@@ -356,7 +340,6 @@ def test_verify_whitelist_real_cadw():
     assert not res['orphans'], (
         'orphan whitelist keys: ' + str(res['orphans'])
     )
-
 
 
 def test_collect_all_qualnames_nested(tmp_path):

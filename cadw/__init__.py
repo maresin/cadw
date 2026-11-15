@@ -31,16 +31,13 @@ from .ops.quantile import quantile
 from .ops.resample import parse_freq, resample_to_disk
 from .pipeline import (
     Pipeline,
-    CastStep,
-    DropnaStep,
-    GBDTStep,
-    ColumnTransformer,
     Transformer,
     Predictor,
     register_step_type,
     unregister_step_type,
     list_step_types,
 )
+from .steps import CompositeStep, ColumnTransformer
 
 from .cv import (
     KFold,
@@ -108,8 +105,7 @@ __all__ = [
     "external_sort", "read_sorted",
     "groupby_aggregate", "write_groupby_result", "drop_duplicates", "compute_ranks_to_disk", "VALID_METHODS", "quantile", "parse_freq", "resample_to_disk",
     # v0.9.1d pipeline exports
-    "Pipeline", "CastStep", "DropnaStep", "GBDTStep",
-    "ColumnTransformer", "Transformer", "Predictor",
+    "Pipeline", "CompositeStep", "ColumnTransformer", "Transformer", "Predictor",
     "register_step_type", "unregister_step_type", "list_step_types",
     # v0.9.2e cross-validation
     "KFold", "GroupKFold", "TimeSeriesSplit", "cv_score",

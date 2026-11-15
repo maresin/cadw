@@ -527,7 +527,7 @@ def cv_score(
         model_factory: callable() → fresh model. Model must implement
             ``fit(df, target=y_col)`` and ``predict(df) -> CadwDataFrame``
             (with prediction column named ``{target_col}_pred`` —
-            GBDTStep/Logistic/Linear convention).
+            ModelStep convention).
         X_cols: feature columns (used by model internally; passed to
             metrics? No — only y_col matters for metrics). Reserved.
         y_col: target column.
