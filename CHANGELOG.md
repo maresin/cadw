@@ -1,5 +1,41 @@
 ## [Unreleased]
 
+## [0.9.238] — 2026-11-16 (pipeline infra: abstract steps + MVP)
+
+**Session summary:** Pipeline refactor. Abstract Step/Transformer/Model
+ABCs; FrameMethod; 3 MVP steps (Standardize/PCAProjector/LinearRegressor —
+adapters, full copies in v0.9.239); plan() no-scan; pytest live-log.
+
+### Added
+- cadw/steps/base.py — Step(ABC) / Transformer / Model
+- cadw/steps/frame_method.py — FrameMethod (narrow/barrier by method)
+- cadw/steps/_mvp/ — Standardize (narrow, streaming), PCAProjector,
+  LinearRegressor (barriers, adapters; full copies in v0.9.239)
+- tests/test_pipeline_v1.py (9 tests)
+- tests/_helpers/_report.py — report() для тестовых метрик
+- pyproject.toml: pytest log_cli=true + -v (видимость)
+
+### Changed
+- cadw/pipeline.py: _dc_from_df (O(1), no scan); plan() без peek_first_batch
+- cadw/steps/__init__.py: exports + FrameMethod registration
+
+### Removed
+- Legacy CastStep/DropnaStep/GBDTStep/LambdaTransform (garbage)
+- 13 test files (~3117 LOC)
+
+### Tests (visible with log_cli=true)
+- Base hierarchy (Step/Transformer/Model isinstance)
+- Single model pipeline R²>0.99
+- Long chain 2 barriers (Standardize+PCAProjector+LinearRegressor)
+- FrameMethod + scaler + model
+- Eager vs streaming bit-identical
+- add_step validation (dup name / two Predictors / after Predictor)
+- to_json/from_json roundtrip
+
+### Next (v0.9.239)
+- Q108=A: full copies (LinearRegressor L2 closed-form ~150 LOC,
+  PCAProjector closed-form eigh ~140 LOC, helpers) — без адаптеров
+- Detailed tests: writes count, no-scan spy, card integration
 ## [0.9.237] — 2026-11-15 (streaming: _execute_stream, mocks pass)
 
 **Session summary:** v0.9.237a (_safe_eval Call whitelist) + v0.9.237b

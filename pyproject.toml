@@ -40,6 +40,12 @@ markers = [
     "e2e: end-to-end integration tests",
 ]
 testpaths = ["tests"]
+# v0.9.238: verbose + live log for tests (test measurements visible)
+addopts = "-v --tb=short"
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+log_cli_date_format = "%H:%M:%S"
 norecursedirs = ["_legacy", ".venv", "build", "dist", ".hypothesis"]
 
 [dependency-groups]

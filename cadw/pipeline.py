@@ -15,19 +15,22 @@ Design:
 """
 from __future__ import annotations
 
+import logging
+
 import json
 
 from pathlib import Path  # v0.9.9 (B3): for `-> Path` annotation
 from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
 
 from cadw.core.memory_guard import MemoryGuard, MemoryLimitExceeded
-from cadw.core.models import DataChars, data_chars_from_sample
+from cadw.core.models import DataChars
 from cadw.core.planner import PipelineMemoryError, PipelinePlan, StepPlan
-from cadw.core.sampling import peek_first_batch
 
 if TYPE_CHECKING:
     from cadw.dataframe import CadwDataFrame
 
+
+_log = logging.getLogger("cadw.pipeline")
 
 # v0.9.1a (§13.4/147 backlog): strict Protocol separation.
 # Transformer and Predictor are NOT nested (Predictor is NOT a
@@ -206,6 +209,11 @@ class _LazyView:
         return self._template.count()
 
     @property
+    def columns(self):
+        """v0.9.239: schema-based columns (needed by fit_X validation)."""
+        return list(self._schema.names)
+
+    @property
     def _dataset(self):
         return _LazyDatasetView(self._schema)
 
@@ -220,12 +228,72 @@ def _materialize(factory, template_df, schema):
     """v0.9.237b: 1-write materialization into new Dataset."""
     from cadw.dataset import Dataset
     from cadw.dataframe import CadwDataFrame
+    _log.info(
+        "materialize: rows=%d cols=%s (1 write)",
+        template_df.count(), list(schema.names))
     new_ds = Dataset.from_batches(
         schema, factory(), template_df._new_dataset_dir())
     return CadwDataFrame(
         new_ds,
         memory_guard=template_df._memory_guard,
         spill_dir=template_df._spill_dir)
+
+
+def _conservative_row_size(schema: "pa.Schema") -> int:
+    """Conservative row size from schema alone (no data sample).
+
+    For strings/binary: 32 B (avg_len ~20 + offset overhead ~12, generous).
+    For numeric/bool/timestamp: bit_width // 8.
+    For dictionary: 8 B (indices).
+    Unknown: 32 B (conservative).
+
+    Used by plan() when schema-only dc is built (no scan). May overestimate
+    row_size by 2-5x for string-heavy schemas → plan refuses earlier (honest).
+    """
+    import pyarrow as pa
+    size = 0
+    for f in schema:
+        t = f.type
+        if pa.types.is_boolean(t):
+            size += 1
+        elif pa.types.is_integer(t) or pa.types.is_floating(t):
+            size += max(1, t.bit_width // 8)
+        elif (pa.types.is_timestamp(t) or pa.types.is_date(t)
+              or pa.types.is_time(t)):
+            size += max(1, t.bit_width // 8)
+        elif pa.types.is_string(t) or pa.types.is_binary(t):
+            size += 32
+        elif pa.types.is_dictionary(t):
+            size += 8
+        else:
+            size += 32
+    return max(size, 1)
+
+
+def _dc_from_df(df) -> "DataChars":
+    """Build DataChars from Dataset metadata (O(1), no data scan).
+
+    Uses df._dataset.schema (metadata) + df.count() (O(1) via _total_rows).
+    For row_size: tries mg.estimate_row_size_from_schema (fast); falls back
+    to conservative schema-only estimate if strings present (no sample).
+    """
+    import pyarrow as pa
+    dataset = getattr(df, "_dataset", None)
+    schema = dataset.schema if dataset is not None else pa.schema([])
+    n_rows = int(df.count()) if hasattr(df, "count") else 0
+    mg = getattr(df, "_memory_guard", None)
+    row_size = None
+    if mg is not None:
+        try:
+            row_size = mg.estimate_row_size_from_schema(schema)
+        except Exception:
+            row_size = None
+    if row_size is None or row_size <= 0:
+        row_size = _conservative_row_size(schema)
+    return DataChars(
+        schema=schema, n_rows=n_rows, row_size_bytes=row_size,
+        k_est=None, avg_key_size_bytes=None, size_of_key_entry_bytes=None,
+    )
 
 
 class Pipeline:
@@ -607,10 +675,7 @@ class Pipeline:
 
         Raises PipelineMemoryError with step_idx + actionable describe.
         """
-        sample = peek_first_batch(df._iter_filtered_batches())
-        if sample is None:
-            raise ValueError("Pipeline.plan: empty df")
-        dc = data_chars_from_sample(sample, df.count())
+        dc = _dc_from_df(df)
 
         # v0.9.235 (DEC-083): peak = max_k [cumulative_state_prior + peak_k].
         # Peaks occur sequentially, not simultaneously. For N barriers with
@@ -644,6 +709,13 @@ class Pipeline:
             cumulative_state += state_k
             state_estimates.append(state_k)
             peak_estimates.append(peak_k)
+            _log.info(
+                "plan step %d (%s, %s): barrier=%s peak_k=%d state_k=%d "
+                "cum_state=%d step_total_peak=%d",
+                i, self._step_names[i], type(step).__name__,
+                getattr(step, "is_barrier", True),
+                peak_k, state_k, cumulative_state, step_total_peak,
+            )
             # Track first step that individually exceeds (for actionable error)
             if first_bad_idx is None:
                 if step_total_peak > self._memory_guard.budget_bytes:
@@ -740,6 +812,7 @@ class Pipeline:
         order = self._topological_order()
         outputs: dict = {}
 
+        import time as _time
         for name in order:
             step = self._get_step(name)
             input_names = graph[name]
@@ -751,9 +824,23 @@ class Pipeline:
                 df_in = _merge_fanout([outputs[i] for i in input_names])
 
             is_pred = _is_predictor(step)
+            t0 = _time.perf_counter()
             step.fit(df_in, target=target if is_pred else None)
+            fit_elapsed = _time.perf_counter() - t0
+            state_after = step.state_bytes()
             if not is_pred:
+                t0 = _time.perf_counter()
                 outputs[name] = step.transform(df_in)
+                tf_elapsed = _time.perf_counter() - t0
+                _log.info(
+                    "fit step %s (%s): fit=%.3fs transform=%.3fs "
+                    "state_after=%d B rows_out=%d",
+                    name, type(step).__name__, fit_elapsed, tf_elapsed,
+                    state_after, outputs[name].count())
+            else:
+                _log.info(
+                    "fit step %s (%s): PREDICTOR fit=%.3fs state_after=%d B",
+                    name, type(step).__name__, fit_elapsed, state_after)
 
         self._fitted = True
         return self
@@ -814,6 +901,7 @@ class Pipeline:
         order = self._topological_order()
         outputs: dict = {}
 
+        import time as _time
         for name in order:
             step = self._get_step(name)
             input_names = graph[name]
@@ -825,8 +913,19 @@ class Pipeline:
                 df_in = _merge_fanout([outputs[i] for i in input_names])
 
             if _is_predictor(step):
-                return step.predict(df_in)
+                t0 = _time.perf_counter()
+                result = step.predict(df_in)
+                _log.info(
+                    "predict step %s (%s): PREDICTOR %.3fs rows_out=%d",
+                    name, type(step).__name__,
+                    _time.perf_counter() - t0, result.count())
+                return result
+            t0 = _time.perf_counter()
             outputs[name] = step.transform(df_in)
+            _log.info(
+                "predict step %s (%s): transform %.3fs rows_out=%d",
+                name, type(step).__name__,
+                _time.perf_counter() - t0, outputs[name].count())
 
         raise RuntimeError(
             "Pipeline.predict: DAG finished without hitting Predictor "
@@ -873,6 +972,9 @@ class Pipeline:
                     break
 
                 if has_stream:
+                    _log.info(
+                        "stream step %s (%s): narrow streaming (no write)",
+                        name, type(step).__name__)
                     step.fit_iter(factory, df)
                     prev_factory = factory
                     prev_fn = step.transform_batch
@@ -883,11 +985,20 @@ class Pipeline:
                     last_features_df = None
                 else:
                     # Barrier or eager-only step
+                    new_cols_before = set(schema.names)
+                    _log.info(
+                        "stream step %s (%s): barrier eager (materialize)",
+                        name, type(step).__name__)
                     lazy = _LazyView(factory, schema, df)
                     step.fit(lazy, target=None)
                     out_df = step.transform(lazy)
                     factory = out_df._iter_filtered_batches
                     schema = out_df._dataset.schema
+                    added = set(schema.names) - new_cols_before
+                    _log.info(
+                        "stream step %s: barrier done, rows=%d, "
+                        "cols_added=%s",
+                        name, out_df.count(), sorted(added))
                     last_features_df = out_df
 
             if factory is not None:
@@ -896,9 +1007,16 @@ class Pipeline:
                 last_features_df = df
 
             self._fitted = True
+            _log.info("_execute_stream: completed (streaming)")
             return last_features_df
-        except Exception:
-            # Any incompatibility -> caller falls back to eager
+        except Exception as exc:
+            # v0.9.239: log exception before silent fallback (was invisible)
+            import traceback as _tb
+            _log.warning(
+                "_execute_stream FAILED -> eager fallback: %s: %s",
+                type(exc).__name__, exc)
+            _log.debug("_execute_stream traceback:\n%s",
+                       _tb.format_exc())
             return None
 
     def fit_transform(

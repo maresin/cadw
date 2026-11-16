@@ -17,6 +17,10 @@ See docs/ml_tools/STABILITY_PROTOCOL.md (protocol: code -> formula
 
 from __future__ import annotations
 
+import math
+import logging
+_log = logging.getLogger("cadw.memory_estimate")
+
 import ast
 import warnings
 from functools import lru_cache
@@ -264,17 +268,59 @@ def derive_batch_size(op, df, guard, batch_size=None):
 
     `op` must be a ReduceOp-like with `estimate_state_nbytes()` and
     `batch_memory_factor()`. `df` must have `._dataset.schema`.
+
+    v0.9.239: logs chosen batch_size + inputs (op, state, row_size, ef).
     """
+    op_name = getattr(op, "__class__", type(op)).__name__
     if batch_size is not None:
+        _log.info(
+            "derive_batch_size op=%s batch_size=%d (user override)",
+            op_name, int(batch_size))
         return int(batch_size)
     state_est = op.estimate_state_nbytes() or 0
     schema = df._dataset.schema
     row_size = guard.estimate_row_size_from_schema(schema)
-    return int(guard.get_batch_rows(
+    ef = op.batch_memory_factor()
+    n_rows = df.count() if hasattr(df, "count") else -1
+    derived = int(guard.get_batch_rows(
         row_size_bytes=row_size,
-        expansion_factor=op.batch_memory_factor(),
+        expansion_factor=ef,
         state_bytes=state_est,
     ))
+    # v0.9.239: detailed log — distinguish theoretical max vs actual batches
+    if n_rows >= 0 and derived > 0:
+        effective = min(n_rows, derived)
+        n_batches = max(1, math.ceil(n_rows / effective)) if effective > 0 else 0
+        total_raw_b = n_rows * row_size if n_rows >= 0 else -1
+        _log.info(
+            "derive_batch_size op=%s\n"
+            "  dataset:  n_rows=%d row_size=%d B total_raw=%d B",
+            op_name, n_rows, row_size, total_raw_b)
+        try:
+            _usable = int(guard._usable_bytes())
+        except AttributeError:
+            _usable = int(guard.available_bytes() * 0.7)  # default safety
+        _log.info(
+            "  budget:   available=%d B usable=%d B "
+            "(safety=%.0f%%) state_est=%d B",
+            guard.available_bytes(), _usable,
+            _usable * 100.0 / max(guard.available_bytes(), 1),
+            state_est)
+        _log.info(
+            "  calc:     max_rows_in_budget=%d (=usable / (row_size*ef=%.1f))",
+            derived, ef)
+        _log.info(
+            "  actual:   effective_batch=%d rows -> %d batch(es) "
+            "(n_rows=%d %s max_rows)",
+            effective, n_batches, n_rows,
+            "<=" if n_rows <= derived else ">")
+    else:
+        _log.info(
+            "derive_batch_size op=%s n_rows=%d row_size=%d ef=%.2f "
+            "state_est=%d budget=%d -> batch_size=%d",
+            op_name, n_rows, row_size, ef, state_est,
+            guard.available_bytes(), derived)
+    return derived
 
 
 def _lookup_card(op: str) -> dict | None:
