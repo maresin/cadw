@@ -500,3 +500,54 @@ def test_composite_step_barrier_flag():
     assert "pc0" in out._dataset.schema.names
     assert out.count() == df.count()
 
+def test_multi_phase_model(caplog):
+    """P-Y (B2): plan_peak = max(phase_1, phase_2), NOT sum.
+
+    Synthetic MultiPhaseModel with real materialization between phases;
+    synthetic phase_1_bytes/phase_2_bytes prove plan honours max (not sum).
+    Real GBDT/LDA (per-phase peak from primitive composition) — P2b.
+    """
+    import logging
+    caplog.set_level(logging.INFO, logger="cadw.pipeline")
+
+    from cadw.steps._mvp.multi_phase import MultiPhaseModel
+
+    df = _make_df(n=500)
+    N1, N2 = 300, 280
+    mp = MultiPhaseModel(
+        Standardize(["x1", "x2"]),
+        LinearRegressor(["x1", "x2", "x3"], "y"),
+        phase_1_bytes=N1, phase_2_bytes=N2,
+    )
+    p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
+    p.add_step("mp", mp)
+
+    plan = p.plan(df, mode="eager")
+    report("test_multi_phase_model", n_rows=df.count(),
+           phase_1_bytes=N1, phase_2_bytes=N2,
+           plan_peak_b=plan.peak_bytes,
+           expected_max=max(N1, N2), expected_sum=N1 + N2)
+
+    # KEY (P-Y): plan uses max, not sum
+    assert plan.peak_bytes == max(N1, N2), (
+        f"P-Y violated: plan_peak_b={plan.peak_bytes}, "
+        f"expected max({N1},{N2})={max(N1,N2)}; "
+        f"if == sum ({N1+N2}) → multi-phase treated as sum (regression)")
+    assert plan.peak_bytes != N1 + N2, (
+        f"plan_peak_b == sum (={N1+N2}); "
+        f"P-Y regression: multi-phase must be max, not sum")
+
+    # Execution: both phases materialize, no OOM
+    p.fit(df, target="y")
+    assert p.fitted
+    preds = _collect_col(p.predict(df), "y_pred")
+    assert len(preds) == df.count()
+
+    # Both phases logged (real materialization between)
+    phase_logs = [r.message for r in caplog.records
+                  if "fit multi_phase" in r.message]
+    assert any("phase 1" in m for m in phase_logs), (
+        f"no phase 1 log; records: {phase_logs[:5]}")
+    assert any("phase 2" in m for m in phase_logs), (
+        f"no phase 2 log; records: {phase_logs[:5]}")
+

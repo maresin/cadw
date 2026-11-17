@@ -1,5 +1,70 @@
 ## [Unreleased]
 
+## [0.9.240] — 2026-11-17 (pipeline: guard streaming, doc, MultiPhaseModel)
+
+**Session summary:** Pipeline memory closure. A1-A5 (streaming guard
+authority, total_state before fit, CompositeStep regression, smoke for
+KFold/ColumnTransformer/register_step_type; A3 _LazyView.count moved to
+v0.9.241 feature_effect). B1 design doc (PIPELINE_MEMORY_ARCHITECTURE.md
+219 lines, §0-§7). B2 synthetic MultiPhaseModel proving P-Y (plan_peak
+= max(phase_1, phase_2), not sum).
+
+### Added
+- cadw/pipeline.py: fit_transform overrides df._memory_guard during
+  _execute_stream (A1); plan() stores _plan_state_estimates (A2);
+  total_state_bytes() uses plan estimates before fit.
+- cadw/steps/_mvp/multi_phase.py — synthetic MultiPhaseModel (P-Y):
+  real materialization between phases; estimate_state_bytes = max
+  (for plan peak), state_bytes = sum (persistent).
+- docs/PIPELINE_MEMORY_ARCHITECTURE.md (B1, 219 lines): §0 invariants,
+  §1 guard authority, §2 segmented plan, §3 dc evolution, §4 multi-phase
+  (P-Y), §5 composition from primitives (P2b placeholder), §6 L1-L9
+  limitations, §7 tests.
+- tests/test_smoke_a5.py (A5): KFold split + n_splits>n; ColumnTransformer
+  constructor validation; register/unregister roundtrip + builtin
+  protection. ColumnTransformer end-to-end SKIPPED (df[cols] bug, L7).
+- tests/test_pipeline_v1.py: +test_streaming_guard_authority (A1),
+  +test_composite_step_transform_chain / _barrier_flag (A4),
+  +test_multi_phase_model (B2, plan_peak==max).
+
+### Changed
+- A1 streaming guard: was df(guard=500MB) leaking into streaming
+  fit_iter/transform_batch and barrier fit -> derive_batch_size saw 500MB,
+  not pipeline's mg. Now available=10485760 in streaming path.
+- A2 total_state_bytes: was 0 before fit. Now sum(plan state_estimates).
+- A4 CompositeStep tests: was 0 post v0.9.238 cleanup. Now chain==flat
+  (rtol=1e-12) + is_barrier flag.
+- A5 smoke: restored minimal coverage for cv/column/register after 13
+  test files removed in v0.9.238.
+- B2 P-Y: synthetic proves plan_peak = max, not sum; logs both phases;
+  real composite formula P2b.
+
+### Known limitations (L1-L9, see doc §6)
+- L1: dc not updated between barriers without feature_effect (OHE/hash/
+  dropna plan under-estimate; execution correct).
+- L2: multi-phase flat formula = upper bound (P2b audit).
+- L3: row_size conservative for strings (32 B); feature_effect or sample.
+- L4: streaming guard — custom step reading mg from globals (outside
+  our control).
+- L5: _LazyView.count() = template count (narrow n_rows reduction gap;
+  A3 deferred to feature_effect.n_rows_effect).
+- L6: Pipeline.total_state_bytes() before plan() = 0 (informational).
+- L7: df[cols] does not project schema (schema=4, batches=1) ->
+  ColumnTransformer + narrow steps (Standardize/StandardScaler) broken
+  -> v0.9.241 (fix df[cols]).
+- L8: composite formula from primitives — not implemented (P2b).
+- L9: MultiPhaseModel estimate_state_bytes returns max (correct for plan
+  peak), plan's cum_state for downstream stages under-estimates actual
+  state_bytes (sum). Synthetic limitation; real models separate via
+  cadw_function (peak) + estimate_state_bytes (state). P2b.
+
+### Next (v0.9.241)
+- Fix df[cols] (schema + _iter_filtered_batches projection) -> L7 unskip
+- feature_effect in card (d_delta, cardinality_delta, n_rows_effect,
+  row_size_effect) -> L1, L3, L5, A3
+- P2b: composite formula from primitives -> L2, L8, L9
+
+
 ## [0.9.239] — 2026-11-17 (pipeline memory: P-A real peak, P-B segmented, P-C guard)
 
 **Session summary:** Pipeline memory architecture fixes. P-A: real peak via
