@@ -137,6 +137,31 @@ class LinearModel:
             "solver": self.solver_,
         }
 
+    @classmethod
+    def from_dict(
+        cls, d: dict, *, feature_names: list, target_col: str,
+    ) -> "LinearModel":
+        """v0.9.242: symmetric with to_dict; knowledge of fields stays here.
+
+        to_dict omits feature_names_/target_col_ (they live in the
+        LinearRegressor step context), so caller passes them explicitly.
+        """
+        coeffs = d["coefficients"]
+        return cls(
+            coef_=np.asarray(
+                [coeffs[k] for k in feature_names], dtype=np.float64),
+            intercept_=float(d["intercept"]),
+            feature_names_=list(feature_names),
+            target_col_=target_col,
+            alpha_=float(d["alpha"]),
+            n_rows_=int(d["n_rows"]),
+            penalty_=d["penalty"],
+            l1_ratio_=float(d["l1_ratio"]),
+            n_iter_cd_=int(d["n_iter_cd"]),
+            converged_=bool(d["converged"]),
+            solver_=d["solver"],
+        )
+
     def predict(self, X):
         """Predict.
 

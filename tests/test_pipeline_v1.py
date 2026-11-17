@@ -551,3 +551,326 @@ def test_multi_phase_model(caplog):
     assert any("phase 2" in m for m in phase_logs), (
         f"no phase 2 log; records: {phase_logs[:5]}")
 
+def test_df_cols_view():
+    """L7 (v0.9.241): df[cols] is a column-view (shared dataset); steps
+    that read df._dataset.schema must use df._columns instead.
+    """
+    df = _make_df(n=200, seed=5)
+    sub = df[["x1"]]
+    assert list(sub._columns) == ["x1"]
+    assert sub._dataset.schema.names == ["x1", "x2", "x3", "y"]
+    batch_names = [b.schema.names for b in sub._iter_filtered_batches()]
+    assert all(names == ["x1"] for names in batch_names), (
+        f"df[cols] batches not projected: {batch_names[:2]}")
+
+    s = Standardize(["x1"])
+    s.fit(df)
+    out_sub = s.transform(sub)
+    assert out_sub.count() == 200
+    assert list(out_sub._columns) == ["x1"]
+
+    from cadw.scalers import StandardScaler
+    ss = StandardScaler(["x1"])
+    ss.fit(df)
+    out_ss = ss.transform(sub)
+    assert out_ss.count() == 200
+    assert list(out_ss._columns) == ["x1"]
+
+@pytest.mark.slow
+def test_pipeline_detailed_log_and_correctness(tmp_path):
+    """Detailed log + correctness: 3 batches x 3 rows, hand-computed.
+
+    Data: y = 2*x1 + 3*x2 + 1 (no noise). OLS recovers exactly.
+    Verifies: chunking preserved, fit state matches hand, predict == y,
+    predict doesn't mutate state, to_json/from_json preserves state.
+    """
+    from cadw.dataset import Dataset
+    from cadw.pipeline import (
+        list_step_types, register_step_type,
+    )
+
+    # --- data: 3 batches x 3 rows ---
+    x1 = np.array([1., 2., 3., 4., 5., 6., 7., 8., 9.])
+    x2 = np.array([2., 1., 4., 3., 6., 5., 8., 7., 10.])
+    y = 2 * x1 + 3 * x2 + 1  # [9, 8, 19, 18, 29, 28, 39, 38, 49]
+
+    schema = pa.schema([
+        pa.field("x1", pa.float64()),
+        pa.field("x2", pa.float64()),
+        pa.field("y", pa.float64()),
+    ])
+    batches = [
+        pa.RecordBatch.from_arrays([
+            pa.array(x1[i*3:(i+1)*3], type=pa.float64()),
+            pa.array(x2[i*3:(i+1)*3], type=pa.float64()),
+            pa.array(y[i*3:(i+1)*3], type=pa.float64()),
+        ], schema=schema)
+        for i in range(3)
+    ]
+    ds = Dataset.from_batches(schema, iter(batches), tmp_path / "raw")
+    df = CadwDataFrame.from_dataset(
+        ds, memory_guard=MemoryGuard(max_memory_mb=200))
+
+    # --- verify chunking (3 batches x 3) ---
+    seen = list(df._iter_filtered_batches())
+    assert len(seen) == 3, f"expected 3 batches, got {len(seen)}"
+    assert [b.num_rows for b in seen] == [3, 3, 3], \
+        f"batch sizes: {[b.num_rows for b in seen]}"
+    print("\n=== Input df: 9 rows, 3 batches ===")
+    for i, b in enumerate(seen):
+        print(f"  batch {i}: x1={b.column('x1').to_pylist()} "
+              f"x2={b.column('x2').to_pylist()} "
+              f"y={b.column('y').to_pylist()}")
+
+    # --- hand-computed expected (numpy, independent path) ---
+    mean_x1 = float(x1.mean())
+    mean_x2 = float(x2.mean())
+    mean_y = float(y.mean())
+    std_x1 = float(x1.std(ddof=0))
+    std_x2 = float(x2.std(ddof=0))
+    # In z-space: y = intercept_z + z1*coef_z1 + z2*coef_z2
+    #   coef_z1 = 2*std_x1, coef_z2 = 3*std_x2, intercept_z = mean_y
+    expected_coef_z = np.array([2*std_x1, 3*std_x2])
+    expected_intercept_z = mean_y
+    print(f"\n=== Expected (numpy independent): mean_x1={mean_x1:.6f} "
+          f"mean_x2={mean_x2:.6f} mean_y={mean_y:.6f}")
+    print(f"  std_x1={std_x1:.6f} std_x2={std_x2:.6f}")
+    print(f"  expected_coef_z={expected_coef_z} "
+          f"intercept_z={expected_intercept_z}")
+
+    # --- fit pipeline ---
+    p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=200))
+    p.add_step("scale", Standardize(["x1", "x2"]))
+    p.add_step("model", LinearRegressor(["x1", "x2"], "y"))
+    p.fit(df, target="y")
+
+    # --- check Standardize state ---
+    s = p._steps[0]
+    print(f"\n=== Standardize fitted: mean={s._mean} std={s._std} ===")
+    np.testing.assert_allclose(
+        [s._mean["x1"], s._mean["x2"]], [mean_x1, mean_x2],
+        rtol=1e-9, err_msg="Standardize mean mismatch")
+    np.testing.assert_allclose(
+        [s._std["x1"], s._std["x2"]], [std_x1, std_x2],
+        rtol=1e-9, err_msg="Standardize std mismatch")
+
+    # --- check LinearRegressor state ---
+    m = p._steps[1]._model
+    print(f"=== LinearModel fitted: coef_={m.coef_} "
+          f"intercept_={m.intercept_} ===")
+    np.testing.assert_allclose(
+        m.coef_, expected_coef_z, rtol=1e-9,
+        err_msg="LinearModel coef mismatch (z-space)")
+    assert abs(m.intercept_ - expected_intercept_z) < 1e-9, \
+        f"intercept {m.intercept_} != {expected_intercept_z}"
+
+    # --- predict correctness ---
+    pred_df = p.predict(df)
+    y_pred = _collect_col(pred_df, "y_pred")
+    print(f"\n=== predict: y_pred={y_pred.tolist()} "
+          f"y_true={y.tolist()} ===")
+    max_diff = float(np.max(np.abs(y_pred - y)))
+    print(f"  max_diff={max_diff:.2e}")
+    np.testing.assert_allclose(y_pred, y, rtol=1e-9,
+        err_msg="predict != y (no-noise linear data)")
+
+    # --- predict doesn't mutate state ---
+    mean_snapshot = dict(s._mean)
+    std_snapshot = dict(s._std)
+    coef_snapshot = m.coef_.copy()
+    intercept_snapshot = float(m.intercept_)
+    p.predict(df)  # second call
+    assert s._mean == mean_snapshot
+    assert s._std == std_snapshot
+    np.testing.assert_array_equal(m.coef_, coef_snapshot)
+    assert m.intercept_ == intercept_snapshot
+    print("=== predict does not modify state: OK ===")
+
+    # --- persistence roundtrip ---
+    for nm, cls_ in [("Standardize", Standardize),
+                     ("LinearRegressor", LinearRegressor)]:
+        if nm not in list_step_types():
+            register_step_type(nm, cls_)
+    out = p.to_json(tmp_path / "pipe")
+    p2 = Pipeline.from_json(out, memory_guard=MemoryGuard(max_memory_mb=200))
+    assert p2.fitted
+    s2 = p2._steps[0]
+    m2 = p2._steps[1]._model
+    np.testing.assert_allclose(
+        [s2._mean["x1"], s2._mean["x2"]], [mean_x1, mean_x2],
+        rtol=1e-9)
+    np.testing.assert_allclose(m2.coef_, m.coef_, rtol=1e-9)
+    assert m2.intercept_ == m.intercept_
+    y_pred2 = _collect_col(p2.predict(df), "y_pred")
+    diff_rt = float(np.max(np.abs(y_pred2 - y_pred)))
+    print(f"\n=== to_json -> from_json -> predict: max_diff vs original = "
+          f"{diff_rt:.2e} ===")
+    np.testing.assert_allclose(y_pred2, y_pred, rtol=1e-9)
+
+    report("test_pipeline_detailed_log", n_rows=df.count(),
+           batch_sizes=[3, 3, 3], max_diff_predict=max_diff,
+           max_diff_roundtrip=diff_rt)
+
+@pytest.mark.slow
+def test_pipeline_train_test_split_no_state_leak(tmp_path):
+    """Train/test split: pipe.fit(train); pipe.predict(test).
+
+    Guards against fit-state being overwritten / lost / recomputed on test.
+    - y_pred on test must match hand-computed using TRAIN statistics
+      (mean/std/coef from train), NOT test statistics.
+    - predict must not modify state (snapshot before/after).
+    - Standalone model.fit(train); model.predict(test) works (outside Pipeline).
+    """
+    from cadw.dataset import Dataset
+    from cadw.pipeline import list_step_types, register_step_type
+
+    x1 = np.array([1., 2., 3., 4., 5., 6., 7., 8., 9.])
+    x2 = np.array([2., 1., 4., 3., 6., 5., 8., 7., 10.])
+    y = 2 * x1 + 3 * x2 + 1
+    schema = pa.schema([
+        pa.field("x1", pa.float64()),
+        pa.field("x2", pa.float64()),
+        pa.field("y", pa.float64()),
+    ])
+
+    def _make_batch(start, end):
+        return pa.RecordBatch.from_arrays([
+            pa.array(x1[start:end], type=pa.float64()),
+            pa.array(x2[start:end], type=pa.float64()),
+            pa.array(y[start:end], type=pa.float64()),
+        ], schema=schema)
+
+    mg = MemoryGuard(max_memory_mb=200)
+    # Train: rows 0..6, 2 batches of 3
+    train_ds = Dataset.from_batches(
+        schema, iter([_make_batch(0, 3), _make_batch(3, 6)]),
+        tmp_path / "train")
+    train = CadwDataFrame.from_dataset(train_ds, memory_guard=mg)
+    # Test: rows 6..9, 1 batch of 3
+    test_ds = Dataset.from_batches(
+        schema, iter([_make_batch(6, 9)]), tmp_path / "test")
+    test = CadwDataFrame.from_dataset(test_ds, memory_guard=mg)
+
+    # --- train statistics (hand) ---
+    x1_tr, x2_tr, y_tr = x1[:6], x2[:6], y[:6]
+    mean_x1_tr = float(x1_tr.mean())
+    mean_x2_tr = float(x2_tr.mean())
+    mean_y_tr = float(y_tr.mean())
+    std_x1_tr = float(x1_tr.std(ddof=0))
+    std_x2_tr = float(x2_tr.std(ddof=0))
+    coef_z_exp = np.array([2*std_x1_tr, 3*std_x2_tr])
+    intercept_z_exp = mean_y_tr
+    print(f"\n=== TRAIN stats (hand) ===")
+    print(f"  mean_x1={mean_x1_tr} mean_x2={mean_x2_tr} mean_y={mean_y_tr}")
+    print(f"  std_x1={std_x1_tr:.10f} std_x2={std_x2_tr:.10f}")
+    print(f"  expected coef_z={coef_z_exp} intercept_z={intercept_z_exp}")
+
+    # --- expected y_pred on TEST using TRAIN statistics ---
+    x1_te, x2_te, y_te = x1[6:], x2[6:], y[6:]
+    z1_te = (x1_te - mean_x1_tr) / std_x1_tr
+    z2_te = (x2_te - mean_x2_tr) / std_x2_tr
+    y_pred_exp = intercept_z_exp + z1_te * coef_z_exp[0] + z2_te * coef_z_exp[1]
+    print(f"\n=== TEST expected (via TRAIN stats) ===")
+    print(f"  x1={x1_te.tolist()} x2={x2_te.tolist()}")
+    print(f"  y_true={y_te.tolist()}")
+    print(f"  y_pred_exp={y_pred_exp.tolist()}")
+
+    # --- Pipeline: fit on train, predict on test ---
+    p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=200))
+    p.add_step("scale", Standardize(["x1", "x2"]))
+    p.add_step("model", LinearRegressor(["x1", "x2"], "y"))
+    p.fit(train, target="y")
+
+    s = p._steps[0]
+    m = p._steps[1]._model
+    print(f"\n=== After fit(train) ===")
+    print(f"  Standardize.mean={s._mean}")
+    print(f"  Standardize.std={s._std}")
+    print(f"  coef_={m.coef_} intercept_={m.intercept_}")
+    # Fitted state MUST be train statistics, not full/test
+    np.testing.assert_allclose(
+        [s._mean["x1"], s._mean["x2"]], [mean_x1_tr, mean_x2_tr],
+        rtol=1e-9, err_msg="Standardize mean != TRAIN mean")
+    np.testing.assert_allclose(
+        [s._std["x1"], s._std["x2"]], [std_x1_tr, std_x2_tr],
+        rtol=1e-9, err_msg="Standardize std != TRAIN std")
+    np.testing.assert_allclose(
+        m.coef_, coef_z_exp, rtol=1e-9,
+        err_msg="coef != TRAIN-derived")
+
+    # Snapshot state to detect overwrite on predict
+    mean_snap = dict(s._mean); std_snap = dict(s._std)
+    coef_snap = m.coef_.copy(); int_snap = float(m.intercept_)
+
+    # Predict on TEST (not train!) — no refit should happen
+    pred_test = p.predict(test)
+    y_pred_te = _collect_col(pred_test, "y_pred")
+    print(f"\n=== predict(test) ===")
+    print(f"  y_pred_te={y_pred_te.tolist()}")
+    print(f"  y_pred_exp={y_pred_exp.tolist()}")
+    max_diff = float(np.max(np.abs(y_pred_te - y_pred_exp)))
+    print(f"  max_diff(vs TRAIN-derived expected)={max_diff:.2e}")
+    np.testing.assert_allclose(
+        y_pred_te, y_pred_exp, rtol=1e-9,
+        err_msg="predict(test) != expected via TRAIN stats — state leak?")
+    np.testing.assert_allclose(
+        y_pred_te, y_te, rtol=1e-9,
+        err_msg="predict(test) != y_true")
+
+    # State must be unchanged after predict(test)
+    assert s._mean == mean_snap, "predict modified Standardize._mean"
+    assert s._std == std_snap, "predict modified Standardize._std"
+    np.testing.assert_array_equal(m.coef_, coef_snap)
+    assert m.intercept_ == int_snap
+    print("=== state unchanged after predict(test): OK ===")
+
+    # --- Sanity: refit on test SHOULD change state (expected) ---
+    p.fit(test, target="y")
+    assert s._mean["x1"] != mean_snap["x1"], (
+        "refit(test) did not change state (unexpected)")
+    print(f"=== refit(test) changed state as expected: "
+          f"mean_x1={s._mean['x1']} != {mean_snap['x1']} ===")
+
+    # --- Standalone: step.fit(train); step.transform(test) ---
+    s_alone = Standardize(["x1", "x2"])
+    s_alone.fit(train)
+    out_te = s_alone.transform(test)
+    z1_te_alone = _collect_col(out_te, "x1")
+    z2_te_alone = _collect_col(out_te, "x2")
+    print(f"\n=== Standalone Standardize: fit(train).transform(test) ===")
+    print(f"  z1_te={z1_te_alone.tolist()}")
+    print(f"  z1_exp={z1_te.tolist()}")
+    np.testing.assert_allclose(z1_te_alone, z1_te, rtol=1e-9)
+    np.testing.assert_allclose(z2_te_alone, z2_te, rtol=1e-9)
+
+    # --- Standalone: model.fit(train); model.predict(test) ---
+    m_alone = LinearRegressor(["x1", "x2"], "y")
+    m_alone.fit(train)
+    out_alone = m_alone.predict(test)
+    y_alone = _collect_col(out_alone, "y_pred")
+    print(f"\n=== Standalone LinearRegressor: fit(train).predict(test) ===")
+    print(f"  y_alone={y_alone.tolist()}")
+    print(f"  y_pred_exp={y_pred_exp.tolist()}")
+    np.testing.assert_allclose(y_alone, y_pred_exp, rtol=1e-9)
+
+    # --- Persistence: to_json on train-fit, from_json, predict(test) ---
+    for nm, cls_ in [("Standardize", Standardize),
+                     ("LinearRegressor", LinearRegressor)]:
+        if nm not in list_step_types():
+            register_step_type(nm, cls_)
+    # Re-fit on train first (p was refit on test above)
+    p.fit(train, target="y")
+    y_before = _collect_col(p.predict(test), "y_pred")
+    out = p.to_json(tmp_path / "pipe")
+    p2 = Pipeline.from_json(out, memory_guard=MemoryGuard(max_memory_mb=200))
+    y_after = _collect_col(p2.predict(test), "y_pred")
+    diff_rt = float(np.max(np.abs(y_after - y_before)))
+    print(f"\n=== to_json(train-fit) -> from_json -> predict(test): "
+          f"max_diff={diff_rt:.2e} ===")
+    np.testing.assert_allclose(y_after, y_before, rtol=1e-9)
+
+    report("test_pipeline_train_test_split",
+           n_train=train.count(), n_test=test.count(),
+           mean_x1_train=mean_x1_tr, coef_z0=float(coef_z_exp[0]),
+           max_diff_predict_test=max_diff, max_diff_roundtrip=diff_rt)
+

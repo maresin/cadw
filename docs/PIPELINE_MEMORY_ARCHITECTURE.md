@@ -197,7 +197,7 @@ Phase 1 требует **реального** fit (минуты для GBDT). Pl
 | L4 | Streaming guard: custom step, читающий mg из глобального контекста | вне нашей власти | документировано (§1.3) |
 | L5 | `_LazyView.count()` = template count | при `FrameMethod("dropna")` сломает `derive_batch_size` | A3 → feature_effect.n_rows_effect (v0.9.241) |
 | L6 | `Pipeline.total_state_bytes()` до `plan()` = 0 | информационно | документировано (A2) |
-| L7 | `ColumnTransformer` + narrow steps (`Standardize`/`StandardScaler`) не работают на `df[cols]` | реальный баг `df[cols]` (schema=4, batches=1) | **v0.9.241** (fix `df[cols]`) |
+| L7 | ~~`ColumnTransformer` + narrow steps broken on `df[cols]`~~ **FIXED v0.9.241**: `_mvp/Standardize.transform` read `df._dataset.schema` instead of `df._columns` view; `df[cols]` is correct by design (shared dataset). Fix: build output schema from `df._columns` + `_dataset.schema.field(c)`. | resolved | done |
 | L8 | composite formula from primitives | не реализовано | P2b |
 | L9 | MultiPhaseModel: estimate_state_bytes returns max(phase_1, phase_2) for plan peak (P-Y), but actual state_bytes() = sum → plan's cum_state for downstream stages under-estimated | synthetic MultiPhaseModel collapses peak and state; real models separate via cadw_function (peak) + estimate_state_bytes (persistent state) | P2b (real composite) |
 

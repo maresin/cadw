@@ -62,15 +62,6 @@ def test_kfold_n_splits_gt_n_raises():
 
 # ---------------- ColumnTransformer ----------------
 
-@pytest.mark.skip(
-    reason="TODO v0.9.241: df[cols] does not project schema "
-           "(schema=4, batches=1). Affects _mvp/Standardize "
-           "(reads df._dataset.schema -> RecordBatch.from_arrays "
-           "mismatch) and likely StandardScaler via "
-           "_wrap_transformed(df, cols) -> _output_schema(df, ...) "
-           "builds 4-col schema, _iter_transformed yields 1-col. "
-           "Fix df[cols] (schema + _iter_filtered_batches) first."
-)
 def test_column_transformer_passthrough_and_drop():
     """ColumnTransformer: passthrough keeps unclaimed; drop removes them."""
     df = _make_df(n=100, seed=2)

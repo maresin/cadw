@@ -1,5 +1,63 @@
 ## [Unreleased]
 
+## [0.9.241] — 2026-11-18 (L7 + train/test + LinearModel.from_dict)
+
+**Session summary:** L7 (Standardize.transform on df[cols]) + detailed log
+test + train/test split test (state leak guard) + LinearModel.from_dict
+(butched-fix: knowledge of fields moved from LinearRegressor into LinearModel).
+
+### Fixed (L7)
+- cadw/steps/_mvp/standardize.py: transform() read df._dataset.schema
+  (always full dataset — shared across df[cols] views by design) instead
+  of df._columns view. _iter_filtered_batches yields only df._columns ->
+  "Schema and number of arrays unequal" for any df[cols] subset. Fix:
+  build output schema from df._columns + _dataset.schema.field(c) (same
+  pattern as cadw/scalers.py::_output_schema). Unblocks ColumnTransformer
+  + narrow steps (A5 end-to-end unskipped).
+
+### Added
+- cadw/ml/linear.py: LinearModel.from_dict(cls, d, *, feature_names,
+  target_col) — symmetric with to_dict; knowledge of LinearModel fields
+  stays in LinearModel.
+- tests/test_pipeline_v1.py::test_pipeline_detailed_log_and_correctness
+  (@pytest.mark.slow, -s, 3 batches x 3 rows, hand-computed):
+  chunking 3x3; Standardize mean/std == hand (rtol=1e-9); LinearModel
+  coef_/intercept_ == hand in z-space (rtol=1e-9); y_pred == y_true
+  (max_diff 3.55e-15); predict does not modify state; to_json ->
+  from_json -> predict (max_diff 0.0, explicit register_step_type);
+  estimate_state_bytes == state_bytes (288=288; 280=280).
+- tests/test_pipeline_v1.py::test_pipeline_train_test_split_no_state_leak
+  (@pytest.mark.slow): fit(train 6 rows), predict(test 3 rows, unseen).
+  Expected y_pred on test computed via TRAIN statistics only. Closes the
+  gap in detailed_log (same-df predict does not catch state overwrite /
+  loss on no-noise linear data). Verifies: state == train stats (not
+  test/full); predict(test) == expected via train stats (max_diff 0.0)
+  and == y_true; predict(test) does not modify state; refit(test) changes
+  state (sanity); standalone Standardize.fit(train).transform(test) works;
+  standalone LinearRegressor.fit(train).predict(test) works; to_json
+  (train-fit) -> from_json -> predict(test) (max_diff 0.0).
+
+### Changed (butched-fix)
+- cadw/steps/_mvp/linear_regressor.py::from_dict: was manual
+  LinearModel.__new__ + 12 field assignments (duplicated knowledge of
+  LinearModel outside LinearModel — same anti-pattern as PCAProjector
+  before PCA.from_dict). Now: LinearModel.from_dict(st, feature_names=
+  step._X_cols, target_col=step._y_col).
+
+### Tests
+- 24 fast passed, 0 skipped, 1 deselected.
+- +2 slow passed: detailed_log (9.81s), train/test split (5.69s).
+
+### Known minor (TODO)
+- Standardize._mean values are np.float64 (json-serializable, roundtrip
+  OK; cosmetic: cast to float in _welford for consistency).
+
+### Next
+- feature_effect (L1/L3/L5/A3) — separate session (requires Transformer
+  contract "1 feature at a time" for custom steps).
+- P2b composite formula from primitives (L2/L8/L9).
+
+
 ## [0.9.240] — 2026-11-17 (pipeline: guard streaming, doc, MultiPhaseModel)
 
 **Session summary:** Pipeline memory closure. A1-A5 (streaming guard

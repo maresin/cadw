@@ -51,25 +51,13 @@ class LinearRegressor(Model):
     def from_dict(cls, d):
         step = cls(d["X_cols"], d["y_col"], **d.get("kwargs", {}))
         st = d.get("state")
-        if st is None:
-            return step
-        # Reconstruct fitted LinearModel from state dict
-        import numpy as np
-        from cadw.ml.linear import LinearModel
-        lm = LinearModel.__new__(LinearModel)
-        coeffs = st["coefficients"]
-        lm.feature_names_ = list(coeffs.keys())
-        lm.coef_ = np.array([coeffs[k] for k in lm.feature_names_],
-                            dtype=np.float64)
-        lm.intercept_ = float(st["intercept"])
-        lm.alpha_ = float(st["alpha"])
-        lm.penalty_ = st["penalty"]
-        lm.l1_ratio_ = float(st["l1_ratio"])
-        lm.n_iter_cd_ = int(st["n_iter_cd"])
-        lm.converged_ = bool(st["converged"])
-        lm.n_rows_ = int(st["n_rows"])
-        lm.solver_ = st["solver"]
-        lm.target_col_ = step._y_col
-        lm.fitted_ = True
-        step._model = lm
+        if st is not None:
+            # v0.9.242 (butched-fix): knowledge of LinearModel fields
+            # lives in LinearModel.from_dict, not here.
+            from cadw.ml.linear import LinearModel
+            step._model = LinearModel.from_dict(
+                st,
+                feature_names=step._X_cols,
+                target_col=step._y_col,
+            )
         return step

@@ -54,7 +54,14 @@ class Standardize(Transformer):
     def transform(self, df):
         from cadw.dataset import Dataset
         from cadw.dataframe import CadwDataFrame
-        schema = df._dataset.schema
+        # v0.9.241 (L7): use df._columns view, not df._dataset.schema.
+        # df[cols] is a column-view over a shared dataset (schema NOT
+        # projected); _iter_filtered_batches() yields only df._columns.
+        # Building output schema from df._dataset.schema would mismatch
+        # (e.g. 4 fields vs 1-col batches) -> "Schema and number of arrays
+        # unequal". Same pattern as cadw/scalers.py::_output_schema.
+        cols = list(df._columns)
+        schema = pa.schema([df._dataset.schema.field(c) for c in cols])
         def _iter():
             for b in df._iter_filtered_batches():
                 yield self._apply_batch(b, schema)
