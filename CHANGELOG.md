@@ -1,5 +1,64 @@
 ## [Unreleased]
 
+## [0.9.239] — 2026-11-17 (pipeline memory: P-A real peak, P-B segmented, P-C guard)
+
+**Session summary:** Pipeline memory architecture fixes. P-A: real peak via
+effective_batch (was 367MB, now 32KB for n=500). P-B: segmented plan per
+barrier with per-stage logs. P-C: Pipeline guard authority (df._memory_guard
+override during fit/predict). PCA state serialization. _execute_stream
+preflight. peak_source debug marker for honest P-A tests.
+
+### Added
+- cadw/pipeline.py: _split_stages (split by is_barrier/is_predictor);
+  plan(mode='eager'|'streaming') per-stage logs
+  (narrow_peak/barrier_peak/stage_peak/cum_state/stage_total);
+  _merge_step_hyperparams (step._kwargs -> YamlFormulaModel solve/_eval);
+  peak_source=formula_batch|formula_state|fallback (_log.debug)
+- cadw/ml/pca.py: PCA.from_dict (symmetric with to_dict, dataclass 1:1,
+  n_features_in_ = len(feature_names), not stored)
+- cadw/core/planner.py: PipelineMemoryError.stage_idx
+- tests/test_pipeline_v1.py: test_pipeline_guard_authority,
+  test_plan_real_peak, test_plan_segmented,
+  test_pca_serialization_roundtrip, test_execute_stream_preflight
+
+### Changed
+- P-A (real peak): _step_peak_estimate uses effective_batch =
+  min(n_rows, max_rows_in_budget) from solve(budget), then
+  _eval(effective_batch). Was: solve(budget) -> max batch -> 367MB for
+  n=500. Now: 32256 B (batch=500).
+- P-B (segmented plan): peak = max over stages (sequential; states
+  accumulate). PipelineMemoryError carries stage_idx + kind.
+- P-C (Pipeline guard authority): Pipeline.fit/predict override
+  df_in._memory_guard = self._memory_guard during step (try/finally
+  restore). Confirmed: Pipeline(mg=10MB), df(guard=500MB) ->
+  fit_linear derive_batch_size log available=10485760 (was 524288000).
+- _execute_stream: preflight plan(df, mode='streaming') before any work
+  -> clean PipelineMemoryError instead of mid-execution OOM.
+- PCAProjector.to_dict/from_dict: include 'state' via PCA.to_dict;
+  from_dict restores via PCA.from_dict (no manual __new__).
+
+### Tests (14 fast + 1 slow)
+- test_pipeline_guard_authority (P-C: available=10485760)
+- test_plan_real_peak (P-A: asserts peak_source=formula_batch;
+  plan_peak_b=32560, < 10MB)
+- test_plan_segmented (P-B: >=2 stage logs, all fields present)
+- test_pca_serialization_roundtrip (PCA state survives to_json/from_json,
+  preds_before == preds_after)
+- test_execute_stream_preflight (plan[streaming] before stream)
+- test_batch_selection_splits_multi_batch: @pytest.mark.slow
+  (n=200k, budget=10MB -> effective_batch=76457, 3 batches)
+
+### Known limitations (v0.9.240)
+- streaming guard override in _execute_stream (eager fit/predict covered)
+- Pipeline.total_state_bytes() before fit = 0 (uses step.state_bytes()
+  of unfitted steps; plan's cum_state is correct in log)
+- _LazyView.count() returns template count (narrow n_rows reduction
+  would desync derive_batch_size; no such narrow step in MVP yet)
+- feature_effect (d_delta, cardinality_delta, n_rows_effect, row_size)
+  in card for plan accuracy on OHE/hashing/dropna/join
+- composite formula from primitive cards (P2b)
+
+
 ## [0.9.238] — 2026-11-16 (pipeline infra: abstract steps + MVP)
 
 **Session summary:** Pipeline refactor. Abstract Step/Transformer/Model

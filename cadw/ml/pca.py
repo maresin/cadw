@@ -74,6 +74,30 @@ class PCA:
             "method": getattr(self, "method_", "exact"),
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "PCA":
+        """v0.9.239: symmetric with to_dict (used by PCAProjector.from_dict).
+
+        Dataclass fields restored 1:1. n_features_in_ = len(feature_names)
+        (derived, not stored in to_dict — symmetric roundtrip).
+        """
+        return cls(
+            components_=np.asarray(d["components"], dtype=np.float64),
+            mean_=np.asarray(d["mean"], dtype=np.float64),
+            explained_variance_=np.asarray(
+                d["explained_variance"], dtype=np.float64),
+            explained_variance_ratio_=np.asarray(
+                d["explained_variance_ratio"], dtype=np.float64),
+            singular_values_=np.asarray(
+                d["singular_values"], dtype=np.float64),
+            feature_names_=list(d["feature_names"]),
+            n_components_=int(d["n_components"]),
+            n_samples_=int(d["n_samples"]),
+            n_features_in_=len(d["feature_names"]),
+            fitted_=True,
+            method_=d.get("method", "exact"),
+        )
+
     def state_nbytes(self) -> int:
         """Persistent state RAM (bytes).
 

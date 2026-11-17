@@ -90,15 +90,18 @@ class PipelineMemoryError(MemoryLimitExceeded):
         estimate_bytes: int,
         available_bytes: int,
         describe: str,
+        stage_idx: int | None = None,
     ) -> None:
         self.step_idx = step_idx
         self.step_name = step_name
         self.estimate_bytes = estimate_bytes
         self.available_bytes = available_bytes
         self.describe = describe
+        self.stage_idx = stage_idx
+        _stage_part = f" (stage {stage_idx})" if stage_idx is not None else ""
         msg = (
-            f"pipeline step {step_idx} ({step_name!r}) does not fit: "
-            f"estimate={estimate_bytes} B > available*safety="
+            f"pipeline step {step_idx}{_stage_part} ({step_name!r}) "
+            f"does not fit: estimate={estimate_bytes} B > available*safety="
             f"{int(available_bytes * 0.7)} B. Model: {describe}"
         )
         super().__init__(msg)

@@ -630,137 +630,182 @@ class Pipeline:
 
     # ---------------- plan ----------------
 
-    def _step_peak_estimate(self, step, dc) -> int:
-        """v0.9.233 (P2a): per-step peak via YamlFormulaModel.
+    @staticmethod
+    def _merge_step_hyperparams(step) -> dict:
+        """v0.9.239: hyperparams from step._kwargs (for YamlFormulaModel)."""
+        return dict(getattr(step, "_kwargs", {}) or {})
 
-        Resolution order:
-          1. step.cadw_function + registered in YAML registry:
-             - batch-linear formula: solve(budget) -> estimate(params)  [full peak]
-             - state-only formula (no batch term): estimate at batch=1   [state]
-          2. step.estimate_state_bytes(dc)  [fallback: no formula, or scaler]
+    def _step_peak_estimate(self, step, dc) -> int:
+        """v0.9.239: per-step peak via YamlFormulaModel, with real batch.
+
+        P-A: batch = min(n_rows, max_rows_in_budget) — actual peak, not
+        theoretical max (was: solve(budget) -> max batch -> 367MB for n=500).
+
+        peak_source (caplog marker): formula_batch | formula_state | fallback.
         """
         from cadw.core.yaml_formula_model import get_registered_model
         cf = getattr(step, "cadw_function", None)
         if cf is not None:
             model = get_registered_model(cf)
             if model is not None:
+                extra = self._merge_step_hyperparams(step)
                 budget = self._memory_guard.budget_bytes
+                n_rows = int(dc.n_rows) if dc.n_rows else 1
                 try:
-                    params = model.solve(budget, dc, safety=0.7)
+                    params = model.solve(budget, dc, safety=0.7, **extra)
                     if params is not None:
-                        return model.estimate(params, dc)
-                    # state-only formula: eval at batch=1.
-                    # Formula may reference step hyperparams (n_estimators,
-                    # max_depth for GBDT) not present in dc -> KeyError ->
-                    # fallback to step.estimate_state_bytes (honest state floor).
-                    return model._eval(dc, batch=1)
+                        effective = min(n_rows, int(params.batch_size))
+                        if effective < 1:
+                            effective = 1
+                        _log.debug(
+                            "peak_source=formula_batch step=%s "
+                            "batch=%d n_rows=%d",
+                            type(step).__name__, effective, n_rows)
+                        return model._eval(dc, batch=effective, **extra)
+                    _log.debug(
+                        "peak_source=formula_state step=%s",
+                        type(step).__name__)
+                    return model._eval(dc, batch=1, **extra)
                 except MemoryLimitExceeded:
-                    raise  # bubble up; caller wraps in PipelineMemoryError
+                    raise
                 except (KeyError, NameError):
-                    pass  # missing hyperparams -> fallback
+                    pass
+        _log.debug("peak_source=fallback step=%s", type(step).__name__)
         return step.estimate_state_bytes(dc)
 
-    def plan(self, df: "CadwDataFrame") -> PipelinePlan:
-        """v0.9.233 (P2a): pre-fit feasibility via peak, not just state.
+    def _split_stages(self) -> list:
+        """v0.9.239: split steps into stages by is_barrier / predictor.
 
-        Checks (both must fit):
-          - sum(state_bytes) <= state_limit   (state accounting)
-          - sum(peak_bytes)  <= budget_bytes  (peak accounting; includes transient)
+        Returns list of (narrow_prefix, barrier, barrier_name).
+        Last stage may have barrier=None (transform-only tail).
+        """
+        stages = []
+        narrow: list = []
+        for name, step in zip(self._step_names, self._steps):
+            is_bar = bool(getattr(step, "is_barrier", True))
+            is_pred = _is_predictor(step)
+            if is_bar or is_pred:
+                stages.append((narrow, step, name))
+                narrow = []
+            else:
+                narrow.append((name, step))
+        if narrow:
+            stages.append((narrow, None, None))
+        return stages
 
-        peak_bytes comes from YamlFormulaModel for steps with cadw_function
-        (batch-linear: full formula; state-only: state). Fallback to
-        estimate_state_bytes for steps without formula (e.g. scalers,
-        fallback). Conservative: sum of peaks across steps (no overlap
-        assumption).
+    def plan(self, df: "CadwDataFrame", *, mode: str = "eager") -> PipelinePlan:
+        """v0.9.239: segmented pre-fit feasibility.
 
-        Raises PipelineMemoryError with step_idx + actionable describe.
+        Stages split by is_barrier. Per stage:
+          - narrow prefix (eager: peak=sum; streaming: peak=max)
+          - barrier (last step, or None for transform-only tail)
+          - stage_total = cumulative_state_prior + stage_peak
+        total_peak = max over stages (sequential; states accumulate for predict).
+
+        P-A: peak uses effective_batch = min(n_rows, max_rows_in_budget).
+        P-B: per-stage log; error includes stage_idx.
+
+        Raises PipelineMemoryError with step_idx + stage_idx.
         """
         dc = _dc_from_df(df)
+        stages = self._split_stages()
+        if not stages:
+            raise ValueError("Pipeline.plan: empty pipeline")
 
-        # v0.9.235 (DEC-083): peak = max_k [cumulative_state_prior + peak_k].
-        # Peaks occur sequentially, not simultaneously. For N barriers with
-        # state=0 and peak=30MB: correct total = 30MB, not N*30MB.
-        # For N stateful models (state=8MB, peak=8MB): correct = sum(state)
-        # (all held), which equals N*8MB in step_k loop.
-        #
-        # state_check = sum(state_k) (all states held for predict; current impl).
-        # Future (streaming, state release after barrier): max(segment_state).
-        state_estimates = []
-        peak_estimates = []
         cumulative_state = 0
         total_peak = 0
-        first_bad_idx = None
-        first_bad_reason = ""
-        for i, step in enumerate(self._steps):
-            try:
-                peak_k = self._step_peak_estimate(step, dc)
-            except MemoryLimitExceeded as e:
-                raise PipelineMemoryError(
-                    step_idx=i,
-                    step_name=self._step_names[i],
-                    estimate_bytes=0,
-                    available_bytes=self._memory_guard.budget_bytes,
-                    describe=f"{type(step).__name__}.cadw_function="
-                             f"{getattr(step, 'cadw_function', None)!r}: {e}",
-                )
-            state_k = step.estimate_state_bytes(dc)
-            step_total_peak = cumulative_state + peak_k
-            total_peak = max(total_peak, step_total_peak)
-            cumulative_state += state_k
-            state_estimates.append(state_k)
-            peak_estimates.append(peak_k)
+        state_estimates: list = []
+        peak_estimates: list = []
+        first_bad = None  # (stage_idx, kind, step_name, step_idx, reason)
+        step_idx_global = 0
+
+        for stage_idx, (narrow, barrier, barrier_name) in enumerate(stages):
+            narrow_peaks: list = []
+            narrow_state = 0
+            for name, step in narrow:
+                try:
+                    pk = self._step_peak_estimate(step, dc)
+                except MemoryLimitExceeded as e:
+                    if first_bad is None:
+                        first_bad = (stage_idx, "narrow", name,
+                                     step_idx_global, str(e))
+                    pk = 0
+                sk = step.estimate_state_bytes(dc)
+                narrow_peaks.append(pk)
+                narrow_state += sk
+                state_estimates.append(sk)
+                peak_estimates.append(pk)
+                step_idx_global += 1
+
+            barrier_peak = 0
+            barrier_state = 0
+            if barrier is not None:
+                try:
+                    barrier_peak = self._step_peak_estimate(barrier, dc)
+                except MemoryLimitExceeded as e:
+                    if first_bad is None:
+                        first_bad = (stage_idx, "barrier", barrier_name,
+                                     step_idx_global, str(e))
+                    barrier_peak = 0
+                barrier_state = barrier.estimate_state_bytes(dc)
+                state_estimates.append(barrier_state)
+                peak_estimates.append(barrier_peak)
+                step_idx_global += 1
+
+            if mode == "streaming":
+                narrow_peak = max(narrow_peaks) if narrow_peaks else 0
+            else:
+                narrow_peak = sum(narrow_peaks)
+            stage_peak = narrow_peak + barrier_peak
+            stage_total = cumulative_state + stage_peak
+            total_peak = max(total_peak, stage_total)
+            cumulative_state += (narrow_state + barrier_state)
             _log.info(
-                "plan step %d (%s, %s): barrier=%s peak_k=%d state_k=%d "
-                "cum_state=%d step_total_peak=%d",
-                i, self._step_names[i], type(step).__name__,
-                getattr(step, "is_barrier", True),
-                peak_k, state_k, cumulative_state, step_total_peak,
-            )
-            # Track first step that individually exceeds (for actionable error)
-            if first_bad_idx is None:
-                if step_total_peak > self._memory_guard.budget_bytes:
-                    first_bad_idx = i
-                    first_bad_reason = (
-                        f"step_total_peak={step_total_peak} > "
-                        f"budget={self._memory_guard.budget_bytes}")
-                elif cumulative_state > self._memory_guard.state_limit_bytes:
-                    first_bad_idx = i
-                    first_bad_reason = (
-                        f"cumulative_state={cumulative_state} > "
-                        f"state_limit={self._memory_guard.state_limit_bytes}")
+                "plan[%s] stage %d (narrow=%d, barrier=%s): "
+                "narrow_peak=%d barrier_peak=%d stage_peak=%d "
+                "cum_state=%d stage_total=%d",
+                mode, stage_idx, len(narrow), barrier_name or "(none)",
+                narrow_peak, barrier_peak, stage_peak,
+                cumulative_state, stage_total)
 
         total_state = cumulative_state
         state_limit = self._memory_guard.state_limit_bytes
         budget = self._memory_guard.budget_bytes
-
         state_ok = total_state <= state_limit
         peak_ok = total_peak <= budget
 
-        if not state_ok or not peak_ok:
-            bad_idx = first_bad_idx if first_bad_idx is not None else (
-                len(self._steps) - 1)
+        if not state_ok or not peak_ok or first_bad is not None:
+            if first_bad is not None:
+                (bad_stage, bad_kind, bad_name, bad_step_idx,
+                 bad_reason) = first_bad
+            else:
+                bad_stage = len(stages) - 1
+                bad_kind = "total"
+                bad_name = (self._step_names[-1]
+                            if self._step_names else "<none>")
+                bad_step_idx = len(self._steps) - 1
+                bad_reason = "aggregate exceed"
             raise PipelineMemoryError(
-                step_idx=bad_idx,
-                step_name=(
-                    self._step_names[bad_idx]
-                    if self._step_names else "<none>"),
+                step_idx=bad_step_idx,
+                step_name=bad_name,
                 estimate_bytes=total_peak if not peak_ok else total_state,
                 available_bytes=budget,
                 describe=(
-                    f"Pipeline peak={total_peak} B (max sequential) "
-                    f"vs budget={budget} B; "
+                    f"mode={mode} stage_idx={bad_stage} kind={bad_kind}; "
+                    f"peak={total_peak} B vs budget={budget} B; "
                     f"state={total_state} B vs state_limit={state_limit} B; "
-                    f"per_step_peak={peak_estimates}; "
-                    f"per_step_state={state_estimates}; "
-                    f"first_failing={first_bad_reason or 'last'}"
+                    f"reason={bad_reason}"
                 ),
+                stage_idx=bad_stage,
             )
 
         step_plans = [
             StepPlan(
                 op_name=type(step).__name__,
                 params=None,
-                estimate_bytes=peak_estimates[i],
+                estimate_bytes=(
+                    peak_estimates[i]
+                    if i < len(peak_estimates) else 0),
                 input_chars=dc,
                 output_chars=dc,
                 spill_before=False,
@@ -778,6 +823,7 @@ class Pipeline:
             available_bytes=budget,
             safety=0.7,
         )
+
 
     def total_state_bytes(self) -> int:
         """Sum of fitted state_bytes across all steps. 0 before fit."""
@@ -824,23 +870,32 @@ class Pipeline:
                 df_in = _merge_fanout([outputs[i] for i in input_names])
 
             is_pred = _is_predictor(step)
-            t0 = _time.perf_counter()
-            step.fit(df_in, target=target if is_pred else None)
-            fit_elapsed = _time.perf_counter() - t0
-            state_after = step.state_bytes()
-            if not is_pred:
+            # v0.9.239 (P-C): Pipeline guard authority
+            _orig_mg = getattr(df_in, "_memory_guard", None)
+            try:
+                if _orig_mg is not None and hasattr(df_in, "_memory_guard"):
+                    df_in._memory_guard = self._memory_guard
                 t0 = _time.perf_counter()
-                outputs[name] = step.transform(df_in)
-                tf_elapsed = _time.perf_counter() - t0
-                _log.info(
-                    "fit step %s (%s): fit=%.3fs transform=%.3fs "
-                    "state_after=%d B rows_out=%d",
-                    name, type(step).__name__, fit_elapsed, tf_elapsed,
-                    state_after, outputs[name].count())
-            else:
-                _log.info(
-                    "fit step %s (%s): PREDICTOR fit=%.3fs state_after=%d B",
-                    name, type(step).__name__, fit_elapsed, state_after)
+                step.fit(df_in, target=target if is_pred else None)
+                fit_elapsed = _time.perf_counter() - t0
+                state_after = step.state_bytes()
+                if not is_pred:
+                    t0 = _time.perf_counter()
+                    outputs[name] = step.transform(df_in)
+                    tf_elapsed = _time.perf_counter() - t0
+                    _log.info(
+                        "fit step %s (%s): fit=%.3fs transform=%.3fs "
+                        "state_after=%d B rows_out=%d",
+                        name, type(step).__name__, fit_elapsed, tf_elapsed,
+                        state_after, outputs[name].count())
+                else:
+                    _log.info(
+                        "fit step %s (%s): PREDICTOR fit=%.3fs "
+                        "state_after=%d B",
+                        name, type(step).__name__, fit_elapsed, state_after)
+            finally:
+                if _orig_mg is not None and hasattr(df_in, "_memory_guard"):
+                    df_in._memory_guard = _orig_mg
 
         self._fitted = True
         return self
@@ -912,20 +967,28 @@ class Pipeline:
             else:
                 df_in = _merge_fanout([outputs[i] for i in input_names])
 
-            if _is_predictor(step):
+            # v0.9.239 (P-C): Pipeline guard authority
+            _orig_mg = getattr(df_in, "_memory_guard", None)
+            try:
+                if _orig_mg is not None and hasattr(df_in, "_memory_guard"):
+                    df_in._memory_guard = self._memory_guard
+                if _is_predictor(step):
+                    t0 = _time.perf_counter()
+                    result = step.predict(df_in)
+                    _log.info(
+                        "predict step %s (%s): PREDICTOR %.3fs rows_out=%d",
+                        name, type(step).__name__,
+                        _time.perf_counter() - t0, result.count())
+                    return result
                 t0 = _time.perf_counter()
-                result = step.predict(df_in)
+                outputs[name] = step.transform(df_in)
                 _log.info(
-                    "predict step %s (%s): PREDICTOR %.3fs rows_out=%d",
+                    "predict step %s (%s): transform %.3fs rows_out=%d",
                     name, type(step).__name__,
-                    _time.perf_counter() - t0, result.count())
-                return result
-            t0 = _time.perf_counter()
-            outputs[name] = step.transform(df_in)
-            _log.info(
-                "predict step %s (%s): transform %.3fs rows_out=%d",
-                name, type(step).__name__,
-                _time.perf_counter() - t0, outputs[name].count())
+                    _time.perf_counter() - t0, outputs[name].count())
+            finally:
+                if _orig_mg is not None and hasattr(df_in, "_memory_guard"):
+                    df_in._memory_guard = _orig_mg
 
         raise RuntimeError(
             "Pipeline.predict: DAG finished without hitting Predictor "
@@ -949,6 +1012,16 @@ class Pipeline:
         for name in order:
             if len(graph[name]) > 1:
                 return None
+        # v0.9.239: preflight (streaming mode); guard override in
+        # streaming path is deferred to v0.9.240 (fit()/predict() have it).
+        try:
+            self.plan(df, mode="streaming")
+        except MemoryLimitExceeded as e:
+            raise PipelineMemoryError(
+                step_idx=0, step_name="<preflight>",
+                estimate_bytes=0,
+                available_bytes=self._memory_guard.budget_bytes,
+                describe=f"_execute_stream preflight: {e}")
         try:
             factory = df._iter_filtered_batches
             schema = df._dataset.schema

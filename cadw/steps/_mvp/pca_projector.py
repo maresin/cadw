@@ -39,9 +39,16 @@ class PCAProjector(Transformer):
         return 0
 
     def to_dict(self):
-        return {"X_cols": list(self._X_cols),
-                "n_components": self._n_components}
+        out = {"X_cols": list(self._X_cols),
+               "n_components": self._n_components}
+        if self._model is not None:
+            out["state"] = self._model.to_dict()
+        return out
 
     @classmethod
     def from_dict(cls, d):
-        return cls(d["X_cols"], d["n_components"])
+        step = cls(d["X_cols"], d["n_components"])
+        if "state" in d:
+            from cadw.ml.pca import PCA
+            step._model = PCA.from_dict(d["state"])
+        return step

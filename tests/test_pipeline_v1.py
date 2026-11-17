@@ -197,6 +197,7 @@ def test_eager_vs_streaming_predictions_match():
 # Batch selection: n >> max_rows_in_budget → multiple batches
 # ============================================================
 
+@pytest.mark.slow
 def test_batch_selection_splits_multi_batch(caplog):
     """For n >> max_rows_in_budget, fit splits into multiple batches.
 
@@ -291,3 +292,111 @@ def test_to_json_from_json_roundtrip(tmp_path):
     assert p2.fitted
     preds_after = _collect_col(p2.predict(df), "y_pred")
     np.testing.assert_allclose(preds_before, preds_after, rtol=1e-9)
+
+# ============================================================
+# v0.9.239: pipeline memory architecture
+# ============================================================
+
+def test_pipeline_guard_authority(caplog):
+    """P-C: Pipeline mg overrides df mg during fit_linear."""
+    import logging
+    caplog.set_level(logging.INFO, logger="cadw.memory_estimate")
+
+    df = _make_df(n=10_000, guard_mb=500)
+    mg = MemoryGuard(max_memory_mb=10)
+    p = Pipeline(memory_guard=mg)
+    p.add_step("model", LinearRegressor(["x1", "x2", "x3"], "y"))
+    p.fit(df, target="y")
+
+    budget_logs = [
+        r.message for r in caplog.records
+        if "budget:" in r.message and "available=" in r.message
+    ]
+    assert budget_logs, (
+        f"no budget log; records: "
+        f"{[r.message[:80] for r in caplog.records if 'budget' in r.message.lower()][:3]}")
+    assert "available=10485760" in budget_logs[0], (
+        f"expected budget=10MB from Pipeline (P-C); got {budget_logs[0]!r}")
+
+
+def test_plan_real_peak(caplog):
+    """P-A: plan_peak uses effective_batch — MUST be formula_batch."""
+    import logging
+    caplog.set_level(logging.DEBUG, logger="cadw.pipeline")
+
+    df = _make_df(n=500)
+    p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
+    p.add_step("scale", Standardize(["x1", "x2", "x3"]))
+    p.add_step("model", LinearRegressor(["x1", "x2", "x3"], "y"))
+    plan = p.plan(df, mode="eager")
+
+    report("test_plan_real_peak", n_rows=df.count(),
+           plan_peak_b=plan.peak_bytes,
+           total_state_b=p.total_state_bytes())
+
+    peak_logs = [r.message for r in caplog.records
+                 if "peak_source=" in r.message]
+    assert any("peak_source=formula_batch" in m for m in peak_logs), (
+        f"P-A not active: no peak_source=formula_batch in {peak_logs}")
+    assert plan.peak_bytes < 10 * 1024 * 1024, (
+        f"plan_peak={plan.peak_bytes} B (expected < 10 MB for n=500)")
+
+
+def test_plan_segmented(caplog):
+    """P-B: segmented plan — per-stage log lines."""
+    import logging
+    caplog.set_level(logging.INFO, logger="cadw.pipeline")
+
+    df = _make_df(n=500)
+    p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
+    p.add_step("scale", Standardize(["x1", "x2", "x3"]))
+    p.add_step("pca", PCAProjector(["x1", "x2", "x3"], n_components=2))
+    p.add_step("model", LinearRegressor(["pc0", "pc1"], "y"))
+    plan = p.plan(df, mode="eager")
+
+    stage_logs = [r.message for r in caplog.records
+                  if "plan[eager] stage" in r.message]
+    assert len(stage_logs) >= 2, (
+        f"expected >=2 stage logs, got {len(stage_logs)}: {stage_logs}")
+    for log in stage_logs:
+        assert "narrow_peak=" in log, f"missing narrow_peak: {log!r}"
+        assert "barrier_peak=" in log, f"missing barrier_peak: {log!r}"
+        assert "stage_total=" in log, f"missing stage_total: {log!r}"
+    assert plan.peak_bytes > 0
+
+
+def test_pca_serialization_roundtrip(tmp_path):
+    """PCAProjector.to_dict/from_dict preserves model state (via PCA)."""
+    df = _make_df(n=500)
+    p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=500))
+    p.add_step("scale", Standardize(["x1", "x2", "x3"]))
+    p.add_step("pca", PCAProjector(["x1", "x2", "x3"], n_components=2))
+    p.add_step("model", LinearRegressor(["pc0", "pc1"], "y"))
+    p.fit(df, target="y")
+    preds_before = _collect_col(p.predict(df), "y_pred")
+
+    out = p.to_json(tmp_path / "pipe")
+    p2 = Pipeline.from_json(out, memory_guard=MemoryGuard(max_memory_mb=500))
+    assert p2.fitted
+    preds_after = _collect_col(p2.predict(df), "y_pred")
+    np.testing.assert_allclose(preds_before, preds_after, rtol=1e-9,
+        err_msg="PCA state not preserved through to_json/from_json")
+
+
+def test_execute_stream_preflight(caplog):
+    """_execute_stream runs plan(mode='streaming') preflight."""
+    import logging
+    caplog.set_level(logging.INFO, logger="cadw.pipeline")
+
+    df = _make_df(n=500)
+    p = Pipeline(memory_guard=MemoryGuard(max_memory_mb=10))
+    p.add_step("scale", Standardize(["x1", "x2", "x3"]))
+    p.add_step("model", LinearRegressor(["x1", "x2", "x3"], "y"))
+    p.fit_transform(df, target="y")
+
+    streaming_plan_logs = [r.message for r in caplog.records
+                           if "plan[streaming]" in r.message]
+    assert streaming_plan_logs, (
+        f"no plan[streaming] log; records: "
+        f"{[r.message[:80] for r in caplog.records if 'plan' in r.message][:5]}")
+
