@@ -330,9 +330,15 @@ def test_plan_real_peak(caplog):
     p.add_step("model", LinearRegressor(["x1", "x2", "x3"], "y"))
     plan = p.plan(df, mode="eager")
 
+    total_state_b = p.total_state_bytes()
     report("test_plan_real_peak", n_rows=df.count(),
            plan_peak_b=plan.peak_bytes,
-           total_state_b=p.total_state_bytes())
+           total_state_b=total_state_b)
+
+    # A2: total_state_bytes() after plan() must be non-zero
+    assert total_state_b > 0, (
+        f"A2: total_state_bytes() after plan() returned 0 "
+        f"(plan state_estimates not exposed)")
 
     peak_logs = [r.message for r in caplog.records
                  if "peak_source=" in r.message]
@@ -399,4 +405,98 @@ def test_execute_stream_preflight(caplog):
     assert streaming_plan_logs, (
         f"no plan[streaming] log; records: "
         f"{[r.message[:80] for r in caplog.records if 'plan' in r.message][:5]}")
+
+def test_streaming_guard_authority(caplog):
+    """A1: Pipeline mg overrides df mg in _execute_stream (streaming path).
+
+    Was: df(guard=500MB) leaked into streaming fit_iter/transform_batch and
+    LinearRegressor.fit -> derive_batch_size saw 500MB, not pipeline's 10MB.
+    Now: fit_transform overrides df._memory_guard during _execute_stream.
+    """
+    import logging
+    caplog.set_level(logging.INFO, logger="cadw.memory_estimate")
+    caplog.set_level(logging.INFO, logger="cadw.pipeline")
+
+    df = _make_df(n=500, guard_mb=500)
+    mg = MemoryGuard(max_memory_mb=10)
+    p = Pipeline(memory_guard=mg)
+    p.add_step("scale", Standardize(["x1", "x2", "x3"]))
+    p.add_step("model", LinearRegressor(["x1", "x2", "x3"], "y"))
+    p.fit_transform(df, target="y")
+
+    # Must have actually taken streaming path (not eager fallback)
+    streaming_plan = [r.message for r in caplog.records
+                      if "plan[streaming]" in r.message]
+    assert streaming_plan, (
+        f"streaming preflight not logged; records with 'plan': "
+        f"{[r.message[:80] for r in caplog.records if 'plan' in r.message][:5]}")
+    completed = [r.message for r in caplog.records
+                 if "_execute_stream: completed (streaming)" in r.message]
+    assert completed, (
+        f"streaming did not complete (fell back to eager); "
+        f"FAILED logs: {[r.message for r in caplog.records if 'FAILED' in r.message][:3]}")
+
+    budget_logs = [r.message for r in caplog.records
+                   if "budget:" in r.message and "available=" in r.message]
+    assert budget_logs, "no derive_batch_size budget log in streaming path"
+    assert "available=10485760" in budget_logs[0], (
+        f"A1 (streaming guard) not active: expected 10485760 B "
+        f"(pipeline mg=10MB); got {budget_logs[0]!r}. "
+        f"df(guard=500MB) leaked into streaming path.")
+
+# ============================================================
+# A4 (v0.9.240): CompositeStep regression
+# ============================================================
+
+def test_composite_step_transform_chain():
+    """CompositeStep.transform == manual flat chain (narrow+narrow)."""
+    from cadw.steps.composite import CompositeStep
+
+    df = _make_df(n=500, seed=7)
+    s1 = Standardize(["x1", "x2"])
+    s2 = Standardize(["x2", "x3"])
+
+    cs = CompositeStep([s1, s2])
+    assert cs.is_barrier is False, (
+        "narrow+narrow CompositeStep must not be barrier")
+    assert cs._streamable is True, (
+        "Standardize has fit_iter/transform_batch/output_schema -> streamable")
+
+    cs.fit(df)
+    out_cs = cs.transform(df)
+
+    # Manual flat chain (same fit semantics: all children fit on same df;
+    # transform chains through children).
+    s1m = Standardize(["x1", "x2"])
+    s2m = Standardize(["x2", "x3"])
+    s1m.fit(df)
+    s2m.fit(df)
+    out_manual = s2m.transform(s1m.transform(df))
+
+    for col in ["x1", "x2", "x3"]:
+        np.testing.assert_allclose(
+            _collect_col(out_cs, col), _collect_col(out_manual, col),
+            rtol=1e-12, err_msg=f"CompositeStep chain mismatch at {col}")
+
+
+def test_composite_step_barrier_flag():
+    """CompositeStep.is_barrier True iff any child is barrier."""
+    from cadw.steps.composite import CompositeStep
+
+    df = _make_df(n=200, seed=3)
+    narrow = Standardize(["x1", "x2"])
+    barrier = PCAProjector(["x1", "x2", "x3"], n_components=2)
+
+    cs_narrow_only = CompositeStep([narrow, Standardize(["x3"])])
+    assert cs_narrow_only.is_barrier is False
+
+    cs_with_barrier = CompositeStep([Standardize(["x1", "x2"]), barrier])
+    assert cs_with_barrier.is_barrier is True, (
+        "PCAProjector child is barrier -> CompositeStep barrier")
+
+    # fit+transform works end-to-end (barrier composite)
+    cs_with_barrier.fit(df)
+    out = cs_with_barrier.transform(df)
+    assert "pc0" in out._dataset.schema.names
+    assert out.count() == df.count()
 

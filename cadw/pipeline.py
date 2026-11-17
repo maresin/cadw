@@ -799,6 +799,11 @@ class Pipeline:
                 stage_idx=bad_stage,
             )
 
+        # v0.9.240 (A2): expose plan state estimates for total_state_bytes()
+        # before fit (was: sum of unfitted step.state_bytes() = 0).
+        self._plan_state_estimates = list(state_estimates)
+        self._plan_peak_bytes = int(total_peak)
+
         step_plans = [
             StepPlan(
                 op_name=type(step).__name__,
@@ -826,8 +831,17 @@ class Pipeline:
 
 
     def total_state_bytes(self) -> int:
-        """Sum of fitted state_bytes across all steps. 0 before fit."""
-        return sum(step.state_bytes() for step in self._steps)
+        """Sum of persistent state across all steps.
+
+        v0.9.240 (A2): before fit, returns sum(plan state_estimates) if
+        plan() was called; else 0. After fit, sum(step.state_bytes()).
+        """
+        if self._fitted:
+            return sum(step.state_bytes() for step in self._steps)
+        estimates = getattr(self, "_plan_state_estimates", None)
+        if estimates:
+            return int(sum(estimates))
+        return 0
 
     # ---------------- fit / transform ----------------
 
@@ -1100,8 +1114,19 @@ class Pipeline:
         """fit + transform; returns feature CadwDataFrame (before model).
 
         v0.9.237b: attempts streaming path first; falls back to eager.
+        v0.9.240 (A1): Pipeline guard authority across streaming path
+        (df._memory_guard override during _execute_stream, restored after;
+        covers fit_iter/transform_batch in narrow fused chain and barrier
+        fit on _LazyView, which reads template_df._memory_guard).
         """
-        result = self._execute_stream(df, target=target)
+        _orig_mg = getattr(df, "_memory_guard", None)
+        try:
+            if _orig_mg is not None and hasattr(df, "_memory_guard"):
+                df._memory_guard = self._memory_guard
+            result = self._execute_stream(df, target=target)
+        finally:
+            if _orig_mg is not None and hasattr(df, "_memory_guard"):
+                df._memory_guard = _orig_mg
         if result is not None:
             return result
         self.fit(df, target=target)
